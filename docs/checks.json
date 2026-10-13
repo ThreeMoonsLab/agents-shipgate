@@ -2514,7 +2514,7 @@
         "source_id",
         "env_secret_names"
       ],
-      "fires_when": "A statically parsed MCP server declares secret-like env vars or passes through secret-like host env references.",
+      "fires_when": "A statically parsed MCP server declares secret-like env vars, passes through secret-like host env references, or forwards a secret-like variable by name (`env_vars`, `bearer_token_env_var`, `env_http_headers`, a `headers` reference).",
       "floor_severity": "medium",
       "id": "SHIP-MCP-ENV-SECRET-PASSTHROUGH",
       "mvp_tier": "lifecycle",
@@ -2686,9 +2686,10 @@
         "source_ref",
         "node_id",
         "selection_mode",
-        "explicit_inventory"
+        "explicit_inventory",
+        "excluded_tools"
       ],
-      "fires_when": "An n8n MCP Client Tool uses All or All Except selection and no explicit local inventory is declared.",
+      "fires_when": "An n8n MCP Client Tool uses All or All Except selection (`include` of `all`, the default an export leaves out, or `except`) and no explicit local inventory is declared.",
       "floor_severity": null,
       "id": "SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED",
       "mvp_tier": "adapter",

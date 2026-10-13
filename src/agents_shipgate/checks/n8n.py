@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from agents_shipgate.checks._framework_common import (
     DynamicSurfaceConfig,
     collect_dynamic_surface_findings,
@@ -56,6 +58,16 @@ def run(context: ScanContext) -> list[Finding]:
         for toolset in artifacts.mcp_client_tools:
             if toolset.get("selection_mode") not in {"all", "all_except"}:
                 continue
+            evidence: dict[str, Any] = {
+                "source_ref": toolset.get("source_ref"),
+                "node_id": toolset.get("node_id"),
+                "selection_mode": toolset.get("selection_mode"),
+                "explicit_inventory": False,
+            }
+            # Only when it names a tool, so an `except` node that excludes
+            # nothing keeps the evidence, and the fingerprint, it had.
+            if toolset.get("excluded_tools"):
+                evidence["excluded_tools"] = list(toolset["excluded_tools"])
             findings.append(
                 Finding(
                     check_id="SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED",
@@ -66,12 +78,7 @@ def run(context: ScanContext) -> list[Finding]:
                     else "medium",
                     category="n8n",
                     agent_id=context.agent.id,
-                    evidence={
-                        "source_ref": toolset.get("source_ref"),
-                        "node_id": toolset.get("node_id"),
-                        "selection_mode": toolset.get("selection_mode"),
-                        "explicit_inventory": False,
-                    },
+                    evidence=evidence,
                     confidence="high",
                     provenance_kind="static_declaration",
                     source=_n8n_source(toolset),

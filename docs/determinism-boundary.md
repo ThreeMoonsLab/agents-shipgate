@@ -235,7 +235,7 @@ Where an input shows more than one answer for a shape, the table shows the best 
 | `literal_registration` | A tool node present in the workflow JSON — workflow, code, HTTP, MCP client, or another AI tool node — read for its parameters and credentials. The export names the node; the called tool's own contract is not in the file. | `n8n_workflow_tool`, `n8n_code_tool`, `n8n_http_tool`, `n8n_mcp_client_tool`, `n8n_ai_tool`, `mcp` | `medium` | `low_confidence` | `low_confidence_tool`, `unattested_surface` | — |
 | `factory` | A workflow JSON has no construction step: a node is in the file or it is not. | — | — | `not_applicable` | — | — |
 | `dynamic_construction — expression-backed tool name` | A tool node whose `toolName` (or workflow target) is an n8n expression. The node still enters the catalog under the expression text at `medium`, and the unresolved name is recorded as a dynamic fact — the action is not hidden, its identity is. | `n8n_workflow_tool` | `medium` | `low_confidence` | `low_confidence_tool`, `unattested_surface` | `SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` |
-| `dynamic_construction — MCP client wildcard` | An MCP client node whose tool selection is `all`, `all_except`, or unreadable: one `<node>.*` action stands in for a selection the workflow does not enumerate. | `n8n_mcp_client_tool` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | `SHIP-INVENTORY-WILDCARD-TOOLS`, `SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED` |
+| `dynamic_construction — MCP client wildcard` | An MCP client node whose `include` is `all` — n8n's default, which an export leaves out — or `except`, or whose selection is unreadable: one `<node>.*` action stands in for a selection the workflow does not enumerate, and an `except` node's `excludeTools` are recorded. | `n8n_mcp_client_tool` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | `SHIP-INVENTORY-WILDCARD-TOOLS`, `SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED` |
 
 </details>
 
@@ -308,7 +308,7 @@ Where an input shows more than one answer for a shape, the table shows the best 
 
 ### Codex / MCP host config
 
-*Configured as a `tool_sources[]` entry of type `codex_config`.* `.mcp.json`, `.codex/config.toml`, and the other host MCP config files under the root a `tool_sources[]` entry names — including the servers a plugin block declares.
+*Configured as a `tool_sources[]` entry of type `codex_config`.* `.mcp.json` and `.codex/config.toml`, at any depth under the root a `tool_sources[]` entry names — including the servers a plugin block of `.codex/config.toml` declares. Other hosts' MCP config files there (`.cursor/mcp.json` and `.vscode/mcp.json`) are not read; each one present is named in a source warning.
 
 **Can a verdict rest on it?**
 

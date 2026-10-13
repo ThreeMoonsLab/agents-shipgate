@@ -254,15 +254,18 @@ def _mcp_client_tools(
 ) -> list[Tool]:
     from agents_shipgate.inputs.n8n._workflows import _dynamic, _node_record
 
-    mode = _selection_mode(item.parameters)
-    selected = _selected_mcp_tools(item.parameters)
-    artifacts.mcp_client_tools.append(
-        {
-            **_node_record(item, source_path, workflow_id),
-            "selection_mode": mode,
-            "selected_tool_count": len(selected),
-        }
-    )
+    # n8n leaves `include` out of an export at its default, `all`, so a node
+    # that names no selection exposes every tool its server lists (#1025).
+    mode = _selection_mode(item.parameters, client=True)
+    selected = _selected_mcp_tools(item.parameters) if mode == "selected" else []
+    record: dict[str, Any] = {
+        **_node_record(item, source_path, workflow_id),
+        "selection_mode": mode,
+        "selected_tool_count": len(selected),
+    }
+    if mode == "all_except":
+        record["excluded_tools"] = _excluded_mcp_tools(item.parameters)
+    artifacts.mcp_client_tools.append(record)
     if mode in {"all", "all_except"} and not artifacts.tool_inventory_files:
         _dynamic(
             artifacts,
@@ -284,11 +287,9 @@ def _mcp_client_tools(
             ),
             warnings=warnings,
         )
-    names = selected or [
-        f"{_redact_text(item.name) or item.name}.*"
-        if mode in {"all", "all_except", "unknown"}
-        else _tool_name(item)
-    ]
+    # Every mode but `selected` names no tool, so one `<node>.*` action stands
+    # in for the selection the workflow does not enumerate.
+    names = selected or [f"{_redact_text(item.name) or item.name}.*"]
     tools = [
         _base_tool(
             item,
@@ -444,22 +445,55 @@ def _from_ai_parameters(value: Any) -> list[dict[str, str | None]]:
 # --- MCP Client Tool selection-mode helpers ---------------------------------
 
 
-def _selection_mode(parameters: dict[str, Any]) -> str:
-    value = _top_level_string(
-        parameters,
-        {"toolSelection", "toolsToInclude", "toolSelectionMode"},
+#: The spellings this reader read a selection mode from before #1025. n8n
+#: writes none of them; they stay aliases on the MCP Client Tool and remain
+#: the only ones read for any other node, such as the MCP Server Trigger.
+#: Ordered, so the first one present decides under any hash seed.
+_LEGACY_SELECTION_MODE_KEYS = ("toolSelection", "toolsToInclude", "toolSelectionMode")
+#: The parameter n8n's MCP Client Tool selects its tools with, `include` —
+#: `all` (the default, which an export leaves out), `selected` or `except` —
+#: read before the earlier spellings (#1025).
+_CLIENT_SELECTION_MODE_KEYS = ("include", *_LEGACY_SELECTION_MODE_KEYS)
+#: Where a node lists the tools `selected` keeps: n8n's `includeTools`, then
+#: the earlier spellings.
+_INCLUDED_TOOL_KEYS = ("includeTools", "tools", "toolNames", "selectedTools", "toolName")
+#: Where a node lists the tools `except` leaves out: n8n's `excludeTools`.
+_EXCLUDED_TOOL_KEYS = ("excludeTools",)
+
+
+def _selection_mode(parameters: dict[str, Any], *, client: bool = False) -> str:
+    """How an n8n MCP node selects the tools it exposes.
+
+    ``client`` is n8n's MCP Client Tool, read as n8n runs it (#1025): its
+    `include` first, whose `except` is all-except; `all` when it names neither
+    a mode nor a tool, since an export leaves the default out; and `all` for a
+    `selected` that lists no tool, since n8n filters by `includeTools` only
+    when it names one. Any other node, such as the MCP Server Trigger, which
+    has no selection of its own, is read by the earlier spellings only, as it
+    was before.
+    """
+
+    keys = _CLIENT_SELECTION_MODE_KEYS if client else _LEGACY_SELECTION_MODE_KEYS
+    value = next(
+        (
+            raw.strip()
+            for key in keys
+            if isinstance(raw := parameters.get(key), str) and raw.strip()
+        ),
+        None,
     )
     normalized = (value or "").lower().replace(" ", "_").replace("-", "_")
     if normalized in {"all", "all_tools", "alltools"}:
         return "all"
-    if normalized in {"all_except", "allexcept"}:
+    if normalized in {"all_except", "allexcept"} or (client and normalized == "except"):
         return "all_except"
     if normalized in {"selected", "selected_tools", "specific"}:
+        return "selected" if not client or _selected_mcp_tools(parameters) else "all"
+    if value:
+        return "unknown"
+    if _selected_mcp_tools(parameters):
         return "selected"
-    selected = _selected_mcp_tools(parameters)
-    if selected:
-        return "selected"
-    return "unknown" if value else "unspecified"
+    return "all" if client else "unspecified"
 
 
 def _is_unfiltered_mode(parameters: dict[str, Any]) -> bool:
@@ -467,8 +501,16 @@ def _is_unfiltered_mode(parameters: dict[str, Any]) -> bool:
 
 
 def _selected_mcp_tools(parameters: dict[str, Any]) -> list[str]:
+    return _mcp_tool_names(parameters, _INCLUDED_TOOL_KEYS)
+
+
+def _excluded_mcp_tools(parameters: dict[str, Any]) -> list[str]:
+    return _mcp_tool_names(parameters, _EXCLUDED_TOOL_KEYS)
+
+
+def _mcp_tool_names(parameters: dict[str, Any], keys: tuple[str, ...]) -> list[str]:
     values: list[str] = []
-    for key in ("tools", "toolNames", "selectedTools", "includeTools", "toolName"):
+    for key in keys:
         raw = parameters.get(key)
         if isinstance(raw, str):
             if raw.strip():

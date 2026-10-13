@@ -316,6 +316,26 @@ def duplicate_mcp_server_declaration_warning(
     )
 
 
+def unread_host_mcp_config_warning(
+    path: str, host: str, read_files: Sequence[str]
+) -> str:
+    """Warning for another host's MCP config file a ``codex_config`` source does not read.
+
+    The source reads ``read_files`` and nothing else, so a server declared only
+    in ``path`` is not in the scan. Passing quietly over it read as a scan that
+    had seen every MCP server in the tree (#1025); reading these files is #663.
+    """
+
+    quoted = [f"`{name}`" for name in read_files]
+    read = " and ".join([_join(quoted[:-1]), quoted[-1]] if len(quoted) > 1 else quoted)
+    return (
+        f"{host} MCP config {path!r} was not read: a codex_config entry in "
+        f"shipgate.yaml#tool_sources[] reads only {read}, so an MCP server "
+        "declared only in that file is missing from this scan. Review that "
+        "file's servers before relying on this result."
+    )
+
+
 def ambiguous_inventory_merge_warning(
     inventory_path: str, source_id: str, tools: Sequence[str]
 ) -> str:
@@ -762,6 +782,7 @@ __all__ = [
     "unbound_inventory_duplicate_warning",
     "unknown_inventory_source_warning",
     "unmatched_binding_member",
+    "unread_host_mcp_config_warning",
     "unresolved_adk_tool_symbols",
     "withdraw_completed_adk_tool_warnings",
     "zero_observation_binding_member",

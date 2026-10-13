@@ -324,9 +324,11 @@ class N8nAdapter:
                 variant="MCP client wildcard",
                 status="extracted",
                 reads=(
-                    "An MCP client node whose tool selection is `all`, `all_except`, "
-                    "or unreadable: one `<node>.*` action stands in for a selection "
-                    "the workflow does not enumerate."
+                    "An MCP client node whose `include` is `all` — n8n's default, "
+                    "which an export leaves out — or `except`, or whose selection "
+                    "is unreadable: one `<node>.*` action stands in for a "
+                    "selection the workflow does not enumerate, and an `except` "
+                    "node's `excludeTools` are recorded."
                 ),
                 emits=("n8n_mcp_client_tool",),
                 ceiling="medium",

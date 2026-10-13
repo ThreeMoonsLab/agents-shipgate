@@ -10,9 +10,29 @@ from agents_shipgate.inputs.common import (
     walk_input_tree,
 )
 from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
-from agents_shipgate.inputs.mcp_manifest import load_codex_config_mcp_sources
+from agents_shipgate.inputs.mcp_manifest import (
+    READ_MCP_CONFIG_FILES,
+    UNREAD_HOST_MCP_CONFIG_FILES,
+    load_codex_config_mcp_sources,
+)
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, ToolSourceConfig
+
+
+def _code_list(names: tuple[str, ...]) -> str:
+    quoted = [f"`{name}`" for name in names]
+    return quoted[0] if len(quoted) == 1 else f"{', '.join(quoted[:-1])} and {quoted[-1]}"
+
+
+#: What the coverage says this adapter reads, written from the tuples the
+#: reader matches files with, so the two cannot drift apart (#1025).
+_READS = (
+    f"{_code_list(READ_MCP_CONFIG_FILES)}, at any depth under the root a "
+    "`tool_sources[]` entry names — including the servers a plugin block of "
+    "`.codex/config.toml` declares. Other hosts' MCP config files there "
+    f"({_code_list(tuple(path for path, _host in UNREAD_HOST_MCP_CONFIG_FILES))}) "
+    "are not read; each one present is named in a source warning."
+)
 
 
 class CodexConfigAdapter:
@@ -23,11 +43,7 @@ class CodexConfigAdapter:
     coverage: ClassVar[SourceCoverage] = SourceCoverage(
         adapter="codex_config",
         label="Codex / MCP host config",
-        reads=(
-            "`.mcp.json`, `.codex/config.toml`, and the other host MCP config "
-            "files under the root a `tool_sources[]` entry names — including the "
-            "servers a plugin block declares."
-        ),
+        reads=_READS,
         cells=(
             BoundaryCell(
                 shape="export_artifact",

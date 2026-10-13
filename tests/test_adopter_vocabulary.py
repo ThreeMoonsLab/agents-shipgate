@@ -757,6 +757,9 @@ SOURCE_WARNING_PROBES: dict[str, str] = {
     "ambiguous_inventory_merge_warning": sw.ambiguous_inventory_merge_warning(
         "tools/inventory.json", "orders_a", ["process_order"]
     ),
+    "unread_host_mcp_config_warning": sw.unread_host_mcp_config_warning(
+        "packages/api/.cursor/mcp.json", "Cursor", [".mcp.json", ".codex/config.toml"]
+    ),
 }
 
 # Public names in `core.source_warnings` that do not write a message: the
