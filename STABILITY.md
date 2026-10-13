@@ -405,9 +405,9 @@ stayed `blocked`.
 
 **What does not change.** No schema, contract, `base_status` value or check ID
 moves. `scan` is unchanged: it has no base. An out-of-repository
-`--diff-from`, an explicit `--ci-mode` and `--fail-on`, every verdict, and
-every run whose head declares the same `ci` block as its base behave as
-before.
+`--diff-from`, a run that passes `--fail-on` (with or without `--ci-mode`),
+every verdict, and every run whose head declares the same `ci` block as its
+base behave as before.
 
 **Who must act.** A pipeline that points `--diff-from` at a report the pull
 request regenerates should drop it (verify then scans the base) or keep the
