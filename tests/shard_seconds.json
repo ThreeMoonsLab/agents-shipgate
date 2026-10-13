@@ -433,7 +433,8 @@
   "tests/test_builder_construction_conditions.py": 3.1,
   "tests/test_sdk_agent_clones.py": 73.3,
   "tests/test_memory_bank_effects.py": 2.6,
-  "tests/test_verify_base_and_gate_removal.py": 16.6
+  "tests/test_verification_receipt_consumers.py": 3.7,
+  "tests/test_verify_base_and_gate_removal.py": 18.0
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -513,12 +514,23 @@
   },
   {
    "source": "junit",
-   "measured_at": "e36ca977b1a6 with issue #1023 verify base and gate removal increment",
-   "report_sha256": "409815a4869d55920ba77607a072bdc2efb369efd82d2f4dcda2b3226440b149",
+   "measured_at": "e36ca977aaac with issue #1022 receipt consumer tests",
+   "report_sha256": "8f8d2975fc77d0667e90f6f537e6afc0cb41255d0a0fce01dd82e1a0db454127",
    "files": {
-    "tests/test_verify_base_and_gate_removal.py": 16.6
+    "tests/test_verification_receipt_consumers.py": 3.7
    },
-   "case_count": 15,
+   "case_count": 47,
+   "command": "python -m pytest tests/test_verification_receipt_consumers.py --junitxml=receipt-consumers.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "30981fc0f2c1 with issue #1023 verify base and gate removal increment",
+   "report_sha256": "53b2e4ccca98310329122f3b7e06f4d2baa9d5a84984a86edfea34783324e8a1",
+   "files": {
+    "tests/test_verify_base_and_gate_removal.py": 18.0
+   },
+   "case_count": 17,
    "command": "python -m pytest tests/test_verify_base_and_gate_removal.py --junitxml=base-gate.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }

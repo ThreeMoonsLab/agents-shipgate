@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from pathlib import PurePosixPath
 from typing import Any, Literal
 
@@ -395,11 +396,87 @@ class VerificationReceipt(BaseModel):
         return self
 
 
+#: Verifier schema versions written before terminal receipts existed. Receipts
+#: arrived with verifier ``0.5`` (#273). Only these versions are named: every
+#: other value, including a version newer than this build and a missing one,
+#: reads as receipt-era, so a new minor can never silently read as one that
+#: owes no receipt. A list of current versions did exactly that from ``0.8``
+#: to ``0.21`` (#1022), the failure ``cli/first_look.py`` fixed for host-grants
+#: inventories in #700.
+VERIFIER_SCHEMA_VERSIONS_BEFORE_RECEIPTS = frozenset({"0.1", "0.2", "0.3", "0.4"})
+
+#: Identity fields verifier ``0.5`` introduced together with receipts (#273).
+#: No verifier written before receipts carries one, so a payload labelled
+#: ``0.1``-``0.4`` that does is current output relabelled, not legacy output.
+#: ``control`` and ``execution`` are not on this list: ``0.3`` and ``0.4``
+#: already wrote them.
+_RECEIPT_ERA_FIELDS = (
+    "request_id",
+    "subject_id",
+    "input_set_id",
+    "engine_requirement_id",
+    "executor_id",
+    "decision_id",
+)
+
+#: Executions ``verify`` closes with a terminal receipt. A ``failed`` or
+#: ``not_run`` execution (a missing manifest, a head that could not be
+#: evaluated, the manifest-free host route) never receives one.
+_RECEIPTED_EXECUTIONS = frozenset({"succeeded", "skipped"})
+
+
+def requires_verification_receipt(
+    verifier_payload: Mapping[str, Any],
+    *,
+    report_payload: Mapping[str, Any] | None = None,
+) -> bool:
+    """Whether ``verifier.json`` must be closed by a valid ``verification-receipt.json``.
+
+    ``attest``, ``org bundle`` and the GitHub Action's output step all use
+    this one predicate. A receipt binds the outcome a run states, so one is
+    owed unless the verifier predates receipts or the run states no outcome:
+    an execution that was not run or failed, with no decision, a merge
+    verdict of ``unknown`` and no merge authority. The engine writes no
+    receipt for those. A payload that claims any outcome without a receipt
+    fails closed in every consumer.
+
+    A consumer that also publishes from the sibling ``report.json`` passes it
+    as ``report_payload``, but only a report ``verifier.json`` names as its
+    own (``head_report_json`` or ``artifacts.report_json``). ``verify`` names
+    one only for a run whose head scan ran and closes every such run with a
+    receipt, so a named report owes one. A report the verifier does not name
+    belongs to another run (the manifest-free host route leaves an earlier
+    run's in place) and is not this run's to pass.
+
+    The legacy label is believed only for a payload shaped like legacy
+    output. One that carries a receipt-era identity field is read as
+    receipt-era, whatever version it names.
+    """
+
+    version = verifier_payload.get("verifier_schema_version")
+    if (
+        isinstance(version, str)
+        and version in VERIFIER_SCHEMA_VERSIONS_BEFORE_RECEIPTS
+        and not any(field in verifier_payload for field in _RECEIPT_ERA_FIELDS)
+    ):
+        return False
+    if report_payload is not None:
+        return True
+    execution = verifier_payload.get("execution") or verifier_payload.get("head_status")
+    return bool(
+        (isinstance(execution, str) and execution in _RECEIPTED_EXECUTIONS)
+        or verifier_payload.get("decision") is not None
+        or verifier_payload.get("release_decision")
+        or verifier_payload.get("merge_verdict") not in (None, "unknown")
+        or verifier_payload.get("can_merge_without_human")
+    )
+
 __all__ = [
     "VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION",
     "VERIFICATION_PLAN_SCHEMA_VERSION",
     "VERIFICATION_RECEIPT_SCHEMA_VERSION",
     "VERIFICATION_UNIT_RESULT_SCHEMA_VERSION",
+    "VERIFIER_SCHEMA_VERSIONS_BEFORE_RECEIPTS",
     "VerificationArtifactManifest",
     "VerificationArtifactRef",
     "VerificationBlob",
@@ -414,5 +491,6 @@ __all__ = [
     "VerificationUnitResult",
     "canonical_json",
     "content_id",
+    "requires_verification_receipt",
     "validate_portable_path",
 ]

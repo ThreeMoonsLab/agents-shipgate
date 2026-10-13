@@ -112,6 +112,14 @@ agents-shipgate attest \
   --out agents-shipgate-reports/attestation.json
 ```
 
+`attest` validates the `verification-receipt.json` beside `verifier.json`
+before it copies `request_id`, `receipt_id`, `decision_id` and
+`artifact_set_id` into the attestation, and `org bundle` does the same before
+it publishes them. A run that states a verdict without a valid receipt from
+the same verify run exits `3` with a `Verification receipt error` line naming
+the receipt; rerun `verify` rather than editing either file. See
+[verification reproducibility](verification-reproducibility.md#time-and-github-actions).
+
 Append attestations to a local JSONL ledger:
 
 ```bash
