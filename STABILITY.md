@@ -347,6 +347,55 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="exec-trust-opt-in-1020"></a>
+
+## Migration Note: Unreleased — `bootstrap` children run with `-P`, and capability locks load plugins only on the opt-in (#1020)
+
+**What was wrong.** `bootstrap` re-entered the CLI as
+`<sys.executable> -m agents_shipgate` with the workspace under review as the
+working directory. `python -m` puts that directory first on `sys.path`, so a
+`yaml/`, `typer/`, `pydantic/` or `agents_shipgate/` package committed in the
+repository was imported and executed before `detect` read anything. Recovery
+commands printed by a `python -m agents_shipgate` run had the same spelling.
+Separately, `capability export` and the MCP server's read-only
+`shipgate.capabilities` tool passed an explicit `plugins_enabled=True` unless
+told `--no-plugins`, so they imported every installed `agents_shipgate.adapters`
+entry point with `AGENTS_SHIPGATE_ENABLE_PLUGINS` unset, where `scan` and
+`verify` imported none.
+
+**What changes.**
+
+- Every `-m agents_shipgate` argv Shipgate builds — `bootstrap`'s four steps
+  and the commands a `python -m` run emits in `command`, `next_action` and
+  `next_actions[].executable` — is `<sys.executable> -P -m agents_shipgate …`.
+  `executable[]` is four tokens instead of three. `-P` drops only the working
+  directory from `sys.path`; `PYTHONPATH` and the environment still reach the
+  child.
+- `capability export` and `shipgate.capabilities` load third-party adapters
+  only when `AGENTS_SHIPGATE_ENABLE_PLUGINS` is set, and `--no-plugins` /
+  `no_plugins` still forces them off. The lock's `source.plugins_enabled`
+  records the value that took effect, so a default export now records
+  `false` where it recorded `true`; `source_set_hash` moves with it.
+- [`docs/trust-model.md`](docs/trust-model.md#process-boundaries) lists every
+  process Shipgate starts, replacing the sentence that it shells out only for
+  Git discovery in `detect` and auto-init.
+
+**What does not change.** A console-script run, an `AGENTS_SHIPGATE_CLI`
+override and the GitHub Action (which runs the installed console script and
+already passes `-P` to its own Python steps, #780) emit and run exactly what
+they did. The lock schema, its semantic and evidence
+hashes, the capability diff, check IDs, exit codes and the runtime contract
+version are unchanged.
+
+**Who must act.** An adopter whose capability lock includes tools read by a
+third-party adapter sets `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` for
+`capability export`, as `scan` already required. A consumer that matched an
+emitted `python -m` command on its first three tokens matches on
+`executable[]` instead. An `AGENTS_SHIPGATE_CLI` set to a `python -m` spelling
+is used as written; add `-P` to it.
+
+---
+
 <a id="actions-token-scopes-921"></a>
 
 ## Migration Note: Unreleased — GitHub Actions token scopes (host-grants `0.9`, #920, #921, #924)
@@ -4844,6 +4893,7 @@ tests on every CI run, not by convention:
     `importlib.machinery.SourceFileLoader`,
     `runpy.run_path`, `runpy.run_module`,
     `subprocess.{run, call, Popen, check_call, check_output}`,
+    `asyncio.create_subprocess_{exec, shell}`,
     `os.system`, `os.popen`, and every variant under the
     `os.exec*` / `os.spawn*` / `os.posix_spawn*` prefixes.
   - Module imports of `runpy`, `subprocess`, `importlib`,
@@ -4879,7 +4929,10 @@ tests on every CI run, not by convention:
 
   - **`cli/bootstrap.py`** — one `subprocess.run` call shells the
     installed agents-shipgate CLI to chain
-    `detect → init → scan → apply-patches`.
+    `detect → init → scan → apply-patches`, as
+    `<sys.executable> -P -m agents_shipgate` so that the workspace it runs
+    in is not on the child's import path. Every `-m agents_shipgate` argv
+    in `src/` carries `-P`, which the same test file asserts.
   - **`cli/discovery/artifacts.py`** — one `subprocess.run` call resolves
     the repository root with `git rev-parse`; one `subprocess.Popen`
     boundary incrementally drains the fixed `git ls-files` inventory under
@@ -4957,6 +5010,14 @@ tests on every CI run, not by convention:
   `test_allowed_exceptions_pin_subprocess_per_call_site` (the
   multi-call files have distinct entries per call site, regression-
   testing the structural fix from the v0.18 PR #2 review).
+
+  Two more tie the allowlist to what a reader is told (#1020).
+  `test_trust_model_lists_every_process_boundary` requires
+  [`docs/trust-model.md` § Process Boundaries](docs/trust-model.md#process-boundaries)
+  to list every spawn site by file and enclosing function — including
+  the Claude Code hook runner that `install-hooks` writes — and nothing
+  else, and `test_python_children_never_import_from_their_working_directory`
+  requires every `-m agents_shipgate` argv in `src/` to carry `-P`.
 - **[`tests/test_fixture_no_import.py`](tests/test_fixture_no_import.py)** —
   per-adapter live-load tests. Each adapter (LangChain, CrewAI, OpenAI Agents
   SDK, Google ADK, MCP, OpenAPI, Anthropic, OpenAI API, n8n, Codex plugin) is

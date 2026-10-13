@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Security
+
+- **`bootstrap` no longer runs code committed in the repository it adopts.** Each step re-entered the CLI as `python -m agents_shipgate` with the workspace as the working directory, and `python -m` puts that directory first on `sys.path`: a committed `yaml/`, `typer/`, `pydantic/` or `agents_shipgate/` package was imported and executed before `detect` read anything. The steps now run as `<sys.executable> -P -m agents_shipgate`, and so does every recovery command a `python -m agents_shipgate` run prints (`next_actions[].executable` is four tokens). `-P` drops only the working directory; `PYTHONPATH` and the environment still reach the child. A regression test plants both packages and requires bootstrap to finish without importing either. (#1020)
+- **`capability export` and the MCP `shipgate.capabilities` tool load plugins only on the opt-in.** Both passed an explicit `plugins_enabled=True` unless `--no-plugins` was given, so a read-only tool imported every installed `agents_shipgate.adapters` entry point with `AGENTS_SHIPGATE_ENABLE_PLUGINS` unset, where `scan` and `verify` imported none. They now honour the same opt-in, `--no-plugins` still wins, and the lock's `source.plugins_enabled` records the value that took effect (`false` by default, which moves `source_set_hash`). An adopter whose lock includes tools read by a third-party adapter sets the variable for `capability export`, as `scan` already required. (#1020)
+- `docs/trust-model.md` lists every process Shipgate starts — the Git plumbing behind `verify`, `check`, `diff` and the Claude Code hooks, workspace discovery, `bootstrap`'s self-invocation, fixture Git, the `authorization execute` HTTPS push and the native prover — instead of saying it shells out only for Git discovery. `tests/test_adapter_static_only.py` fails when a spawn site is added, removed or moved without that table changing, when a `-m agents_shipgate` argv lacks `-P`, and now also on `asyncio.create_subprocess_*`. Migration: [STABILITY.md](STABILITY.md#exec-trust-opt-in-1020). (#1020)
+
 ### Changes
 
 - `diff --application` reads bounded local factories returning OpenAI Agents SDK and Google ADK tool lists. It keeps the returned members and their construction locations, and reports unread constructor identity, import effects, escaping values, or unresolved callers as coverage gaps rather than treating them as established wiring. This is static source analysis; it does not execute a factory or establish runtime enforcement. (#874, #964)

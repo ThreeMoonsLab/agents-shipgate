@@ -658,8 +658,9 @@ remain supported.
 
 Runtime contract v23 spells every emitted command for the invocation that
 produced it. A run started with `python -m agents_shipgate` now proposes
-`<sys.executable> -m agents_shipgate ...` instead of a console script its
-environment may not have; a console-script run is unchanged. Actions with
+`<sys.executable> -P -m agents_shipgate ...` instead of a console script its
+environment may not have (`-P` keeps the repository it is run from off
+`sys.path`); a console-script run is unchanged. Actions with
 `kind="command"` in `next_actions[]` also carry `executable[]` and `args[]` —
 **the authoritative runnable form on every platform**; run them as
 `[*executable, *args]` with no shell. The pair is computed from `command` and

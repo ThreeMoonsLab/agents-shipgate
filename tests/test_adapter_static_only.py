@@ -74,6 +74,8 @@ The two layers together back the public claim in
 from __future__ import annotations
 
 import ast
+import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -149,8 +151,8 @@ class AllowedException:
 # captures the full audit trail.
 ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     # cli/bootstrap.py — chains detect/init/scan/apply-patches against
-    # Shipgate's own CLI. The argv is sys.executable + ``-m agents_shipgate``,
-    # never user input.
+    # Shipgate's own CLI. The argv is sys.executable + ``-P -m
+    # agents_shipgate``, never user input.
     AllowedException(
         relative_path="cli/bootstrap.py",
         surface="import:subprocess",
@@ -166,7 +168,7 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     AllowedException(
         relative_path="cli/bootstrap.py",
         surface="attr_call:subprocess.run",
-        line=74,
+        line=82,
         snippet=(
             "subprocess.run(argv, cwd=str(cwd), env=env, "
             "capture_output=True, text=True, check=False)"
@@ -174,7 +176,11 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
         rationale=(
             "_run_step: invokes the installed agents-shipgate CLI as a "
             "subprocess with argv constructed inside Shipgate (no user "
-            "input executed as a command)."
+            "input executed as a command). The child runs with the "
+            "workspace as its working directory, so the argv carries "
+            "``-P`` (invocation.module_entry_argv) to keep that directory "
+            "off its sys.path; ``test_python_children_never_import_from_"
+            "their_working_directory`` pins the flag (#1020)."
         ),
     ),
     # cli/discovery/artifacts.py — probes the user repo via git ls-files
@@ -550,6 +556,10 @@ FORBIDDEN_ATTR_CALLS_EXACT: frozenset[str] = frozenset(
         "subprocess.check_output",
         "os.system",
         "os.popen",
+        # #1020: the asyncio process API spawns a child the same way, so a
+        # spawn site written with it is a new process boundary too.
+        "asyncio.create_subprocess_exec",
+        "asyncio.create_subprocess_shell",
         # NOTE: ``importlib.resources.*`` is intentionally NOT enumerated
         # here — it is caught by the ``importlib.resources.`` entry in
         # ``FORBIDDEN_ATTR_CALL_PREFIXES`` below. The prefix catches
@@ -633,7 +643,9 @@ ALLOWED_FORBIDDEN_MODULE_IMPORTS: frozenset[str] = frozenset(
 # can be resolved to a canonical ``importlib.resources.<attr>`` chain that
 # the ``importlib.resources.`` prefix in ``FORBIDDEN_ATTR_CALL_PREFIXES``
 # catches.
-TRACKED_NON_FORBIDDEN_MODULES: frozenset[str] = frozenset({"os", "importlib.resources"})
+TRACKED_NON_FORBIDDEN_MODULES: frozenset[str] = frozenset(
+    {"os", "importlib.resources", "asyncio"}
+)
 
 
 def _is_forbidden_chain(chain: str) -> bool:
@@ -993,6 +1005,15 @@ def test_scanner_source_contains_no_forbidden_calls_or_imports(
         (
             "import os\nos.posix_spawnp('sh', ['sh'], {})",
             "forbidden call 'os.posix_spawnp'",
+        ),
+        # --- asyncio's process API (#1020) ---
+        (
+            "import asyncio\nasyncio.create_subprocess_exec('sh')",
+            "forbidden call 'asyncio.create_subprocess_exec'",
+        ),
+        (
+            "from asyncio import create_subprocess_shell as sh\nsh('ls')",
+            "forbidden call 'asyncio.create_subprocess_shell'",
         ),
         # --- Module-alias bypass: ``import X as Y; Y.forbidden(...)`` ---
         (
@@ -1390,3 +1411,227 @@ def test_scanner_sources_covers_known_files() -> None:
         f"expected >= 50 (whole-scanner coverage). Investigate whether "
         f"SCANNER_DIR was scoped down."
     )
+
+
+# ---------------------------------------------------------------------------
+# Process boundaries (#1020)
+#
+# The allowlist above makes every spawn site a reviewed decision. Two things
+# it did not hold: the public list of those sites in docs/trust-model.md (which
+# had said Shipgate shells out only for Git discovery in `detect` and
+# auto-init, pinned by a docs test, while `verify`, `bootstrap`, `authorization
+# execute` and the native prover all started processes), and *how* a Python
+# child is started. `python -m` puts the working directory first on sys.path,
+# and Shipgate runs its children inside the repository under review, so a
+# committed `yaml/` package ran before `bootstrap` read a byte.
+# ---------------------------------------------------------------------------
+
+TRUST_MODEL_DOC = REPO_ROOT / "docs" / "trust-model.md"
+INSTALL_HOOKS = SCANNER_DIR / "cli" / "install_hooks.py"
+INVOCATION = SCANNER_DIR / "invocation.py"
+#: Where ``install-hooks --target claude-code`` writes the hook runner. Its
+#: source is ``_HOOK_SCRIPT_TEMPLATE`` in ``cli/install_hooks.py``, so it is
+#: not one of ``_scanner_sources()``, but it starts processes all the same.
+HOOK_RUNNER_PATH = ".claude/hooks/agents-shipgate.py"
+
+_SPAWN_CALL_PREFIXES: tuple[str, ...] = (
+    "attr_call:subprocess.",
+    "attr_call:os.system",
+    "attr_call:os.popen",
+    "attr_call:os.exec",
+    "attr_call:os.spawn",
+    "attr_call:os.posix_spawn",
+    "attr_call:asyncio.create_subprocess_",
+)
+_BOUNDARY_TOKEN = re.compile(r"`([\w./-]+\.py)::(\w+)`")
+#: Interpreter flags that keep the working directory off a child's sys.path.
+_SAFE_PATH_FLAGS = frozenset({"-P", "-I"})
+
+
+def _hook_runner_source() -> str:
+    """The hook runner's Python source, read statically from its template."""
+
+    tree = ast.parse(INSTALL_HOOKS.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "_HOOK_SCRIPT_TEMPLATE"
+                for target in node.targets
+            )
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            return node.value.value
+    raise AssertionError("cli/install_hooks.py no longer defines _HOOK_SCRIPT_TEMPLATE")
+
+
+def _enclosing_function(tree: ast.AST, line: int) -> str:
+    """The innermost function or method whose body holds ``line``."""
+
+    best: ast.AST | None = None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            end = node.end_lineno or node.lineno
+            if node.lineno <= line <= end and (
+                best is None or node.lineno >= best.lineno  # type: ignore[attr-defined]
+            ):
+                best = node
+    return best.name if best is not None else "<module>"  # type: ignore[attr-defined]
+
+
+def _spawn_sites(source: str, label: str, *, scan_path: Path) -> list[str]:
+    tree = ast.parse(source)
+    return [
+        f"{label}::{_enclosing_function(tree, violation.line)}"
+        for violation in _scan_source(source, scan_path)
+        if violation.surface.startswith(_SPAWN_CALL_PREFIXES)
+    ]
+
+
+def _process_boundaries_in_source() -> Counter[str]:
+    sites: list[str] = []
+    for path in _scanner_sources():
+        sites.extend(
+            _spawn_sites(
+                path.read_text(encoding="utf-8"),
+                path.relative_to(SCANNER_DIR).as_posix(),
+                scan_path=path,
+            )
+        )
+    sites.extend(
+        _spawn_sites(_hook_runner_source(), HOOK_RUNNER_PATH, scan_path=INSTALL_HOOKS)
+    )
+    return Counter(sites)
+
+
+def _process_boundaries_in_trust_model() -> Counter[str]:
+    text = TRUST_MODEL_DOC.read_text(encoding="utf-8")
+    start = text.index("\n## Process Boundaries\n")
+    end = text.find("\n## ", start + 1)
+    section = text[start : end if end != -1 else len(text)]
+    rows: Counter[str] = Counter()
+    for line in section.splitlines():
+        # The first cell of each table row names one call site.
+        cells = line.split("|")
+        if not line.startswith("|") or len(cells) < 3:
+            continue
+        match = _BOUNDARY_TOKEN.fullmatch(cells[1].strip())
+        if match is not None:
+            rows[f"{match.group(1)}::{match.group(2)}"] += 1
+    return rows
+
+
+def test_trust_model_lists_every_process_boundary() -> None:
+    """docs/trust-model.md names each spawn site, and only those.
+
+    One row per call site, keyed by file and enclosing function: a spawn site
+    added, removed, or moved into another function fails here until the
+    published list says so. Counting rows rather than collecting a set means a
+    second spawn site in an already-listed function is caught too.
+    """
+
+    in_source = _process_boundaries_in_source()
+    in_doc = _process_boundaries_in_trust_model()
+    assert in_source, "found no process boundary at all; the spawn-site scan is broken"
+    undocumented = in_source - in_doc
+    stale = in_doc - in_source
+    assert not undocumented and not stale, (
+        "docs/trust-model.md § Process Boundaries no longer matches the "
+        "source.\n  Spawn sites missing from the table: "
+        f"{sorted(undocumented.elements())}\n  Table rows with no spawn site: "
+        f"{sorted(stale.elements())}\nAdd or remove one `<path>::<function>` row "
+        "per call site, saying what it runs and which command reaches it."
+    )
+
+
+def _names_shipgate_module(node: ast.AST) -> bool:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value == "agents_shipgate" or node.value.startswith("agents_shipgate.")
+    if isinstance(node, ast.Name):
+        return node.id == "MODULE_ENTRY_POINT"
+    if isinstance(node, ast.Attribute):
+        return node.attr == "MODULE_ENTRY_POINT"
+    return False
+
+
+def _is_safe_path_flag(node: ast.AST) -> bool:
+    if isinstance(node, ast.Constant):
+        return node.value in _SAFE_PATH_FLAGS
+    if isinstance(node, ast.Name):
+        return node.id == "SAFE_PATH_FLAG"
+    if isinstance(node, ast.Attribute):
+        return node.attr == "SAFE_PATH_FLAG"
+    return False
+
+
+def _unsafe_module_argv(source: str) -> list[tuple[int, str]]:
+    """Every list or tuple that spells ``-m agents_shipgate`` without ``-P``.
+
+    That literal is how ``bootstrap``'s children and the emitted ``python -m``
+    recovery commands are built; the flag has to precede ``-m`` in the same
+    sequence.
+    """
+
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, (ast.List, ast.Tuple)):
+            continue
+        elements = node.elts
+        for index, element in enumerate(elements[:-1]):
+            if (
+                isinstance(element, ast.Constant)
+                and element.value == "-m"
+                and _names_shipgate_module(elements[index + 1])
+                and not any(_is_safe_path_flag(flag) for flag in elements[:index])
+            ):
+                found.append((node.lineno, ast.unparse(node)))
+    return found
+
+
+def test_python_children_never_import_from_their_working_directory() -> None:
+    """Every ``-m agents_shipgate`` argv built in src/ carries ``-P``.
+
+    ``bootstrap`` runs ``detect``, ``init``, ``scan`` and ``apply-patches``
+    with the reviewed workspace as the working directory, and printed
+    recovery commands are run from a repository root. Without ``-P`` a
+    package committed there under the name ``yaml``, ``typer``, ``pydantic`` or
+    ``agents_shipgate`` is imported first (#1020).
+    """
+
+    offenders = [
+        f"{path.relative_to(SCANNER_DIR).as_posix()}:{line}: {snippet}"
+        for path in _scanner_sources()
+        for line, snippet in _unsafe_module_argv(path.read_text(encoding="utf-8"))
+    ]
+    offenders.extend(
+        f"{HOOK_RUNNER_PATH}:{line}: {snippet}"
+        for line, snippet in _unsafe_module_argv(_hook_runner_source())
+    )
+    assert not offenders, (
+        "A `python -m agents_shipgate` argv without `-P` imports from its "
+        "working directory first. Build it with "
+        "agents_shipgate.invocation.module_entry_argv():\n  " + "\n  ".join(offenders)
+    )
+
+    # Non-vacuity: the one place the argv is assembled is still seen, and
+    # still names the flag this test accepts.
+    invocation = INVOCATION.read_text(encoding="utf-8")
+    assert "(_interpreter(), SAFE_PATH_FLAG, \"-m\", MODULE_ENTRY_POINT)" in invocation
+    assert 'SAFE_PATH_FLAG = "-P"' in invocation
+
+
+@pytest.mark.parametrize(
+    "snippet,unsafe",
+    [
+        ('[sys.executable, "-m", "agents_shipgate", "detect"]', True),
+        ('(python, "-m", MODULE_ENTRY_POINT)', True),
+        ('[sys.executable, "-m", "agents_shipgate.triggers"]', True),
+        ('[sys.executable, "-P", "-m", "agents_shipgate", "detect"]', False),
+        ('[sys.executable, "-I", "-m", "agents_shipgate"]', False),
+        ("(_interpreter(), SAFE_PATH_FLAG, '-m', MODULE_ENTRY_POINT)", False),
+        ('["git", "commit", "-m", "message"]', False),
+    ],
+)
+def test_module_argv_lint_has_fingers(snippet: str, unsafe: bool) -> None:
+    assert bool(_unsafe_module_argv(snippet)) is unsafe

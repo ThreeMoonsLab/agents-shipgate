@@ -18,11 +18,14 @@ This module is the single answer to "what tokens re-enter this CLI *here*":
   path, and its emitted commands stay byte-for-byte what they were, so nothing
   downstream of a normal install changes.
 * Entered through ``python -m agents_shipgate`` → :data:`sys.executable` plus
-  ``-m agents_shipgate``. The interpreter is spelled by path rather than as a
-  bare ``python`` on purpose: a bare name resolves through ``PATH`` and can
+  ``-P -m agents_shipgate``. The interpreter is spelled by path rather than as
+  a bare ``python`` on purpose: a bare name resolves through ``PATH`` and can
   easily land on a *different* interpreter that has no Shipgate installed, or
   an older one that does — which is the failure this module exists to prevent,
-  reintroduced one layer down.
+  reintroduced one layer down. ``-P`` keeps the working directory off
+  ``sys.path``: these commands are run from the root of the repository under
+  review, and without it a ``yaml/`` or ``agents_shipgate/`` package committed
+  there would be imported in place of the real one (#1020).
 * ``AGENTS_SHIPGATE_CLI`` overrides both. It already exists as the operator
   override for the command written into Claude Code hooks
   (:mod:`agents_shipgate.cli.install_hooks`), and an operator who has told
@@ -70,10 +73,12 @@ __all__ = [
     "CLI_OVERRIDE_ENV_VAR",
     "CONSOLE_SCRIPTS",
     "MODULE_ENTRY_POINT",
+    "SAFE_PATH_FLAG",
     "Invocation",
     "InvocationSource",
     "invocation_prefix",
     "join_argv",
+    "module_entry_argv",
     "render_cli_override",
     "render_command",
     "resolve_invocation",
@@ -93,6 +98,17 @@ CANONICAL_CONSOLE_SCRIPT = "agents-shipgate"
 
 #: The importable package that ``python -m`` enters.
 MODULE_ENTRY_POINT = "agents_shipgate"
+
+#: The interpreter flag every ``python -m agents_shipgate`` argv carries, ahead
+#: of ``-m``. ``python -m`` puts the working directory first on ``sys.path``,
+#: and these commands run with the reviewed repository as their working
+#: directory — so a ``yaml/``, ``typer/`` or ``agents_shipgate/`` package
+#: committed there would be imported and executed before Shipgate read a byte
+#: (#1020). ``-P`` (Python 3.11+, so every supported interpreter has it) drops
+#: only that entry; unlike ``-I`` it keeps ``PYTHONPATH`` and the environment, which
+#: the repository launcher and ``AGENTS_SHIPGATE_AGENT_MODE`` rely on. The
+#: GitHub Action passes it to its own Python steps for the same reason (#780).
+SAFE_PATH_FLAG = "-P"
 
 #: Operator override, shared with the Claude Code hook installer.
 CLI_OVERRIDE_ENV_VAR = "AGENTS_SHIPGATE_CLI"
@@ -159,6 +175,17 @@ def _program_name(token: str) -> str:
 
 def _interpreter() -> str:
     return sys.executable or _FALLBACK_INTERPRETER
+
+
+def module_entry_argv() -> tuple[str, ...]:
+    """The argv prefix that runs this CLI as a module of this interpreter.
+
+    The one place a ``-m agents_shipgate`` argv is assembled, for emitted
+    commands and for the child processes ``bootstrap`` spawns alike, so the
+    :data:`SAFE_PATH_FLAG` cannot be left off one of them.
+    """
+
+    return (_interpreter(), SAFE_PATH_FLAG, "-m", MODULE_ENTRY_POINT)
 
 
 def join_argv(tokens: Sequence[str]) -> str:
@@ -373,7 +400,7 @@ def resolve_invocation(
 
     module = sys.modules.get("__main__") if main_module is None else main_module
     if _entered_via_module(argv0, module):
-        return Invocation((_interpreter(), "-m", MODULE_ENTRY_POINT), "module")
+        return Invocation(module_entry_argv(), "module")
 
     # Anything else — a test runner driving the Typer app in-process, an
     # embedding host, a launcher that rewrote argv — keeps the documented
@@ -589,8 +616,8 @@ def split_invocation(
     ``tool``, publishing an argv that runs a different program than the string.
 
     How many tokens the entry point occupies still comes from the resolved
-    invocation rather than from guessing, because ``python -m agents_shipgate``
-    is three tokens and a console script is one.
+    invocation rather than from guessing, because ``python -P -m
+    agents_shipgate`` is four tokens and a console script is one.
 
     Returns ``None`` when the string has no faithful argv form — an unbalanced
     quote, a leading ``NAME=VALUE`` assignment, or any unquoted shell

@@ -29,7 +29,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -38,15 +37,24 @@ import typer
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.cli.discovery.host_boundary import needs_host_route_payload
 from agents_shipgate.cli.workspace_guard import require_workspace
+from agents_shipgate.invocation import module_entry_argv
 
 _ENV_VAR = "AGENTS_SHIPGATE_AGENT_MODE"
 
 
 def _binary_command(extra_args: list[str], *, json_output: bool = True) -> list[str]:
     """Build the argv for invoking the same `agents-shipgate` binary
-    via ``python -m agents_shipgate``. Path-independent — works inside
-    a venv, a pipx install, or a source checkout."""
-    cmd = [sys.executable, "-m", "agents_shipgate", *extra_args]
+    via ``python -P -m agents_shipgate``. Path-independent — works inside
+    a venv, a pipx install, or a source checkout.
+
+    Each step runs with the workspace under review as its working
+    directory, and plain ``python -m`` puts that directory first on
+    ``sys.path``: a ``yaml/`` or ``agents_shipgate/`` package committed
+    there would run before detection read anything (#1020). ``-P`` drops
+    only that entry, so the environment — ``PYTHONPATH`` for a source
+    checkout and ``AGENTS_SHIPGATE_AGENT_MODE`` for the child's error
+    lines — still reaches the child."""
+    cmd = [*module_entry_argv(), *extra_args]
     if json_output and "--json" not in extra_args:
         cmd.append("--json")
     return cmd

@@ -13,9 +13,10 @@ By default Agents Shipgate does not:
 - connect to MCP servers;
 - resolve remote or local filesystem OpenAPI `$ref` values;
 - make network calls;
-- shell out to subprocesses, except for bounded local `git` discovery in
-  `detect` and auto-init;
-- import third-party check plugins;
+- start any process other than the ones listed under
+  [Process Boundaries](#process-boundaries);
+- import third-party check or adapter plugins, from any command — the MCP
+  server's read-only tools and `capability export` included;
 - collect telemetry.
 
 ## Input Parsing
@@ -47,7 +48,40 @@ By default Agents Shipgate does not:
   its manifest.
 - Declarative policy packs are local YAML data. They do not import Python,
   execute code, connect to services, or weaken the default no-execution model.
-- Third-party check plugins are disabled by default. Setting `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` opts into importing and running installed plugin entry points. Use `--no-plugins` to force plugins off for a scan even when the environment variable is set.
+- Third-party check and adapter plugins are disabled by default. Setting `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` opts into importing and running installed plugin entry points. Every command that can load them honours the same opt-in, including `capability export` and the MCP server's `shipgate.capabilities` tool, and a capability lock records the effective value in `source.plugins_enabled`. Use `--no-plugins` (`no_plugins` on the MCP tools) to force plugins off even when the environment variable is set.
+
+## Process Boundaries
+
+Agents Shipgate starts a child process at the call sites below and nowhere
+else, and none of them uses a shell. Each call site
+under `src/agents_shipgate/` is pinned with its rationale in
+`tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`, the audited meta-CLI
+allowlist that `STABILITY.md` § Trust-model invariants summarises, and
+`test_trust_model_lists_every_process_boundary` in the same file fails when a
+spawn site is added, removed or moved to another function without this table
+changing with it. Paths are relative to `src/agents_shipgate/`, except the hook
+runner, which `install-hooks --target claude-code` writes into a repository.
+
+| Call site | What it runs | Reached by |
+| --- | --- | --- |
+| `cli/bootstrap.py::_run_step` | Shipgate's own CLI as `<sys.executable> -P -m agents_shipgate` (`detect`, `init`, `scan`, `apply-patches`), with the workspace as the working directory. `-P` keeps that directory off the child's `sys.path`, so a `yaml/` or `agents_shipgate/` package committed in the workspace is never imported in place of the real one. | `bootstrap` |
+| `cli/discovery/artifacts.py::_git_candidate_files` | `git rev-parse --show-toplevel`, with a sanitised environment and a 2-second timeout. | workspace discovery in `detect` and auto-init |
+| `cli/discovery/artifacts.py::_run_git_inventory_bounded` | `git ls-files`, drained under byte and wall-clock bounds. | workspace discovery in `detect` and auto-init |
+| `cli/verify/git.py::_run_process` | Local Git plumbing: ref and merge-base resolution, `pack-objects`, `index-pack` and `fsck` into an isolated object store, and `cat-file` reads of that store. It never fetches. | every command that reads Git state, among them `verify`, `check`, `diff` and `trigger` |
+| `cli/verify/git.py::_run_git_bounded_result` | Bounded Git reads: diffs, changed paths, attributes and inventories. | the same commands |
+| `cli/fixture.py::_git` | `git init`, `config`, `add`, `commit` and `update-ref` in a temporary copy of a bundled fixture. | `fixture run ai_generated_refund_pr` |
+| `core/authorization_execution.py::_run_process` | The host-protected `/usr/bin/git`, including the one network-capable process: an exact `--force-with-lease` HTTPS `git push` of an externally signed commit graph. | `authorization execute` only |
+| `core/authorization_execution.py::_run_bounded_stdout_process` | `git pack-objects`, streamed into the isolated graph snapshot under output and time bounds. | `authorization execute` only |
+| `core/openshell_native.py::_execute` | The operator-pinned native containment prover, copied into a private directory and run with a minimal environment, bounded output and a bounded process-group lifetime. | `verify --openshell-proof-config` only |
+| `.claude/hooks/agents-shipgate.py::_unchanged_instruction_preview` | Shipgate's `preflight`, through `AGENTS_SHIPGATE_CLI` or else `agents-shipgate`. | Claude Code hook events, after `install-hooks` |
+| `.claude/hooks/agents-shipgate.py::_run` | Git, and Shipgate's `verify`, `diff` and `trigger` the same way. | Claude Code hook events, after `install-hooks` |
+| `.claude/hooks/agents-shipgate.py::_run_git_bounded` | Bounded Git reads. | Claude Code hook events, after `install-hooks` |
+
+`AGENTS_SHIPGATE_CLI` is used as written. If you set it to a `python -m`
+spelling, include `-P` (`python3 -P -m agents_shipgate`): the hooks run it from
+the repository root, where plain `python -m` would import a package of the same
+name committed there first. Recovery commands that a `python -m agents_shipgate`
+run prints carry `-P` for the same reason.
 
 ## Privacy Boundary
 
@@ -66,7 +100,7 @@ By default Agents Shipgate does not:
 
 ## Plugin Trust Boundary
 
-Plugins are Python code. When plugin loading is enabled, Agents Shipgate imports every installed non-core entry point in the `agents_shipgate.checks` group and runs callable checks from those entry points. The default zero-execution guarantee stops at that opt-in boundary.
+Plugins are Python code. When plugin loading is enabled, Agents Shipgate imports every installed non-core entry point in the `agents_shipgate.checks` and `agents_shipgate.adapters` groups, runs callable checks from the first, and lets adapters from the second load tool sources. The default zero-execution guarantee stops at that opt-in boundary. Only `AGENTS_SHIPGATE_ENABLE_PLUGINS` enables loading; no command or MCP tool turns it on by itself.
 
 JSON and Markdown reports include loaded plugin provenance so CI reviewers can see which third-party check packages contributed to the scan. Treat plugin packages like other CI dependencies: pin versions, audit transitive dependencies, and avoid enabling plugins in untrusted environments unless those packages are approved.
 
