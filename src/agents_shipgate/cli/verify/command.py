@@ -176,10 +176,7 @@ def verify(
     fail_on: str | None = typer.Option(
         None,
         "--fail-on",
-        help=(
-            "Comma-separated severities that fail CI. Without it, the base "
-            "manifest's ci.fail_on still applies alongside the head's."
-        ),
+        help="Comma-separated severities that fail CI.",
     ),
     baseline: Path | None = typer.Option(
         None,

@@ -358,9 +358,9 @@ both were given, and was not a trust root: a change that added a destructive
 tool and regenerated `ci/base-report.json` from its own head compared the head
 with itself and could come back `mergeable`, with `trust_root_touched: false`,
 and `SHIP-VERIFY-POLICY-WEAKENED` read its base policy from that file. Without
-`--ci-mode`, `ci.mode` and `ci.fail_on` came from the head's manifest, so a
-change from `mode: strict` to `mode: advisory` turned exit 20 into exit 0 while
-the verdict stayed `blocked`.
+`--ci-mode`, `ci.mode` came from the head's manifest, so a change from
+`mode: strict` to `mode: advisory` turned exit 20 into exit 0 while the verdict
+stayed `blocked`.
 
 **What changes.**
 
@@ -378,33 +378,33 @@ the verdict stayed `blocked`.
   trust-root table already classifies (`.agents-shipgate/**`, `policies/**`,
   and so on) keeps its existing class and glob, so its finding fingerprint does
   not move.
-- With a base, `ci.mode` and `ci.fail_on` that the command line does not set
-  resolve to the stricter of the base and head manifests, read from the base
-  commit: `strict` if either declares it, and `fail_on` is the head's
-  effective list under the resolved mode plus every severity the base's
-  `ci.fail_on` declares that it lacks (a base without `ci.fail_on` adds
-  nothing; its default follows its mode). Because `fail_on` also decides
-  which severities block, a change that drops a severity from the base's list
-  is judged with that severity still blocking. Each knob the base held is
-  named in `base_notes`. `--ci-mode` and
-  `--fail-on` each remain the operator's override for their own knob, and a
-  change that tightens the policy takes effect in the same pull request.
-  Without a base, or when the base has no manifest or one this engine cannot
-  read (named in `base_notes`), the head's declaration applies as before.
-  `fail_policy`, the exit code and `verifier.json` `mode` report the resolved
-  values; `SHIP-VERIFY-POLICY-WEAKENED` still compares the two declarations.
+- With a base and without `--ci-mode`, `ci.mode` resolves to the stricter of
+  the base and head manifests, read from the base commit: `strict` if either
+  declares it, named in `base_notes` when the base's applied. `--ci-mode`
+  remains the operator's override, and a change that adopts `strict` takes
+  effect in the same pull request. The mode decides only the exit code: the
+  blocker severities are `{critical} ∪ fail_on`, and neither mode's default
+  `fail_on` adds to `critical`. Without a base, or when the base has no
+  manifest or one this engine cannot read (named in `base_notes`), the head's
+  declaration applies as before. `fail_policy.ci_mode`, the exit code and
+  `verifier.json` `mode` report the resolved mode.
+- `ci.fail_on` is not floored. It decides which severities block (the release
+  decision truth table), so a base floor would make a change's own
+  `SHIP-VERIFY-POLICY-WEAKENED` (high) block under the very list it loosens,
+  where the governance benchmark's `ci-advisory-from-strict` routes it to
+  human review. A loosened `fail_on` is reported by that finding, which
+  compares the two declarations; `--fail-on` remains the operator's override.
 
 **What does not change.** No schema, contract, `base_status` value or check ID
 moves. `scan` is unchanged: it has no base. An out-of-repository
-`--diff-from`, an explicit `--ci-mode` or `--fail-on`, and every run whose head
-declares the same `ci` block as its base behave as before.
+`--diff-from`, an explicit `--ci-mode`, `ci.fail_on`, and every run whose head
+declares the same `ci.mode` as its base behave as before.
 
 **Who must act.** A pipeline that points `--diff-from` at a report the pull
 request regenerates should drop it (verify then scans the base) or keep the
 reference outside the repository. A pipeline that relied on the head manifest
-to relax `ci.mode` or `ci.fail_on` passes `--ci-mode` or `--fail-on`. The
-Action always passes `--ci-mode`; set its `fail_on` input to override the
-base's `ci.fail_on`.
+to relax `ci.mode` passes `--ci-mode`. The Action always passes `--ci-mode`, so
+its behaviour does not change.
 
 ---
 
@@ -5512,9 +5512,10 @@ The change under review never supplies its own comparison or exit policy
 in-repository `--diff-from` is read as the base commit holds it, and a base
 without a regular file there is compared through a base scan instead; an
 out-of-repository `--diff-from`, or any `--diff-from` with `--no-base`, is read
-where it is. Precedence for the exit policy is: `--ci-mode` and `--fail-on`
-when given; otherwise, with a base, the stricter of the base and head
-manifests' `ci.mode` and `ci.fail_on`; otherwise the head manifest's. An
+where it is. Precedence for `ci.mode` is: `--ci-mode` when given; otherwise,
+with a base, the stricter of the base and head manifests'; otherwise the head
+manifest's. `ci.fail_on` is `--fail-on` when given, otherwise the head
+manifest's, because it decides which severities block. An
 in-repository `--diff-from`, `--baseline` or `--policy-pack` file the change
 edits is reported by `SHIP-VERIFY-TRUST-ROOT-TOUCHED`.
 

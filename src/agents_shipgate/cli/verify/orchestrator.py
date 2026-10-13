@@ -22,7 +22,6 @@ from typing import Any
 from agents_shipgate import __version__
 from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
 from agents_shipgate.checks.verify_policy import touched_policy_surfaces
-from agents_shipgate.ci.exit_policy import effective_fail_on
 from agents_shipgate.ci.release_decision import SUGGESTED_DECLARATIONS_FILENAME
 from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
 from agents_shipgate.cli._helpers import _apply_strict_plugins
@@ -1308,10 +1307,10 @@ def run_verify(
     # With a base to read it from, an in-repository reference is taken from
     # the base commit; the checkout's copy is not an input to this run.
     diff_from_at_base = diff_from_relative is not None and bool(base) and base_exists
-    # Nor does the change under review set its own exit policy: whatever the
-    # command line leaves open is floored at what the base declares (#1024).
+    # Nor does the change under review set its own exit mode: without
+    # --ci-mode, it is floored at what the base declares (#1024).
     base_ci: CiConfig | None = None
-    if base and base_exists and (ci_mode is None or fail_on is None):
+    if base and base_exists and ci_mode is None:
         base_ci, base_ci_note = _base_ci_policy(
             git_root=git_root, base=base, config_relative=config_relative
         )
@@ -1573,12 +1572,11 @@ def run_verify(
                 scan_manifest_text = (
                     head_manifest_text if archive_head else worktree_manifest_text
                 )
-                scan_ci_mode, scan_fail_on, ci_notes = _ci_policy_with_base_floor(
+                scan_ci_mode, ci_notes = _ci_mode_with_base_floor(
                     head_manifest_text=scan_manifest_text,
                     base_ci=base_ci,
                     base=base,
                     ci_mode=ci_mode,
-                    fail_on=fail_on,
                 )
                 base_notes.extend(ci_notes)
                 report, head_exit_code = run_scan(
@@ -1586,7 +1584,7 @@ def run_verify(
                     output_dir=out_dir,
                     formats=HEAD_FORMATS,
                     ci_mode=scan_ci_mode,
-                    fail_on=scan_fail_on,
+                    fail_on=fail_on,
                     baseline_path=head_baseline_path,
                     diff_from_path=base_report,
                     diff_from_display_path=base_report_reference,
@@ -2809,61 +2807,50 @@ def _base_ci_policy(
         except (AgentsShipgateError, UnicodeDecodeError, ValueError) as exc:
             reason = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
     return None, (
-        f"The exit policy follows the change's {config_relative.as_posix()}: "
+        f"ci.mode follows the change's {config_relative.as_posix()}: "
         f"the copy at {base!r} could not be read ({reason})."
     )
 
 
-def _ci_policy_with_base_floor(
+def _ci_mode_with_base_floor(
     *,
     head_manifest_text: str | None,
     base_ci: CiConfig | None,
     base: str | None,
     ci_mode: str | None,
-    fail_on: list[str] | None,
-) -> tuple[str | None, list[str] | None, list[str]]:
-    """Resolve ``ci.mode`` and ``ci.fail_on`` the command line left open (#1024).
+) -> tuple[str | None, list[str]]:
+    """Resolve ``ci.mode`` when ``--ci-mode`` left it open (#1024).
 
-    The change under review cannot loosen its own exit policy: a knob that
-    ``--ci-mode`` or ``--fail-on`` does not set resolves to the stricter of the
-    base and head manifests. The stricter mode is ``strict`` if either side
-    declares it. The stricter ``fail_on`` is the head's effective list under the
-    resolved mode plus every severity the base's ``ci.fail_on`` declares that
-    it lacks. A base without ``ci.fail_on`` adds nothing: its default list
-    follows its mode, which the mode floor already carries, and an operator's
-    ``--ci-mode`` replaces it. A change that tightens the gate still takes
-    effect in the same pull request. Returns the values to scan with (``None``
-    leaves the head manifest's own) and notes for any knob the base held.
+    The change under review cannot lower its own exit mode: without
+    ``--ci-mode``, the mode is ``strict`` if the base or the head declares it.
+    A change that adopts ``strict`` still takes effect in the same pull
+    request, and an explicit ``--ci-mode`` remains the operator's override.
+
+    The mode only decides the exit code: the blocker severities are
+    ``{critical}`` plus ``fail_on``, and a mode's default ``fail_on`` adds
+    nothing beyond ``critical``. ``ci.fail_on`` is deliberately not floored
+    here. It decides which severities block (STABILITY's truth table), so a
+    base floor would turn a change's own ``SHIP-VERIFY-POLICY-WEAKENED`` into a
+    blocker instead of the human review it routes to; that finding is what
+    reports a loosened ``fail_on``.
+
+    Returns the mode to scan with (``None`` leaves the head manifest's own)
+    and a note when the base's mode applied.
     """
 
-    if base_ci is None or head_manifest_text is None or (
-        ci_mode is not None and fail_on is not None
-    ):
-        return ci_mode, fail_on, []
+    if base_ci is None or head_manifest_text is None or ci_mode is not None:
+        return ci_mode, []
     try:
         head_ci = load_manifest_text(head_manifest_text).ci
     except (AgentsShipgateError, ValueError):
         # The head scan reports its own manifest error.
-        return ci_mode, fail_on, []
-    notes: list[str] = []
-    resolved_mode = ci_mode
-    if ci_mode is None and base_ci.mode == "strict" and head_ci.mode != "strict":
-        resolved_mode = "strict"
-        notes.append(
+        return ci_mode, []
+    if base_ci.mode == "strict" and head_ci.mode != "strict":
+        return "strict", [
             f"The change declares ci.mode: {head_ci.mode} and {base!r} declares "
             "strict; strict applies. Pass --ci-mode to override."
-        )
-    resolved_fail_on = fail_on
-    if fail_on is None and base_ci.fail_on is not None:
-        head_set = effective_fail_on(resolved_mode or head_ci.mode, head_ci.fail_on)
-        added = [severity for severity in base_ci.fail_on if severity not in head_set]
-        if added:
-            resolved_fail_on = [*head_set, *added]
-            notes.append(
-                f"The change's ci.fail_on leaves out {', '.join(added)}, which "
-                f"{base!r} declares; they still apply. Pass --fail-on to override."
-            )
-    return resolved_mode, resolved_fail_on, notes
+        ]
+    return ci_mode, []
 
 
 # File names that count as a Shipgate manifest when deciding whether a ref
