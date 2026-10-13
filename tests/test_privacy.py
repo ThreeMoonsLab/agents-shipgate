@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import shutil
@@ -37,6 +38,8 @@ _BASIC_CREDENTIAL = "dXNlcjpz" + "M2NyM3RQQHNz"  # base64 of a user:password pai
 _PEM_BODY = "MIIEowIBAAKCAQEA" + "zQ3hT9kLm2Nf"
 _GOOGLE_API_KEY = "AIza" + "SyD3f8kLmN0pQrStUvWxYz012345678_-ab"
 _AWS_SECRET_KEY = "wJalrXUtnFEMI/K7MDENG/" + "bPxRfiCYEXAMPLEKEY"
+# RFC 7617 Basic credentials are UTF-8: a non-ASCII password is still one.
+_BASIC_UTF8_CREDENTIAL = base64.b64encode("jürgen:pässwörd1".encode()).decode()
 
 
 def test_redact_data_redacts_nested_patterns_and_sensitive_keys():
@@ -582,6 +585,15 @@ def test_redact_text_secret_inside_marker_lookalike_is_still_pattern_redacted():
             '"Authorization": "',
         ),
         (f"send Basic {_BASIC_CREDENTIAL}.", _BASIC_CREDENTIAL, "basic_auth", "send "),
+        # A UTF-8 password (RFC 7617), and a credential a rejected
+        # ``Basic Basic`` match overlaps.
+        (
+            f"or send Basic {_BASIC_UTF8_CREDENTIAL} unlabeled",
+            _BASIC_UTF8_CREDENTIAL,
+            "basic_auth",
+            "or send ",
+        ),
+        (f"Use Basic Basic {_BASIC_CREDENTIAL}", _BASIC_CREDENTIAL, "basic_auth", "Use Basic "),
         # A Digest value is key="…" pairs: all of it after the scheme goes.
         (
             'Authorization: Digest username="bob", response="6629fae49393a05397450978507c4ef1"',
@@ -710,6 +722,30 @@ def test_redaction_only_shapes_and_labels_raise_no_secret_finding():
 @pytest.mark.parametrize(
     "text",
     [
+        f"Authorization: Basic {_BASIC_CREDENTIAL}",
+        f"send Basic {_BASIC_CREDENTIAL}.",
+        f"or send Basic {_BASIC_UTF8_CREDENTIAL} unlabeled",
+        f"Use Basic Basic {_BASIC_CREDENTIAL}",
+    ],
+)
+def test_basic_credentials_are_detected(text):
+    # Detection and redaction take the same decision (#1026 review, C2-1 and
+    # C2-2): a UTF-8 password is a credential, and a rejected overlapping
+    # match must not hide the one after it.
+    from agents_shipgate.checks.documentation import _secret_like_matches
+
+    assert _secret_like_matches(text)
+    assert [kind for kind, pattern in SECRET_PATTERNS if pattern.search(text)] == [
+        "basic_auth"
+    ]
+    [basic] = [pattern for kind, pattern in SECRET_PATTERNS if kind == "basic_auth"]
+    assert len(list(basic.finditer(text))) == 1
+    assert basic.subn("[REDACTED:basic_auth]", text)[1] == 1
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
         "Provides Basic ReadOnly access.",
         "Basic DataSets",
         "basic MetaData fields",
@@ -804,7 +840,8 @@ def _plant_secret_shapes(project: Path) -> dict[str, str]:
         "    - look up documentation metadata and answer policy questions\n",
         "    - look up documentation metadata and answer policy questions\n"
         f"    - 'call with header Authorization: Basic {_BASIC_CREDENTIAL}, maps key "
-        f"{_GOOGLE_API_KEY} and secret {_AWS_SECRET_KEY}'\n",
+        f"{_GOOGLE_API_KEY} and secret {_AWS_SECRET_KEY}'\n"
+        f"    - 'or send Basic {_BASIC_UTF8_CREDENTIAL} unlabeled'\n",
     )
     (project / "shipgate.yaml").write_text(manifest, encoding="utf-8")
     return {
@@ -813,6 +850,7 @@ def _plant_secret_shapes(project: Path) -> dict[str, str]:
         "google_api_key": _GOOGLE_API_KEY,
         "aws_secret_access_key": _AWS_SECRET_KEY,
         "stripe_key": stripe,
+        "basic_auth_utf8": _BASIC_UTF8_CREDENTIAL,
     }
 
 

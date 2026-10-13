@@ -384,9 +384,10 @@ unredacted and the privacy audit counted nothing.
   decision reason are unchanged.
 - **Redaction rules.** `privacy_audit.rules_version` is `0.2`. Every published
   string is also redacted for `Basic <token>` where the token, at least eight
-  characters, decodes to printable ASCII `user:password` (`basic_auth`, the
-  `Authorization:` label kept; `Provides Basic ReadOnly access` is prose and
-  untouched), a PEM private-key block through its end line, or through the end
+  characters, decodes to printable UTF-8 `user:password` with a non-empty
+  user (`basic_auth`, the `Authorization:` label kept; `jürgen:pässwörd1`
+  counts, `Provides Basic ReadOnly access` is prose and untouched), a PEM
+  private-key block through its end line, or through the end
   of the text when it has none (`private_key`), and `AIza…` keys
   (`google_api_key`); these three also raise the secret findings above and
   skill `SEC-SECRET-001`. Two more are redacted but raise no finding, because

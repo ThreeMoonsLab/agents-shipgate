@@ -29,6 +29,7 @@ BEARER_TOKEN_RE = re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{12,}\b", re.IGNOREC
 #: as the value and the credential after it was published.
 AUTH_SCHEME_PATTERN = r"(?:bearer|basic|digest|token|negotiate)"
 
+
 class CheckedPattern:
     """A compiled expression whose every match must also pass ``accept``.
 
@@ -39,6 +40,10 @@ class CheckedPattern:
     offers the four members the rules' callers use — ``search``,
     ``finditer``, ``subn`` and ``pattern`` — so it stands where an
     ``re.Pattern`` stands in :data:`SECRET_PATTERNS`.
+
+    A rejected match consumes nothing: the search resumes one character after
+    where it began, so ``Basic Basic <credential>`` still finds the
+    credential the first, rejected ``Basic Basic`` overlapped.
     """
 
     __slots__ = ("_accept", "_compiled", "pattern")
@@ -53,22 +58,31 @@ class CheckedPattern:
         self.pattern = compiled.pattern
 
     def finditer(self, string: str) -> Iterator[re.Match[str]]:
-        return (match for match in self._compiled.finditer(string) if self._accept(match))
+        position = 0
+        while position <= len(string):
+            match = self._compiled.search(string, position)
+            if match is None:
+                return
+            if self._accept(match):
+                yield match
+                position = max(match.end(), match.start() + 1)
+            else:
+                position = match.start() + 1
 
     def search(self, string: str) -> re.Match[str] | None:
         return next(self.finditer(string), None)
 
     def subn(self, repl: str, string: str) -> tuple[str, int]:
+        parts: list[str] = []
+        end = 0
         count = 0
-
-        def replace(match: re.Match[str]) -> str:
-            nonlocal count
-            if not self._accept(match):
-                return match.group(0)
+        for match in self.finditer(string):
+            parts.append(string[end : match.start()])
+            parts.append(repl)
+            end = match.end()
             count += 1
-            return repl
-
-        return self._compiled.sub(replace, string), count
+        parts.append(string[end:])
+        return "".join(parts), count
 
 
 SecretPattern = re.Pattern[str] | CheckedPattern
@@ -77,24 +91,23 @@ SecretPattern = re.Pattern[str] | CheckedPattern
 def _is_basic_credential(match: re.Match[str]) -> bool:
     """Whether the token after ``Basic`` decodes to ``user:password``.
 
-    Every HTTP Basic credential is the base64 of ``user:password``, so it is
-    at least eight characters and decodes to printable ASCII holding a colon
-    after a non-empty user. ``ReadOnly``, ``DataSets`` or ``MetaData`` decode
-    to bytes that are not text at all; no word of a 160,000-word English list,
-    in any of its casings, passes.
+    Every HTTP Basic credential is the base64 of ``user:password`` in UTF-8
+    (RFC 7617 ``charset="UTF-8"``), so it is at least eight characters and
+    decodes to printable text holding a colon after a non-empty user;
+    ``jürgen:pässwörd1`` is one. ``ReadOnly``, ``DataSets`` or ``MetaData``
+    decode to bytes that are not text at all: of 703,344 casings of a
+    235,976-word English list, one (``azoxyanisole``) passes.
     """
 
     token = match.group(1)
     if len(token) < 8:
         return False
     try:
-        decoded = base64.b64decode(token, validate=True)
-    except (binascii.Error, ValueError):
+        decoded = base64.b64decode(token, validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError, ValueError):
         return False
-    if not decoded or any(byte < 0x20 or byte > 0x7E for byte in decoded):
-        return False
-    user, colon, _password = decoded.partition(b":")
-    return bool(colon and user)
+    user, colon, _password = decoded.partition(":")
+    return bool(colon and user) and decoded.isprintable()
 
 
 #: ``Basic <base64(user:password)>``, with or without the ``Authorization:``
