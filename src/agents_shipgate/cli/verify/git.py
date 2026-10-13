@@ -1110,6 +1110,39 @@ def path_present_at_ref(workspace: Path, ref: str, path: Path) -> bool | None:
     return False
 
 
+def path_ever_present_from(workspace: Path, ref: str, path: Path) -> bool | None:
+    """Whether any commit reachable from ``ref`` ever held exactly ``path``.
+
+    ``False`` only when complete history proves it never did: a shallow
+    checkout cannot see what came before its graft, so it answers ``None``,
+    as does a ref or a Git that cannot answer. Every commit that changed the
+    path is considered (``--full-history``), so a side branch that added and
+    later removed it is not simplified away behind a merge.
+    """
+
+    if _history_is_truncated(workspace) is not False:
+        return None
+    commit = commit_sha(workspace, ref)
+    if commit is None:
+        return None
+    result = _run_git(
+        workspace,
+        [
+            "--literal-pathspecs",
+            "rev-list",
+            "-1",
+            "--full-history",
+            commit,
+            "--",
+            path.as_posix(),
+        ],
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return bool(result.stdout.strip())
+
+
 #: The longest link text a tree entry is read for. No platform accepts a
 #: longer path, so a longer text is never followed.
 _MAX_LINK_TEXT_BYTES = 4096

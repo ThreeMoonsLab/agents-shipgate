@@ -318,11 +318,16 @@ def test_a_refusal_that_never_reached_a_base_prints_no_reference_line(s1, tmp_pa
         ["git", "clone", "-q", "--depth=1", "--branch", "change", s1.as_uri(), str(clone)],
         check=True,
     )
+    # The base is present, at depth 1, so only its merge base lies past the
+    # graft. A named base that is not here at all, in a checkout whose history
+    # cannot show that no manifest ever existed, is refused before any host
+    # comparison is attempted (#1023 review cycle 1).
+    git(clone, "fetch", "-q", "--depth=1", "origin", "+main:refs/remotes/origin/main")
     out = tmp_path / "out"
 
     result = CliRunner().invoke(
         app,
-        ["verify", "--workspace", str(clone), "--base", "HEAD~1",
+        ["verify", "--workspace", str(clone), "--base", "origin/main",
          "--format", "text", "--out", str(out)],
     )
 

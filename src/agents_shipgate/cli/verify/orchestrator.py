@@ -222,6 +222,7 @@ from .git import (
     ensure_git_workspace,
     git_path,
     merge_base_sha,
+    path_ever_present_from,
     path_present_at_ref,
     read_bytes_at_ref,
     read_file_at_ref,
@@ -334,10 +335,11 @@ class _ManifestRemoval:
     """What the compared side says about a manifest the evaluated tree lacks.
 
     ``removed``: the comparison commit holds the configured manifest and the
-    evaluated tree does not, so this change removes the gate. ``absent``: no
-    compared commit is shown to hold one, which is setup's question.
-    ``unresolved``: no base exists to ask. ``unknown``: the base holds the
-    manifest and its merge base could not be read, and ``failure`` says why.
+    evaluated tree does not, so this change removes the gate. ``absent``: the
+    base is shown not to hold one, or complete history shows there never was
+    one, which is setup's question. ``unresolved``: no base exists to ask.
+    ``unknown``: the base cannot show which, because its ref is not here or
+    its merge base cannot be read, and ``failure`` says why.
     """
 
     state: str
@@ -379,10 +381,16 @@ def _probe_manifest_removal(
         try:
             comparison: str | None = require_merge_base_sha(git_root, base, head)
         except DiffInputError as exc:
-            # Only a base that holds the manifest can make this a removal. A
-            # named base that is not here at all keeps the missing-config
-            # precedence the setup and host routes already give it.
-            if path_present_at_ref(git_root, base, config_relative) is not True:
+            # A base without the manifest cannot make this a removal. A named
+            # base that is not here at all says nothing either way, so the
+            # setup route keeps its precedence only where complete history
+            # proves the manifest never existed; otherwise this is an unknown
+            # base, refused like any other (#1023 review cycle 1).
+            held = path_present_at_ref(git_root, base, config_relative)
+            if held is False or (
+                held is None
+                and path_ever_present_from(git_root, head, config_relative) is False
+            ):
                 return _ManifestRemoval(state="absent", base=base, notes=notes)
             return _ManifestRemoval(
                 state="unknown", base=base, failure=exc.context, notes=notes

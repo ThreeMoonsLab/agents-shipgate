@@ -308,6 +308,55 @@ def test_deleting_the_manifest_without_a_resolvable_base_fails_closed(
     assert "configure" not in json.dumps(payload["control"])
 
 
+def test_deleting_the_manifest_with_a_named_base_that_is_not_here_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """``diff_base: target`` without ``fetch-depth: 0`` names a base the
+    checkout does not hold. It cannot show whether the manifest was removed,
+    so it is an unknown base in both modes, never the setup or host route."""
+
+    origin, _, manifest_pr = _develop_origin(tmp_path)
+    ci = _ci_clone(origin, tmp_path / "ci", manifest_pr)
+
+    for mode in ("advisory", "strict"):
+        result, payload = _verify(
+            ci,
+            "--ci-mode", mode,
+            "--base", "origin/not-fetched",
+            "--head", manifest_pr,
+            out=tmp_path / f"out-{mode}",
+        )
+
+        assert result.exit_code == 2, result.output
+        assert payload["base_status"] == "ref_missing"
+        assert payload["diff_status"]["reason"] == "refs_missing"
+        assert payload["control"]["next_action"]["kind"] == "fetch_base"
+        assert payload["control"]["permissions"]["merge"] is False
+        assert payload.get("host_comparison") is None
+        rendered = json.dumps(payload["control"])
+        for misroute in ("configure", "initialize", "init --write"):
+            assert misroute not in rendered
+
+
+def test_a_named_base_that_is_not_here_keeps_setup_where_history_shows_no_manifest(
+    tmp_path: Path,
+) -> None:
+    """Complete history that never held the manifest is first adoption."""
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _write(repo / "README.md", "hello\n")
+    _commit(repo, "initial")
+
+    result, payload = _verify(
+        repo, "--ci-mode", "strict", "--base", "origin/main", out=tmp_path / "out"
+    )
+
+    assert result.exit_code == 2, result.output
+    assert payload["control"]["next_action"]["kind"] == "configure"
+
+
 def test_a_shallow_base_that_holds_the_manifest_asks_for_history(tmp_path: Path) -> None:
     """The base holds the manifest, and only the merge base says whether this
     change removed it; a depth-1 checkout cannot read that, so it says so."""

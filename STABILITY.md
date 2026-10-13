@@ -381,10 +381,13 @@ reports `verify` had just written as changed files.
   the merge base with the base, or `HEAD` for a working-tree run without one —
   the run is a human `stop` that names the removal, exits `2`, and offers no
   `configure` or `initialize` action. A missing manifest whose base cannot be
-  resolved fails closed as above; one whose base holds it but whose merge base
-  cannot be read (a shallow checkout) fails closed with that diff-input stop.
-  A repository that never had the manifest, and a named base that is not
-  available at all, keep the existing setup and host routes.
+  resolved fails closed as above. One whose base holds it but whose merge base
+  cannot be read (a shallow checkout), or whose named `--base` is not
+  available locally, fails closed with that diff-input stop (`archive_failed`
+  or `ref_missing`, `fetch_base`) in both CI modes. A repository that never
+  had the manifest keeps the setup and host routes; with a named base that is
+  not available, only where complete (non-shallow) history from the head
+  shows the manifest never existed.
 - `SHIP-VERIFY-CI-GATE-REMOVED` resolves changed paths against the root of the
   evaluated tree, derived from the manifest's repository-relative identity.
 - Every Git archive packs the commit's tree rather than its history, so
@@ -5344,8 +5347,10 @@ configured manifest. If it does, the change removes the gate: verify exits 2
 with `control.state: "human_review_required"`, a human `stop` naming the
 removal, and no `configure` or `initialize` action. If base detection finds
 nothing, verify fails closed with the base-unresolved stop, and if the base
-holds the manifest but its merge base cannot be read, with the diff-input
-stop, instead of routing to setup.
+holds the manifest but its merge base cannot be read, or a named `--base` is
+not available locally, with the diff-input stop, instead of routing to setup.
+A named base that is not available keeps the setup route only where complete
+(non-shallow) history from the head shows the manifest never existed.
 
 The head scan writes `report.md`, `report.json`, `report.sarif`, `packet.json`,
 `verifier.json`, `verify-run.json`, `agent-handoff.json`, `pr-comment.md`,
@@ -5416,8 +5421,12 @@ fields a consumer may read:
   merge base which does exist, and deepening restores it; the second is two
   roots with no common ancestor, which no fetch can create — `fetch_repairable`
   is the field to branch on. `detail` is a bounded, path-redacted excerpt of
-  Git's own diagnostic; `remediation` names the repair; `fetch_repairable`
-  says whether making refs or objects available locally can fix it.
+  Git's own diagnostic; when base detection found nothing it instead begins
+  with the token `base_unresolved`, which is what tells that `refs_missing`
+  stop apart from a head ref missing locally
+  ([migration note](#verify-base-unresolved-1023)). `remediation` names the
+  repair; `fetch_repairable` says whether making refs or objects available
+  locally can fix it.
   **`"complete"` is the only value that licenses reading a negative `trigger`
   result.** Anything else means the evidence the verdict would rest on was
   missing — it is never evidence that a PR is unrelated to agent capabilities.
