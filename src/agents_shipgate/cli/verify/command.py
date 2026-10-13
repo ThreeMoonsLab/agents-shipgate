@@ -100,7 +100,8 @@ def verify(
             "omitted, verify auto-detects the default branch (origin/HEAD, "
             "origin/main, origin/master) if it points at a different commit "
             "than the head. Local main/master are used only when passed "
-            "explicitly; --no-base disables auto-detection."
+            "explicitly or when the repository has no remote. When no base "
+            "is found, verify exits 2; --no-base disables auto-detection."
         ),
     ),
     no_base: bool = typer.Option(

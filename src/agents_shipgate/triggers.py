@@ -938,6 +938,7 @@ def _git_diff_context(
     *,
     cwd: Path | None = None,
     comparison_ref: str = "HEAD",
+    exclude: Path | None = None,
 ) -> tuple[list[str], str]:
     """Read changed paths and the unified-diff body from ``git diff``.
 
@@ -958,6 +959,10 @@ def _git_diff_context(
     ``cwd`` selects the git working directory; ``None`` uses the
     process cwd.
 
+    ``exclude`` leaves one directory out of a working-tree comparison: the
+    reports directory, so `check` and `verify` agree on what the change is
+    (#1023). A committed range never holds it.
+
     Returns ``([paths], diff_text)``.
     """
     # Lazy import avoids a module cycle: the verifier orchestrator imports the
@@ -973,7 +978,10 @@ def _git_diff_context(
         diff_revspec_context(root, revspec)
         if revspec
         else working_tree_context(
-            root, comparison_ref=comparison_ref, reject_index_hidden=True
+            root,
+            comparison_ref=comparison_ref,
+            exclude=exclude,
+            reject_index_hidden=True,
         )
     )
 
