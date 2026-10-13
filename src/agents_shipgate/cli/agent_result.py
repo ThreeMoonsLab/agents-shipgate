@@ -683,6 +683,48 @@ def _resolve_comparison(
     return requested, None, "", merge_base
 
 
+def _reports_exclusion(
+    workspace: Path,
+    *,
+    requested_workspace: Path,
+    comparison_ref: str,
+) -> Path | None:
+    """The reports directory ``verify`` leaves out, left out here too (#1023).
+
+    ``verify`` writes its default reports beneath the requested workspace and
+    excludes that directory from every working-tree read, so a check, verify,
+    check loop counted the reports it had just written as the developer's
+    change. The same directory is left out here, through the same
+    :func:`worktree_exclusion`, and only where
+    :func:`classify_output_directory` shows that it holds nothing but
+    uncommitted Shipgate artifacts. Anything else Git would report there is
+    content, and keeping it costs only a longer change set.
+    """
+
+    from agents_shipgate.cli.current_workspace import (
+        classify_output_directory,
+        default_reports_dir,
+        worktree_exclusion,
+    )
+    from agents_shipgate.cli.verify.git import commit_sha
+
+    try:
+        reports = default_reports_dir(requested_workspace)
+        if not os.path.lexists(reports):
+            return None
+        compared = commit_sha(workspace, comparison_ref)
+        if (
+            classify_output_directory(
+                workspace, reports, compared=[compared] if compared else []
+            )
+            is not None
+        ):
+            return None
+        return worktree_exclusion(workspace, reports)
+    except Exception:  # noqa: BLE001 - no exclusion can only surface more paths.
+        return None
+
+
 def git_boundary_change_set(
     *,
     workspace: Path,
@@ -714,7 +756,18 @@ def git_boundary_change_set(
     )
     try:
         changed_paths, diff_text = _git_diff_context(
-            revspec, cwd=workspace, comparison_ref=comparison_ref
+            revspec,
+            cwd=workspace,
+            comparison_ref=comparison_ref,
+            exclude=(
+                None
+                if revspec
+                else _reports_exclusion(
+                    workspace,
+                    requested_workspace=requested_workspace,
+                    comparison_ref=comparison_ref,
+                )
+            ),
         )
     except BinaryCapabilityDiffError as exc:
         return BoundaryChangeSet(

@@ -13,7 +13,8 @@ strongest weakening signal in the family.
 
 from __future__ import annotations
 
-from pathlib import Path
+import os
+from pathlib import Path, PurePosixPath
 
 from agents_shipgate.checks._verify_common import (
     changed_files,
@@ -62,10 +63,27 @@ def run(context: ScanContext) -> list[Finding]:
 
 
 def _workspace_root(context: ScanContext) -> Path:
-    """Best-effort workspace root: the directory containing shipgate.yaml."""
+    """The root of the evaluated tree, which changed paths are relative to.
+
+    Changed paths are repository-relative, and so is the manifest identity the
+    verifier binds (``configured_manifest_path``). Stripping that identity's
+    components from the physical manifest path names the root of whichever
+    tree was evaluated: the checkout, or a committed head's archive. The
+    manifest's own directory is that root only when the manifest sits there;
+    for ``apps/agent/shipgate.yaml`` a comment in the root workflow read as a
+    removed gate, and a nested copy of the workflow hid a real root deletion
+    (#1023). Without a bound identity the manifest's directory is kept.
+    """
     config_path = getattr(context, "config_path", None)
     if config_path is None:
         return Path.cwd()
+    verification = getattr(context, "verification", None)
+    logical = getattr(verification, "configured_manifest_path", None)
+    if logical:
+        physical = Path(os.path.abspath(config_path))
+        depth = len(PurePosixPath(logical).parts)
+        if 0 < depth < len(physical.parts):
+            return physical.parents[depth - 1]
     return Path(config_path).resolve().parent
 
 

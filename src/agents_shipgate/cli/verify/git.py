@@ -498,7 +498,9 @@ def detect_default_base(
     remote at all**, there is no such authority and the local branch is
     the only base in existence. Refusing there would leave `check` with
     nothing to compare on a repository that was simply never pushed
-    (#649). Off by default, so `verify` keeps its behaviour exactly.
+    (#649). Off by default; `verify` reaches it through
+    :func:`resolve_verify_base` only after the remote-only detection found
+    nothing (#1023).
 
     ``allow_equal_head`` keeps an authoritative default at ``head`` eligible
     for callers comparing the working tree or an explicitly requested head.
@@ -557,6 +559,52 @@ def detect_default_base_with_notes(
         selected_base_sha=selected_base_sha,
     )
     return DefaultBaseDetection(base=selected_base, notes=notes)
+
+
+@dataclass(frozen=True)
+class VerifyBaseResolution:
+    """What ``verify`` compares against when ``--base`` is omitted (#1023).
+
+    ``base`` is the ref to diff against. ``at_head`` names a default branch
+    that already points at the head: the comparison resolved, and there is
+    nothing committed to compare, so no base scan is spent on it. Both
+    ``None`` means no base exists to compare against at all, which ``verify``
+    refuses rather than publishing an empty diff as a complete one.
+    """
+
+    base: str | None
+    notes: list[str]
+    at_head: str | None = None
+
+    @property
+    def resolved(self) -> bool:
+        return self.base is not None or self.at_head is not None
+
+
+def resolve_verify_base(workspace: Path, head: str = "HEAD") -> VerifyBaseResolution:
+    """``check``'s base ladder (#649), keeping every base ``verify`` already chose.
+
+    The remote-only detection runs first and wins whenever it finds a base, so
+    a run that had one keeps exactly that one. Only when it finds none is the
+    ladder ``check`` uses consulted: a default branch at the head is a
+    resolved, empty comparison, and a repository with no remote at all falls
+    back to its local ``main`` or ``master``. Anything else is unresolved.
+    """
+
+    detection = detect_default_base_with_notes(workspace, head)
+    if detection.base is not None:
+        return VerifyBaseResolution(base=detection.base, notes=detection.notes)
+    ladder = detect_default_base_with_notes(
+        workspace,
+        head,
+        allow_local_when_no_remote=True,
+        allow_equal_head=True,
+    )
+    if ladder.base is None:
+        return VerifyBaseResolution(base=None, notes=ladder.notes)
+    if commit_sha(workspace, ladder.base) == commit_sha(workspace, head):
+        return VerifyBaseResolution(base=None, notes=detection.notes, at_head=ladder.base)
+    return VerifyBaseResolution(base=ladder.base, notes=ladder.notes)
 
 
 def _has_configured_remote(workspace: Path) -> bool:
@@ -2439,9 +2487,10 @@ def archive_tree(
     same links. Without a scope every blob is written; that once cost one
     ``git cat-file`` per file, 1,168 subprocesses and 25 seconds on a 26 MB
     repository whose host surface is four files (#686), and blobs are now
-    read in a few bounded ``cat-file --batch`` processes instead. A scoped
-    archive also packs the tree rather than the commit, so no history is
-    walked.
+    read in a few bounded ``cat-file --batch`` processes instead. Every
+    archive packs the tree rather than the commit, so no history is walked:
+    the commit's parents are not part of the snapshot, and a depth-1
+    checkout, which lacks them, archives its head like any other (#1023).
 
     Scoping changes what is *materialized*, never what is *verified*: every
     blob written is still checked against its object ID, and the isolated
@@ -2473,7 +2522,7 @@ def archive_tree(
                 workspace,
                 commit=commit,
                 git_dir=git_dir,
-                tree=tree if scope is not None else None,
+                tree=tree,
             )
         with _perf.phase("archive.materialize_scoped"):
             gitlinks = _materialize_isolated_tree(
@@ -2657,8 +2706,8 @@ def _copy_verified_commit_graph(
         raise ConfigError(f"Copied Git objects failed index validation: {detail}")
     # fsck the object the pack actually carries. A tree pack has no commit,
     # and asking for one that is not there fails the check for the wrong
-    # reason; a tree also has no parents, which is why a scoped archive works
-    # on a shallow clone where a commit walk crosses the graft (#683).
+    # reason; a tree also has no parents, which is why an archive works on a
+    # shallow clone where a commit walk crosses the graft (#683, #1023).
     with _perf.phase("archive.copy.fsck"):
         checked = _run_git_dir(
             git_dir,

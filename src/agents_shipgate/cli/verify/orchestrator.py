@@ -232,6 +232,7 @@ from .git import (
     require_merge_base_sha,
     resolve_source_head_identity,
     resolve_tree_path_identity,
+    resolve_verify_base,
     tree_sha,
     working_tree_context,
     working_tree_paths,
@@ -281,6 +282,157 @@ MAX_WORKTREE_CHANGED_FILE_BYTES = 64 * 1024 * 1024
 #: Deliberately excludes ``missing_manifest`` (first adoption: the base was
 #: read and has no gate) and the two states that never asked at all.
 _BASE_COMPARISON_FAILURES = frozenset({"ref_missing", "archive_failed", "scan_failed"})
+
+
+def _base_unresolved_route() -> tuple[VerifierDiffStatus, str, CodingAgentFetchBaseAction]:
+    """The stop for a base that was asked for and does not exist (#1023).
+
+    Without ``--base`` and without ``--no-base``, a run whose detection found
+    nothing used to read no committed change, publish that empty change set as
+    ``complete`` and grant merge: a pull request deleting the Shipgate workflow
+    on a ``develop`` repository was ``mergeable``. It is refused instead, with
+    the two flags that resolve it. The published vocabulary already has the
+    state (``ref_missing``, ``refs_missing``); ``base_unresolved`` names which
+    one this is, as other diff headlines name their reason.
+    """
+
+    headline = (
+        "No base ref could be detected (base_unresolved), so Shipgate read no "
+        "committed change and reached no verdict. Pass --base <ref> naming the "
+        "branch this change merges into, or --no-base to verify without a base."
+    )
+    status = VerifierDiffStatus(
+        completeness="unavailable",
+        reason="refs_missing",
+        detail=(
+            "base_unresolved: no base ref could be detected. Detection reads "
+            "origin/HEAD, origin/main and origin/master, and a local main or "
+            "master only in a repository with no remote; none is available here."
+        ),
+        remediation=(
+            "Pass --base <ref> naming the branch this change merges into once it "
+            "is available locally (in GitHub Actions, check out with "
+            "fetch-depth: 0 and set the Action's diff_base: target), or pass "
+            "--no-base to verify without a base, which compares no committed "
+            "change."
+        ),
+        fetch_repairable=True,
+    )
+    action = CodingAgentFetchBaseAction(
+        kind="fetch_base",
+        expects=(
+            "A local base ref for this change, passed as --base <ref>; or "
+            "--no-base to verify without one."
+        ),
+        why=headline,
+    )
+    return status, headline, action
+
+
+@dataclasses.dataclass(frozen=True)
+class _ManifestRemoval:
+    """What the compared side says about a manifest the evaluated tree lacks.
+
+    ``removed``: the comparison commit holds the configured manifest and the
+    evaluated tree does not, so this change removes the gate. ``absent``: no
+    compared commit is shown to hold one, which is setup's question.
+    ``unresolved``: no base exists to ask. ``unknown``: the base holds the
+    manifest and its merge base could not be read, and ``failure`` says why.
+    """
+
+    state: str
+    base: str | None = None
+    comparison: str | None = None
+    failure: DiffContext | None = None
+    notes: tuple[str, ...] = ()
+
+
+def _probe_manifest_removal(
+    *,
+    git_root: Path,
+    config_relative: Path,
+    base: str | None,
+    head: str,
+    archive_head: bool,
+    auto_base: bool,
+) -> _ManifestRemoval:
+    """Whether a missing manifest is a removed gate, before any setup route (#1023).
+
+    The setup route (``configure``, then ``init --write``) is right only where
+    no Shipgate gate existed. Deleting a committed ``shipgate.yaml`` reached it
+    too, and without a resolvable base an advisory run then exited 0. The
+    base is resolved exactly as a configured run resolves it, and the
+    comparison is the merge base, as a configured run's is: a manifest the
+    base added after this branch forked is not one this change removes. With
+    no base requested, a working-tree run still compares against ``HEAD``.
+    """
+
+    notes: tuple[str, ...] = ()
+    at_head: str | None = None
+    if base is None and auto_base:
+        resolution = resolve_verify_base(git_root, head)
+        notes = tuple(resolution.notes)
+        if not resolution.resolved:
+            return _ManifestRemoval(state="unresolved", notes=notes)
+        base, at_head = resolution.base, resolution.at_head
+    if base is not None:
+        try:
+            comparison: str | None = require_merge_base_sha(git_root, base, head)
+        except DiffInputError as exc:
+            # Only a base that holds the manifest can make this a removal. A
+            # named base that is not here at all keeps the missing-config
+            # precedence the setup and host routes already give it.
+            if path_present_at_ref(git_root, base, config_relative) is not True:
+                return _ManifestRemoval(state="absent", base=base, notes=notes)
+            return _ManifestRemoval(
+                state="unknown", base=base, failure=exc.context, notes=notes
+            )
+    elif archive_head and at_head is None:
+        # An explicit head with --no-base compares nothing at all.
+        return _ManifestRemoval(state="absent", notes=notes)
+    else:
+        comparison = commit_sha(git_root, head)
+    present = (
+        path_present_at_ref(git_root, comparison, config_relative)
+        if comparison is not None
+        else None
+    )
+    if present is None:
+        return _ManifestRemoval(
+            state="unknown",
+            base=base,
+            failure=DiffContext(
+                completeness="unavailable",
+                reason="git_failed",
+                detail=(
+                    "Git could not say whether the compared commit holds "
+                    f"{config_relative.as_posix()}."
+                ),
+            ),
+            notes=notes,
+        )
+    if not present:
+        return _ManifestRemoval(state="absent", base=base, notes=notes)
+    if archive_head and path_present_at_ref(git_root, head, config_relative) is not False:
+        # The requested head still holds it; only this checkout lacks it.
+        return _ManifestRemoval(state="absent", base=base, notes=notes)
+    return _ManifestRemoval(state="removed", base=base, comparison=comparison, notes=notes)
+
+
+def _manifest_removal_headline(
+    manifest: str, *, base: str | None, comparison: str
+) -> str:
+    holder = (
+        f"its merge base with {base} ({comparison[:12]})"
+        if base is not None
+        else f"the head commit ({comparison[:12]})"
+    )
+    return (
+        f"Shipgate manifest removed: this change removes {manifest}, which "
+        f"{holder} holds, so the release gate would stop running. A human must "
+        "approve removing Shipgate; do not delete the manifest to get past the "
+        "gate."
+    )
 
 
 def _configured_manifest_provenance(
@@ -473,6 +625,134 @@ def run_verify(
         rerun_options.extend(["--openshell-proof-config", shlex.quote(str(openshell_proof_config))])
     if openshell_proof_required:
         rerun_options.append("--openshell-proof-required")
+
+    def publish_unscanned(
+        *,
+        base_ref: str | None,
+        base_status: VerifierBaseStatus,
+        diff_status: VerifierDiffStatus,
+        headline: str,
+        action: AgentControlAction,
+        notes: Sequence[str],
+    ) -> tuple[VerifierArtifact, None, int]:
+        """Publish a run that stopped before any scan, on its one route (#1023)."""
+
+        verifier = _build_verifier(
+            git_root=git_root,
+            config_path=config_path,
+            base=base_ref,
+            head=head,
+            changed_files=[],
+            diff_text="",
+            trigger=evaluate(
+                paths=[],
+                diff_text="",
+                manifest_present=config_path.is_file(),
+                user_requested=True,
+                input_status=INPUT_UNAVAILABLE,
+            ),
+            base_status=base_status,
+            base_tree=None,
+            diff_status=diff_status,
+            base_report=None,
+            base_notes=list(notes),
+            report=None,
+            head_status="failed",
+            head_exit_code=2,
+            out_dir=out_dir,
+            manifest_provenance_value=configured_manifest_provenance,
+            ci_mode=ci_mode,
+            headline_override=headline,
+            first_next_action_override=action,
+            worktree=not archive_head,
+            rerun_options=rerun_options,
+        )
+        _remove_scan_artifacts(out_dir)
+        _write_artifacts(
+            verifier,
+            verifier_path,
+            verify_run_path,
+            pr_comment_path,
+            report=None,
+            git_root=git_root,
+            manifest_provenance_value=configured_manifest_provenance,
+            config_path=config_path,
+            config_logical_path=config_relative.as_posix(),
+            baseline_path=baseline_path,
+            policy_pack_paths=policy_pack_paths or [],
+            plugins_enabled=plugins_enabled,
+            no_heuristics=no_heuristics,
+            fail_on=fail_on,
+            pr_comment_style=pr_comment_style,
+        )
+        return verifier, None, 2
+
+    if not config_path.is_file() and ref_exists(git_root, head):
+        # A deleted manifest is a removed gate, never first adoption, and a
+        # base that cannot be read cannot show which of the two this is.
+        removal = _probe_manifest_removal(
+            git_root=git_root,
+            config_relative=config_relative,
+            base=base,
+            head=head,
+            archive_head=archive_head,
+            auto_base=auto_base,
+        )
+        if removal.state == "unresolved":
+            status, headline, action = _base_unresolved_route()
+            return publish_unscanned(
+                base_ref=None,
+                base_status="ref_missing",
+                diff_status=status,
+                headline=headline,
+                action=action,
+                notes=[*removal.notes, status.detail or headline],
+            )
+        if removal.state == "unknown":
+            assert removal.failure is not None
+            failure = removal.failure
+            return publish_unscanned(
+                base_ref=removal.base,
+                base_status=(
+                    "ref_missing" if failure.reason == "refs_missing" else "archive_failed"
+                ),
+                diff_status=_diff_status_artifact(failure),
+                headline=_diff_failure_headline(failure) or failure.note,
+                action=_diff_failure_action(
+                    failure, expects=f"{removal.base}...{head}"
+                ),
+                notes=[
+                    *removal.notes,
+                    "Could not establish whether the compared commit holds "
+                    f"{config_relative.as_posix()}. {failure.note}",
+                ],
+            )
+        if removal.state == "removed":
+            assert removal.comparison is not None
+            headline = _manifest_removal_headline(
+                config_relative.as_posix(),
+                base=removal.base,
+                comparison=removal.comparison,
+            )
+            return publish_unscanned(
+                base_ref=removal.base,
+                base_status="skipped" if removal.base is not None else "not_requested",
+                diff_status=VerifierDiffStatus(
+                    completeness="unavailable",
+                    reason="not_attempted",
+                    detail=(
+                        "verify stopped at the removed manifest; the rest of the "
+                        "change was not read."
+                    ),
+                    remediation=(
+                        "A human decides whether Shipgate may be removed. To "
+                        "verify the change instead, restore the manifest and rerun."
+                    ),
+                ),
+                headline=headline,
+                action=HumanControlAction(kind="stop", why=headline),
+                notes=[*removal.notes, headline],
+            )
 
     if not config_path.is_file():
         from .host_comparison import compare_host_refs, host_comparison_failure
@@ -690,13 +970,26 @@ def run_verify(
     verification_date = commit_date(git_root, head)
 
     if base is None and auto_base:
-        detection = detect_default_base_with_notes(git_root, head)
+        detection = resolve_verify_base(git_root, head)
         base_notes.extend(detection.notes)
         if detection.base is not None:
             base = detection.base
             base_notes.append(
                 f"Auto-detected base {detection.base!r} for diff context; "
                 "pass --base to override or --no-base to disable."
+            )
+        elif not detection.resolved:
+            # Nothing to compare against is not an empty comparison: the
+            # committed change was never read, so no diff can be published as
+            # complete and no merge granted on it (#1023).
+            status, headline, action = _base_unresolved_route()
+            return publish_unscanned(
+                base_ref=None,
+                base_status="ref_missing",
+                diff_status=status,
+                headline=headline,
+                action=action,
+                notes=[*base_notes, status.detail or headline],
             )
 
     base_exists = False
@@ -6209,7 +6502,7 @@ def _reject_output_directory_content(
         if not archive_head:
             bases = [base] if base is not None else []
             if base is None and auto_base:
-                bases.append(detect_default_base_with_notes(git_root, head).base)
+                bases.append(resolve_verify_base(git_root, head).base)
                 if manifest_free and head_commit is not None:
                     bases.append(
                         detect_default_base(
