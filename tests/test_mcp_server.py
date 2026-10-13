@@ -21,6 +21,7 @@ from agents_shipgate.mcp_server import (
     shipgate_handoff,
     shipgate_preflight,
 )
+from tests.plugin_marker_fixture import install_marker_adapter_plugin
 
 _HAS_MCP_SDK = importlib.util.find_spec("mcp") is not None
 
@@ -248,6 +249,36 @@ def test_mcp_capabilities_handler_does_not_write_reports(tmp_path: Path) -> None
 
     assert payload["capability_lock_schema_version"] == "0.8"
     assert _snapshot(workspace) == before
+
+
+def test_mcp_capabilities_loads_adapter_plugins_only_on_the_opt_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The read-only `shipgate.capabilities` tool runs no plugin by default.
+
+    Its default `no_plugins=False` reached the lock builder as an explicit
+    `plugins_enabled=True`, so an agent host that auto-approves a read-only
+    tool imported every installed adapter plugin with the opt-in unset, where
+    `scan` and `verify` imported none (#1020).
+    """
+
+    marker = install_marker_adapter_plugin(tmp_path, monkeypatch)
+    workspace = tmp_path / "wk"
+    shutil.copytree("samples/clean_read_only_agent", workspace)
+
+    payload = shipgate_capabilities(config=str(workspace / "shipgate.yaml"))
+
+    assert not marker.exists(), "an adapter plugin was imported without the opt-in"
+    assert payload["source"]["plugins_enabled"] is False
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_ENABLE_PLUGINS", "1")
+    payload = shipgate_capabilities(config=str(workspace / "shipgate.yaml"), no_plugins=True)
+    assert not marker.exists(), "no_plugins must win over the opt-in"
+    assert payload["source"]["plugins_enabled"] is False
+
+    payload = shipgate_capabilities(config=str(workspace / "shipgate.yaml"))
+    assert marker.exists(), "the fake plugin must be discoverable once opted in"
+    assert payload["source"]["plugins_enabled"] is True
 
 
 def test_mcp_handoff_handler_is_read_only(tmp_path: Path) -> None:

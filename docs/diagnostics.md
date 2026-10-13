@@ -61,7 +61,7 @@ recovery loop stays runnable in the environment that produced it:
 | ------------------------------------- | ----------------------------------------------- |
 | `AGENTS_SHIPGATE_CLI` set             | That value, split with `shlex` — highest precedence. The same override the Claude Code hook installer honours. An explicit entry point is always spliced in, including `AGENTS_SHIPGATE_CLI=/private/venv/bin/agents-shipgate`: the program *name* matches a console script, but the operator named that wrapper, not whichever one `PATH` resolves. |
 | `agents-shipgate …` / `shipgate …`    | The same console script the command was written with — unchanged. |
-| `python -m agents_shipgate …`         | `<sys.executable> -m agents_shipgate …`. The interpreter is spelled by path, not as a bare `python`, because a bare name resolves through `PATH` and can land on a different interpreter. |
+| `python -m agents_shipgate …`         | `<sys.executable> -P -m agents_shipgate …`. The interpreter is spelled by path, not as a bare `python`, because a bare name resolves through `PATH` and can land on a different interpreter. `-P` keeps the working directory off `sys.path`: the command is run from the repository under review, where plain `python -m` would import a committed `yaml/` or `agents_shipgate/` package first. |
 | Anything else                         | The canonical `agents-shipgate`. An unrecognised argv is not evidence of a better spelling. |
 
 `command` never contains `__main__.py`.

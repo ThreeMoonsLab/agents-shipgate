@@ -9,7 +9,9 @@ the bundled samples and pin the structured-summary shape.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -59,6 +61,85 @@ def test_bootstrap_chains_against_simple_openai_api_sample(tmp_path):
     assert rd is not None, "Bootstrap must read release_decision from report.json"
     assert rd["decision"] in {"blocked", "review_required", "passed"}
     assert result["report_path"], "report_path must point at the emitted report"
+
+
+def test_bootstrap_never_imports_packages_committed_in_the_workspace(tmp_path):
+    """Each step runs inside the workspace, and none imports code from it.
+
+    Bootstrap re-entered the CLI as ``python -m agents_shipgate`` with the
+    workspace as the working directory, and ``python -m`` puts that directory
+    first on ``sys.path``. A repository that committed a ``yaml/`` package
+    therefore ran it before ``detect`` read a byte — and an
+    ``agents_shipgate/`` package replaced Shipgate itself (#1020). The steps
+    now run with ``-P`` and finish without importing either.
+    """
+
+    workspace = _copy_sample(SIMPLE_OPENAI_API, tmp_path / "repo")
+    markers = {}
+    for package in ("yaml", "agents_shipgate"):
+        marker = tmp_path / f"{package}.imported"
+        markers[package] = marker
+        (workspace / package).mkdir()
+        (workspace / package / "__init__.py").write_text(
+            "import pathlib\n"
+            f"pathlib.Path({str(marker)!r}).write_text('ran', encoding='utf-8')\n"
+            "raise ImportError('a package committed in the scanned workspace')\n",
+            encoding="utf-8",
+        )
+
+    result = bootstrap_run(workspace=workspace, ci=False, apply=True, confidence="high")
+
+    imported = sorted(name for name, marker in markers.items() if marker.exists())
+    assert not imported, f"bootstrap imported workspace packages: {imported}"
+    assert result["stopped"] is False, result["stop_reason"]
+    assert [s["label"] for s in result["steps"]] == [
+        "detect",
+        "init",
+        "scan",
+        "apply-patches",
+    ]
+    assert result["release_decision"] is not None
+    for step in result["steps"]:
+        assert step["argv"][:4] == [sys.executable, "-P", "-m", "agents_shipgate"], step[
+            "argv"
+        ]
+
+
+def test_a_relative_pythonpath_does_not_reach_into_the_workspace(tmp_path, monkeypatch):
+    """``-P`` drops the working directory, not a relative ``PYTHONPATH``.
+
+    Python resolves a relative or empty ``PYTHONPATH`` entry against the
+    working directory, which for every step is the workspace. So
+    ``PYTHONPATH=src`` — the documented way to run a checkout without the
+    launcher — would have each step import ``<workspace>/src/yaml`` (#1020).
+    The entries are anchored where bootstrap itself was started.
+    """
+
+    workspace = _copy_sample(SIMPLE_OPENAI_API, tmp_path / "repo")
+    markers = []
+    for label, directory in (("src", workspace / "src"), ("root", workspace)):
+        marker = tmp_path / f"yaml-in-{label}.imported"
+        markers.append(marker)
+        package = directory / "yaml"
+        package.mkdir(parents=True)
+        (package / "__init__.py").write_text(
+            "import pathlib\n"
+            f"pathlib.Path({str(marker)!r}).write_text('ran', encoding='utf-8')\n"
+            "raise ImportError('a package committed in the scanned workspace')\n",
+            encoding="utf-8",
+        )
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    # Keep whatever lets this suite import Shipgate, then add one relative and
+    # one empty entry — both of which name the workspace from a step's view.
+    inherited = [entry for entry in os.environ.get("PYTHONPATH", "").split(os.pathsep) if entry]
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([*inherited, "src", ""])}
+
+    result = bootstrap_run(workspace=workspace, ci=False, apply=False, env=env)
+
+    assert [marker.name for marker in markers if marker.exists()] == []
+    assert result["stopped"] is False, result["stop_reason"]
 
 
 def test_bootstrap_skips_when_no_agent_surface(tmp_path):

@@ -48,7 +48,9 @@ _MODULE = SimpleNamespace(
 
 
 def _module_prefix() -> tuple[str, ...]:
-    return (sys.executable, "-m", "agents_shipgate")
+    # `-P` keeps the working directory off the child's sys.path; the emitted
+    # command is run from the repository under review (#1020).
+    return (sys.executable, "-P", "-m", "agents_shipgate")
 
 
 # --------------------------------------------------------------------------
@@ -396,7 +398,7 @@ def test_split_invocation_separates_the_entry_point_from_its_arguments() -> None
 def test_split_invocation_carries_a_multi_token_entry_point() -> None:
     command = retarget_command("agents-shipgate verify --json", prefix=_module_prefix())
     assert split_invocation(command, prefix=_module_prefix()) == (
-        [sys.executable, "-m", "agents_shipgate"],
+        [sys.executable, "-P", "-m", "agents_shipgate"],
         ["verify", "--json"],
     )
 
@@ -572,7 +574,46 @@ def test_module_run_recovery_commands_stay_on_python_m(tmp_path: Path) -> None:
         if action["kind"] != "command":
             continue
         assert action["command"].startswith(prefix)
-        assert action["executable"] == [sys.executable, "-m", "agents_shipgate"]
+        assert action["executable"] == [sys.executable, "-P", "-m", "agents_shipgate"]
+
+
+def test_a_followed_recovery_command_does_not_import_the_repository(tmp_path: Path) -> None:
+    """An emitted ``python -m`` command runs Shipgate, not the repository's code.
+
+    Recovery commands are followed from the repository root, and plain
+    ``python -m`` puts that directory first on ``sys.path``: a committed
+    ``yaml/`` or ``agents_shipgate/`` package would run in place of the real
+    one. The emitted spelling carries ``-P`` (#1020).
+    """
+
+    result = _run_module("scan", "-c", "missing.yaml", "--format", "json", cwd=tmp_path)
+    action = next(
+        item
+        for item in _agent_mode_line(result.stderr)["next_actions"]
+        if item["kind"] == "command"
+    )
+    markers = []
+    for package in ("yaml", "agents_shipgate"):
+        marker = tmp_path / f"{package}.imported"
+        markers.append(marker)
+        (tmp_path / package).mkdir()
+        (tmp_path / package / "__init__.py").write_text(
+            f"import pathlib\npathlib.Path({str(marker)!r}).write_text('ran')\n",
+            encoding="utf-8",
+        )
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(REPO_ROOT / "src")
+    subprocess.run(
+        [*action["executable"], *action["args"]],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        env=env,
+        cwd=str(tmp_path),
+    )
+
+    assert [marker.name for marker in markers if marker.exists()] == []
 
 
 def test_the_recommended_command_actually_runs(tmp_path: Path) -> None:

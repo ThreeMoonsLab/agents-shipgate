@@ -19,6 +19,7 @@ from agents_shipgate.core.capability_lock import (
 )
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.logging import configure_logging
+from agents_shipgate.inputs.protocol import _adapter_plugins_enabled
 
 capability_app = typer.Typer(
     help=(
@@ -163,10 +164,19 @@ def build_capability_lock_from_config(
 ):
     """Build a static capability lock from a manifest path.
 
-    Shared by the CLI command and internal benchmark scripts. This stops at
-    static tool loading plus typed action construction; it does not run
-    findings, write reports, invoke verify, or gate.
+    Shared by the CLI command, the read-only ``shipgate.capabilities`` MCP
+    tool and internal benchmark scripts. This stops at static tool loading
+    plus typed action construction; it does not run findings, write reports,
+    invoke verify, or gate.
+
+    Third-party adapters load only on the same opt-in ``scan`` and ``verify``
+    honour: ``AGENTS_SHIPGATE_ENABLE_PLUGINS``, with ``no_plugins`` forcing
+    them off. Passing ``True`` here instead bypassed that opt-in, so any
+    installed package declaring an adapter entry point ran from a tool
+    documented as read-only (#1020). The lock records the effective value.
     """
+
+    plugins_override = False if no_plugins else None
 
     resolved = _prepare_scan(
         config_path=config,
@@ -184,7 +194,7 @@ def build_capability_lock_from_config(
         config_path=config,
         policy_pack_paths=None,
         verbose=verbose,
-        plugins_enabled=not no_plugins,
+        plugins_enabled=plugins_override,
     )
     tools_and_agent = _build_tools_and_agent(
         manifest=resolved.manifest,
@@ -200,7 +210,7 @@ def build_capability_lock_from_config(
         source_count=len(inputs.loaded_sources),
         source_warning_count=len(tools_and_agent.warnings),
         toolkit_bound_count=len(tools_and_agent.toolkit_bounds),
-        plugins_enabled=not no_plugins,
+        plugins_enabled=_adapter_plugins_enabled(plugins_override),
     )
 
 

@@ -242,18 +242,31 @@ def test_current_schema_trackers_name_the_current_schema_file():
     )
 
 
-def test_trust_model_documents_bounded_git_discovery_exception():
-    """The trust model must keep the local git subprocess exception explicit.
+def test_trust_model_documents_its_process_boundaries():
+    """The trust model names its process boundaries rather than denying them.
 
-    Discovery can use git to avoid private/cache/generated workspace noise, but
-    the no-user-code/no-network boundary still holds.
+    It used to say Shipgate shells out only for bounded `git` discovery in
+    `detect` and auto-init, and this test pinned that sentence while `verify`,
+    `bootstrap`, `authorization execute` and the native prover all started
+    processes (#1020). The list itself is checked against the source by
+    `tests/test_adapter_static_only.py::test_trust_model_lists_every_process_boundary`;
+    this pins the claims a reader acts on.
     """
     text = (DOCS_DIR / "trust-model.md").read_text(encoding="utf-8")
-    assert "- shell out to subprocesses;" not in text
-    assert "bounded local `git` discovery" in text
+    assert "- shell out to subprocesses" not in text
+    assert "except for bounded local `git` discovery" not in text
+    assert "[Process Boundaries](#process-boundaries)" in text
+    assert "\n## Process Boundaries\n" in text
+    # Discovery's Git use keeps its own, narrower statement.
     assert "`rev-parse` and `ls-files`" in text
     assert "does not contact remotes" in text
     assert "run framework CLIs" in text
+    # bootstrap's child CLI and the one network-capable process are named.
+    assert "`<sys.executable> -P -m agents_shipgate`" in text
+    assert "network-capable" in text
+    # The plugin opt-in covers the read-only MCP tool and capability export.
+    assert "`shipgate.capabilities`" in text
+    assert "`capability export`" in text
 
 
 def test_target_repo_snippets_pin_advisory_agent_contract():

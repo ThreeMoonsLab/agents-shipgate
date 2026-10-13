@@ -26,6 +26,7 @@ from agents_shipgate.schemas.capabilities import (
     CapabilityFactV1,
 )
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+from tests.plugin_marker_fixture import install_marker_adapter_plugin
 
 runner = CliRunner()
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -498,6 +499,44 @@ def test_capability_export_writes_default_lock_and_report_copy(
     payload = json.loads(committed.read_text(encoding="utf-8"))
     assert payload["summary"]["capability_count"] == 2
     assert "Wrote capability lock" in result.output
+
+
+def test_capability_export_loads_adapter_plugins_only_on_the_opt_in(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`capability export` honours AGENTS_SHIPGATE_ENABLE_PLUGINS like `scan`.
+
+    It passed an explicit `plugins_enabled=True` unless `--no-plugins` was
+    given, so any installed package declaring an adapter entry point was
+    imported — and ran — with the opt-in unset (#1020). The lock records the
+    value that took effect, not the absence of `--no-plugins`.
+    """
+
+    marker = install_marker_adapter_plugin(tmp_path, monkeypatch)
+    project = tmp_path / "project"
+    project.mkdir()
+    _write_project(project)
+    monkeypatch.chdir(project)
+
+    result = runner.invoke(app, ["capability", "export", "-c", "shipgate.yaml", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert not marker.exists(), "an adapter plugin was imported without the opt-in"
+    assert json.loads(result.stdout)["source"]["plugins_enabled"] is False
+
+    monkeypatch.setenv("AGENTS_SHIPGATE_ENABLE_PLUGINS", "1")
+    no_plugins = runner.invoke(
+        app, ["capability", "export", "-c", "shipgate.yaml", "--json", "--no-plugins"]
+    )
+    assert no_plugins.exit_code == 0, no_plugins.output
+    assert not marker.exists(), "--no-plugins must win over the opt-in"
+    assert json.loads(no_plugins.stdout)["source"]["plugins_enabled"] is False
+
+    opted_in = runner.invoke(app, ["capability", "export", "-c", "shipgate.yaml", "--json"])
+    assert opted_in.exit_code == 0, opted_in.output
+    assert marker.exists(), "the fake plugin must be discoverable once opted in"
+    assert json.loads(opted_in.stdout)["source"]["plugins_enabled"] is True
 
 
 def test_capability_diff_cli_exits_zero_when_differences_exist(tmp_path: Path) -> None:
