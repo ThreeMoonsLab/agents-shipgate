@@ -45,6 +45,14 @@ MAX_COVERAGE_ITEMS = 10
 #: ``blocking_limit`` item's ``scope`` is the document's own path and its
 #: ``limit`` is ``unsupported`` (a withheld hook script's is ``unreadable``,
 #: #702). docs/host-boundary-support.md and STABILITY.md describe it.
+#:
+#: Schema-frozen note (#1027): a ``changed_without_grant_change`` or
+#: ``changed_without_rows`` item may now carry ``detail``, naming the keys of a
+#: Claude Code settings file that no reader of this entry compares and whose
+#: digest differs between the sides (``keys this entry does not compare: …``).
+#: ``detail`` was already an optional string on every item, so the published
+#: v0.21 schema is unchanged; only this model's cross-field rule is wider.
+UNMODELLED_DETAIL_STATUSES = frozenset({"changed_without_grant_change", "changed_without_rows"})
 
 #: The sentence a blocking limit's ``detail`` ends with when both sides carry
 #: it (#973), keyed by whether Git shows the file changed in this change:
@@ -259,6 +267,10 @@ class HostComparisonCoverageItem(BaseModel):
                 raise ValueError(
                     "an unresolved hook script names its handlers and publishes no rows"
                 )
+        elif self.status in UNMODELLED_DETAIL_STATUSES and self.detail is not None:
+            # A change in keys no reader compares, named (#1027).
+            if self.limit is not None or self.candidate is not None or self.rows:
+                raise ValueError("a change no row describes names no limit kind and no rows")
         elif self.limit is not None or self.detail is not None or self.candidate is not None:
             raise ValueError("only a blocking limit names a limit kind or detail")
         if (

@@ -22,6 +22,7 @@ from agents_shipgate.core.hook_script_reference import NO_REPOSITORY_REFERENCE_L
 from agents_shipgate.core.host_grants import (
     _CLAUDE_PROJECT_SETTINGS_SOURCES,
     _PATH_REDACTION_MARKER,
+    DISPLAY_ONLY_ARTIFACT_FIELDS,
     LOADED_HOOK_BASES,
     PluginScopeFacts,
     _issue_source_label,
@@ -868,9 +869,41 @@ def _no_grant_change_shown(
         return False
     if before is None or after is None:
         return True
-    return {key: value for key, value in before.items() if key != "redacted_sha256"} == {
-        key: value for key, value in after.items() if key != "redacted_sha256"
+    # The keys no reader compares (#1027) move with that digest; they are
+    # named in the item's detail, not read as a change in a compared grant.
+    unread = {"redacted_sha256", *DISPLAY_ONLY_ARTIFACT_FIELDS}
+    return {key: value for key, value in before.items() if key not in unread} == {
+        key: value for key, value in after.items() if key not in unread
     }
+
+
+#: The most keys no reader compares a coverage item names (#1027).
+MAX_UNMODELLED_KEYS_NAMED = 5
+
+
+def _unmodelled_changes(read: list[list[dict[str, Any]]]) -> str | None:
+    """A coverage detail naming the keys no reader compares that differ between the sides (#1027).
+
+    ``read`` is each side's artifacts for one file. Read off the
+    ``unmodelled_keys`` a Claude Code settings artifact publishes: a key whose
+    digest differs, or which only one side has. ``None`` when none does, as
+    for a redacted value's edit, which moves neither digest.
+    """
+
+    sides = [
+        {
+            (str(entry["key"]), str(entry["sha256"]))
+            for artifact in artifacts
+            for entry in artifact.get("unmodelled_keys") or []
+        }
+        for artifacts in read
+    ]
+    changed = sorted({key for key, _digest in sides[0] ^ sides[1]})
+    if not changed:
+        return None
+    named = ", ".join(changed[:MAX_UNMODELLED_KEYS_NAMED])
+    more = len(changed) - MAX_UNMODELLED_KEYS_NAMED
+    return f"keys this entry does not compare: {named}" + (f" and {more} more" if more > 0 else "")
 
 
 def _compared_coverage(
@@ -1050,6 +1083,12 @@ def _compared_facts(
         )
         item["hosts"].add(host)
         item["rows"] += count
+        if not count and status in {"changed_without_grant_change", "changed_without_rows"}:
+            # A change in keys no reader compares is named, never read as no
+            # change (#1027).
+            detail = _unmodelled_changes([by_key.get(key, []) for by_key in published])
+            if detail:
+                item["detail"] = detail
     return facts
 
 

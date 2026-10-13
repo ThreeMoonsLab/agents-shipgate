@@ -37,6 +37,15 @@ unreleased, gains two optional members on a reusable call. No control state
 or `check` decision changes. See
 [the migration note](#actions-token-scopes-921).
 
+Also unreleased: Claude Code settings that run a command (`statusLine`,
+`apiKeyHelper` and five more) and `env` entries that redirect requests or load
+code (`ANTHROPIC_BASE_URL`, `NODE_OPTIONS`, …) are host grants and rows
+(#1027). Host-grants `0.9`, unreleased, gains `command_setting` and `env`
+grants and a display-only `unmodelled_keys` on settings artifacts; a settings
+file that changed with no row headlines `Changed, not compared` instead of
+`No static host-grant changes detected`. No `check` decision changes. See
+[the migration note](#host-commands-env-1027).
+
 New in 1.2.0, #829 adds a source-local residual-prefix explanation to the existing
 host comparison row `why` text for supported Claude Code `git push` allows.
 It reads all compared head deny rules in that source, including unchanged
@@ -344,6 +353,70 @@ defaults. The stable/provisional inventory, the `1.x` rules and the migration
 from the shipped `v0.15.0` contract are in
 [`docs/report-1-0-contract.md`](docs/report-1-0-contract.md). Pin a version (or
 the Action tag) for reproducible CI.
+
+---
+
+<a id="host-commands-env-1027"></a>
+
+## Migration Note: Unreleased — Claude Code commands and endpoint `env` entries are grants, and a settings change no row shows is not "no change" (host-grants `0.9`, #1027)
+
+**What was wrong.** Claude Code runs `statusLine.command` and `apiKeyHelper`
+as shell commands, and an `env` entry such as `ANTHROPIC_BASE_URL` or
+`NODE_OPTIONS` redirects its requests or injects code. No reader published a
+grant for them, so adding `"statusLine": {"command": "curl … | sh"}` to
+`.claude/settings.json` gave no row: `diff`, `verify`'s host comparison and
+the PR comment headlined `No static host-grant changes detected. No verdict is
+implied.`, and `audit --host` reported Claude Code coverage `complete`. Since
+1.1.0 (#812) the coverage item said `changed_without_grant_change` with a note
+blaming redaction, which was not why `statusLine` went unread. `check` already
+routed the edit to review, so no gate was bypassed.
+
+**What changes.**
+
+- **Grants.** Host-grants `0.9`, extended in place (it has not shipped in a
+  tagged release), gains two grant kinds for Claude Code settings files:
+  `command_setting` (`statusLine`, `subagentStatusLine`, `fileSuggestion`,
+  `apiKeyHelper`, `otelHeadersHelper`, `awsAuthRefresh`,
+  `awsCredentialExport`; `execute`/`high`, with a display-only `command` as
+  a hook handler's) and `env` (endpoint, trust and loader names only, `high`,
+  the value digested and never published). Adding one is a widening, editing
+  one a `changed` row of unknown direction. Both merge across settings layers.
+- **Artifacts.** A parsed Claude Code settings artifact gains display-only
+  `unmodelled_keys`: each key no reader compares, with a digest. Artifact
+  equality, the inventory digests and saved baselines leave it out, so
+  `base_inventory_sha256`, `head_inventory_sha256` and a baseline's
+  `inventory_sha256` move only where the new grants do.
+- **Coverage.** A `changed_without_grant_change` or `changed_without_rows`
+  item may carry `detail`, naming the keys no reader compares that changed
+  (`keys this entry does not compare: …`). Verifier `0.21`'s schema already
+  allowed a `detail` on every item and is unchanged; a reader that applied this
+  engine's earlier cross-field rule would refuse such an item. The redacted-
+  values note now reads `(redacted values, such as env values this entry does
+  not model, are not compared)`.
+- **Headline.** A comparable comparison with no row in which a settings, MCP or
+  hook file changed reads `Changed, not compared: <file> (<keys>). No
+  host-grant row describes this change. No verdict is implied.` in `diff`,
+  `verify --format text` and the PR comment, where it read `No static
+  host-grant changes detected`. That headline is kept where no such file
+  changed; a workflow or instruction document keeps its own coverage line.
+- **Coverage partial.** A Claude Code settings key no reader compares that is
+  shaped as a command (an object holding a string `command`, or a string under
+  a `…Helper` key) is a blocking `unsupported` issue, as `policyHelper` is, so
+  `audit --host` reports Claude Code `partial`, a baseline cannot be saved, and
+  a comparison of a change to that file is refused.
+
+**What does not change.** No CLI flag, check ID, control state, permission or
+`check` decision. `minimum_control_contract_version` stays `21`. An `env`
+entry other than those names keeps its value redacted, so rotating a token
+there is quiet, and an MCP server's `env` is unchanged.
+
+**Who must act.** A saved host-grants baseline from a file that declares one of
+these settings or `env` names reads them as added on the first drift after
+upgrading: review them and re-save with `audit --host --save-baseline`. A
+consumer matching the old headline or the old redacted-values note on a
+zero-row comparison reads the new text. A file holding a command-shaped key
+this entry does not model must have the key removed, or wait for a reader,
+before its comparison is complete.
 
 ---
 

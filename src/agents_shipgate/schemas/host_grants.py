@@ -1397,6 +1397,45 @@ class HostHookGrantV9(HostHookGrantV7):
     handlers: list[HostHookHandlerV9] | None
 
 
+class HostCommandSettingGrantV9(HostGrantBaseV2):
+    """A Claude Code setting whose value the host runs as a shell command (#1027).
+
+    ``setting`` is ``statusLine``, ``subagentStatusLine`` or
+    ``fileSuggestion``, whose object's ``command`` Claude Code runs, or
+    ``apiKeyHelper``, ``otelHeadersHelper``, ``awsAuthRefresh`` or
+    ``awsCredentialExport``, whose string it runs. ``config_sha256`` digests
+    the whole value, as every grant's does, so a change to any field of it is
+    a row. ``command`` is that command as a hook handler's is published
+    (:class:`HostHookCommandV9`): the executable's name, a digest and a
+    shape, never its text, and absent when the value holds no string command.
+    Like a hook's handlers it is display-only: left out of grant equality,
+    the inventory digests and saved baselines. Extended in place: ``0.9`` has
+    not shipped in a tagged release.
+    """
+
+    kind: Literal["command_setting"] = "command_setting"
+    setting: str
+    command: HostHookCommandV9 | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class HostEnvGrantV9(HostGrantBaseV2):
+    """A Claude Code ``env`` entry that redirects requests, changes trust or loads code (#1027).
+
+    Published only for a name the settings reader models: a ``*_BASE_URL``,
+    an OpenTelemetry exporter endpoint, ``HTTP_PROXY`` or ``HTTPS_PROXY``,
+    ``NODE_EXTRA_CA_CERTS``, ``NODE_TLS_REJECT_UNAUTHORIZED``,
+    ``NODE_OPTIONS``, ``BASH_ENV``, ``CLAUDE_CODE_SHELL_PREFIX``,
+    ``LD_PRELOAD`` or ``DYLD_INSERT_LIBRARIES``. The value is never
+    published: ``config_sha256`` is its digest as every grant's input holds
+    it, with credential shapes and a URL's path withheld, so a value change is
+    a ``changed`` row. Extended in place: ``0.9`` has not shipped in a tagged
+    release.
+    """
+
+    kind: Literal["env"] = "env"
+    name: str
+
+
 HostGrantV9 = Annotated[
     HostMcpServerGrantV9
     | HostPermissionRuleGrantV9
@@ -1409,7 +1448,9 @@ HostGrantV9 = Annotated[
     | HostRequirementGrantV2
     | HostWorkflowGrantV9
     | HostInstructionGrantV2
-    | HostOpenShellPolicyGrantV9,
+    | HostOpenShellPolicyGrantV9
+    | HostCommandSettingGrantV9
+    | HostEnvGrantV9,
     Field(discriminator="kind"),
 ]
 HostBaselineGrantV9 = Annotated[
@@ -1424,15 +1465,46 @@ HostBaselineGrantV9 = Annotated[
     | HostRequirementGrantV2
     | HostWorkflowGrantV9
     | HostInstructionGrantV2
-    | HostOpenShellPolicyGrantV9,
+    | HostOpenShellPolicyGrantV9
+    | HostCommandSettingGrantV9
+    | HostEnvGrantV9,
     Field(discriminator="kind"),
 ]
+
+
+class HostUnmodelledKeyV9(BaseModel):
+    """One key of a Claude Code settings file that no reader of this entry compares (#1027).
+
+    ``key`` is the top-level key, or ``permissions.<key>`` for a key inside
+    ``permissions``, as written when it is a plain key (letters, digits,
+    ``$``, ``.``, ``_``, ``+`` and ``-``, at most 80 characters) that no
+    redaction rule rewrites, and ``<not-shown>`` otherwise. For ``env`` it
+    stands for the entries whose names the reader does not model. ``sha256``
+    digests the key and its value as ``config_sha256``'s input holds them, so
+    a secret-named value, and the value of an ``env`` entry, is redacted and
+    rotating it moves nothing.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(max_length=200)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class HostArtifactV9(HostArtifactV8):
     host: HostNameV9
     kind: Literal["config", "mcp", "hooks", "workflow", "instructions", "requirements", "hook_script",
                   "openshell_selection", "openshell_policy", "openshell_profile"]
+    #: The keys of a parsed Claude Code settings file (managed, user, project
+    #: or local) that no reader of this entry compares, sorted (#1027); absent
+    #: on every other artifact and on a settings file with none. A comparison
+    #: names the ones whose digest differs, so a change confined to them is
+    #: never read as no change. Display-only: left out of artifact equality,
+    #: the inventory digests and saved baselines, since ``redacted_sha256``
+    #: already moves whenever one does. Extended in place.
+    unmodelled_keys: list[HostUnmodelledKeyV9] | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
 
     @model_validator(mode="after")
     def unknown_host_is_mcp_only(self):
