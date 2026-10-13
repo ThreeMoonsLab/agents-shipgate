@@ -1110,6 +1110,67 @@ def path_present_at_ref(workspace: Path, ref: str, path: Path) -> bool | None:
     return False
 
 
+@dataclass(frozen=True)
+class FileAtRef:
+    """One repository file as a commit holds it (#1024).
+
+    ``state`` is ``present`` with ``data`` set, ``absent`` when the commit has
+    no entry at exactly this path, or ``unreadable`` with ``reason`` naming why
+    (not a regular file, past the read bound, or Git could not answer).
+    """
+
+    state: Literal["present", "absent", "unreadable"]
+    data: bytes | None = None
+    reason: str | None = None
+
+
+_REGULAR_FILE_MODES = frozenset({b"100644", b"100755"})
+
+
+def regular_file_at_ref(
+    workspace: Path, ref: str, path: Path, *, max_bytes: int
+) -> FileAtRef:
+    """Read exactly ``path`` at ``ref`` as a regular file, following nothing.
+
+    ``read_bytes_at_ref`` answers ``None`` alike for an absent path, an
+    oversize blob and a Git failure, and ``git show`` of a symbolic link
+    returns its target text as though it were the file. A comparison reference
+    has to tell those apart: an absent one can be replaced by a scan of the
+    same commit, while a link or an unreadable one cannot be read at all.
+    """
+
+    commit = commit_sha(workspace, ref)
+    if commit is None:
+        return FileAtRef("unreadable", reason=f"{ref!r} does not resolve to a commit")
+    wanted = path.as_posix()
+    listing = _run_git_bounded_output(
+        workspace,
+        ["--literal-pathspecs", "ls-tree", "-z", "--full-tree", commit, "--", wanted],
+        max_output_bytes=_MAX_MANIFEST_LISTING_BYTES,
+    )
+    if listing is None:
+        return FileAtRef("unreadable", reason="Git could not list the path")
+    for record in (item for item in listing.split(b"\0") if item):
+        header, separator, encoded_path = record.partition(b"\t")
+        if not separator or encoded_path != wanted.encode("utf-8"):
+            continue
+        fields = header.split()
+        if len(fields) != 3 or fields[1] != b"blob" or fields[0] not in _REGULAR_FILE_MODES:
+            return FileAtRef("unreadable", reason="it is not a regular file")
+        data = _run_git_bounded_output(
+            workspace,
+            ["cat-file", "blob", fields[2].decode("ascii")],
+            max_output_bytes=max_bytes,
+        )
+        if data is None:
+            return FileAtRef(
+                "unreadable",
+                reason=f"it could not be read within {max_bytes} bytes",
+            )
+        return FileAtRef("present", data=data)
+    return FileAtRef("absent")
+
+
 def path_ever_present_from(workspace: Path, ref: str, path: Path) -> bool | None:
     """Whether any commit reachable from ``ref`` ever held exactly ``path``.
 

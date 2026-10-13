@@ -168,12 +168,18 @@ def verify(
     ci_mode: str | None = typer.Option(
         None,
         "--ci-mode",
-        help="advisory or strict. Overrides manifest ci.mode for the head scan.",
+        help=(
+            "advisory or strict. Overrides manifest ci.mode for the head scan; "
+            "without it, the stricter of the base and head manifests applies."
+        ),
     ),
     fail_on: str | None = typer.Option(
         None,
         "--fail-on",
-        help="Comma-separated severities that fail CI.",
+        help=(
+            "Comma-separated severities that fail CI. Without it, the base "
+            "manifest's ci.fail_on still applies alongside the head's."
+        ),
     ),
     baseline: Path | None = typer.Option(
         None,
@@ -188,7 +194,10 @@ def verify(
     diff_from: Path | None = typer.Option(
         None,
         "--diff-from",
-        help="Explicit prior report.json or baseline JSON for head diff.",
+        help=(
+            "Explicit prior report.json or baseline JSON for head diff. A path "
+            "inside the repository is read as the base commits it."
+        ),
     ),
     authorization: Path | None = typer.Option(
         None,

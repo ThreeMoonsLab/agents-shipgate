@@ -434,7 +434,8 @@
   "tests/test_sdk_agent_clones.py": 73.3,
   "tests/test_memory_bank_effects.py": 2.6,
   "tests/test_verification_receipt_consumers.py": 3.7,
-  "tests/test_verify_base_and_gate_removal.py": 17.9
+  "tests/test_verify_base_and_gate_removal.py": 17.9,
+  "tests/test_verify_pr_controlled_inputs.py": 18.5
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -532,6 +533,17 @@
    },
    "case_count": 20,
    "command": "python -m pytest tests/test_verify_base_and_gate_removal.py --junitxml=base-gate.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "f0dcad12 with issue #1024 verify PR-controlled inputs increment",
+   "report_sha256": "2b0d4ecbca07b22598ed1a23d2e83544946f40cc76531fe32324e42c9cbf7bf0",
+   "files": {
+    "tests/test_verify_pr_controlled_inputs.py": 18.5
+   },
+   "case_count": 22,
+   "command": "python -m pytest tests/test_verify_pr_controlled_inputs.py --junitxml=pr-controlled-inputs.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

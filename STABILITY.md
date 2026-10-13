@@ -347,6 +347,67 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="verify-pr-controlled-inputs-1024"></a>
+
+## Migration Note: Unreleased — `verify` reads PR-controlled inputs from the base (#1024)
+
+**What was wrong.** Two inputs that decide a pull request's verdict or exit
+code were read from the pull request's own head. A `--diff-from` path inside
+the repository was opened in the checkout, replaced the `--base` scan even when
+both were given, and was not a trust root: a change that added a destructive
+tool and regenerated `ci/base-report.json` from its own head compared the head
+with itself and could come back `mergeable`, with `trust_root_touched: false`,
+and `SHIP-VERIFY-POLICY-WEAKENED` read its base policy from that file. Without
+`--ci-mode`, `ci.mode` and `ci.fail_on` came from the head's manifest, so a
+change from `mode: strict` to `mode: advisory` turned exit 20 into exit 0 while
+the verdict stayed `blocked`.
+
+**What changes.**
+
+- With a base (`--base`, or one detected), an in-repository `--diff-from` is
+  read as the base commit holds it, through a run-private copy; the checkout's
+  copy is not read. When the base has no regular file at that path, the run
+  compares against a scan of the base instead (`base_status` is that scan's,
+  not `diff_from_provided`), and `base_notes` says which happened. A path
+  outside the repository is the operator's and is read where it is, as before,
+  and so is an in-repository path when there is no base (`--no-base`).
+- An in-repository `--diff-from`, `--baseline` or `--policy-pack` file the
+  change edits is a touched trust root: `SHIP-VERIFY-TRUST-ROOT-TOUCHED` with
+  `trust_root_class` `shipgate_state` (reference and baseline) or `policy`
+  (policy pack) and `matched_glob` set to the configured path. A path the
+  trust-root table already classifies (`.agents-shipgate/**`, `policies/**`,
+  and so on) keeps its existing class and glob, so its finding fingerprint does
+  not move.
+- With a base, `ci.mode` and `ci.fail_on` that the command line does not set
+  resolve to the stricter of the base and head manifests, read from the base
+  commit: `strict` if either declares it, and `fail_on` is the head's
+  effective list under the resolved mode plus every severity the base's
+  `ci.fail_on` declares that it lacks (a base without `ci.fail_on` adds
+  nothing; its default follows its mode). Because `fail_on` also decides
+  which severities block, a change that drops a severity from the base's list
+  is judged with that severity still blocking. Each knob the base held is
+  named in `base_notes`. `--ci-mode` and
+  `--fail-on` each remain the operator's override for their own knob, and a
+  change that tightens the policy takes effect in the same pull request.
+  Without a base, or when the base has no manifest or one this engine cannot
+  read (named in `base_notes`), the head's declaration applies as before.
+  `fail_policy`, the exit code and `verifier.json` `mode` report the resolved
+  values; `SHIP-VERIFY-POLICY-WEAKENED` still compares the two declarations.
+
+**What does not change.** No schema, contract, `base_status` value or check ID
+moves. `scan` is unchanged: it has no base. An out-of-repository
+`--diff-from`, an explicit `--ci-mode` or `--fail-on`, and every run whose head
+declares the same `ci` block as its base behave as before.
+
+**Who must act.** A pipeline that points `--diff-from` at a report the pull
+request regenerates should drop it (verify then scans the base) or keep the
+reference outside the repository. A pipeline that relied on the head manifest
+to relax `ci.mode` or `ci.fail_on` passes `--ci-mode` or `--fail-on`. The
+Action always passes `--ci-mode`; set its `fail_on` input to override the
+base's `ci.fail_on`.
+
+---
+
 <a id="verify-base-unresolved-1023"></a>
 
 ## Migration Note: Unreleased — `verify` stops without a base, and a deleted manifest is a removed gate (#1023)
@@ -5390,6 +5451,17 @@ whose `detail` begins `base_unresolved`, a `fetch_base` next action naming
 `--base` and `--no-base`, and every permission denied; it never publishes an
 unread change set as complete
 ([migration note](#verify-base-unresolved-1023)).
+
+The change under review never supplies its own comparison or exit policy
+([migration note](#verify-pr-controlled-inputs-1024)). With a base, an
+in-repository `--diff-from` is read as the base commit holds it, and a base
+without a regular file there is compared through a base scan instead; an
+out-of-repository `--diff-from`, or any `--diff-from` with `--no-base`, is read
+where it is. Precedence for the exit policy is: `--ci-mode` and `--fail-on`
+when given; otherwise, with a base, the stricter of the base and head
+manifests' `ci.mode` and `ci.fail_on`; otherwise the head manifest's. An
+in-repository `--diff-from`, `--baseline` or `--policy-pack` file the change
+edits is reported by `SHIP-VERIFY-TRUST-ROOT-TOUCHED`.
 
 Before any trigger-skip can return success, non-preview `verify` also requires
 the resolved `--config` path to exist. A missing config is a configuration

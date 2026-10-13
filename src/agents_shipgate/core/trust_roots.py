@@ -969,6 +969,27 @@ def configured_manifest_identity(context: object) -> object | None:
     return getattr(context, "config_path", None)
 
 
+def configured_input_trust_root(context: object, path: str) -> tuple[str, str] | None:
+    """Classify a changed path that is one of the run's command-line inputs.
+
+    ``VerificationContext.configured_trust_root_inputs`` names the in-repository
+    policy packs, baseline and comparison reference a verify run was pointed
+    at (#1024). Returns ``(trust_root_class, configured_path)`` for a match.
+    Both sides are normalized, and ASCII case variants match, for the reason
+    :func:`trust_root_class_for` gives.
+    """
+
+    verification = getattr(context, "verification", None)
+    inputs = getattr(verification, "configured_trust_root_inputs", None) or {}
+    candidate = _normalized(path).casefold()
+    if not candidate:
+        return None
+    for configured, trust_root_class in sorted(inputs.items()):
+        if _normalized(configured).casefold() == candidate:
+            return trust_root_class, configured
+    return None
+
+
 def is_context_configured_manifest(context: object, path: str) -> bool:
     """Match a changed path against the best identity carried by a scan."""
 
@@ -1067,6 +1088,7 @@ __all__ = [
     "IdentityReadBudgetExceeded",
     "PROTECTED_FILE_EDITS",
     "PathIdentityIssue",
+    "configured_input_trust_root",
     "configured_manifest_identity",
     "inspect_lexical_path_identity",
     "is_context_configured_manifest",
