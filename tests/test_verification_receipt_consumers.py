@@ -41,6 +41,15 @@ ATTESTATION_SCHEMA = json.loads(
 )
 CURRENT_VERIFIER = VerifierArtifact.model_fields["verifier_schema_version"].default
 IDENTITY_FIELDS = ("request_id", "receipt_id", "decision_id", "artifact_set_id")
+#: The identity fields verifier 0.5 added with receipts; no legacy verifier has one.
+RECEIPT_ERA_FIELDS = (
+    "request_id",
+    "subject_id",
+    "input_set_id",
+    "engine_requirement_id",
+    "executor_id",
+    "decision_id",
+)
 RECEIPT = "verification-receipt.json"
 
 runner = CliRunner()
@@ -346,8 +355,8 @@ def test_a_verifier_from_before_receipts_owes_none(
     (out / RECEIPT).unlink()
     verifier = _json(out / "verifier.json")
     verifier["verifier_schema_version"] = legacy
-    verifier.pop("request_id", None)
-    verifier.pop("decision_id", None)
+    for field in RECEIPT_ERA_FIELDS:
+        verifier.pop(field, None)
     (out / "verifier.json").write_text(json.dumps(verifier, indent=2), encoding="utf-8")
 
     if legacy == "0.4":
@@ -366,6 +375,67 @@ def test_a_verifier_from_before_receipts_owes_none(
     outputs = extract_outputs(out)
     assert all(outputs[field] == "" for field in IDENTITY_FIELDS)
     assert outputs["verification_receipt_json"] == ""
+
+
+def test_a_relabelled_current_verifier_is_not_legacy(
+    run: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """A ``0.4`` label on a payload that carries receipt-era identities is not believed.
+
+    Review C1-3: current output relabelled ``0.4``, claiming a pass, with its
+    receipt deleted, was accepted by all three consumers.
+    """
+
+    repo, out = run
+    (out / RECEIPT).unlink()
+    verifier = _json(out / "verifier.json")
+    verifier.update(
+        {
+            "verifier_schema_version": "0.4",
+            "decision": "passed",
+            "merge_verdict": "mergeable",
+            "can_merge_without_human": True,
+        }
+    )
+    (out / "verifier.json").write_text(json.dumps(verifier, indent=2), encoding="utf-8")
+
+    attest = _attest(out, tmp_path / "attestation.json")
+    assert attest.exit_code == 3
+    assert f"{RECEIPT} is missing" in attest.output
+    assert not (tmp_path / "attestation.json").exists()
+
+    bundle = _bundle(repo, out)
+    assert bundle.exit_code == 3
+    assert f"{RECEIPT} is missing" in bundle.output
+
+    with pytest.raises(ValueError, match=f"{RECEIPT} is missing"):
+        extract_outputs(out)
+
+
+def test_action_outputs_refuse_a_report_outcome_no_receipt_binds(
+    run: tuple[Path, Path],
+) -> None:
+    """Review C1-1: the step publishes ``report.json``'s decision, so it owes the receipt.
+
+    ``verifier.json`` stripped to a run that states nothing, the receipt
+    deleted, and ``report.json`` saying ``passed``: the step published
+    ``decision=passed`` and ``merge_verdict=mergeable`` with no receipt.
+    """
+
+    _repo_path, out = run
+    verifier = _json(out / "verifier.json")
+    verifier["execution"] = verifier["head_status"] = "not_run"
+    for key in ("decision", "release_decision", "merge_verdict", "control"):
+        verifier.pop(key, None)
+    (out / "verifier.json").write_text(json.dumps(verifier, indent=2), encoding="utf-8")
+    (out / RECEIPT).unlink()
+    report = _json(out / "report.json")
+    report["release_decision"]["decision"] = "passed"
+    (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    assert requires_verification_receipt(verifier) is False
+
+    with pytest.raises(ValueError, match=f"{RECEIPT} is missing"):
+        extract_outputs(out)
 
 
 # --- runs that state no outcome are not closed by a receipt -----------------
@@ -389,6 +459,7 @@ def test_a_run_that_states_no_outcome_owes_no_receipt(tmp_path: Path, route: str
     assert verifier["verifier_schema_version"] == CURRENT_VERIFIER
     assert verifier["execution"] == ("failed" if route == "missing_manifest" else "not_run")
     assert not (out / RECEIPT).exists()
+    assert not (out / "report.json").exists()
     assert requires_verification_receipt(verifier) is False
 
     outputs = extract_outputs(out)
@@ -483,6 +554,37 @@ def test_the_predicate_reads_the_outcome_a_verifier_states(
 ) -> None:
     payload = {"verifier_schema_version": CURRENT_VERIFIER, **payload}
     assert requires_verification_receipt(payload) is expected
+
+
+@pytest.mark.parametrize("field", RECEIPT_ERA_FIELDS)
+def test_a_legacy_label_on_a_receipt_era_payload_is_not_believed(field: str) -> None:
+    legacy = {"verifier_schema_version": "0.4", **_SUCCEEDED}
+    assert requires_verification_receipt(legacy) is False
+    # 0.3 and 0.4 wrote `control` and `execution`, so those stay legacy.
+    assert requires_verification_receipt({**legacy, "control": {"state": "complete"}}) is False
+    # A field only receipt-era output carries, even null, is never legacy.
+    assert requires_verification_receipt({**legacy, field: None}) is True
+    # A relabelled run that states no outcome still owes nothing.
+    assert requires_verification_receipt(
+        {"verifier_schema_version": "0.4", "execution": "not_run", field: None}
+    ) is False
+
+
+@pytest.mark.parametrize(
+    ("version", "report", "expected"),
+    [
+        (CURRENT_VERIFIER, None, False),
+        (CURRENT_VERIFIER, {}, True),
+        (CURRENT_VERIFIER, {"release_decision": {"decision": "passed"}}, True),
+        ("0.22", {}, True),
+        ("0.4", {"release_decision": {"decision": "passed"}}, False),
+    ],
+)
+def test_a_report_beside_a_receipt_era_verifier_owes_a_receipt(
+    version: str, report: dict | None, expected: bool
+) -> None:
+    no_outcome = {"verifier_schema_version": version, "execution": "not_run"}
+    assert requires_verification_receipt(no_outcome, report_payload=report) is expected
 
 
 _CONSUMERS = (

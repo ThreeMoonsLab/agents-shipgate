@@ -367,7 +367,13 @@ the Action exported four empty identities and the receipt's path unchecked.
   names the verifier versions written before receipts (`0.1`–`0.4`); every
   other version, a newer or missing one included, owes a receipt whenever the
   verifier states an outcome — an execution that `succeeded` or was `skipped`,
-  a decision, a merge verdict other than `unknown`, or merge authority.
+  a decision, a merge verdict other than `unknown`, or merge authority. The
+  Action's output step, which also publishes `report.json`'s decision, passes
+  the report too: `verify` writes one only for a run it closes with a
+  receipt, so a `report.json` beside a receipt-era verifier owes one. A
+  `0.1`–`0.4` label is believed only on a payload with none of the identity
+  fields verifier `0.5` introduced with receipts (`request_id`, `subject_id`,
+  `input_set_id`, `engine_requirement_id`, `executor_id`, `decision_id`).
 - A receipt that is present is validated whether or not one was owed: its
   content-addressed identities, every artifact it binds (`verifier.json`
   among them) and the request and decision `verifier.json` names.

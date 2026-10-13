@@ -13,7 +13,11 @@ try:
     from agents_shipgate.schemas.verification_identity import requires_verification_receipt
 except ImportError:  # An engine released before the shared predicate (#1022).
 
-    def requires_verification_receipt(verifier_payload: dict[str, Any]) -> bool:
+    def requires_verification_receipt(
+        verifier_payload: dict[str, Any],
+        *,
+        report_payload: dict[str, Any] | None = None,
+    ) -> bool:
         """Owe nothing the installed engine cannot name.
 
         A ``shipgate_version`` older than this Action has no predicate to say
@@ -150,6 +154,10 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
         _validated_receipt(
             output_dir,
             verifier_payload=verifier_payload,
+            # The step publishes report.json's decision, counts and fail
+            # policy, so a report beside a receipt-era verifier owes the
+            # receipt too, whatever verifier.json itself states.
+            report_payload=payload if report_json.is_file() else None,
             receipt_path=verification_receipt_json,
             documents=(
                 ("report", report_json, payload),
@@ -266,23 +274,24 @@ def _validated_receipt(
     output_dir: Path,
     *,
     verifier_payload: dict[str, Any],
+    report_payload: dict[str, Any] | None,
     receipt_path: Path,
     documents: tuple[tuple[str, Path, dict[str, Any]], ...],
 ) -> VerificationReceipt | None:
     """Validate the terminal receipt before any identity output is published.
 
-    A verify run owes one when the engine's shared predicate says its verifier
-    states an outcome, and a receipt that is present is validated whether or
-    not one was owed. Every artifact the receipt binds is hash-checked, and each
+    A verify run owes one when the engine's shared predicate says it states an
+    outcome, in ``verifier.json`` or by writing ``report.json``, and a receipt
+    that is present is validated whether or not one was owed. Every artifact the receipt binds is hash-checked, and each
     of ``report.json``, ``verifier.json`` and ``verify-run.json`` that exists
     must name the receipt's request and decision. Anything else fails the step
     rather than publishing empty or unchecked identities.
     """
 
     if not receipt_path.is_file():
-        if requires_verification_receipt(verifier_payload):
+        if requires_verification_receipt(verifier_payload, report_payload=report_payload):
             raise ValueError(
-                "verifier.json states a verification outcome but "
+                "verifier.json or report.json states a verification outcome but "
                 f"{receipt_path.name} is missing; rerun verify so both come from one run"
             )
         return None

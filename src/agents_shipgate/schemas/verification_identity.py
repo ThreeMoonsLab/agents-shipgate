@@ -405,27 +405,60 @@ class VerificationReceipt(BaseModel):
 #: inventories in #700.
 VERIFIER_SCHEMA_VERSIONS_BEFORE_RECEIPTS = frozenset({"0.1", "0.2", "0.3", "0.4"})
 
+#: Identity fields verifier ``0.5`` introduced together with receipts (#273).
+#: No verifier written before receipts carries one, so a payload labelled
+#: ``0.1``-``0.4`` that does is current output relabelled, not legacy output.
+#: ``control`` and ``execution`` are not on this list: ``0.3`` and ``0.4``
+#: already wrote them.
+_RECEIPT_ERA_FIELDS = (
+    "request_id",
+    "subject_id",
+    "input_set_id",
+    "engine_requirement_id",
+    "executor_id",
+    "decision_id",
+)
+
 #: Executions ``verify`` closes with a terminal receipt. A ``failed`` or
 #: ``not_run`` execution (a missing manifest, a head that could not be
 #: evaluated, the manifest-free host route) never receives one.
 _RECEIPTED_EXECUTIONS = frozenset({"succeeded", "skipped"})
 
 
-def requires_verification_receipt(verifier_payload: Mapping[str, Any]) -> bool:
+def requires_verification_receipt(
+    verifier_payload: Mapping[str, Any],
+    *,
+    report_payload: Mapping[str, Any] | None = None,
+) -> bool:
     """Whether ``verifier.json`` must be closed by a valid ``verification-receipt.json``.
 
-    The one predicate ``attest``, ``org bundle`` and the GitHub Action's output
-    step share. A receipt binds the outcome a verifier states, so one is owed
-    unless the version predates receipts or the verifier states no outcome: an
-    execution that was not run or failed, with no decision, a merge verdict of
-    ``unknown`` and no merge authority. The engine writes no receipt for those,
-    and a payload that claims any outcome without one fails closed in every
-    consumer.
+    ``attest``, ``org bundle`` and the GitHub Action's output step all use
+    this one predicate. A receipt binds the outcome a run states, so one is
+    owed unless the verifier predates receipts or the run states no outcome:
+    an execution that was not run or failed, with no decision, a merge
+    verdict of ``unknown`` and no merge authority. The engine writes no
+    receipt for those. A payload that claims any outcome without a receipt
+    fails closed in every consumer.
+
+    A consumer that also publishes from the sibling ``report.json`` passes it
+    as ``report_payload``. ``verify`` writes ``report.json`` only when its
+    head scan ran, and it closes every such run with a receipt, so the
+    report's presence alone owes one. Runs that state no outcome write none.
+
+    The legacy label is believed only for a payload shaped like legacy
+    output. One that carries a receipt-era identity field is read as
+    receipt-era, whatever version it names.
     """
 
     version = verifier_payload.get("verifier_schema_version")
-    if isinstance(version, str) and version in VERIFIER_SCHEMA_VERSIONS_BEFORE_RECEIPTS:
+    if (
+        isinstance(version, str)
+        and version in VERIFIER_SCHEMA_VERSIONS_BEFORE_RECEIPTS
+        and not any(field in verifier_payload for field in _RECEIPT_ERA_FIELDS)
+    ):
         return False
+    if report_payload is not None:
+        return True
     execution = verifier_payload.get("execution") or verifier_payload.get("head_status")
     return bool(
         (isinstance(execution, str) and execution in _RECEIPTED_EXECUTIONS)
@@ -434,7 +467,6 @@ def requires_verification_receipt(verifier_payload: Mapping[str, Any]) -> bool:
         or verifier_payload.get("merge_verdict") not in (None, "unknown")
         or verifier_payload.get("can_merge_without_human")
     )
-
 
 __all__ = [
     "VERIFICATION_ARTIFACT_MANIFEST_SCHEMA_VERSION",
