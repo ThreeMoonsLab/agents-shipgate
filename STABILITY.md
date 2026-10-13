@@ -347,6 +347,62 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="verify-base-unresolved-1023"></a>
+
+## Migration Note: Unreleased — `verify` stops without a base, and a deleted manifest is a removed gate (#1023)
+
+**What was wrong.** With neither `--base` nor `--no-base`, `verify` tried
+`origin/HEAD`, `origin/main` and `origin/master` only. Where none existed — a
+default branch named `develop` with no `origin/HEAD`, or a repository with no
+remote — it read no committed change, published that empty change set as
+`complete` and granted merge: a pull request deleting
+`.github/workflows/agents-shipgate.yml` exited 0 as `mergeable`, while the same
+run with `--base origin/develop` exited 20 as `blocked`. A change deleting
+`shipgate.yaml` was sent to `configure` and then `init --write`, and an advisory
+run without a base exited 0. `SHIP-VERIFY-CI-GATE-REMOVED` looked for changed
+workflow paths beside the manifest rather than at the repository root, so
+`apps/agent/shipgate.yaml` turned a comment in the root workflow into a
+critical blocker. A depth-1 checkout could not archive `--head`, and agent mode
+routed the Git integrity error to editing `shipgate.yaml`. `check` counted the
+reports `verify` had just written as changed files.
+
+**What changes.**
+
+- When `--base` is omitted and `--no-base` is not given, `verify` keeps every
+  base it chose before. Where it found none, it now uses `check`'s ladder
+  (#649): a default branch already at the head is an empty comparison, and a
+  repository with no remote uses its local `main` or `master`. When nothing
+  resolves, the run exits `2` with `execution: "failed"`,
+  `merge_verdict: "unknown"`, `base_status: "ref_missing"`, a `diff_status` of
+  `unavailable`/`refs_missing` whose `detail` begins `base_unresolved`, a
+  `fetch_base` next action and every permission denied. The headline and
+  remediation name `--base` and `--no-base`.
+- When the configured manifest is missing and the compared commit holds it —
+  the merge base with the base, or `HEAD` for a working-tree run without one —
+  the run is a human `stop` that names the removal, exits `2`, and offers no
+  `configure` or `initialize` action. A missing manifest whose base cannot be
+  resolved fails closed as above; one whose base holds it but whose merge base
+  cannot be read (a shallow checkout) fails closed with that diff-input stop.
+  A repository that never had the manifest, and a named base that is not
+  available at all, keep the existing setup and host routes.
+- `SHIP-VERIFY-CI-GATE-REMOVED` resolves changed paths against the root of the
+  evaluated tree, derived from the manifest's repository-relative identity.
+- Every Git archive packs the commit's tree rather than its history, so
+  `--head` works in a depth-1 checkout.
+- `check` leaves the default reports directory out of a working-tree change
+  set when it holds only uncommitted Shipgate artifacts, as `verify` does.
+
+**What does not change.** No schema, contract or check ID moves. An explicit
+`--base`, `--no-base`, and every run whose detection already found a base
+behave as before.
+
+**Who must act.** A pipeline whose default branch is not `main` or `master`
+passes `--base` (in the Action, `diff_base: target` with `fetch-depth: 0`, or
+`base_ref`), or `--no-base` to verify without a base. A manifest removal now
+needs a human to approve it.
+
+---
+
 <a id="exec-trust-opt-in-1020"></a>
 
 ## Migration Note: Unreleased — `bootstrap` children run with `-P`, and capability locks load plugins only on the opt-in (#1020)
@@ -5258,6 +5314,17 @@ CI. If the requested base ref or PR diff context is unavailable, verify records
 base manifest or base scan is unavailable, verify records `base_status`, disables
 diff enrichment, and leaves the head release decision and exit code unchanged.
 
+With neither `--base` nor `--no-base`, verify detects the base: `origin/HEAD`,
+`origin/main` or `origin/master` when one points at a different commit than the
+head; otherwise, as `check` does, a default branch already at the head (an
+empty comparison) or, in a repository with no remote, a local `main` or
+`master`. When nothing resolves, verify runs no scan and exits 2 with
+`base_status: "ref_missing"`, a `diff_status` of `unavailable`/`refs_missing`
+whose `detail` begins `base_unresolved`, a `fetch_base` next action naming
+`--base` and `--no-base`, and every permission denied; it never publishes an
+unread change set as complete
+([migration note](#verify-base-unresolved-1023)).
+
 Before any trigger-skip can return success, non-preview `verify` also requires
 the resolved `--config` path to exist. A missing config is a configuration
 failure, not a docs-only or no-trigger success: verify writes `verifier.json`,
@@ -5269,6 +5336,16 @@ failure, not a docs-only or no-trigger success: verify writes `verifier.json`,
 `report.json` and runs no head scan. The first next action directs agents to
 fix the config path or run `agents-shipgate verify --preview --json` before
 initializing.
+
+That route is for a manifest that never existed. Before taking it, verify
+resolves the base as above and asks whether the compared commit — the merge
+base with the base, or `HEAD` for a working-tree run without one — holds the
+configured manifest. If it does, the change removes the gate: verify exits 2
+with `control.state: "human_review_required"`, a human `stop` naming the
+removal, and no `configure` or `initialize` action. If base detection finds
+nothing, verify fails closed with the base-unresolved stop, and if the base
+holds the manifest but its merge base cannot be read, with the diff-input
+stop, instead of routing to setup.
 
 The head scan writes `report.md`, `report.json`, `report.sarif`, `packet.json`,
 `verifier.json`, `verify-run.json`, `agent-handoff.json`, `pr-comment.md`,
