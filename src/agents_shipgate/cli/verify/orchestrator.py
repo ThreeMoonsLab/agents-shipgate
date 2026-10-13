@@ -22,6 +22,7 @@ from typing import Any
 from agents_shipgate import __version__
 from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
 from agents_shipgate.checks.verify_policy import touched_policy_surfaces
+from agents_shipgate.ci.exit_policy import effective_fail_on
 from agents_shipgate.ci.release_decision import SUGGESTED_DECLARATIONS_FILENAME
 from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
 from agents_shipgate.cli._helpers import _apply_strict_plugins
@@ -163,6 +164,7 @@ from agents_shipgate.schemas.human_authorization import (
     build_human_authorization_request,
 )
 from agents_shipgate.schemas.human_review_request import HUMAN_REVIEW_REQUEST_FILENAME
+from agents_shipgate.schemas.manifest import CiConfig
 from agents_shipgate.schemas.report import (
     ReadinessReport,
     ReleaseDecision,
@@ -227,6 +229,7 @@ from .git import (
     read_bytes_at_ref,
     read_file_at_ref,
     ref_exists,
+    regular_file_at_ref,
     removes_a_yaml_file,
     removes_any_tracked_path,
     repository_identity,
@@ -554,6 +557,17 @@ def run_verify(
         )
         if diff_from is not None
         else None
+    )
+    # A reference inside the repository is content the change under review
+    # can rewrite. It is read as committed at the base, never from the head, and
+    # editing it is touching a trust root (#1024). One outside the repository
+    # is the operator's own and is read where it is.
+    diff_from_relative = _repository_relative_input(git_root, static_diff_from_path)
+    configured_input_roots = _configured_input_trust_roots(
+        git_root,
+        policy_packs=policy_pack_paths or [],
+        baseline=baseline_path,
+        diff_from=static_diff_from_path,
     )
     _reject_output_input_overlap(
         git_root=git_root,
@@ -1291,12 +1305,24 @@ def run_verify(
         nonlocal head_human_context
         head_human_context = context
 
+    # With a base to read it from, an in-repository reference is taken from
+    # the base commit; the checkout's copy is not an input to this run.
+    diff_from_at_base = diff_from_relative is not None and bool(base) and base_exists
+    # Nor does the change under review set its own exit code: whatever the
+    # command line leaves open is floored at what the base declares (#1024).
+    base_ci: CiConfig | None = None
+    if base and base_exists and (ci_mode is None or fail_on is None):
+        base_ci, base_ci_note = _base_ci_policy(
+            git_root=git_root, base=base, config_relative=config_relative
+        )
+        if base_ci_note is not None:
+            base_notes.append(base_ci_note)
     external_snapshot_paths = [
         path
         for path in [
             baseline_path,
             *list(policy_pack_paths or []),
-            static_diff_from_path,
+            None if diff_from_at_base else static_diff_from_path,
         ]
         if path is not None
     ]
@@ -1348,13 +1374,29 @@ def run_verify(
         return Path(run_base.name)
 
     try:
-        if diff_from is not None:
+        base_reference: Path | None = None
+        if diff_from_at_base:
+            assert base is not None and diff_from_relative is not None
+            base_reference, reference_note = _diff_reference_at_base(
+                git_root=git_root,
+                base=base,
+                relative=diff_from_relative,
+                run_report_dir=run_base_report_dir,
+            )
+            base_notes.append(reference_note)
+        if diff_from is not None and not diff_from_at_base:
             base_status = "diff_from_provided"
             assert static_diff_from_path is not None
             base_report = static_diff_from_path
             base_notes.append(
                 f"Using explicit diff reference: {_display_path(base_report, git_root)}"
             )
+        elif base_reference is not None:
+            base_status = "diff_from_provided"
+            base_report = base_reference
+            # Published under the path the operator named; the bytes are the
+            # base commit's, which the note above says.
+            base_report_reference = static_diff_from_path
         elif base and base_exists:
             (
                 base_status,
@@ -1528,11 +1570,22 @@ def run_verify(
                     native_observation = observe_native(config_path=openshell_proof_config,
                         required=openshell_proof_required, workspace=git_root, input_root=head_input_root)
                     base_notes.append(f"OpenShell native containment: {native_observation.status} ({native_observation.reason_code}); modeled inputs only.")
+                scan_manifest_text = (
+                    head_manifest_text if archive_head else worktree_manifest_text
+                )
+                scan_ci_mode, exit_fail_on_floor, ci_notes = _exit_policy_base_floor(
+                    head_manifest_text=scan_manifest_text,
+                    base_ci=base_ci,
+                    base=base,
+                    ci_mode=ci_mode,
+                    fail_on=fail_on,
+                )
+                base_notes.extend(ci_notes)
                 report, head_exit_code = run_scan(
                     config_path=head_config_path,
                     output_dir=out_dir,
                     formats=HEAD_FORMATS,
-                    ci_mode=ci_mode,
+                    ci_mode=scan_ci_mode,
                     fail_on=fail_on,
                     baseline_path=head_baseline_path,
                     diff_from_path=base_report,
@@ -1573,16 +1626,16 @@ def run_verify(
                         # (PR #404 review 2).
                         base_comparison_unavailable=base_status
                         in _BASE_COMPARISON_FAILURES,
+                        configured_trust_root_inputs=configured_input_roots,
                         enabled_plugin_hooks=enabled_plugin_hooks,
                         enabled_plugin_hook_issues=tuple(enabled_plugin_hook_issues),
                         openshell_native=native_observation,
                     ),
                     capability_lock_callback=capture_capability_lock,
                     human_context_callback=capture_human_context,
-                    manifest_text=(
-                        head_manifest_text if archive_head else worktree_manifest_text
-                    ),
+                    manifest_text=scan_manifest_text,
                     operation_base=operation_base,
+                    exit_fail_on_floor=exit_fail_on_floor,
                 )
             except AgentsShipgateError as exc:
                 # `run_scan` records the manifest it read, and when the head is
@@ -2642,6 +2695,183 @@ def _map_optional_tree_path(
     except ValueError:
         return candidate
     return tree_dir / relative
+
+
+def _repository_relative_input(git_root: Path, path: Path | None) -> Path | None:
+    """The repository path an operator-named input file has, if it has one."""
+
+    if path is None:
+        return None
+    try:
+        relative = path.relative_to(git_root)
+    except ValueError:
+        return None
+    return relative if relative.parts else None
+
+
+def _configured_input_trust_roots(
+    git_root: Path,
+    *,
+    policy_packs: Sequence[Path],
+    baseline: Path | None,
+    diff_from: Path | None,
+) -> dict[str, str]:
+    """The in-repository inputs this run was pointed at, by trust-root class.
+
+    Like the configured manifest, whatever a run reads as its policy, its
+    accepted debt or its comparison reference governs the gate wherever it
+    lives, and a change that edits it touches a trust root (#1024). The table
+    of globs cannot know these paths: they exist only on the command line.
+    """
+
+    roots: dict[str, str] = {}
+    for path, trust_root_class in (
+        *((pack, "policy") for pack in policy_packs),
+        (baseline, "shipgate_state"),
+        (diff_from, "shipgate_state"),
+    ):
+        relative = _repository_relative_input(git_root, path)
+        if relative is not None:
+            roots.setdefault(relative.as_posix(), trust_root_class)
+    return roots
+
+
+_BASE_DIFF_REFERENCE_NAME = "diff-from-reference.json"
+
+
+def _diff_reference_at_base(
+    *,
+    git_root: Path,
+    base: str,
+    relative: Path,
+    run_report_dir: Callable[[], Path],
+) -> tuple[Path | None, str]:
+    """Read an in-repository ``--diff-from`` as the base commit holds it (#1024).
+
+    The checkout's copy belongs to the change under review: a pull request that
+    regenerated the reference from its own head compared against itself. The
+    base's copy is written where only this run reads it. A base without one, or
+    with one that is not a readable regular file, has nothing to read, so the
+    run compares against a scan of the base instead, and says so.
+    """
+
+    spelled = relative.as_posix()
+    found = regular_file_at_ref(
+        git_root, base, relative, max_bytes=_MAX_CACHED_REPORT_BYTES
+    )
+    if found.state == "present":
+        assert found.data is not None
+        destination = run_report_dir() / _BASE_DIFF_REFERENCE_NAME
+        with destination.open("xb") as handle:
+            handle.write(found.data)
+        return destination, (
+            f"Using diff reference {spelled} as committed at {base!r}; the copy "
+            "in the change under review is not read."
+        )
+    why = (
+        f"{base!r} does not contain it"
+        if found.state == "absent"
+        else f"it could not be read at {base!r}: {found.reason}"
+    )
+    return None, (
+        f"Did not use --diff-from {spelled}: {why}. Comparing with a scan of "
+        f"{base!r} instead; the copy in the change under review is never read."
+    )
+
+
+def _base_ci_policy(
+    *,
+    git_root: Path,
+    base: str,
+    config_relative: Path,
+) -> tuple[CiConfig | None, str | None]:
+    """The ``ci`` block the base commit's manifest declares (#1024).
+
+    ``None`` with no note when the base has no manifest at all: the change
+    introduces the gate, and its own declaration is the only one there is.
+    ``None`` with a note when the base manifest cannot be read or validated.
+    """
+
+    found = regular_file_at_ref(
+        git_root, base, config_relative, max_bytes=MAX_WORKTREE_MANIFEST_BYTES
+    )
+    if found.state == "absent":
+        return None, None
+    reason = found.reason
+    if found.state == "present":
+        assert found.data is not None
+        try:
+            return (
+                load_manifest_text(
+                    found.data.decode("utf-8"), source=config_relative
+                ).ci,
+                None,
+            )
+        except (AgentsShipgateError, UnicodeDecodeError, ValueError) as exc:
+            reason = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+    return None, (
+        f"The exit policy follows the change's {config_relative.as_posix()}: "
+        f"the copy at {base!r} could not be read ({reason})."
+    )
+
+
+def _exit_policy_base_floor(
+    *,
+    head_manifest_text: str | None,
+    base_ci: CiConfig | None,
+    base: str | None,
+    ci_mode: str | None,
+    fail_on: list[str] | None,
+) -> tuple[str | None, list[str] | None, list[str]]:
+    """Floor the exit policy the command line left open at the base (#1024).
+
+    The change under review cannot lower its own exit code.
+
+    - Without ``--ci-mode``, the mode is ``strict`` if the base or the head
+      declares it. A change that adopts ``strict`` still takes effect in the
+      same pull request. The mode decides only the exit code: blockers are
+      ``{critical}`` plus ``fail_on``, and neither mode's default adds to
+      ``critical``.
+    - Without ``--fail-on``, the base's declared ``ci.fail_on`` is returned as
+      an exit-only floor. Every severity in it still fails CI, while the
+      blocker severities, the decision and ``fail_policy.fail_on`` keep the
+      head's list: a loosened list stays the human-review route
+      ``SHIP-VERIFY-POLICY-WEAKENED`` reports, not a blocker under the list it
+      loosens, and it fails CI until a human handles it.
+
+    An explicit flag remains the operator's override for its own knob.
+    Returns the mode to scan with (``None`` leaves the head manifest's own),
+    the exit floor, and a note for each knob the base held.
+    """
+
+    if base_ci is None or head_manifest_text is None:
+        return ci_mode, None, []
+    try:
+        head_ci = load_manifest_text(head_manifest_text).ci
+    except (AgentsShipgateError, ValueError):
+        # The head scan reports its own manifest error.
+        return ci_mode, None, []
+    notes: list[str] = []
+    resolved_mode = ci_mode
+    if ci_mode is None and base_ci.mode == "strict" and head_ci.mode != "strict":
+        resolved_mode = "strict"
+        notes.append(
+            f"The change declares ci.mode: {head_ci.mode} and {base!r} declares "
+            "strict; strict applies. Pass --ci-mode to override."
+        )
+    floor: list[str] | None = None
+    if fail_on is None and base_ci.fail_on:
+        floor = list(base_ci.fail_on)
+        head_list = effective_fail_on(resolved_mode or head_ci.mode, head_ci.fail_on)
+        added = [severity for severity in floor if severity not in head_list]
+        if added:
+            notes.append(
+                f"The change's ci.fail_on leaves out {', '.join(added)}, which "
+                f"{base!r} declares; a finding of that severity still fails CI "
+                "(exit 20), while the verdict follows the change's list. Pass "
+                "--fail-on to override."
+            )
+    return resolved_mode, floor, notes
 
 
 # File names that count as a Shipgate manifest when deciding whether a ref

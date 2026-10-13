@@ -11,6 +11,7 @@ from agents_shipgate.core.errors import AgentsShipgateError, ConfigError
 from agents_shipgate.core.operation_attribution import ReconstructedOperationBase
 from agents_shipgate.report.human_order import HumanArtifactContext
 from agents_shipgate.schemas.capabilities import CapabilityLockFileV1
+from agents_shipgate.schemas.common import parse_severity
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verification import VerificationContext
 
@@ -51,6 +52,7 @@ def run_scan(
     human_context_callback: Callable[[HumanArtifactContext], None] | None = None,
     manifest_text: str | None = None,
     operation_base: ReconstructedOperationBase | None = None,
+    exit_fail_on_floor: list[str] | None = None,
 ) -> tuple[ReadinessReport, int]:
     """Run a full scan pipeline. Returns ``(report, exit_code)``.
 
@@ -87,6 +89,7 @@ def run_scan(
             human_context_callback=human_context_callback,
             manifest_text=manifest_text,
             operation_base=operation_base,
+            exit_fail_on_floor=exit_fail_on_floor,
         )
     except AgentsShipgateError as exc:
         # Every recovery route that names a file to edit needs the manifest
@@ -150,6 +153,7 @@ def _run_scan(
     human_context_callback: Callable[[HumanArtifactContext], None] | None,
     manifest_text: str | None,
     operation_base: ReconstructedOperationBase | None,
+    exit_fail_on_floor: list[str] | None = None,
 ) -> tuple[ReadinessReport, int]:
     """The pipeline itself. Split from :func:`run_scan` so the manifest the
     run read can be attached to any failure on the way out, in one place."""
@@ -245,6 +249,11 @@ def _run_scan(
             plan=plan,
             config_path=config_path,
             declared_ci=resolved.declared_ci,
+            exit_fail_on_floor=(
+                [parse_severity(item) for item in exit_fail_on_floor]
+                if exit_fail_on_floor
+                else None
+            ),
         )
     human_context = human_artifact_context(config_path, verification_context)
     if human_context_callback is not None:

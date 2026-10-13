@@ -74,6 +74,7 @@ def build_report(
     policy_evidence_gaps: list[EvidenceGap] | None = None,
     source_omissions: list[SourceSurfaceOmission] | None = None,
     source_recovery_evidence: list[SourceRecoveryEvidence] | None = None,
+    exit_fail_on_floor: list[Severity] | None = None,
 ) -> ReadinessReport:
     report = ReadinessReport(
         run_id=run_id,
@@ -131,6 +132,7 @@ def build_report(
         fail_on=fail_on,
         new_findings_only=new_findings_only,
         source_recovery_evidence=source_recovery_evidence,
+        exit_fail_on_floor=exit_fail_on_floor,
     )
     # v0.35: built from the decision, not beside it. Accounting asks whether
     # a gap row names the excluded subject, so the gaps have to exist first —

@@ -178,8 +178,19 @@ def build_release_decision(
     new_findings_only: bool,
     tool_catalog: Sequence[Tool] | None = None,
     source_recovery_evidence: Sequence[SourceRecoveryEvidence] | None = None,
+    exit_fail_on_floor: Sequence[Severity] | None = None,
 ) -> ReleaseDecision:
     """Compute the release decision.
+
+    ``exit_fail_on_floor`` is a set of severities that fail CI in addition to
+    ``fail_on``, and nothing else (#1024). ``verify`` passes the base
+    manifest's declared ``ci.fail_on`` so the change under review cannot lower
+    its own exit code by loosening the list. It reaches the exit code (and so
+    ``fail_policy.exit_code`` / ``would_fail_ci``) only: the blocker
+    severities, the decision and ``fail_policy.fail_on`` keep the run's own
+    list, so a loosened list stays a human-review route, reported by
+    ``SHIP-VERIFY-POLICY-WEAKENED``, rather than a blocker under the list it
+    loosens.
 
     ``tools`` is the root-reachable surface — the population every count and
     every gate reads. ``tool_catalog`` is everything extraction found, reachable
@@ -429,10 +440,20 @@ def build_release_decision(
     # The canonical decision is computed before FailPolicy. Semantic gaps
     # remain strict-CI failures even when a higher-precedence named concern
     # labels the decision review_required instead of insufficient_evidence.
+    exit_fail_on: list[Severity] | None = fail_on
+    if exit_fail_on_floor:
+        exit_fail_on = [
+            *fail_on_resolved,
+            *(
+                severity
+                for severity in exit_fail_on_floor
+                if severity not in fail_on_resolved
+            ),
+        ]
     exit_code = exit_code_for_report(
         report,
         ci_mode,
-        fail_on=fail_on,
+        fail_on=exit_fail_on,
         new_findings_only=new_findings_only,
         release_decision=decision,
         has_semantic_gaps=has_semantic_gaps or has_binding_gaps or has_policy_gaps,
