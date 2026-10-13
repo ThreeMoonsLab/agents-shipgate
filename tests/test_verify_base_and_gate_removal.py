@@ -338,6 +338,99 @@ def test_deleting_the_manifest_with_a_named_base_that_is_not_here_fails_closed(
             assert misroute not in rendered
 
 
+def _depth_one(origin: Path, destination: Path, sha: str) -> Path:
+    """The default ``actions/checkout`` layout: one commit, fetched by SHA."""
+
+    _git(origin, "config", "uploadpack.allowAnySHA1InWant", "true")
+    destination.mkdir()
+    _git(destination, "init", "-q", "-b", "ci")
+    _git(destination, "remote", "add", "origin", f"file://{origin}")
+    _git(destination, "fetch", "-q", "--depth=1", "origin", sha)
+    _git(destination, "checkout", "-q", "--detach", sha)
+    assert _git(destination, "rev-parse", "--is-shallow-repository") == "true"
+    return destination
+
+
+def _assert_unknown_base_stop(result, payload: dict) -> None:
+    assert result.exit_code == 2, result.output
+    assert payload["base_status"] == "ref_missing"
+    assert payload["diff_status"]["reason"] == "refs_missing"
+    assert payload["control"]["next_action"]["kind"] == "fetch_base"
+    assert payload["control"]["permissions"]["merge"] is False
+    assert payload.get("host_comparison") is None
+    rendered = json.dumps(payload["control"])
+    for misroute in ("configure", "initialize", "init --write"):
+        assert misroute not in rendered
+
+
+def test_a_depth_one_checkout_cannot_show_the_manifest_never_existed(
+    tmp_path: Path,
+) -> None:
+    """``diff_base: target`` on the default depth-1 checkout (#1023 review
+    cycle 2). History there ends at the PR commit, so ``rev-list`` finds no
+    commit that ever held the manifest; that silence is not proof."""
+
+    origin, _, manifest_pr = _develop_origin(tmp_path)
+    shallow = _depth_one(origin, tmp_path / "shallow", manifest_pr)
+
+    for mode in ("advisory", "strict"):
+        result, payload = _verify(
+            shallow,
+            "--ci-mode", mode,
+            "--base", "origin/develop",
+            "--head", manifest_pr,
+            out=tmp_path / f"out-{mode}",
+        )
+        _assert_unknown_base_stop(result, payload)
+
+
+def test_a_manifest_free_depth_one_checkout_with_an_absent_base_stops(
+    tmp_path: Path,
+) -> None:
+    """The same layout without any manifest: advisory used to exit 0 on the
+    host route, and strict used to route to ``configure``. Neither can be told
+    from a deleted gate here, so both stop for the base."""
+
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    _git(origin, "init", "-q", "-b", "main")
+    _write(origin / ".claude" / "settings.json", '{"permissions": {"deny": ["Bash(rm *)"]}}\n')
+    _commit(origin, "base")
+    _git(origin, "checkout", "-q", "-b", "change")
+    _write(origin / ".claude" / "settings.json", '{"permissions": {"allow": ["Bash(*)"]}}\n')
+    change = _commit(origin, "widen")
+    shallow = _depth_one(origin, tmp_path / "shallow", change)
+
+    for mode in ("advisory", "strict"):
+        result, payload = _verify(
+            shallow,
+            "--ci-mode", mode,
+            "--base", "origin/main",
+            "--head", change,
+            out=tmp_path / f"out-{mode}",
+        )
+        _assert_unknown_base_stop(result, payload)
+
+
+def test_a_graft_file_cannot_show_the_manifest_never_existed(tmp_path: Path) -> None:
+    """``info/grafts`` cuts history without making the clone shallow."""
+
+    origin, _, manifest_pr = _develop_origin(tmp_path)
+    ci = _ci_clone(origin, tmp_path / "ci", manifest_pr)
+    _write(ci / ".git" / "info" / "grafts", f"{manifest_pr}\n")
+    assert _git(ci, "rev-parse", "--is-shallow-repository") == "false"
+
+    for mode in ("advisory", "strict"):
+        result, payload = _verify(
+            ci,
+            "--ci-mode", mode,
+            "--base", "origin/not-fetched",
+            "--head", manifest_pr,
+            out=tmp_path / f"out-{mode}",
+        )
+        _assert_unknown_base_stop(result, payload)
+
+
 def test_a_named_base_that_is_not_here_keeps_setup_where_history_shows_no_manifest(
     tmp_path: Path,
 ) -> None:

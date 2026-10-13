@@ -434,7 +434,7 @@
   "tests/test_sdk_agent_clones.py": 73.3,
   "tests/test_memory_bank_effects.py": 2.6,
   "tests/test_verification_receipt_consumers.py": 3.7,
-  "tests/test_verify_base_and_gate_removal.py": 18.0
+  "tests/test_verify_base_and_gate_removal.py": 17.9
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -525,12 +525,12 @@
   },
   {
    "source": "junit",
-   "measured_at": "30981fc0f2c1 with issue #1023 verify base and gate removal increment",
-   "report_sha256": "53b2e4ccca98310329122f3b7e06f4d2baa9d5a84984a86edfea34783324e8a1",
+   "measured_at": "c4050229 with issue #1023 verify base and gate removal increment",
+   "report_sha256": "0f02fb976c495a678383716b02383c3b9bfc841674317466d04cc6f9794cf6f4",
    "files": {
-    "tests/test_verify_base_and_gate_removal.py": 18.0
+    "tests/test_verify_base_and_gate_removal.py": 17.9
    },
-   "case_count": 17,
+   "case_count": 20,
    "command": "python -m pytest tests/test_verify_base_and_gate_removal.py --junitxml=base-gate.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }

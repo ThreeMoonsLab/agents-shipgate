@@ -1113,14 +1113,21 @@ def path_present_at_ref(workspace: Path, ref: str, path: Path) -> bool | None:
 def path_ever_present_from(workspace: Path, ref: str, path: Path) -> bool | None:
     """Whether any commit reachable from ``ref`` ever held exactly ``path``.
 
-    ``False`` only when complete history proves it never did: a shallow
-    checkout cannot see what came before its graft, so it answers ``None``,
-    as does a ref or a Git that cannot answer. Every commit that changed the
-    path is considered (``--full-history``), so a side branch that added and
-    later removed it is not simplified away behind a merge.
+    ``False`` only when complete history proves it never did. A shallow
+    checkout cannot see what came before its boundary: ``rev-list`` there
+    answers with empty output and exit 0, because the boundary is a root, so
+    the guard is what keeps that silence from reading as "never". A
+    ``$GIT_DIR/info/grafts`` file cuts history the same way while
+    ``--is-shallow-repository`` says ``false``, and Git honours it even with
+    replace objects disabled, so its presence answers ``None`` too, as does a
+    ref or a Git that cannot answer. Every commit that changed the path is
+    considered (``--full-history``), so a side branch that added and later
+    removed it is not simplified away behind a merge.
     """
 
     if _history_is_truncated(workspace) is not False:
+        return None
+    if _graft_file_present(workspace) is not False:
         return None
     commit = commit_sha(workspace, ref)
     if commit is None:
@@ -1141,6 +1148,29 @@ def path_ever_present_from(workspace: Path, ref: str, path: Path) -> bool | None
     if result.returncode != 0:
         return None
     return bool(result.stdout.strip())
+
+
+def _graft_file_present(workspace: Path) -> bool | None:
+    """Whether the repository carries a ``$GIT_DIR/info/grafts`` file.
+
+    ``None`` when its location cannot be read, which no caller may take as
+    "absent". ``GIT_GRAFT_FILE`` cannot move it: every Git run here drops the
+    caller's ``GIT_*`` environment.
+    """
+
+    result = _run_git(workspace, ["rev-parse", "--git-path", "info/grafts"], check=False)
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    graft = Path(result.stdout.strip())
+    if not graft.is_absolute():
+        graft = workspace / graft
+    try:
+        graft.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return None
+    return True
 
 
 #: The longest link text a tree entry is read for. No platform accepts a

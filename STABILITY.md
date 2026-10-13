@@ -386,8 +386,10 @@ reports `verify` had just written as changed files.
   available locally, fails closed with that diff-input stop (`archive_failed`
   or `ref_missing`, `fetch_base`) in both CI modes. A repository that never
   had the manifest keeps the setup and host routes; with a named base that is
-  not available, only where complete (non-shallow) history from the head
-  shows the manifest never existed.
+  not available, only where complete history from the head (not shallow, no
+  `info/grafts`) shows the manifest never existed. A depth-1 checkout,
+  manifest-free or not, therefore stops for the base in both modes, where
+  advisory used to exit 0 on the host route.
 - `SHIP-VERIFY-CI-GATE-REMOVED` resolves changed paths against the root of the
   evaluated tree, derived from the manifest's repository-relative identity.
 - Every Git archive packs the commit's tree rather than its history, so
@@ -5411,7 +5413,8 @@ nothing, verify fails closed with the base-unresolved stop, and if the base
 holds the manifest but its merge base cannot be read, or a named `--base` is
 not available locally, with the diff-input stop, instead of routing to setup.
 A named base that is not available keeps the setup route only where complete
-(non-shallow) history from the head shows the manifest never existed.
+history from the head (not shallow, no `info/grafts`) shows the manifest never
+existed.
 
 The head scan writes `report.md`, `report.json`, `report.sarif`, `packet.json`,
 `verifier.json`, `verify-run.json`, `agent-handoff.json`, `pr-comment.md`,
