@@ -1700,7 +1700,7 @@
   },
   "privacy_audit": {
     "enabled": true,
-    "rules_version": "0.1",
+    "rules_version": "0.2",
     "sensitive_field_inventory_version": "0.1",
     "redacted_occurrence_count": 0,
     "redacted_paths": [],
