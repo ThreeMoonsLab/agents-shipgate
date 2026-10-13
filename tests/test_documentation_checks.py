@@ -164,6 +164,36 @@ def test_secret_and_injection_in_a_description_are_published_without_the_key(tmp
     )
 
 
+@pytest.mark.parametrize("ci_mode", ["advisory", "strict"])
+def test_basic_shaped_prose_keeps_a_clean_sample_passing(tmp_path, ci_mode):
+    # "Basic ReadOnly" has the shape of a base64 token but is not a
+    # credential: it must not raise a finding or the evidence gap that would
+    # move a passing verdict to insufficient_evidence (#1026 review, C1-1).
+    project = tmp_path / "project"
+    shutil.copytree(SAMPLE, project)
+    tools = json.loads((project / "tools.json").read_text(encoding="utf-8"))
+    tools["tools"][0]["description"] = (
+        "Look up internal documentation metadata for an existing article. "
+        "Provides Basic ReadOnly access."
+    )
+    (project / "tools.json").write_text(json.dumps(tools, indent=2), encoding="utf-8")
+    reports = tmp_path / "reports"
+
+    report, exit_code = run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=reports,
+        formats=["json", "sarif", "markdown"],
+        ci_mode=ci_mode,
+    )
+
+    assert report.findings == []
+    assert report.policy_evidence_gaps == []
+    assert report.release_decision.decision == "passed"
+    assert exit_code == 0
+    # Nor is the prose redacted anywhere.
+    assert report.privacy_audit.redacted_occurrence_count == 0
+
+
 def _tool_description_secret(project: Path) -> str:
     shutil.copytree(SAMPLE, project)
     tools = json.loads((project / "tools.json").read_text(encoding="utf-8"))

@@ -3632,7 +3632,8 @@ Purely heuristic matches default to `medium`; multiple matches on write/high-ris
 The known formats are the shared redaction rules in `core/privacy.py`
 (`SECRET_PATTERNS`): provider keys (OpenAI, AWS access key ids, GitHub,
 Stripe, Slack, Google `AIza`), JWTs, database URLs with credentials, `Bearer`
-and `Basic` credentials, and PEM private-key blocks, plus a labeled
+credentials, `Basic` tokens that decode to `user:password` (so `Provides Basic
+ReadOnly access` is prose, not a match), and PEM private-key blocks, plus a labeled
 `api_key`/`password`/`secret`/`token` value. It is published like
 `SHIP-DOC-INJECTION-RISK`, with the value redacted everywhere, and follows the
 same publication rule as `SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER` (#1026). An

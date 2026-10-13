@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import copy
 import re
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import unquote_plus
@@ -27,19 +29,83 @@ BEARER_TOKEN_RE = re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{12,}\b", re.IGNOREC
 #: as the value and the credential after it was published.
 AUTH_SCHEME_PATTERN = r"(?:bearer|basic|digest|token|negotiate)"
 
+class CheckedPattern:
+    """A compiled expression whose every match must also pass ``accept``.
+
+    Some secret shapes cannot be told from prose by a regular expression
+    alone: ``Basic ReadOnly`` has the shape of a ``Basic`` credential, and
+    ``getCustomerOrderHistoryForAccountV2Async`` the shape of an AWS secret
+    key (#1026 review). A second, exact test of each match decides. The class
+    offers the four members the rules' callers use — ``search``,
+    ``finditer``, ``subn`` and ``pattern`` — so it stands where an
+    ``re.Pattern`` stands in :data:`SECRET_PATTERNS`.
+    """
+
+    __slots__ = ("_accept", "_compiled", "pattern")
+
+    def __init__(
+        self,
+        compiled: re.Pattern[str],
+        accept: Callable[[re.Match[str]], bool],
+    ) -> None:
+        self._compiled = compiled
+        self._accept = accept
+        self.pattern = compiled.pattern
+
+    def finditer(self, string: str) -> Iterator[re.Match[str]]:
+        return (match for match in self._compiled.finditer(string) if self._accept(match))
+
+    def search(self, string: str) -> re.Match[str] | None:
+        return next(self.finditer(string), None)
+
+    def subn(self, repl: str, string: str) -> tuple[str, int]:
+        count = 0
+
+        def replace(match: re.Match[str]) -> str:
+            nonlocal count
+            if not self._accept(match):
+                return match.group(0)
+            count += 1
+            return repl
+
+        return self._compiled.sub(replace, string), count
+
+
+SecretPattern = re.Pattern[str] | CheckedPattern
+
+
+def _is_basic_credential(match: re.Match[str]) -> bool:
+    """Whether the token after ``Basic`` decodes to ``user:password``.
+
+    Every HTTP Basic credential is the base64 of ``user:password``, so it is
+    at least eight characters and decodes to printable ASCII holding a colon
+    after a non-empty user. ``ReadOnly``, ``DataSets`` or ``MetaData`` decode
+    to bytes that are not text at all; no word of a 160,000-word English list,
+    in any of its casings, passes.
+    """
+
+    token = match.group(1)
+    if len(token) < 8:
+        return False
+    try:
+        decoded = base64.b64decode(token, validate=True)
+    except (binascii.Error, ValueError):
+        return False
+    if not decoded or any(byte < 0x20 or byte > 0x7E for byte in decoded):
+        return False
+    user, colon, _password = decoded.partition(b":")
+    return bool(colon and user)
+
+
 #: ``Basic <base64(user:password)>``, with or without the ``Authorization:``
-#: label before it, which is kept. The credential is a base64 shape of at
-#: least eight characters, a multiple of four, that holds a digit, ``+`` or
-#: ``/``, or an upper-case letter after its first character beside a
-#: lower-case one; prose such as ``basic settings`` or ``Basic Concepts`` is
-#: not one. A labeled credential of any other shape is still redacted, by
+#: label before it, which is kept. Only a token that decodes to ``user:…`` is
+#: a credential (:func:`_is_basic_credential`), so prose such as ``Provides
+#: Basic ReadOnly access`` is neither reported nor redacted. A labeled
+#: credential of any other shape is still redacted, by
 #: :data:`CREDENTIAL_LABEL_PATTERN`.
-BASIC_AUTH_RE = re.compile(
-    r"\b(?i:basic)\s+"
-    r"(?:(?=[A-Za-z0-9+/]*[0-9+/])|(?=[A-Za-z0-9+/]+[A-Z])(?=[A-Za-z0-9+/]*[a-z]))"
-    r"(?:[A-Za-z0-9+/]{4})+"
-    r"(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)"
-    r"(?![A-Za-z0-9+/=:_.~-])"
+BASIC_AUTH_RE = CheckedPattern(
+    re.compile(r"\b(?i:basic)\s+([A-Za-z0-9+/]{4,}={0,2})(?![A-Za-z0-9+/=_-])"),
+    _is_basic_credential,
 )
 
 #: A PEM private-key block: through its ``-----END … PRIVATE KEY-----`` line,
@@ -54,19 +120,41 @@ PRIVATE_KEY_RE = re.compile(
 #: A Google API key: ``AIza`` and 35 URL-safe characters.
 GOOGLE_API_KEY_RE = re.compile(r"(?<![A-Za-z0-9])AIza[0-9A-Za-z_-]{35}(?![A-Za-z0-9])")
 
+_LOWER_RUN_RE = re.compile(r"[a-z]+")
+
+
+def _is_random_token(match: re.Match[str]) -> bool:
+    """Whether a 40-character run reads as random rather than as words.
+
+    A camelCase identifier (``getCustomerOrderHistoryForAccountV2Async``) or a
+    relative path (``Sources/PaymentKit/Handlers/RefundTools2``) splits into
+    words of two or more lower-case letters, upper-case runs, digit runs and
+    ``/``. A random key almost never does: it holds a ``+`` or a lone
+    lower-case letter between other characters (AWS's documented example key
+    opens with ``wJ``); about one random key in 1,400 reads as words.
+    """
+
+    token = match.group(0)
+    return "+" in token or any(len(run) < 2 for run in _LOWER_RUN_RE.findall(token))
+
+
 #: An AWS secret access key in free text, with no label to find it by: a run
 #: of exactly 40 base64 characters holding an upper-case letter, a lower-case
-#: letter and a digit, not starting with ``/``. A Git commit id (lower-case
-#: hex), a ``sha256`` digest, a JSON pointer or a path does not take that
+#: letter and a digit, not starting with ``/``, that does not read as words
+#: (:func:`_is_random_token`). A Git commit id (lower-case hex), a ``sha256``
+#: digest, a JSON pointer, a path or a camelCase name does not take that
 #: shape. It has no prefix a cheap precheck can find, so it is read in every
 #: string.
-AWS_SECRET_ACCESS_KEY_RE = re.compile(
-    r"(?<![A-Za-z0-9/+])(?!/)"
-    r"(?=[A-Za-z0-9/+]{0,39}[A-Z])(?=[A-Za-z0-9/+]{0,39}[a-z])(?=[A-Za-z0-9/+]{0,39}[0-9])"
-    r"[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+=])"
+AWS_SECRET_ACCESS_KEY_RE = CheckedPattern(
+    re.compile(
+        r"(?<![A-Za-z0-9/+])(?!/)"
+        r"(?=[A-Za-z0-9/+]{0,39}[A-Z])(?=[A-Za-z0-9/+]{0,39}[a-z])(?=[A-Za-z0-9/+]{0,39}[0-9])"
+        r"[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+=])"
+    ),
+    _is_random_token,
 )
 
-SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+SECRET_PATTERNS: tuple[tuple[str, SecretPattern], ...] = (
     ("openai_api_key", re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}")),
     (
         "aws_access_key",
@@ -106,7 +194,7 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 #: context-free shape would raise one, and an evidence gap with it, for any
 #: 40-character token that happens to look random. Over-redaction is the
 #: accepted direction for output; a false finding is not.
-REDACTION_ONLY_SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+REDACTION_ONLY_SECRET_PATTERNS: tuple[tuple[str, SecretPattern], ...] = (
     ("aws_secret_access_key", AWS_SECRET_ACCESS_KEY_RE),
 )
 
@@ -203,14 +291,22 @@ LABELED_SECRET_PATTERN = re.compile(
 #: ``Authorization: <scheme> <credential>``, ``authorization=<credential>`` and
 #: ``auth: <credential>`` in free text. The label, the separator and the scheme
 #: word are kept and the credential is redacted: any credential of eight or
-#: more characters after a scheme word, and one that looks like a secret
-#: (:func:`looks_like_secret_value`) without one. Redaction only, like
-#: :data:`REDACTION_ONLY_SECRET_PATTERNS`: ``auth: oauth2_client_credentials``
-#: names a mode as often as it carries a credential, and a finding must not
-#: guess which.
+#: more characters after a scheme word; after an ``authorization`` label alone,
+#: a token of twelve or more characters holding a letter and a digit; and one
+#: that looks like a secret (:func:`looks_like_secret_value`) otherwise.
+#: Redaction only, like :data:`REDACTION_ONLY_SECRET_PATTERNS`:
+#: ``auth: oauth2_client_credentials`` names a mode as often as it carries a
+#: credential, and a finding must not guess which.
 CREDENTIAL_LABEL_PATTERN = re.compile(
     r"(?i)(['\"]?)\b(proxy-authorization|authorization|auth)\1(\s*[:=]\s*)(['\"]?)"
     rf"({AUTH_SCHEME_PATTERN}\s+)?([A-Za-z0-9_./+=~-]+)\4"
+)
+
+#: ``Authorization: Digest username="…", realm="…", response="…"``: the
+#: value is a list of ``key="…"`` pairs, not one token, so everything after
+#: the scheme word to the end of the line is the credential.
+DIGEST_CREDENTIAL_PATTERN = re.compile(
+    r"(?i)\b((?:proxy-)?authorization['\"]?\s*[:=]\s*['\"]?digest\s+)([^\r\n]+)"
 )
 
 SENSITIVE_VALUE_KEYS = {
@@ -624,22 +720,43 @@ def _redact_credential_label(
     stats: RedactionStats | None,
     path: str,
 ) -> str:
+    def replace_digest(match: re.Match[str]) -> str:
+        if _is_known_marker(match.group(2).strip()):
+            return match.group(0)
+        if stats is not None:
+            stats.record(path, "labeled_secret_value")
+        return f"{match.group(1)}{_marker('labeled_secret_value')}"
+
     def replace(match: re.Match[str]) -> str:
-        scheme, credential = match.group(5), match.group(6)
+        label, scheme, credential = match.group(2), match.group(5), match.group(6)
         if scheme:
             if len(credential) < 8:
                 return match.group(0)
-        elif not looks_like_secret_value(credential):
+        elif not (
+            looks_like_secret_value(credential)
+            or (label.lower() != "auth" and _looks_like_short_token(credential))
+        ):
             return match.group(0)
         if stats is not None:
             stats.record(path, "labeled_secret_value")
         return (
-            f"{match.group(1)}{match.group(2)}{match.group(1)}"
+            f"{match.group(1)}{label}{match.group(1)}"
             f"{match.group(3)}{match.group(4)}{scheme or ''}"
             f"{_marker('labeled_secret_value')}{match.group(4)}"
         )
 
+    value = DIGEST_CREDENTIAL_PATTERN.sub(replace_digest, value)
     return CREDENTIAL_LABEL_PATTERN.sub(replace, value)
+
+
+def _looks_like_short_token(value: str) -> bool:
+    """A credential an ``Authorization`` label carries without a scheme word."""
+
+    return (
+        len(value) >= 12
+        and any(char.isalpha() for char in value)
+        and any(char.isdigit() for char in value)
+    )
 
 
 def is_sensitive_key(value: object) -> bool:

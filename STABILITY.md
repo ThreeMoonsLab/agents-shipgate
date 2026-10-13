@@ -383,19 +383,27 @@ unredacted and the privacy audit counted nothing.
   `SHIP-SCHEMA-BROAD-FREE-TEXT`); `kind`, `policy_id`, `next_action` and the
   decision reason are unchanged.
 - **Redaction rules.** `privacy_audit.rules_version` is `0.2`. Every published
-  string is also redacted for `Basic <base64 credential>` (`basic_auth`, the
-  `Authorization:` label kept), a PEM private-key block through its end line,
-  or through the end of the text when it has none (`private_key`), and
-  `AIza…` keys (`google_api_key`); these three also raise the secret findings
-  above and skill `SEC-SECRET-001`. A 40-character run holding upper- and
-  lower-case letters and a digit (`aws_secret_access_key`) and an
-  `authorization`, `proxy-authorization` or `auth` labeled value, after an
-  optional `Bearer`/`Basic`/`Digest`/`Token`/`Negotiate` scheme word
-  (`labeled_secret_value`), are redacted but raise no finding, because without
-  a prefix or a credential label the shape is too common to report.
-  `Bearer` followed by a tab or newline is no longer missed. The extra fields of
-  an `extra="allow"` model (`Finding`, `Tool`, `SourceReference`) are redacted
-  in the first pass and counted in `privacy_audit.redacted_paths` (for example
+  string is also redacted for `Basic <token>` where the token, at least eight
+  characters, decodes to printable ASCII `user:password` (`basic_auth`, the
+  `Authorization:` label kept; `Provides Basic ReadOnly access` is prose and
+  untouched), a PEM private-key block through its end line, or through the end
+  of the text when it has none (`private_key`), and `AIza…` keys
+  (`google_api_key`); these three also raise the secret findings above and
+  skill `SEC-SECRET-001`. Two more are redacted but raise no finding, because
+  without a prefix or a credential label the shape is too common to report: a
+  40-character run holding upper- and lower-case letters and a digit that does
+  not read as words (`aws_secret_access_key`; a camelCase name such as
+  `getCustomerOrderHistoryForAccountV2Async` or a path such as
+  `Sources/PaymentKit/Handlers/RefundTools2`, where every lower-case run is two
+  letters or more and no `+` appears, is left alone), and an `authorization`,
+  `proxy-authorization` or `auth` labeled value (`labeled_secret_value`): after
+  a `Bearer`/`Basic`/`Token`/`Negotiate` scheme word any value of eight or more
+  characters, after `Digest` the rest of the line, after an `authorization`
+  label alone a token of twelve or more characters holding a letter and a
+  digit, and otherwise a value that looks like a secret. `Bearer` followed by a
+  tab or newline is no longer missed. The extra fields of an `extra="allow"`
+  model (`Finding`, `Tool`, `SourceReference`) are redacted in the first pass
+  and counted in `privacy_audit.redacted_paths` (for example
   `findings[].debug_context`).
 - **Check ids.** None is added, removed or renamed. Per [Check IDs](#check-ids),
   the conditions under which `SHIP-DOC-SECRET-IN-DESCRIPTION`,
@@ -415,7 +423,9 @@ finding whose fingerprint moved.
 permission is added, `report_schema_version` stays `1.0`, and
 `publish_when_policy_ineligible` stays in-process catalog metadata, absent from
 `docs/checks.json`. `verification-input.diff` remains the exact bytes of the
-change, and the capability lock and lock diff publish tool names as before.
+change. The capability lock family (`capabilities.lock.json`, the lock diff
+and the capability delta attestation) stays unredacted, as before, pending
+#1079.
 
 ---
 
@@ -4891,8 +4901,10 @@ secret access keys and `authorization`/`auth` labeled values, and redact the
 extra fields of an `extra="allow"` model such as `Finding`. Two of them, the
 unlabeled AWS shape and the labeled values, redact only: a rule that also
 detects (`SHIP-DOC-SECRET-IN-DESCRIPTION`, `SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER`,
-`SEC-SECRET-001`) needs a prefix or a credential label, since a finding is not
-allowed the false positives redaction is. A detected secret or instruction-like
+`SEC-SECRET-001`) needs a prefix or an exact test, such as a `Basic` token
+decoding to `user:password`, since a finding is not allowed the false
+positives redaction is. Even redaction leaves camelCase names and paths that
+read as words alone, so a SARIF location keeps its file. A detected secret or instruction-like
 text is always published as a finding with its value redacted, never hidden in
 an evidence gap. See [the migration note](#secret-observations-1026).
 
