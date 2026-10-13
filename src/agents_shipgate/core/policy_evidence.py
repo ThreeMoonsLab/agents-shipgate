@@ -170,7 +170,16 @@ def policy_evidence_gap(
         "agents-shipgate verify --workspace . --config shipgate.yaml "
         "--ci-mode advisory --format json"
     ),
+    detected: str | None = None,
 ) -> EvidenceGap:
+    """Describe why ``policy_id``'s finding could not become policy.
+
+    ``detected`` is the check's catalog description — what it observed — and
+    leads ``why`` when given, so the gap names the observation ("Tool
+    description contains a secret-like value.") before saying that its
+    applicability is only inferred (#1026). It is catalog text, never the
+    matched value.
+    """
     bases = set(support.evidence_bases)
     authoritative = bases & {
         "reviewed_declaration",
@@ -202,6 +211,11 @@ def policy_evidence_gap(
         kind = "unknown_policy_evidence"
         action_kind = "provide_policy_evidence"
         why = "Policy applicability cannot be established from complete static evidence."
+    observed = " ".join((detected or "").split())
+    if observed:
+        if not observed.endswith((".", "!", "?")):
+            observed = f"{observed}."
+        why = f"{observed} {why}"
     return EvidenceGap(
         kind=cast(Any, kind),
         subject=subject,

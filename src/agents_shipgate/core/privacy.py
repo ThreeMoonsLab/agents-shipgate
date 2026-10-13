@@ -10,12 +10,61 @@ from urllib.parse import unquote_plus
 
 from pydantic import BaseModel
 
-RULES_VERSION = "0.1"
+#: Bumped whenever a rule below redacts text an earlier version published.
+#: ``0.2`` (#1026): ``Basic`` credentials, PEM private-key blocks, Google
+#: ``AIza`` API keys, unlabeled AWS secret access keys, ``authorization`` and
+#: ``auth`` labels, and the extra fields of an ``extra="allow"`` model.
+RULES_VERSION = "0.2"
 SENSITIVE_FIELD_INVENTORY_VERSION = "0.1"
 
 REDACTION_MARKER_RE = re.compile(r"\[REDACTED:[a-z0-9_:-]+\]")
 _MARKER_KIND_RE = re.compile(r"\[REDACTED:([a-z0-9_:-]+)\]")
 BEARER_TOKEN_RE = re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{12,}\b", re.IGNORECASE)
+
+#: The authentication schemes that may lead an ``Authorization`` header's
+#: value. The host-grant readers' header redaction (``core.host_grants``)
+#: builds on the same alternation: without it the scheme word alone was taken
+#: as the value and the credential after it was published.
+AUTH_SCHEME_PATTERN = r"(?:bearer|basic|digest|token|negotiate)"
+
+#: ``Basic <base64(user:password)>``, with or without the ``Authorization:``
+#: label before it, which is kept. The credential is a base64 shape of at
+#: least eight characters, a multiple of four, that holds a digit, ``+`` or
+#: ``/``, or an upper-case letter after its first character beside a
+#: lower-case one; prose such as ``basic settings`` or ``Basic Concepts`` is
+#: not one. A labeled credential of any other shape is still redacted, by
+#: :data:`CREDENTIAL_LABEL_PATTERN`.
+BASIC_AUTH_RE = re.compile(
+    r"\b(?i:basic)\s+"
+    r"(?:(?=[A-Za-z0-9+/]*[0-9+/])|(?=[A-Za-z0-9+/]+[A-Z])(?=[A-Za-z0-9+/]*[a-z]))"
+    r"(?:[A-Za-z0-9+/]{4})+"
+    r"(?:[A-Za-z0-9+/]{4}|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)"
+    r"(?![A-Za-z0-9+/=:_.~-])"
+)
+
+#: A PEM private-key block: through its ``-----END … PRIVATE KEY-----`` line,
+#: or, when the text holds no end line (a truncated or wrapped key), through
+#: the end of the text, since everything after the header may be key material.
+PRIVATE_KEY_RE = re.compile(
+    r"-----BEGIN[A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----"
+    r"(?:.*?-----END[A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----|.*)",
+    re.DOTALL,
+)
+
+#: A Google API key: ``AIza`` and 35 URL-safe characters.
+GOOGLE_API_KEY_RE = re.compile(r"(?<![A-Za-z0-9])AIza[0-9A-Za-z_-]{35}(?![A-Za-z0-9])")
+
+#: An AWS secret access key in free text, with no label to find it by: a run
+#: of exactly 40 base64 characters holding an upper-case letter, a lower-case
+#: letter and a digit, not starting with ``/``. A Git commit id (lower-case
+#: hex), a ``sha256`` digest, a JSON pointer or a path does not take that
+#: shape. It has no prefix a cheap precheck can find, so it is read in every
+#: string.
+AWS_SECRET_ACCESS_KEY_RE = re.compile(
+    r"(?<![A-Za-z0-9/+])(?!/)"
+    r"(?=[A-Za-z0-9/+]{0,39}[A-Z])(?=[A-Za-z0-9/+]{0,39}[a-z])(?=[A-Za-z0-9/+]{0,39}[0-9])"
+    r"[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+=])"
+)
 
 SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("openai_api_key", re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}")),
@@ -46,6 +95,19 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         ),
     ),
     ("bearer_token", BEARER_TOKEN_RE),
+    ("basic_auth", BASIC_AUTH_RE),
+    ("private_key", PRIVATE_KEY_RE),
+    ("google_api_key", GOOGLE_API_KEY_RE),
+)
+
+#: Shapes that are redacted but never *detected*. ``SECRET_PATTERNS`` also
+#: decides findings (``SHIP-DOC-SECRET-IN-DESCRIPTION``,
+#: ``SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER``, skill ``SEC-SECRET-001``), and a
+#: context-free shape would raise one, and an evidence gap with it, for any
+#: 40-character token that happens to look random. Over-redaction is the
+#: accepted direction for output; a false finding is not.
+REDACTION_ONLY_SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("aws_secret_access_key", AWS_SECRET_ACCESS_KEY_RE),
 )
 
 # Marker kinds this module can actually emit. The redact_text passthrough
@@ -54,7 +116,7 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 # "[REDACTED:my-lowercase-secret-123]" — would otherwise bypass forced
 # sensitive-key redaction and smuggle its payload into the report.
 KNOWN_MARKER_KINDS: frozenset[str] = frozenset(
-    name for name, _ in SECRET_PATTERNS
+    name for name, _ in (*SECRET_PATTERNS, *REDACTION_ONLY_SECRET_PATTERNS)
 ) | {"labeled_secret_value", "sensitive_field"}
 
 
@@ -70,6 +132,7 @@ SECRET_PRECHECK_MARKERS: tuple[str, ...] = (
     "akia",
     "agpa",
     "aida",
+    "aiza",
     "aipa",
     "anpa",
     "aroa",
@@ -87,6 +150,7 @@ SECRET_PRECHECK_MARKERS: tuple[str, ...] = (
     "mysql://",
     "postgres://",
     "postgresql://",
+    "private key",
     "redis://",
     "rediss://",
     "rk_live_",
@@ -101,19 +165,24 @@ SECRET_PRECHECK_MARKERS: tuple[str, ...] = (
     "xox",
 )
 
-# The logging precheck intentionally excludes generic ``bearer`` prose to
-# avoid serializing every ordinary log payload. Full output redaction still
-# needs to consider bearer credentials before applying the exact length- and
-# alphabet-constrained regular expression.
+# The logging precheck intentionally excludes generic ``bearer`` and ``basic``
+# prose to avoid serializing every ordinary log payload; it searches the two
+# exact expressions instead. Full output redaction still needs to consider
+# both before applying the exact length- and alphabet-constrained regular
+# expressions. Each marker is the bare word, because the expressions accept
+# any whitespace after it (``bearer\t…`` used to bypass a ``"bearer "``
+# marker).
 REDACTION_SECRET_PRECHECK_MARKERS: tuple[str, ...] = (
     *SECRET_PRECHECK_MARKERS,
-    "bearer ",
+    "basic",
+    "bearer",
 )
 
 LABELED_SECRET_PRECHECK_MARKERS: tuple[str, ...] = (
     "api-key",
     "api_key",
     "apikey",
+    "auth",
     "password",
     "secret",
     "token",
@@ -129,6 +198,19 @@ LABELED_SECRET_PRECHECK_RE = re.compile(
 LABELED_SECRET_PATTERN = re.compile(
     r"(?i)(['\"]?)(password|secret|token|api[_-]?key)\1"
     r"(\s*[:=]\s*)(['\"]?)([A-Za-z0-9_./+=-]{20,})\4"
+)
+
+#: ``Authorization: <scheme> <credential>``, ``authorization=<credential>`` and
+#: ``auth: <credential>`` in free text. The label, the separator and the scheme
+#: word are kept and the credential is redacted: any credential of eight or
+#: more characters after a scheme word, and one that looks like a secret
+#: (:func:`looks_like_secret_value`) without one. Redaction only, like
+#: :data:`REDACTION_ONLY_SECRET_PATTERNS`: ``auth: oauth2_client_credentials``
+#: names a mode as often as it carries a credential, and a finding must not
+#: guess which.
+CREDENTIAL_LABEL_PATTERN = re.compile(
+    r"(?i)(['\"]?)\b(proxy-authorization|authorization|auth)\1(\s*[:=]\s*)(['\"]?)"
+    rf"({AUTH_SCHEME_PATTERN}\s+)?([A-Za-z0-9_./+=~-]+)\4"
 )
 
 SENSITIVE_VALUE_KEYS = {
@@ -236,6 +318,12 @@ def redact_text(
                 stats.record(path, kind, count)
     if LABELED_SECRET_PRECHECK_RE.search(lowered) is not None:
         redacted = _redact_labeled_secret(redacted, stats=stats, path=path)
+        if "auth" in lowered:
+            redacted = _redact_credential_label(redacted, stats=stats, path=path)
+    for kind, pattern in REDACTION_ONLY_SECRET_PATTERNS:
+        redacted, count = pattern.subn(_marker(kind), redacted)
+        if count and stats is not None:
+            stats.record(path, kind, count)
     if force_kind and redacted == value and value:
         if stats is not None:
             stats.record(path, force_kind)
@@ -288,7 +376,23 @@ def _redact_value(
                 force_kind=child_force_kind,
                 preserve_models=True,
             )
-        return value.model_copy(update=updates, deep=True)
+        copied = value.model_copy(update=updates, deep=True)
+        if value.model_extra:
+            # An ``extra="allow"`` model (``Finding``, ``Tool``,
+            # ``SourceReference``) carries whatever a check plugin or a reader
+            # attached beyond its declared fields, and every writer publishes
+            # it. Walk it as ``redact_data`` walks a dict, names included, so
+            # the copy a caller holds is as sanitised as the file on disk and
+            # the privacy audit counts what was withheld (#1026).
+            extra = _redact_value(
+                dict(value.model_extra),
+                stats=stats,
+                path=path,
+                force_kind=force_kind,
+                preserve_models=True,
+            )
+            object.__setattr__(copied, "__pydantic_extra__", extra)
+        return copied
     if isinstance(value, str):
         return redact_text(value, stats=stats, path=path, force_kind=force_kind)
     if isinstance(value, dict):
@@ -512,6 +616,30 @@ def _redact_labeled_secret(
         )
 
     return LABELED_SECRET_PATTERN.sub(replace, value)
+
+
+def _redact_credential_label(
+    value: str,
+    *,
+    stats: RedactionStats | None,
+    path: str,
+) -> str:
+    def replace(match: re.Match[str]) -> str:
+        scheme, credential = match.group(5), match.group(6)
+        if scheme:
+            if len(credential) < 8:
+                return match.group(0)
+        elif not looks_like_secret_value(credential):
+            return match.group(0)
+        if stats is not None:
+            stats.record(path, "labeled_secret_value")
+        return (
+            f"{match.group(1)}{match.group(2)}{match.group(1)}"
+            f"{match.group(3)}{match.group(4)}{scheme or ''}"
+            f"{_marker('labeled_secret_value')}{match.group(4)}"
+        )
+
+    return CREDENTIAL_LABEL_PATTERN.sub(replace, value)
 
 
 def is_sensitive_key(value: object) -> bool:

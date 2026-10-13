@@ -198,10 +198,29 @@ On `mcp_server_source`, a description written in a form the reader cannot resolv
 A tool description contains instruction-override-like language. Rewrite it as neutral metadata.
 Purely heuristic matches default to `medium`; multiple matches on write/high-risk tools are `high`.
 
+The match is a regular expression, so it cannot gate a release, but the
+observation is the point of the check: it is published in `report.findings`,
+`report.md` and SARIF with `support.policy_eligible: false` and
+`agent_action: informational`, beside the `inferred_policy_applicability`
+evidence gap it also records, whose `why` names it ("Tool description contains
+instruction-override-like language."). It is never a blocker or a named review
+item, and the advisory exit code does not change (#1026).
+
 ### SHIP-DOC-SECRET-IN-DESCRIPTION
 
 A tool description contains a secret-like token or credential value. Remove it and rotate the exposed secret.
 Purely heuristic matches default to `medium`; multiple matches on write/high-risk tools are `high`.
+
+The known formats are the shared redaction rules in `core/privacy.py`
+(`SECRET_PATTERNS`): provider keys (OpenAI, AWS access key ids, GitHub,
+Stripe, Slack, Google `AIza`), JWTs, database URLs with credentials, `Bearer`
+and `Basic` credentials, and PEM private-key blocks, plus a labeled
+`api_key`/`password`/`secret`/`token` value. It is published like
+`SHIP-DOC-INJECTION-RISK`, with the value redacted everywhere, and follows the
+same publication rule as `SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER` (#1026). An
+unlabeled AWS secret access key and an `authorization`/`auth` labeled value are
+redacted in every output but do not raise this finding: without a prefix or a
+credential label the shape is too common to report.
 
 ### SHIP-SCHEMA-BROAD-FREE-TEXT
 
@@ -956,6 +975,14 @@ An n8n workflow parameter, node note, `pinData` entry, or `staticData` entry
 contains a secret-like value. Evidence includes only the source reference,
 stable pointer, and secret kind; it never includes the matched secret value or
 a verifier hash for that value.
+
+It matches the same `SECRET_PATTERNS` as `SHIP-DOC-SECRET-IN-DESCRIPTION` and
+follows the same publication rule: `docs/checks/security.yaml` marks both
+`publish_when_policy_ineligible`, so a detected secret is always a visible
+finding in `report.json`, `report.md` and SARIF, never only an evidence gap
+(#1026). Whether such a lexical match may also move the release verdict is
+#1055; this finding keeps the weight it had, and the description finding gains
+none.
 
 ### SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE
 

@@ -48,7 +48,12 @@ Policy severity, `block: true`, risk overrides, and rule-declared confidence
 cannot upgrade underlying evidence. Heuristic-only, mixed, unknown, or
 conflicting policy applicability creates a non-waivable evidence gap. The
 conservative effect may still increase, but no hard finding is emitted until
-the predicate is supported by authoritative static evidence.
+the predicate is supported by authoritative static evidence. A check whose
+value is the observation itself — a secret or instruction-like text in a tool
+description, a contradicted MCP annotation — still publishes that observation
+as a finding with `support.policy_eligible: false` beside its gap, and the gap's
+`why` names what was detected; such a finding is never a blocker or a named
+review item.
 
 Catalog membership never implies binding. `tool_catalog[]` contains every
 canonical extracted declaration; `tool_inventory[]`, actions, checks, and

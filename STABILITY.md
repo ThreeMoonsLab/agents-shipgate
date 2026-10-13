@@ -347,6 +347,78 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="secret-observations-1026"></a>
+
+## Migration Note: Unreleased — secret and injection observations are published, and redaction rules `0.2` (#1026)
+
+**What was wrong.** A live key or "ignore all previous instructions" in a tool
+description was detected by `SHIP-DOC-SECRET-IN-DESCRIPTION` or
+`SHIP-DOC-INJECTION-RISK` and then dropped: the regex match has no
+policy-eligible support, so the scan turned it into an
+`inferred_policy_applicability` evidence gap whose text said only that policy
+applicability was inferred. `report.json` had no finding, SARIF no result, and
+`report.md` never said "secret" or "injection", while the same detection in an
+n8n workflow (`SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER`) was published. The
+redaction that publishing relies on missed `Authorization: Basic` credentials,
+PEM private-key blocks, Google `AIza` keys and unlabeled AWS secret access keys
+in free text, and walked only a model's declared fields, so a value a check
+plugin attached to a `Finding` as an extra field reached the in-memory report
+unredacted and the privacy audit counted nothing.
+
+**What changes.**
+
+- **Publication.** `SHIP-DOC-SECRET-IN-DESCRIPTION`, `SHIP-DOC-INJECTION-RISK`
+  and `SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER` follow one rule: a detected
+  secret or instruction-like text is a finding in `report.findings`,
+  `report.md`, SARIF and the packet. The two description checks keep their
+  `support.policy_eligible: false` support, so they are `agent_action:
+  informational`, never a blocker or a named review item, and add nothing to
+  the advisory or strict exit code; their evidence gap is still recorded, and
+  the verdict it gave (`insufficient_evidence`) is unchanged. The n8n finding
+  keeps the weight it had. Whether a lexical match may move a verdict is #1055.
+- **Gap text.** A gap raised for a finding now leads with the check's catalog
+  description: `SHIP-DOC-SECRET-IN-DESCRIPTION: Tool description contains a
+  secret-like value. Policy applicability is supported only by heuristic
+  evidence.` This applies to every finding-derived gap (for example
+  `SHIP-SCHEMA-BROAD-FREE-TEXT`); `kind`, `policy_id`, `next_action` and the
+  decision reason are unchanged.
+- **Redaction rules.** `privacy_audit.rules_version` is `0.2`. Every published
+  string is also redacted for `Basic <base64 credential>` (`basic_auth`, the
+  `Authorization:` label kept), a PEM private-key block through its end line,
+  or through the end of the text when it has none (`private_key`), and
+  `AIza…` keys (`google_api_key`); these three also raise the secret findings
+  above and skill `SEC-SECRET-001`. A 40-character run holding upper- and
+  lower-case letters and a digit (`aws_secret_access_key`) and an
+  `authorization`, `proxy-authorization` or `auth` labeled value, after an
+  optional `Bearer`/`Basic`/`Digest`/`Token`/`Negotiate` scheme word
+  (`labeled_secret_value`), are redacted but raise no finding, because without
+  a prefix or a credential label the shape is too common to report.
+  `Bearer` followed by a tab or newline is no longer missed. The extra fields of
+  an `extra="allow"` model (`Finding`, `Tool`, `SourceReference`) are redacted
+  in the first pass and counted in `privacy_audit.redacted_paths` (for example
+  `findings[].debug_context`).
+- **Check ids.** None is added, removed or renamed. Per [Check IDs](#check-ids),
+  the conditions under which `SHIP-DOC-SECRET-IN-DESCRIPTION`,
+  `SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER` and `SEC-SECRET-001` fire broaden to
+  the three shapes above, and this note records it.
+- **Fingerprints.** A finding whose evidence holds a newly redacted shape
+  publishes a different fingerprint, because the public fingerprint is computed
+  from redacted evidence; a baseline entry for it reads as new once.
+
+**Who must act.** Rotate any credential a published finding names, and remove
+it from the description or workflow. A consumer that read `findings: []` as
+"nothing detected" now sees informational findings it can filter by
+`support.policy_eligible` or `agent_action`. Re-save a baseline holding a
+finding whose fingerprint moved.
+
+**What does not change.** No CLI flag, schema, check id, control state or
+permission is added, `report_schema_version` stays `1.0`, and
+`publish_when_policy_ineligible` stays in-process catalog metadata, absent from
+`docs/checks.json`. `verification-input.diff` remains the exact bytes of the
+change, and the capability lock and lock diff publish tool names as before.
+
+---
+
 <a id="mcp-reader-conformance-1025"></a>
 
 ## Migration Note: Unreleased — n8n's `include`, MCP secrets forwarded by name, and the host MCP files a `codex_config` source does not read (#1025)
@@ -4811,6 +4883,18 @@ does not upload artifacts. Redaction uses the shared rules in
 False positives are allowed in favor of privacy; local routing metadata such as
 source paths, JSON pointers, and scopes remains structurally present with only
 secret-like substrings replaced.
+
+`privacy_audit.rules_version` names the rule set, and moves whenever a rule
+starts redacting text an earlier version published. Rules `0.2` (#1026) add
+`Basic` credentials, PEM private-key blocks, Google `AIza` keys, unlabeled AWS
+secret access keys and `authorization`/`auth` labeled values, and redact the
+extra fields of an `extra="allow"` model such as `Finding`. Two of them, the
+unlabeled AWS shape and the labeled values, redact only: a rule that also
+detects (`SHIP-DOC-SECRET-IN-DESCRIPTION`, `SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER`,
+`SEC-SECRET-001`) needs a prefix or a credential label, since a finding is not
+allowed the false positives redaction is. A detected secret or instruction-like
+text is always published as a finding with its value redacted, never hidden in
+an evidence gap. See [the migration note](#secret-observations-1026).
 
 Changed-file paths are published verbatim, by decision (#742). `check` and
 `verify` name each file the change touches exactly as Git names it: in

@@ -8,7 +8,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from agents_shipgate.core.privacy import (
+    BASIC_AUTH_RE,
     BEARER_TOKEN_RE,
+    REDACTION_ONLY_SECRET_PATTERNS,
     SECRET_PRECHECK_MARKERS,
     RedactionStats,
     redact_data,
@@ -28,6 +30,13 @@ _SENSITIVE_KEY_PARTS = (
     "token",
 )
 _SENSITIVE_VALUE_MARKERS = SECRET_PRECHECK_MARKERS
+#: Secret shapes with no cheap substring marker: ``bearer`` and ``basic`` are
+#: ordinary prose, and an unlabeled AWS secret key has no prefix at all.
+_SENSITIVE_VALUE_PATTERNS = (
+    BEARER_TOKEN_RE,
+    BASIC_AUTH_RE,
+    *(pattern for _kind, pattern in REDACTION_ONLY_SECRET_PATTERNS),
+)
 
 
 class JsonFormatter(logging.Formatter):
@@ -97,8 +106,8 @@ def configure_logging(*, verbose: bool = False, force: bool = True) -> None:
 def _might_contain_sensitive_payload(value: Any, *, depth: int = 0) -> bool:
     if isinstance(value, str):
         lowered = value.lower()
-        return any(marker in lowered for marker in _SENSITIVE_VALUE_MARKERS) or bool(
-            BEARER_TOKEN_RE.search(value)
+        return any(marker in lowered for marker in _SENSITIVE_VALUE_MARKERS) or any(
+            pattern.search(value) for pattern in _SENSITIVE_VALUE_PATTERNS
         )
     if isinstance(value, dict):
         for key, item in value.items():

@@ -546,7 +546,7 @@
           "source_type": null,
           "source_ref": "tools/openai-tools.json",
           "policy_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-          "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
+          "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Action-like tool accepts broad free-form input. Policy applicability is supported only by heuristic evidence.",
           "next_action": {
             "kind": "provide_policy_evidence",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -576,7 +576,7 @@
           "source_type": null,
           "source_ref": "tools/openai-tools.json",
           "policy_id": "SHIP-SCHEMA-MISSING-BOUNDS",
-          "why": "SHIP-SCHEMA-MISSING-BOUNDS: Policy applicability is supported only by heuristic evidence.",
+          "why": "SHIP-SCHEMA-MISSING-BOUNDS: Risky numeric parameter lacks a maximum bound. Policy applicability is supported only by heuristic evidence.",
           "next_action": {
             "kind": "provide_policy_evidence",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -606,7 +606,7 @@
           "source_type": null,
           "source_ref": "shipgate.yaml",
           "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-          "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
+          "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Tool appears to overlap with a manifest prohibited action. Policy applicability is supported only by heuristic evidence.",
           "next_action": {
             "kind": "provide_policy_evidence",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -636,7 +636,7 @@
           "source_type": null,
           "source_ref": "shipgate.yaml",
           "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-          "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
+          "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Tool appears to overlap with a manifest prohibited action. Policy applicability is supported only by heuristic evidence.",
           "next_action": {
             "kind": "provide_policy_evidence",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -666,7 +666,7 @@
           "source_type": null,
           "source_ref": "shipgate.yaml",
           "policy_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
-          "why": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH: Policy applicability is supported only by heuristic evidence.",
+          "why": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH: Prompt scope contradicts enabled OpenAI API tools. Policy applicability is supported only by heuristic evidence.",
           "next_action": {
             "kind": "provide_policy_evidence",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -696,7 +696,7 @@
           "source_type": null,
           "source_ref": "shipgate.yaml",
           "policy_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
-          "why": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH: Policy applicability is supported only by heuristic evidence.",
+          "why": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH: Prompt scope contradicts enabled OpenAI API tools. Policy applicability is supported only by heuristic evidence.",
           "next_action": {
             "kind": "provide_policy_evidence",
             "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -4025,7 +4025,7 @@
       "source_type": null,
       "source_ref": "tools/openai-tools.json",
       "policy_id": "SHIP-SCHEMA-BROAD-FREE-TEXT",
-      "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Policy applicability is supported only by heuristic evidence.",
+      "why": "SHIP-SCHEMA-BROAD-FREE-TEXT: Action-like tool accepts broad free-form input. Policy applicability is supported only by heuristic evidence.",
       "next_action": {
         "kind": "provide_policy_evidence",
         "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -4055,7 +4055,7 @@
       "source_type": null,
       "source_ref": "tools/openai-tools.json",
       "policy_id": "SHIP-SCHEMA-MISSING-BOUNDS",
-      "why": "SHIP-SCHEMA-MISSING-BOUNDS: Policy applicability is supported only by heuristic evidence.",
+      "why": "SHIP-SCHEMA-MISSING-BOUNDS: Risky numeric parameter lacks a maximum bound. Policy applicability is supported only by heuristic evidence.",
       "next_action": {
         "kind": "provide_policy_evidence",
         "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -4085,7 +4085,7 @@
       "source_type": null,
       "source_ref": "shipgate.yaml",
       "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-      "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
+      "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Tool appears to overlap with a manifest prohibited action. Policy applicability is supported only by heuristic evidence.",
       "next_action": {
         "kind": "provide_policy_evidence",
         "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -4115,7 +4115,7 @@
       "source_type": null,
       "source_ref": "shipgate.yaml",
       "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-      "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Policy applicability is supported only by heuristic evidence.",
+      "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Tool appears to overlap with a manifest prohibited action. Policy applicability is supported only by heuristic evidence.",
       "next_action": {
         "kind": "provide_policy_evidence",
         "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -4145,7 +4145,7 @@
       "source_type": null,
       "source_ref": "shipgate.yaml",
       "policy_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
-      "why": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH: Policy applicability is supported only by heuristic evidence.",
+      "why": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH: Prompt scope contradicts enabled OpenAI API tools. Policy applicability is supported only by heuristic evidence.",
       "next_action": {
         "kind": "provide_policy_evidence",
         "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -4175,7 +4175,7 @@
       "source_type": null,
       "source_ref": "shipgate.yaml",
       "policy_id": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH",
-      "why": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH: Policy applicability is supported only by heuristic evidence.",
+      "why": "SHIP-API-PROMPT-TOOL-SCOPE-MISMATCH: Prompt scope contradicts enabled OpenAI API tools. Policy applicability is supported only by heuristic evidence.",
       "next_action": {
         "kind": "provide_policy_evidence",
         "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
@@ -4216,7 +4216,7 @@
   },
   "privacy_audit": {
     "enabled": true,
-    "rules_version": "0.1",
+    "rules_version": "0.2",
     "sensitive_field_inventory_version": "0.1",
     "redacted_occurrence_count": 0,
     "redacted_paths": [],
