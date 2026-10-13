@@ -62,6 +62,13 @@ class VerificationContext(BaseModel):
     # compare. It never relaxes a verdict; it only stops the head from
     # claiming a comparison it did not get.
     base_comparison_unavailable: bool = False
+    # Repository-relative paths of the in-repository inputs the verifier was
+    # pointed at on its command line (``--policy-pack``, ``--baseline``,
+    # ``--diff-from``), each with the trust-root class it governs the gate as.
+    # Like ``configured_manifest_path``, they exist only in the invocation, so
+    # the trust-root glob table cannot see them; a change that edits one
+    # touches a trust root (#1024).
+    configured_trust_root_inputs: dict[str, str] = Field(default_factory=dict)
     # The files that hold hooks of a plugin the repository's project settings
     # enable, read from both compared sides (an ``EnabledPluginHookFiles``),
     # and the input issues from reading them (``BoundaryInputIssue``s), as
