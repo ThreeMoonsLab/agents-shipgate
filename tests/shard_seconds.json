@@ -432,7 +432,8 @@
   "tests/test_agent_field_lists.py": 7.0,
   "tests/test_builder_construction_conditions.py": 3.1,
   "tests/test_sdk_agent_clones.py": 73.3,
-  "tests/test_memory_bank_effects.py": 2.6
+  "tests/test_memory_bank_effects.py": 2.6,
+  "tests/test_verification_receipt_consumers.py": 3.7
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -508,6 +509,17 @@
    },
    "case_count": 56,
    "command": "python -m pytest tests/test_memory_bank_effects.py -n 4 --junitxml=memory-bank.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "e36ca977aaac with issue #1022 receipt consumer tests",
+   "report_sha256": "8f8d2975fc77d0667e90f6f537e6afc0cb41255d0a0fce01dd82e1a0db454127",
+   "files": {
+    "tests/test_verification_receipt_consumers.py": 3.7
+   },
+   "case_count": 47,
+   "command": "python -m pytest tests/test_verification_receipt_consumers.py --junitxml=receipt-consumers.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

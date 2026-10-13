@@ -340,6 +340,12 @@ def test_action_output_extraction_preserves_existing_fields_and_adds_verify_run(
     _write_json(
         output_dir / "verifier.json",
         {
+            # No receipt beside it, so a verifier written before receipts
+            # (#1022), naming the report it wrote as every verify run with a
+            # head scan does; real verify output is in
+            # tests/test_verification_receipt_consumers.py.
+            "verifier_schema_version": "0.4",
+            "head_report_json": "agents-shipgate-reports/report.json",
             "execution": "succeeded",
             "head_status": "succeeded",
             "merge_verdict": "mergeable",

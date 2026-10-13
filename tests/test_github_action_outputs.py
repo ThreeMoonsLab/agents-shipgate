@@ -12,6 +12,14 @@ from scripts.github_action_outputs import (
     trigger_action,
 )
 
+#: These fixtures exercise how the step projects verifier and report fields,
+#: with no receipt beside them, so the ones that state an outcome declare a
+#: verifier written before receipts, and the ones that read a report name it in
+#: ``head_report_json`` as every verify run with a head scan does. Receipt
+#: validation on real verify output is in
+#: tests/test_verification_receipt_consumers.py (#1022).
+PRE_RECEIPT_VERIFIER = "0.4"
+
 
 @pytest.mark.parametrize(
     ("trigger", "expected"),
@@ -112,6 +120,8 @@ def test_action_outputs_prefer_canonical_capability_and_verifier_blocks(
     _write_json(
         output_dir / "verifier.json",
         {
+            "verifier_schema_version": PRE_RECEIPT_VERIFIER,
+            "head_report_json": "agents-shipgate-reports/report.json",
             "execution": "succeeded",
             "head_status": "succeeded",
             "trigger": {
@@ -152,6 +162,7 @@ def test_action_outputs_fall_back_to_verifier_artifact_for_older_reports(
     _write_json(
         output_dir / "verifier.json",
         {
+            "verifier_schema_version": PRE_RECEIPT_VERIFIER,
             "execution": "succeeded",
             "head_status": "succeeded",
             "capability_review": {
@@ -191,6 +202,7 @@ def test_action_outputs_include_verify_run_and_agent_control_fields(tmp_path: Pa
     _write_json(
         output_dir / "verifier.json",
         {
+            "verifier_schema_version": PRE_RECEIPT_VERIFIER,
             "execution": "succeeded",
             "head_status": "succeeded",
             "merge_verdict": "human_review_required",
@@ -248,6 +260,7 @@ def test_action_boolean_outputs_are_exact_control_mirrors(tmp_path: Path) -> Non
     _write_json(
         output_dir / "verifier.json",
         {
+            "verifier_schema_version": PRE_RECEIPT_VERIFIER,
             "execution": "skipped",
             "head_status": "skipped",
             "merge_verdict": "mergeable",
@@ -286,6 +299,7 @@ def test_action_outputs_reject_merge_authority_that_contradicts_control(
     _write_json(
         output_dir / "verifier.json",
         {
+            "verifier_schema_version": PRE_RECEIPT_VERIFIER,
             "execution": "skipped",
             "head_status": "skipped",
             "merge_verdict": "mergeable",
@@ -361,6 +375,8 @@ def test_step_summary_leads_with_verifier_merge_state(
     _write_json(
         output_dir / "verifier.json",
         {
+            "verifier_schema_version": PRE_RECEIPT_VERIFIER,
+            "head_report_json": "agents-shipgate-reports/report.json",
             "execution": "succeeded",
             "head_status": "succeeded",
             "applicability": "verified",

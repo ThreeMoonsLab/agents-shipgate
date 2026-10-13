@@ -347,6 +347,67 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="receipt-predicate-1022"></a>
+
+## Migration Note: Unreleased — `attest`, `org bundle` and the Action validate the verification receipt (#1022)
+
+**What was wrong.** The three consumers of `verification-receipt.json` decided
+whether to validate it from a list of the versions current when receipts
+arrived: verifier `0.5`, `0.6` and `0.7` in `attest` and `org bundle`, and
+`shipgate.verify_run/v3` in the Action's output step. Every `1.x` build emits
+newer versions, so none of them validated a receipt. `attest` still copied the
+receipt's identities into the attestation without its hash and crashed on any
+completed verify run; `org bundle` published whatever identities the file held;
+the Action exported four empty identities and the receipt's path unchecked.
+
+**What changes.**
+
+- One predicate, `requires_verification_receipt` in
+  `agents_shipgate.schemas.verification_identity`, decides for all three. It
+  names the verifier versions written before receipts (`0.1`–`0.4`); every
+  other version, a newer or missing one included, owes a receipt whenever the
+  verifier states an outcome — an execution that `succeeded` or was `skipped`,
+  a decision, a merge verdict other than `unknown`, or merge authority. The
+  Action's output step, which also publishes `report.json`'s decision, passes
+  the report too when `verifier.json` names it as its own (`head_report_json`
+  or `artifacts.report_json`). `verify` names one only for a run whose head
+  scan ran, which it closes with a receipt, so a named report owes one. A
+  report the verifier does not name belongs to another run (the
+  manifest-free host route leaves an earlier run's in place); the step
+  publishes nothing from it and owes nothing for it. A
+  `0.1`–`0.4` label is believed only on a payload with none of the identity
+  fields verifier `0.5` introduced with receipts (`request_id`, `subject_id`,
+  `input_set_id`, `engine_requirement_id`, `executor_id`, `decision_id`).
+- A receipt that is present is validated whether or not one was owed: its
+  content-addressed identities, every artifact it binds (`verifier.json`
+  among them) and the request and decision `verifier.json` names.
+- `attest` and `org bundle` exit `3` on a missing, tampered or mismatched
+  receipt with one line, `Verification receipt error (verification-receipt.json): …`,
+  and in agent mode an `input_parse_error` line whose `next_actions[0]` says
+  to rerun `verify`. `org bundle` also exits `3` when `attestation.json`
+  carries a receipt identity other than the validated receipt's, or one when
+  none was validated.
+- The Action's output step fails on the same conditions, and publishes
+  `verification_receipt_json` only once the receipt validated, as its
+  `action.yml` description ("the validated terminal verification receipt")
+  and [verification reproducibility](docs/verification-reproducibility.md#time-and-github-actions)
+  promise; it is empty otherwise.
+
+**What does not change.** A failed or not-run execution that states no outcome
+— a missing manifest, a head that could not be evaluated, the manifest-free
+host route — is never closed by a receipt, so all three still accept it, with
+empty identities. No schema version, check ID, exit code or runtime contract
+version changes, and a legacy `0.1`–`0.4` verifier owes no receipt.
+
+**Who must act.** A workflow that reads `verification_receipt_json` treats an
+empty value as "no validated receipt" rather than a path. A pipeline that ran
+`attest` or `org bundle` on a `verifier.json` separated from its receipt, or
+edited after `verify`, now exits `3`: keep the verify output directory whole.
+An Action run whose `shipgate_version` installs an engine older than this
+predicate validates a receipt only when one is present.
+
+---
+
 <a id="exec-trust-opt-in-1020"></a>
 
 ## Migration Note: Unreleased — `bootstrap` children run with `-P`, and capability locks load plugins only on the opt-in (#1020)

@@ -494,6 +494,10 @@ checks:
     _write_json(
         reports / "verifier.json",
         {
+            # No receipt beside it, so a verifier written before receipts
+            # (#1022); real verify output is in
+            # tests/test_verification_receipt_consumers.py.
+            "verifier_schema_version": "0.4",
             "base_ref": "origin/main",
             "head_ref": "HEAD",
             "mode": "advisory",
@@ -598,6 +602,9 @@ organization:
     _write_json(
         reports / "verifier.json",
         {
+            # The verifier a v0.3 attestation was written beside predates
+            # receipts (#1022).
+            "verifier_schema_version": "0.4",
             "base_ref": "origin/main",
             "head_ref": "HEAD",
             "mode": "advisory",
