@@ -435,7 +435,7 @@
   "tests/test_memory_bank_effects.py": 2.6,
   "tests/test_verification_receipt_consumers.py": 3.7,
   "tests/test_verify_base_and_gate_removal.py": 17.9,
-  "tests/test_verify_pr_controlled_inputs.py": 17.5
+  "tests/test_verify_pr_controlled_inputs.py": 23.4
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -537,12 +537,12 @@
   },
   {
    "source": "junit",
-   "measured_at": "f4034109 with issue #1024 verify PR-controlled inputs increment",
-   "report_sha256": "f2f0725ad22436a94008d3b6594e390f8efe69646a69b171467f6dfbeee36926",
+   "measured_at": "b1ca815e with issue #1024 verify PR-controlled inputs increment",
+   "report_sha256": "23dd603cea7e91d0bb3c46a1b4360a7d56c164145a17253ecc000ff7e55ebf03",
    "files": {
-    "tests/test_verify_pr_controlled_inputs.py": 17.5
+    "tests/test_verify_pr_controlled_inputs.py": 23.4
    },
-   "case_count": 21,
+   "case_count": 25,
    "command": "python -m pytest tests/test_verify_pr_controlled_inputs.py --junitxml=pr-controlled-inputs.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }

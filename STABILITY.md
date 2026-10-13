@@ -358,8 +358,9 @@ both were given, and was not a trust root: a change that added a destructive
 tool and regenerated `ci/base-report.json` from its own head compared the head
 with itself and could come back `mergeable`, with `trust_root_touched: false`,
 and `SHIP-VERIFY-POLICY-WEAKENED` read its base policy from that file. Without
-`--ci-mode`, `ci.mode` came from the head's manifest, so a change from
-`mode: strict` to `mode: advisory` turned exit 20 into exit 0 while the verdict
+`--ci-mode` and `--fail-on`, `ci.mode` and `ci.fail_on` came from the head's
+manifest, so a change from `mode: strict` to `mode: advisory`, or one dropping
+a severity from `ci.fail_on`, turned exit 20 into exit 0 while the verdict
 stayed `blocked`.
 
 **What changes.**
@@ -388,23 +389,33 @@ stayed `blocked`.
   manifest or one this engine cannot read (named in `base_notes`), the head's
   declaration applies as before. `fail_policy.ci_mode`, the exit code and
   `verifier.json` `mode` report the resolved mode.
-- `ci.fail_on` is not floored. It decides which severities block (the release
-  decision truth table), so a base floor would make a change's own
-  `SHIP-VERIFY-POLICY-WEAKENED` (high) block under the very list it loosens,
-  where the governance benchmark's `ci-advisory-from-strict` routes it to
-  human review. A loosened `fail_on` is reported by that finding, which
-  compares the two declarations; `--fail-on` remains the operator's override.
+- With a base and without `--fail-on`, the base manifest's declared
+  `ci.fail_on` is a floor for the **exit code only**, with or without
+  `--ci-mode` (the Action always passes one). An active finding whose
+  severity the base declares exits `20`, and `fail_policy.exit_code` /
+  `would_fail_ci` say so, even when the change's own list leaves that
+  severity out. The blocker severities, `decision`, `merge_verdict` and
+  `fail_policy.fail_on` keep the change's list, because `fail_on` decides
+  which severities block (the release decision truth table): a loosened list
+  stays the human-review route `SHIP-VERIFY-POLICY-WEAKENED` reports, as the
+  governance benchmark's `ci-advisory-from-strict` pins, rather than a blocker
+  under the list it loosens. Such a change therefore fails CI until a human
+  handles it, and `base_notes` names the severities the base held.
+  `--fail-on` remains the operator's override.
 
 **What does not change.** No schema, contract, `base_status` value or check ID
 moves. `scan` is unchanged: it has no base. An out-of-repository
-`--diff-from`, an explicit `--ci-mode`, `ci.fail_on`, and every run whose head
-declares the same `ci.mode` as its base behave as before.
+`--diff-from`, an explicit `--ci-mode` and `--fail-on`, every verdict, and
+every run whose head declares the same `ci` block as its base behave as
+before.
 
 **Who must act.** A pipeline that points `--diff-from` at a report the pull
 request regenerates should drop it (verify then scans the base) or keep the
 reference outside the repository. A pipeline that relied on the head manifest
-to relax `ci.mode` passes `--ci-mode`. The Action always passes `--ci-mode`, so
-its behaviour does not change.
+to relax `ci.mode` or `ci.fail_on` passes `--ci-mode` or `--fail-on`. In the
+Action, which always passes `--ci-mode`, a pull request that drops a severity
+from the base's `ci.fail_on` now fails the job while a finding of that
+severity is active; set the Action's `fail_on` input to override.
 
 ---
 
@@ -4619,7 +4630,7 @@ release-gate artifact.
 | `3` | Input parse error (malformed YAML/JSON, file too large, path traversal blocked) |
 | `4` | Other Agents Shipgate error |
 | `6` | Baseline integrity failure (v0.11+) — `agents-shipgate baseline verify --strict` detected `SHIP-BASELINE-INTEGRITY-MISMATCH`. Only the standalone `baseline verify` command emits this code; `scan` continues to use `20` for gate failure regardless of integrity-mode. |
-| `20` | Gate failure. Strict-mode scan/verify: ≥ 1 unsuppressed finding hit `fail_on`, or ≥ 1 active unbaselined finding sets `blocks_release`. Also emitted by opt-in governance gate flags (v0.13+): `baseline status --require-owner`/`--require-expiry`/`--max-age-days` on violations, and `audit --host --drift --fail-on-drift` on host-grant drift. Without those flags the commands are advisory and exit `0`. |
+| `20` | Gate failure. Strict-mode scan/verify: ≥ 1 unsuppressed finding hit `fail_on`, or ≥ 1 active unbaselined finding sets `blocks_release`. `verify` with a base and without `--fail-on` also exits `20` when an active finding's severity is in the base manifest's declared `ci.fail_on`, in either mode, even where the change's own list (which still sets the verdict) leaves it out (#1024). Also emitted by opt-in governance gate flags (v0.13+): `baseline status --require-owner`/`--require-expiry`/`--max-age-days` on violations, and `audit --host --drift --fail-on-drift` on host-grant drift. Without those flags the commands are advisory and exit `0`. |
 
 ### Runtime contract JSON
 
@@ -5003,6 +5014,8 @@ Notation: `fail_on` is `release_decision.fail_policy.fail_on` after `ci_mode` re
 **Why `severity ∈ blocker_severities + matched + below review_tier` lands in `excluded`, not `review_items`.** A finding whose severity isn't in `{critical, high, medium}` (and which doesn't carry `requires_human_review=true`) has nothing for a human reviewer to act on per the v0.8 contract — it's been baselined and isn't severe enough to warrant attention. v0.17 records this in the audit so the (rare) edge case isn't silently invisible, but the `blockers[]`/`review_items[]` lists themselves are unchanged.
 
 **Why exit code 20 depends on `--baseline-mode`.** `release_decision.{blockers, review_items}[]` always include the full set computed against `report.findings` (with suppressed excluded). The strict-mode exit code, however, is computed from `baseline_filtered_active(report, new_findings_only=...)` — when `--baseline-mode new-findings` is set (the default for the GitHub Action when `baseline:` is provided), baseline-matched policy and severity blockers are filtered out before the exit check, so exit is `0`. With `new_findings_only=False`, a matched policy blocker still triggers exit 20. The `release_decision` block remains baseline-aware in all cases; only the exit-code path changes mode.
+
+**`verify`'s base `fail_on` floor (#1024).** With a base and without `--fail-on`, `verify` passes the base manifest's declared `ci.fail_on` to the exit computation only. The exit column then also reads `20` for any row whose finding is active after the same baseline filtering and whose severity is in that list, in either CI mode. The category and `rule` columns do not move, because `blocker_severities` stays `{critical} ∪ fail_policy.fail_on`, the change's own list.
 
 Concretely: a scan with one baseline-matched critical and zero new findings produces `summary.status = "release_blockers_detected"` AND `release_decision.decision = "review_required"`. Both are correct under their respective contracts. New consumers should read `release_decision.decision`.
 
@@ -5515,7 +5528,9 @@ out-of-repository `--diff-from`, or any `--diff-from` with `--no-base`, is read
 where it is. Precedence for `ci.mode` is: `--ci-mode` when given; otherwise,
 with a base, the stricter of the base and head manifests'; otherwise the head
 manifest's. `ci.fail_on` is `--fail-on` when given, otherwise the head
-manifest's, because it decides which severities block. An
+manifest's, and it alone sets the blocker severities and the verdict; with a
+base and without `--fail-on`, the base manifest's declared `ci.fail_on` also
+fails CI (exit `20`) for any active finding of those severities. An
 in-repository `--diff-from`, `--baseline` or `--policy-pack` file the change
 edits is reported by `SHIP-VERIFY-TRUST-ROOT-TOUCHED`.
 

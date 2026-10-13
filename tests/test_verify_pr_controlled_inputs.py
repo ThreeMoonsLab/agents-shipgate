@@ -9,11 +9,12 @@ pull request's own head:
   against itself and came back ``mergeable``. It is now read as committed at the
   base, and the path is a touched trust root, as are an in-repository
   ``--baseline`` and ``--policy-pack``.
-* Without ``--ci-mode``, ``ci.mode`` came from the head's manifest, so flipping
-  ``mode: strict`` to ``mode: advisory`` in the change turned exit 20 into
-  exit 0. It now resolves to the stricter of the base and head manifests.
-  ``ci.fail_on`` is not floored: it decides which severities block, and a
-  loosened list is reported by ``SHIP-VERIFY-POLICY-WEAKENED``.
+* Without ``--ci-mode`` / ``--fail-on``, ``ci.mode`` and ``ci.fail_on`` came
+  from the head's manifest, so flipping ``mode: strict`` to ``mode: advisory``
+  (or dropping a ``fail_on`` severity) in the change turned exit 20 into
+  exit 0. The mode now resolves to the stricter of the base and head
+  manifests, and the base's ``ci.fail_on`` is an exit-only floor: the verdict
+  still follows the head's list.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
 from agents_shipgate.cli.verify.git import FileAtRef, regular_file_at_ref
-from agents_shipgate.cli.verify.orchestrator import _ci_mode_with_base_floor
+from agents_shipgate.cli.verify.orchestrator import _exit_policy_base_floor
 from agents_shipgate.schemas.baseline import BaselineFile
 from agents_shipgate.schemas.manifest import CiConfig
 
@@ -474,23 +475,51 @@ def test_a_change_can_still_tighten_its_own_ci_mode(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("base", "head", "operator_mode", "expected"),
+    ("base", "head", "flags", "expected"),
     [
         # A head that declares what the base declares is scanned as before.
-        ({"mode": "strict"}, {"mode": "strict"}, None, None),
-        ({"mode": "advisory"}, {"mode": "advisory"}, None, None),
-        # Adopting strict is the head's to do.
-        ({"mode": "advisory"}, {"mode": "strict"}, None, None),
-        # Lowering it is not.
-        ({"mode": "strict"}, {"mode": "advisory"}, None, "strict"),
-        ({"mode": "strict", "fail_on": ["high"]}, {"mode": "advisory"}, None, "strict"),
-        # --ci-mode is the operator's.
-        ({"mode": "strict"}, {"mode": "advisory"}, "advisory", "advisory"),
-        ({"mode": "advisory"}, {"mode": "strict"}, "advisory", "advisory"),
+        ({"mode": "strict"}, {"mode": "strict"}, (None, None), (None, None, False)),
+        ({"mode": "advisory"}, {"mode": "advisory"}, (None, None), (None, None, False)),
+        (
+            {"mode": "advisory", "fail_on": ["high"]},
+            {"mode": "advisory", "fail_on": ["high"]},
+            (None, None),
+            (None, ["high"], False),
+        ),
+        # Tightening is the head's to do.
+        ({"mode": "advisory"}, {"mode": "strict"}, (None, None), (None, None, False)),
+        (
+            {"mode": "advisory", "fail_on": ["high"]},
+            {"mode": "advisory", "fail_on": ["critical", "high"]},
+            (None, None),
+            (None, ["high"], False),
+        ),
+        # Lowering is not.
+        ({"mode": "strict"}, {"mode": "advisory"}, (None, None), ("strict", None, True)),
+        (
+            {"mode": "advisory", "fail_on": ["critical", "high"]},
+            {"mode": "advisory", "fail_on": ["critical"]},
+            (None, None),
+            (None, ["critical", "high"], True),
+        ),
+        # The Action's path: --ci-mode is the operator's, ci.fail_on still floors.
+        (
+            {"mode": "strict", "fail_on": ["high"]},
+            {"mode": "advisory"},
+            ("advisory", None),
+            ("advisory", ["high"], True),
+        ),
+        # --fail-on is the operator's too.
+        (
+            {"mode": "advisory", "fail_on": ["high"]},
+            {"mode": "advisory"},
+            (None, ["low"]),
+            (None, None, False),
+        ),
     ],
 )
-def test_the_ci_mode_floor_resolves_only_a_lowered_mode(
-    base: dict, head: dict, operator_mode: str | None, expected: str | None
+def test_the_exit_policy_floor_holds_what_the_head_would_lower(
+    base: dict, head: dict, flags: tuple, expected: tuple
 ) -> None:
     def manifest(ci: dict) -> str:
         repo_manifest = (SAMPLE / "shipgate.yaml").read_text(encoding="utf-8")
@@ -499,25 +528,34 @@ def test_the_ci_mode_floor_resolves_only_a_lowered_mode(
             block += f"  fail_on: [{', '.join(ci['fail_on'])}]\n"
         return re.sub(r"ci:\n  mode: \w+\n", block, repo_manifest)
 
-    resolved, notes = _ci_mode_with_base_floor(
+    ci_mode, fail_on = flags
+    resolved, floor, notes = _exit_policy_base_floor(
         head_manifest_text=manifest(head),
         base_ci=CiConfig(**base),
         base="main",
-        ci_mode=operator_mode,
+        ci_mode=ci_mode,
+        fail_on=fail_on,
     )
 
-    assert resolved == expected
-    assert bool(notes) == (expected != operator_mode)
+    expected_mode, expected_floor, noted = expected
+    assert resolved == (expected_mode if ci_mode is None else ci_mode)
+    assert floor == expected_floor
+    assert bool(notes) is noted
 
 
-def test_a_loosened_fail_on_is_routed_to_review_not_floored(tmp_path: Path) -> None:
-    """The head's ci.fail_on still decides which severities block.
+@pytest.mark.parametrize("operator_mode", [None, "advisory"])
+def test_a_loosened_fail_on_fails_ci_while_the_verdict_stays_review(
+    tmp_path: Path, operator_mode: str | None
+) -> None:
+    """The base's ci.fail_on floors the exit code and nothing else.
 
-    ``fail_on`` sets the blocker severities, so flooring it at the base would
-    turn the change's own ``SHIP-VERIFY-POLICY-WEAKENED`` (high) into a blocker
-    under the very list it loosens. The governance benchmark's
-    ``ci-advisory-from-strict`` pins the intended route: human review. The
-    mode is still the base's.
+    ``fail_on`` also sets the blocker severities, so the verdict keeps the
+    head's list: the change's own ``SHIP-VERIFY-POLICY-WEAKENED`` (high) stays
+    a human-review item, as the governance benchmark's
+    ``ci-advisory-from-strict`` pins. But the change cannot lower its own exit
+    code: under the base's list that high finding fails CI until a human
+    handles it. ``--ci-mode`` (the Action always passes one) does not lift the
+    floor; ``--fail-on`` does.
     """
 
     repo = _sample_repo(tmp_path, mode="strict")
@@ -526,13 +564,51 @@ def test_a_loosened_fail_on_is_routed_to_review_not_floored(tmp_path: Path) -> N
     _git(repo, "checkout", "-q", "-b", "pr")
     _set_ci(repo, mode="advisory")
     _commit(repo, "relax the gate")
+    mode_args = ["--ci-mode", operator_mode] if operator_mode else []
     out = tmp_path / "out"
 
-    result, payload = _verify(repo, "--base", "main", "--head", "HEAD", out=out)
+    result, payload = _verify(repo, "--base", "main", "--head", "HEAD", *mode_args, out=out)
 
     assert payload["merge_verdict"] == "human_review_required"
     assert payload["can_merge_without_human"] is False
     assert payload["capability_review"]["policy_weakening_proven"] is True
-    assert _fail_policy(out)["ci_mode"] == "strict"
-    assert _fail_policy(out)["fail_on"] == ["critical"]
+    policy = _fail_policy(out)
+    assert policy["ci_mode"] == (operator_mode or "strict")
+    assert policy["fail_on"] == (["critical"] if operator_mode is None else [])
+    assert policy["would_fail_ci"] is True
+    assert policy["exit_code"] == 20
+    assert result.exit_code == 20, result.output
+    assert any(
+        "ci.fail_on leaves out" in note and "'main' declares" in note
+        for note in payload["base_notes"]
+    )
+
+    out = tmp_path / "explicit"
+    result, payload = _verify(
+        repo, "--base", "main", "--head", "HEAD", *mode_args, "--fail-on", "critical",
+        out=out,
+    )
+    assert payload["merge_verdict"] == "human_review_required"
     assert result.exit_code == 0, result.output
+    assert not any("ci.fail_on" in note for note in payload["base_notes"])
+
+
+def test_dropping_fail_on_beside_a_blocking_tool_still_fails_ci(tmp_path: Path) -> None:
+    """The issue's shape for ``fail_on``: a blocked change cannot exit 0."""
+
+    repo = _sample_repo(tmp_path)
+    _set_ci(repo, mode="advisory", fail_on=["high"])
+    _commit(repo, "advisory base failing on high")
+    _git(repo, "checkout", "-q", "-b", "pr")
+    _add_bound_refund_tool(repo)
+    _set_ci(repo, mode="advisory")
+    _commit(repo, "add a refund tool and drop fail_on")
+    out = tmp_path / "out"
+
+    result, payload = _verify(
+        repo, "--base", "main", "--head", "HEAD", "--ci-mode", "advisory", out=out
+    )
+
+    assert payload["merge_verdict"] == "blocked"
+    assert result.exit_code == 20, result.output
+    assert _fail_policy(out)["fail_on"] == []
