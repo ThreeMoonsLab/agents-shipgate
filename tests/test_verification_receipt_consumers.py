@@ -32,7 +32,7 @@ from agents_shipgate.schemas.verification_identity import (
 )
 from agents_shipgate.schemas.verifier import VerifierArtifact
 from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
-from scripts.github_action_outputs import extract_outputs
+from scripts.github_action_outputs import append_step_summary, extract_outputs
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SAMPLE = REPO_ROOT / "samples" / "support_refund_agent"
@@ -433,9 +433,38 @@ def test_action_outputs_refuse_a_report_outcome_no_receipt_binds(
     report["release_decision"]["decision"] = "passed"
     (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     assert requires_verification_receipt(verifier) is False
+    # The verifier still names the report as its own, so the step reads it.
+    assert verifier["head_report_json"]
+    assert verifier["artifacts"]["report_json"]
 
     with pytest.raises(ValueError, match=f"{RECEIPT} is missing"):
         extract_outputs(out)
+
+
+def test_action_outputs_publish_nothing_from_a_report_the_verifier_does_not_name(
+    run: tuple[Path, Path],
+) -> None:
+    """The same edit, with the report unnamed too, publishes no outcome at all."""
+
+    _repo_path, out = run
+    verifier = _json(out / "verifier.json")
+    verifier["execution"] = verifier["head_status"] = "not_run"
+    for key in ("decision", "release_decision", "merge_verdict", "control", "head_report_json"):
+        verifier.pop(key, None)
+    verifier["artifacts"].pop("report_json")
+    (out / "verifier.json").write_text(json.dumps(verifier, indent=2), encoding="utf-8")
+    (out / RECEIPT).unlink()
+    report = _json(out / "report.json")
+    report["release_decision"]["decision"] = "passed"
+    (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+    outputs = extract_outputs(out)
+
+    assert outputs["decision"] == ""
+    assert outputs["merge_verdict"] not in {"mergeable", "passed"}
+    assert outputs["ci_would_fail"] == "false"
+    assert outputs["blocker_count"] == 0
+    assert all(outputs[field] == "" for field in IDENTITY_FIELDS)
 
 
 # --- runs that state no outcome are not closed by a receipt -----------------
@@ -468,6 +497,51 @@ def test_a_run_that_states_no_outcome_owes_no_receipt(tmp_path: Path, route: str
     assert outputs["can_merge_without_human"] == "false"
     assert all(outputs[field] == "" for field in IDENTITY_FIELDS)
     assert outputs["verification_receipt_json"] == ""
+
+
+def test_the_host_route_ignores_an_earlier_runs_report(
+    run: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review C2-1: the host route leaves an earlier run's report.json in place.
+
+    A real verify run's output directory, then a manifest-free host verify into
+    the same directory: it removes the receipt but keeps the earlier
+    ``report.json``. The step must publish the host run, not refuse it for a
+    receipt nothing owes, and must not publish the earlier report's verdict.
+    """
+
+    _sample_repo, out = run
+    earlier = _json(out / "report.json")
+    assert earlier["release_decision"]["decision"]
+    host_root = tmp_path / "host"
+    host_root.mkdir()
+    repo = _repo(host_root, sample=False)
+
+    assert _verify(repo, out) == 0
+
+    verifier = _json(out / "verifier.json")
+    assert verifier["execution"] == "not_run"
+    assert verifier["head_report_json"] is None
+    assert "report_json" not in verifier["artifacts"]
+    assert not (out / RECEIPT).exists()
+    assert _json(out / "report.json") == earlier
+
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    outputs = extract_outputs(out)
+    append_step_summary(out, outputs)
+
+    assert outputs["merge_verdict"] == "unknown"
+    assert outputs["decision"] == ""
+    assert outputs["status"] == ""
+    assert outputs["blocker_count"] == 0
+    assert outputs["ci_would_fail"] == "false"
+    assert all(outputs[field] == "" for field in IDENTITY_FIELDS)
+    assert outputs["verification_receipt_json"] == ""
+    text = summary.read_text(encoding="utf-8")
+    assert "Merge verdict: `unknown`" in text
+    assert "Release gate:" not in text
+    assert "Report JSON:" not in text
 
 
 def test_a_no_outcome_run_cannot_carry_a_forged_attestation_identity(

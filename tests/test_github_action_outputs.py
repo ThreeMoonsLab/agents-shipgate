@@ -14,8 +14,10 @@ from scripts.github_action_outputs import (
 
 #: These fixtures exercise how the step projects verifier and report fields,
 #: with no receipt beside them, so the ones that state an outcome declare a
-#: verifier written before receipts. Receipt validation on real verify output
-#: is in tests/test_verification_receipt_consumers.py (#1022).
+#: verifier written before receipts, and the ones that read a report name it in
+#: ``head_report_json`` as every verify run with a head scan does. Receipt
+#: validation on real verify output is in
+#: tests/test_verification_receipt_consumers.py (#1022).
 PRE_RECEIPT_VERIFIER = "0.4"
 
 
@@ -119,6 +121,7 @@ def test_action_outputs_prefer_canonical_capability_and_verifier_blocks(
         output_dir / "verifier.json",
         {
             "verifier_schema_version": PRE_RECEIPT_VERIFIER,
+            "head_report_json": "agents-shipgate-reports/report.json",
             "execution": "succeeded",
             "head_status": "succeeded",
             "trigger": {
@@ -373,6 +376,7 @@ def test_step_summary_leads_with_verifier_merge_state(
         output_dir / "verifier.json",
         {
             "verifier_schema_version": PRE_RECEIPT_VERIFIER,
+            "head_report_json": "agents-shipgate-reports/report.json",
             "execution": "succeeded",
             "head_status": "succeeded",
             "applicability": "verified",

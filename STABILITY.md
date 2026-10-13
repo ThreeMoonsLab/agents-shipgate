@@ -369,8 +369,12 @@ the Action exported four empty identities and the receipt's path unchecked.
   verifier states an outcome — an execution that `succeeded` or was `skipped`,
   a decision, a merge verdict other than `unknown`, or merge authority. The
   Action's output step, which also publishes `report.json`'s decision, passes
-  the report too: `verify` writes one only for a run it closes with a
-  receipt, so a `report.json` beside a receipt-era verifier owes one. A
+  the report too when `verifier.json` names it as its own (`head_report_json`
+  or `artifacts.report_json`). `verify` names one only for a run whose head
+  scan ran, which it closes with a receipt, so a named report owes one. A
+  report the verifier does not name belongs to another run (the
+  manifest-free host route leaves an earlier run's in place); the step
+  publishes nothing from it and owes nothing for it. A
   `0.1`–`0.4` label is believed only on a payload with none of the identity
   fields verifier `0.5` introduced with receipts (`request_id`, `subject_id`,
   `input_set_id`, `engine_requirement_id`, `executor_id`, `decision_id`).

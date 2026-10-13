@@ -441,9 +441,12 @@ def requires_verification_receipt(
     fails closed in every consumer.
 
     A consumer that also publishes from the sibling ``report.json`` passes it
-    as ``report_payload``. ``verify`` writes ``report.json`` only when its
-    head scan ran, and it closes every such run with a receipt, so the
-    report's presence alone owes one. Runs that state no outcome write none.
+    as ``report_payload``, but only a report ``verifier.json`` names as its
+    own (``head_report_json`` or ``artifacts.report_json``). ``verify`` names
+    one only for a run whose head scan ran and closes every such run with a
+    receipt, so a named report owes one. A report the verifier does not name
+    belongs to another run (the manifest-free host route leaves an earlier
+    run's in place) and is not this run's to pass.
 
     The legacy label is believed only for a payload shaped like legacy
     output. One that carries a receipt-era identity field is read as

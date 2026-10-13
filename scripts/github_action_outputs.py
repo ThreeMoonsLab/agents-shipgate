@@ -147,22 +147,23 @@ def extract_outputs(output_dir: Path) -> dict[str, object]:
     host_grants_json = output_dir / "host-grants.json"
     org_status_json = output_dir / "org-status.json"
 
-    payload = _load_json(report_json)
     verifier_payload = _load_json(verifier_json)
+    run_report = _run_report(output_dir, verifier_payload)
+    payload = run_report or {}
     verify_run = _load_json(verify_run_json)
     receipt = (
         _validated_receipt(
             output_dir,
             verifier_payload=verifier_payload,
-            # The step publishes report.json's decision, counts and fail
-            # policy, so a report beside a receipt-era verifier owes the
-            # receipt too, whatever verifier.json itself states.
-            report_payload=payload if report_json.is_file() else None,
+            # The step publishes this run's report.json decision, counts and
+            # fail policy, so a report the verifier names owes the receipt
+            # too, whatever verifier.json itself states.
+            report_payload=run_report,
             receipt_path=verification_receipt_json,
             documents=(
-                ("report", report_json, payload),
-                ("verifier", verifier_json, verifier_payload),
-                ("verify-run", verify_run_json, verify_run),
+                ("report", run_report),
+                ("verifier", verifier_payload),
+                ("verify-run", verify_run if verify_run_json.is_file() else None),
             ),
         )
         if verifier_json.is_file()
@@ -276,16 +277,17 @@ def _validated_receipt(
     verifier_payload: dict[str, Any],
     report_payload: dict[str, Any] | None,
     receipt_path: Path,
-    documents: tuple[tuple[str, Path, dict[str, Any]], ...],
+    documents: tuple[tuple[str, dict[str, Any] | None], ...],
 ) -> VerificationReceipt | None:
     """Validate the terminal receipt before any identity output is published.
 
     A verify run owes one when the engine's shared predicate says it states an
-    outcome, in ``verifier.json`` or by writing ``report.json``, and a receipt
-    that is present is validated whether or not one was owed. Every artifact the receipt binds is hash-checked, and each
-    of ``report.json``, ``verifier.json`` and ``verify-run.json`` that exists
-    must name the receipt's request and decision. Anything else fails the step
-    rather than publishing empty or unchecked identities.
+    outcome, in ``verifier.json`` or in the ``report.json`` it names, and a
+    receipt that is present is validated whether or not one was owed. Every
+    artifact the receipt binds is hash-checked, and each of this run's
+    ``report.json``, ``verifier.json`` and ``verify-run.json`` must name the
+    receipt's request and decision. Anything else fails the step rather than
+    publishing empty or unchecked identities.
     """
 
     if not receipt_path.is_file():
@@ -297,10 +299,11 @@ def _validated_receipt(
         return None
     receipt = VerificationReceipt.model_validate(_load_json(receipt_path))
     validate_receipt_artifacts(receipt, root=output_dir)
-    for name, path, document in documents:
-        if not path.is_file():
-            # The receipt hash-binds every artifact it names, so a document
-            # absent here is one it did not bind (a run with no head scan).
+    for name, document in documents:
+        if document is None:
+            # Not this run's (absent, or a report the verifier does not
+            # name). The receipt hash-binds every artifact it names, so it
+            # did not bind this one.
             continue
         for key in ("request_id", "decision_id"):
             if document.get(key) != getattr(receipt, key):
@@ -308,6 +311,35 @@ def _validated_receipt(
                     f"{name} {key} does not match the terminal verification receipt"
                 )
     return receipt
+
+
+def _run_report(output_dir: Path, verifier_payload: dict[str, Any]) -> dict[str, Any] | None:
+    """The ``report.json`` this run wrote, or ``None`` when it wrote none.
+
+    With no ``verifier.json`` the step is reading the scan route, whose report
+    is its own. Beside a verifier, ``report.json`` is this run's only when
+    ``verifier.json`` names it, as ``head_report_json`` or
+    ``artifacts.report_json``, which ``verify`` does for every run whose head
+    scan ran. The manifest-free host route runs no scan and leaves an earlier
+    run's report in the directory. Nothing is published from a report the
+    verifier does not name, and it owes no receipt (#1022).
+    """
+
+    report_json = output_dir / "report.json"
+    if not report_json.is_file():
+        return None
+    if (output_dir / "verifier.json").is_file():
+        artifacts = verifier_payload.get("artifacts")
+        named = (
+            verifier_payload.get("head_report_json"),
+            artifacts.get("report_json") if isinstance(artifacts, dict) else None,
+        )
+        if not any(
+            isinstance(value, str) and value and Path(value).name == report_json.name
+            for value in named
+        ):
+            return None
+    return _load_json(report_json)
 
 
 def _control_projection(
@@ -368,8 +400,9 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
     if not step_summary:
         return
 
-    payload = _load_json(output_dir / "report.json")
     verifier_payload = _load_json(output_dir / "verifier.json")
+    run_report = _run_report(output_dir, verifier_payload)
+    payload = run_report or {}
     verify_run = _load_json(output_dir / "verify-run.json")
     release_decision = payload.get("release_decision") or {}
     summary = payload.get("summary") or {}
@@ -488,6 +521,9 @@ def append_step_summary(output_dir: Path, values: dict[str, object]) -> None:
             ("org_status_json", "Org status JSON"),
         )
         for key, label in artifacts:
+            if key == "report_json" and run_report is None:
+                # Another run's report: linking it would present it as this one's.
+                continue
             path = values.get(key)
             if path and Path(str(path)).is_file():
                 summary_file.write(f"- {label}: `{clean(path)}`\n")
