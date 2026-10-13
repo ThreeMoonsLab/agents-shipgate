@@ -10,8 +10,9 @@ checks:
   description: MCP server passes through secret environment variables.
   rationale: Secret-bearing environment pass-through expands the credential boundary
     available to a tool server.
-  fires_when: A statically parsed MCP server declares secret-like env vars or passes
-    through secret-like host env references.
+  fires_when: A statically parsed MCP server declares secret-like env vars, passes
+    through secret-like host env references, or forwards a secret-like variable by
+    name (`env_vars`, `bearer_token_env_var`, `env_http_headers`, a `headers` reference).
   evidence_fields: [source_id, env_secret_names]
   recommendation: Review the secret boundary or replace pass-through with a narrower
     credential mechanism.

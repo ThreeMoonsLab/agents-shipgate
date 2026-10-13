@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,9 @@ from agents_shipgate.inputs.mcp_manifest import (
     _RISK_MONOTONE_ANNOTATIONS,
     _RISK_UNION_ANNOTATIONS,
     DUPLICATE_SERVER_DECLARATION,
+    READ_MCP_CONFIG_FILES,
+    UNREAD_HOST_MCP_CONFIG_FILES,
+    _mcp_config_files,
     load_codex_config_mcp_sources,
     normalize_codex_config_mcp_servers,
     normalize_mcp_json_servers,
@@ -1091,3 +1095,271 @@ def test_two_servers_in_one_file_may_expose_the_same_tool_name(tmp_path: Path) -
     )
 
     assert sorted(row["name"] for row in report.tool_catalog) == ["query", "query"]
+
+
+# --- secret forwarding by name, and the files a codex_config row reads (#1025) ---
+
+
+def _reviewed_codex_manifest_text() -> str:
+    """The codex row bound to the agent with its authority declared.
+
+    An unbound tool is outside the surface the checks read, so a finding about
+    one could never fire; and a passing decision needs the authority stated.
+    """
+
+    return _codex_manifest_text().replace(
+        "    path: .\n",
+        "    path: .\n"
+        "    binding:\n"
+        "      complete: true\n"
+        "      reason: reviewed MCP server surface\n"
+        "    authority:\n"
+        "      mode: none\n",
+    )
+
+
+def _passthrough_findings(tmp_path: Path, filename: str, body: str):
+    target = tmp_path / filename
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(body, encoding="utf-8")
+    (tmp_path / "shipgate.yaml").write_text(_reviewed_codex_manifest_text(), encoding="utf-8")
+    report, _exit_code = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "agents-shipgate-reports",
+    )
+    return [
+        finding
+        for finding in report.findings
+        if finding.check_id == "SHIP-MCP-ENV-SECRET-PASSTHROUGH"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("filename", "body"),
+    [
+        (
+            ".codex/config.toml",
+            '[mcp_servers.github]\ncommand = "github-mcp"\n'
+            'env_vars = ["GITHUB_TOKEN"]\nenabled_tools = ["read_issue"]\n',
+        ),
+        (
+            ".codex/config.toml",
+            '[mcp_servers.github]\nurl = "https://mcp.example.com/github"\n'
+            'bearer_token_env_var = "GITHUB_TOKEN"\nenabled_tools = ["read_issue"]\n',
+        ),
+        (
+            ".codex/config.toml",
+            '[mcp_servers.github]\nurl = "https://mcp.example.com/github"\n'
+            'env_http_headers = { "X-GitHub-Token" = "GITHUB_TOKEN" }\n'
+            'enabled_tools = ["read_issue"]\n',
+        ),
+        (
+            ".mcp.json",
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "github": {
+                            "type": "http",
+                            "url": "https://mcp.example.com/github",
+                            "headers": {"Authorization": "Bearer ${GITHUB_TOKEN}"},
+                            "tools": {"read_issue": {}},
+                        }
+                    }
+                }
+            ),
+        ),
+    ],
+    ids=["env_vars", "bearer_token_env_var", "env_http_headers", "headers"],
+)
+def test_a_secret_forwarded_by_name_fires_the_passthrough_finding(
+    tmp_path: Path, filename: str, body: str
+) -> None:
+    """Only the `env` table was read, so these forms of the same exposure passed."""
+
+    findings = _passthrough_findings(tmp_path, filename, body)
+
+    assert [finding.evidence["env_secret_names"] for finding in findings] == [["GITHUB_TOKEN"]]
+
+
+@pytest.mark.parametrize(
+    ("header", "variable"),
+    [("Authorization", "GITHUB_PAT_VALUE"), ("X-Request-Source", "GITHUB_TOKEN")],
+    ids=["credential_header", "secret_variable"],
+)
+def test_a_forwarded_header_counts_when_the_header_or_the_variable_is_secret(
+    tmp_path: Path, header: str, variable: str
+) -> None:
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text(
+        '[mcp_servers.github]\nurl = "https://mcp.example.com/github"\n'
+        f'env_http_headers = {{ "{header}" = "{variable}" }}\n'
+        'enabled_tools = ["read_issue"]\n',
+        encoding="utf-8",
+    )
+
+    tool = load_codex_config_mcp_sources(tmp_path, tmp_path)[0].tools[0]
+
+    assert tool.annotations["mcp_env_secret_names"] == [variable]
+
+
+def test_a_forwarded_name_that_is_not_secret_is_not_counted(tmp_path: Path) -> None:
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text(
+        '[mcp_servers.tools]\nurl = "https://mcp.example.com/tools"\n'
+        'env_vars = ["PATH", "HOME", "NAME=value"]\n'
+        'env_http_headers = { "X-Request-Source" = "HOSTNAME" }\n'
+        'headers = { "X-Trace" = "${TRACE_ID}" }\n'
+        'enabled_tools = ["read_issue"]\n',
+        encoding="utf-8",
+    )
+
+    tool = load_codex_config_mcp_sources(tmp_path, tmp_path)[0].tools[0]
+
+    assert "mcp_env_secret_names" not in tool.annotations
+
+
+def test_a_bearer_token_written_where_its_variable_belongs_is_not_published(
+    tmp_path: Path,
+) -> None:
+    """`bearer_token_env_var` always counts, and a value in it is redacted, not echoed."""
+
+    token = "ghp_" + "a" * 36
+    findings = _passthrough_findings(
+        tmp_path,
+        ".codex/config.toml",
+        '[mcp_servers.github]\nurl = "https://mcp.example.com/github"\n'
+        f'bearer_token_env_var = "{token}"\nenabled_tools = ["read_issue"]\n',
+    )
+
+    assert len(findings) == 1
+    assert token not in json.dumps(findings[0].evidence)
+    report_text = (tmp_path / "agents-shipgate-reports" / "report.json").read_text(
+        encoding="utf-8"
+    )
+    assert token not in report_text
+
+
+def _write_tree(root: Path, paths: list[str]) -> None:
+    for rel in paths:
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+
+
+def test_the_files_a_codex_config_row_reads_are_the_files_its_coverage_names() -> None:
+    """The coverage text said it read "the other host MCP config files" too.
+
+    It is now written from the two tuples the walk matches with. This pins the
+    rest: the text names nothing else, the published page carries it, and every
+    MCP config file the host readers recognise is one of the two.
+    """
+
+    from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
+    from agents_shipgate.inputs.codex_config import CodexConfigAdapter
+
+    reads = CodexConfigAdapter.coverage.reads
+    unread = tuple(path for path, _host in UNREAD_HOST_MCP_CONFIG_FILES)
+    named = set(re.findall(r"`([^`]+\.(?:json|toml))`", reads))
+    assert named == {*READ_MCP_CONFIG_FILES, *unread}
+    assert not set(READ_MCP_CONFIG_FILES) & set(unread)
+
+    page = (Path(__file__).resolve().parents[1] / "docs" / "determinism-boundary.md").read_text(
+        encoding="utf-8"
+    )
+    assert reads in page
+
+    recognised = {
+        path
+        for adapter in BOUNDARY_ADAPTERS
+        if adapter.id != "shared"
+        for path in adapter.exact_paths
+        if path.endswith("mcp.json") or path == ".codex/config.toml"
+    }
+    assert recognised == {*READ_MCP_CONFIG_FILES, *unread}
+
+
+def test_the_walk_matches_exactly_the_files_the_coverage_names(tmp_path: Path) -> None:
+    unread = [path for path, _host in UNREAD_HOST_MCP_CONFIG_FILES]
+    named = [*READ_MCP_CONFIG_FILES, *unread]
+    _write_tree(
+        tmp_path,
+        [
+            *named,
+            *(f"pkg/{path}" for path in named),
+            # Near misses: none of them is an MCP config file the reader names.
+            "mcp.json",
+            "config.toml",
+            ".cursor/cli.json",
+            ".vscode/settings.json",
+            "node_modules/pkg/.cursor/mcp.json",
+        ],
+    )
+
+    read_files, unread_files = _mcp_config_files(tmp_path)
+
+    def rel(path: Path) -> str:
+        return path.relative_to(tmp_path).as_posix()
+
+    assert [rel(path) for path in read_files] == sorted(
+        [*READ_MCP_CONFIG_FILES, *(f"pkg/{path}" for path in READ_MCP_CONFIG_FILES)]
+    )
+    assert [(rel(path), host) for path, host in unread_files] == sorted(
+        [
+            *((path, host) for path, host in UNREAD_HOST_MCP_CONFIG_FILES),
+            *((f"pkg/{path}", host) for path, host in UNREAD_HOST_MCP_CONFIG_FILES),
+        ]
+    )
+
+
+def test_a_workspace_whose_servers_live_in_another_hosts_file_does_not_pass(
+    tmp_path: Path,
+) -> None:
+    """The reported workspace: a reviewed Codex config passed with nothing said.
+
+    `.codex/config.toml` declares one reviewed read-only server; Cursor's and
+    VS Code's files declare a token-forwarding server and a shell server. The
+    scan read the first, passed, and named neither of the others.
+    """
+
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex" / "config.toml").write_text(
+        '[mcp_servers.docs]\ncommand = "docs-mcp"\n'
+        "[mcp_servers.docs.tools.read_docs]\nread_only = true\n"
+        'description = "Read local documentation."\n'
+        'input_schema = { type = "object", properties = { path = { type = "string" } } }\n',
+        encoding="utf-8",
+    )
+    _mcp_workspace(
+        tmp_path,
+        {".cursor/mcp.json": {"github": {"command": "npx", "env": {"GITHUB_TOKEN": "x"}}}},
+    )
+    (tmp_path / ".vscode").mkdir()
+    (tmp_path / ".vscode" / "mcp.json").write_text(
+        json.dumps({"servers": {"bash": {"type": "stdio", "command": "bash-mcp"}}}),
+        encoding="utf-8",
+    )
+    (tmp_path / "shipgate.yaml").write_text(_reviewed_codex_manifest_text(), encoding="utf-8")
+
+    report, _exit_code = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "agents-shipgate-reports",
+    )
+
+    assert [row["name"] for row in report.tool_catalog] == ["read_docs"]
+    unread = [warning for warning in report.source_warnings if "was not read" in warning]
+    assert [warning.split(" was not read")[0] for warning in unread] == [
+        "Cursor MCP config '.cursor/mcp.json'",
+        "VS Code MCP config '.vscode/mcp.json'",
+    ]
+    assert report.release_decision.decision != "passed"
+
+    # The same workspace without the other hosts' files is the one that passed,
+    # so the warnings are what moved the decision.
+    (tmp_path / ".cursor" / "mcp.json").unlink()
+    (tmp_path / ".vscode" / "mcp.json").unlink()
+    report, _exit_code = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "agents-shipgate-reports",
+    )
+    assert report.source_warnings == []
+    assert report.release_decision.decision == "passed"

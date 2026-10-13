@@ -347,6 +347,61 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="mcp-reader-conformance-1025"></a>
+
+## Migration Note: Unreleased — n8n's `include`, MCP secrets forwarded by name, and the host MCP files a `codex_config` source does not read (#1025)
+
+**What was wrong.** Three readers did not match what the tools they read
+write. n8n's MCP Client Tool selects its tools with `include` (`all`,
+`selected` or `except`) and leaves it out of an export at its default, `all`;
+the n8n reader read only `toolSelection`, `toolsToInclude` and
+`toolSelectionMode`, so a node exposing every tool of its server was one
+concretely named tool and `SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED` never fired
+on a real export. `SHIP-MCP-ENV-SECRET-PASSTHROUGH` read only a server's `env`
+table, not a secret forwarded by name. And a `codex_config` source's coverage
+said it read "the other host MCP config files" while it read only `.mcp.json`
+and `.codex/config.toml`, so a workspace whose servers lived in
+`.cursor/mcp.json` or `.vscode/mcp.json` passed with nothing said.
+
+**What changes.**
+
+- **Check ids.** None is added, removed or renamed. Per
+  [Check IDs](#check-ids), the conditions under which these fire broaden, and
+  this note records it:
+  `SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED`,
+  `SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` and
+  `SHIP-INVENTORY-WILDCARD-TOOLS` fire for an MCP Client Tool with no
+  `include`, `include: all`, `include: except`, or `include: selected` naming
+  no `includeTools`; `SHIP-MCP-ENV-SECRET-PASSTHROUGH` fires for a
+  secret-like name in `env_vars` or `env_http_headers` (or one a credential
+  header carries), any `bearer_token_env_var`, and a `${NAME}` reference in
+  `headers`.
+- **Fingerprints.** Such an MCP Client Tool's action is `<node>.*` rather than
+  the node's name, so a finding keyed on the old tool name (for example
+  `SHIP-N8N-AI-TOOL-METADATA-MISSING`) reads as new. An
+  `SHIP-MCP-ENV-SECRET-PASSTHROUGH` finding on a server that also forwards a
+  secret in one of the new forms lists more `env_secret_names`, so it reads as
+  new too. An unfiltered finding on an `except` node gains `excluded_tools`
+  only when the node names one, so an existing finding with none keeps its
+  fingerprint.
+- **Decisions.** A workflow whose MCP Client Tool keeps n8n's default, and a
+  `codex_config` workspace holding `.cursor/mcp.json` or `.vscode/mcp.json`
+  under its root, no longer reach `passed`: the first raises the findings
+  above, and the second a source warning naming each such file.
+
+**Who must act.** An n8n workflow author selects explicit tools in the MCP
+Client Tool, or declares a local MCP inventory. A `codex_config` adopter
+reviews the servers in the named file; until #663 reads those files, the
+warning stays while the file is under the source's root. A suppression or
+baseline entry for a finding that reads as new is re-recorded.
+
+**What does not change.** The earlier n8n spellings are still read, as
+aliases; `include` decides when both are present. A `selected` node naming
+its tools lists them as before. No CLI flag, schema, control state or
+permission is added, and `minimum_control_contract_version` stays `21`.
+
+---
+
 <a id="receipt-predicate-1022"></a>
 
 ## Migration Note: Unreleased — `attest`, `org bundle` and the Action validate the verification receipt (#1022)

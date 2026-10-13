@@ -406,15 +406,42 @@ n8n:
     assert finding.evidence.get("source_ref") is None
 
 
-def test_n8n_mcp_operation_field_does_not_create_wildcard_selection(tmp_path):
+#: `parameters` of n8n's MCP Client Tool node (`@n8n/n8n-nodes-langchain.mcpClientTool`)
+#: as n8n exports them. `include` selects the tools — `all`, `selected` or
+#: `except` — and is left out at its default, `all`, so the default export
+#: names no selection at all (#1025).
+_MCP_CLIENT_ENDPOINT = {"endpointUrl": "https://mcp.example.com/github", "options": {}}
+_MCP_CLIENT_EXPORTS = {
+    "default": dict(_MCP_CLIENT_ENDPOINT),
+    "include_all": {**_MCP_CLIENT_ENDPOINT, "include": "all"},
+    "include_except": {
+        **_MCP_CLIENT_ENDPOINT,
+        "include": "except",
+        "excludeTools": ["list_issues", "delete_repository"],
+    },
+    "include_selected": {
+        **_MCP_CLIENT_ENDPOINT,
+        "include": "selected",
+        "includeTools": ["get_issue", "list_issues"],
+        # The node's `options` collection is not a tool selection, whatever a
+        # key in it says.
+        "options": {"operation": "all"},
+    },
+    # n8n filters by `includeTools` only when it names a tool.
+    "include_selected_empty": {**_MCP_CLIENT_ENDPOINT, "include": "selected"},
+}
+
+
+def _scan_mcp_client_export(tmp_path, parameters):
     project = tmp_path / "project"
     project.mkdir()
     workflow = _minimal_agent_workflow(
         {
             "id": "mcp-client",
-            "name": "MCP Client",
-            "type": "n8n-nodes-langchain.toolMcp",
-            "parameters": {"include": "All", "options": {"operation": "all"}},
+            "name": "GitHub MCP",
+            "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+            "typeVersion": 1.1,
+            "parameters": parameters,
         }
     )
     (project / "workflow.json").write_text(json.dumps(workflow), encoding="utf-8")
@@ -422,7 +449,7 @@ def test_n8n_mcp_operation_field_does_not_create_wildcard_selection(tmp_path):
         """
 version: "0.1"
 project:
-  name: n8n-mcp-operation
+  name: n8n-mcp-client-export
 agent:
   name: n8n-agent
 environment:
@@ -433,18 +460,94 @@ n8n:
 """,
         encoding="utf-8",
     )
-
     report, _ = run_scan(
         config_path=project / "shipgate.yaml",
         output_dir=tmp_path / "reports",
         formats=["json"],
         ci_mode="advisory",
     )
+    return report
 
+
+@pytest.mark.parametrize(
+    ("export", "selection_mode"),
+    [
+        ("default", "all"),
+        ("include_all", "all"),
+        ("include_except", "all_except"),
+        ("include_selected_empty", "all"),
+    ],
+)
+def test_n8n_mcp_client_export_exposing_every_tool_is_unfiltered(
+    tmp_path, export, selection_mode
+):
+    """Each export n8n runs with every tool, or every tool but some, of the server.
+
+    The reader read only spellings n8n never wrote, so the default export —
+    which carries no `include` — entered the catalog as one concretely named
+    tool: no wildcard, no dynamic surface and no UNFILTERED finding.
+    """
+
+    report = _scan_mcp_client_export(tmp_path, _MCP_CLIENT_EXPORTS[export])
+
+    assert [tool["name"] for tool in report.tool_inventory] == ["GitHub MCP.*"]
+    assert report.frameworks["n8n"]["dynamic_tool_surface_count"] == 1
+    dynamic = [
+        finding
+        for finding in report.findings
+        if finding.check_id == "SHIP-N8N-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
+    ]
+    assert [finding.evidence["surface"]["kind"] for finding in dynamic] == [
+        "mcp_client_wildcard"
+    ]
+    unfiltered = [
+        finding
+        for finding in report.findings
+        if finding.check_id == "SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED"
+    ]
+    assert len(unfiltered) == 1
+    assert unfiltered[0].severity == "high"
+    assert unfiltered[0].evidence["selection_mode"] == selection_mode
+    if selection_mode == "all_except":
+        assert unfiltered[0].evidence["excluded_tools"] == [
+            "delete_repository",
+            "list_issues",
+        ]
+    else:
+        assert "excluded_tools" not in unfiltered[0].evidence
+    assert report.release_decision.decision != "passed"
+
+
+def test_n8n_mcp_client_export_selecting_tools_names_them(tmp_path):
+    report = _scan_mcp_client_export(tmp_path, _MCP_CLIENT_EXPORTS["include_selected"])
+
+    assert sorted(tool["name"] for tool in report.tool_inventory) == [
+        "get_issue",
+        "list_issues",
+    ]
     assert report.frameworks["n8n"]["dynamic_tool_surface_count"] == 0
     assert "SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED" not in {
         finding.check_id for finding in report.findings
     }
+
+
+def test_n8n_mcp_client_include_outranks_a_legacy_spelling(tmp_path):
+    """`include` decides when an earlier spelling is also present, under any hash seed."""
+
+    report = _scan_mcp_client_export(
+        tmp_path,
+        {
+            **_MCP_CLIENT_EXPORTS["include_selected"],
+            "toolSelection": "all",
+            "toolsToInclude": "All",
+        },
+    )
+
+    assert sorted(tool["name"] for tool in report.tool_inventory) == [
+        "get_issue",
+        "list_issues",
+    ]
+    assert report.frameworks["n8n"]["dynamic_tool_surface_count"] == 0
 
 
 def test_n8n_nested_send_and_wait_text_does_not_count_as_human_review(tmp_path):

@@ -15,8 +15,10 @@ from agents_shipgate.core.capability_lattice import (
 )
 from agents_shipgate.core.domain import LoadedToolSource, SourceSurfaceOmission, Tool
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.privacy import redact_text
 from agents_shipgate.core.source_warnings import (
     duplicate_mcp_server_declaration_warning,
+    unread_host_mcp_config_warning,
 )
 from agents_shipgate.inputs.common import (
     list_input_directory,
@@ -40,6 +42,7 @@ _TOOLS_KEYS = ("tools", "tool_overrides")
 _SCHEMA_KEYS = ("inputSchema", "input_schema", "schema")
 _OUTPUT_SCHEMA_KEYS = ("outputSchema", "output_schema")
 _ENV_REF_RE = re.compile(r"\$[{(]?([A-Za-z_][A-Za-z0-9_]*)[})]?")
+_ENV_VAR_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _SKIPPED_SCAN_DIRS = {
     ".git",
     ".hg",
@@ -53,6 +56,23 @@ _SKIPPED_SCAN_DIRS = {
     "site-packages",
     "venv",
 }
+
+
+#: The MCP config files a ``codex_config`` source reads, at any depth under the
+#: root its ``tool_sources[]`` entry names. ``CodexConfigAdapter.coverage`` is
+#: written from this and :data:`UNREAD_HOST_MCP_CONFIG_FILES`, so what the
+#: adapter says it reads is what :func:`_mcp_config_files` matches (#1025).
+READ_MCP_CONFIG_FILES: tuple[str, ...] = (".mcp.json", ".codex/config.toml")
+
+#: Other hosts' MCP config files, with the host each is for: the ones the host
+#: readers recognise (``core.boundary_registry``) that this reader does not
+#: read. One present under the root is named in a source warning instead of
+#: passed over, so servers declared only there never pass silently. Reading
+#: them is #663.
+UNREAD_HOST_MCP_CONFIG_FILES: tuple[tuple[str, str], ...] = (
+    (".cursor/mcp.json", "Cursor"),
+    (".vscode/mcp.json", "VS Code"),
+)
 
 
 #: ``SourceSurfaceOmission.reason`` for a server declaration that did not
@@ -183,9 +203,10 @@ def load_codex_config_mcp_sources(root: Path, base_dir: Path) -> list[LoadedTool
     root = root.resolve()
     if not root.exists():
         return sources
-    for path in _iter_mcp_candidate_files(root):
+    read_files, unread_files = _mcp_config_files(root)
+    for path in read_files:
         rel = _relative(path, root)
-        if rel == ".codex/config.toml" or rel.endswith("/.codex/config.toml"):
+        if _is_config_path(rel, ".codex/config.toml"):
             source_ref = _relative(path, base_dir)
             try:
                 data = tomllib.loads(load_text_file(path))
@@ -210,6 +231,19 @@ def load_codex_config_mcp_sources(root: Path, base_dir: Path) -> list[LoadedTool
             if unreadable is not None:
                 sources.append(unreadable)
             servers.extend(file_servers)
+    for path, host in unread_files:
+        # Warning-only, like a file that did not parse: it carries no tools,
+        # so it never collides with a per-server source, and it names the file.
+        source_ref = _relative(path, base_dir)
+        sources.append(
+            LoadedToolSource(
+                source_id=f"unread_host_mcp_config:{source_ref}",
+                source_type="codex_config_mcp",
+                warnings=[
+                    unread_host_mcp_config_warning(source_ref, host, READ_MCP_CONFIG_FILES)
+                ],
+            )
+        )
     sources.extend(_loaded_sources_from_servers(servers))
     return sources
 
@@ -302,7 +336,7 @@ def _servers_from_mapping(
         # is this invariant that makes one name in two files one server to
         # reconcile rather than two surfaces to tell apart.
         source_id = f"{source_id_prefix}:{server_name}"
-        env_secret_names = tuple(_env_secret_names(raw_server.get("env")))
+        env_secret_names = tuple(_env_secret_names(raw_server))
         transport = _transport(raw_server)
         command = raw_server.get("command") if isinstance(raw_server.get("command"), str) else None
         url_present = isinstance(raw_server.get("url"), str) or transport in {
@@ -996,18 +1030,60 @@ def _first_dict(data: dict[str, Any], names: tuple[str, ...]) -> dict[str, Any]:
     return {}
 
 
-def _env_secret_names(raw_env: Any) -> list[str]:
-    if not isinstance(raw_env, dict):
-        return []
+def _env_secret_names(raw_server: dict[str, Any]) -> list[str]:
+    """The secret-shaped environment variables one server declaration forwards.
+
+    An ``env`` entry is named by its key, as it always was. A server can also
+    forward a variable by name, in the forms ``core.host_grants`` models for
+    the same declarations (#795, #1025): Codex's ``env_vars`` list and
+    ``bearer_token_env_var``, Codex's ``env_http_headers`` (header name to
+    variable name), and a ``${NAME}`` reference in a ``headers`` value. A
+    forwarded name counts when it, or the header carrying it, is secret-shaped;
+    ``bearer_token_env_var`` always does, since it holds a bearer token.
+
+    This is detection, so it does not reuse ``host_grants``' publication filter,
+    which withholds a name its digest redaction rewrites — ``API_KEY`` after
+    ``TOKEN`` in one ``env_vars`` list. A name is still never published as
+    written when it looks like a secret value: :func:`redact_text` replaces it.
+    """
+
     names: set[str] = set()
-    for key, value in raw_env.items():
-        key_text = str(key)
-        if is_secret_env_name(key_text):
-            names.add(key_text)
-        if isinstance(value, str):
-            for match in _ENV_REF_RE.findall(value):
-                if is_secret_env_name(match):
-                    names.add(key_text)
+    raw_env = raw_server.get("env")
+    if isinstance(raw_env, dict):
+        for key, value in raw_env.items():
+            key_text = str(key)
+            if is_secret_env_name(key_text):
+                names.add(key_text)
+            if isinstance(value, str):
+                for match in _ENV_REF_RE.findall(value):
+                    if is_secret_env_name(match):
+                        names.add(key_text)
+    forwarded: list[tuple[str, bool]] = []
+    env_vars = raw_server.get("env_vars")
+    if isinstance(env_vars, list):
+        forwarded.extend((item, False) for item in env_vars if isinstance(item, str))
+    bearer = raw_server.get("bearer_token_env_var")
+    if isinstance(bearer, str):
+        forwarded.append((bearer, True))
+    env_headers = raw_server.get("env_http_headers")
+    if isinstance(env_headers, dict):
+        forwarded.extend(
+            (value, is_secret_env_name(str(header)))
+            for header, value in env_headers.items()
+            if isinstance(value, str)
+        )
+    headers = raw_server.get("headers")
+    if isinstance(headers, dict):
+        forwarded.extend(
+            (match, is_secret_env_name(str(header)))
+            for header, value in headers.items()
+            if isinstance(value, str)
+            for match in _ENV_REF_RE.findall(value)
+        )
+    for name, credential_carrier in forwarded:
+        name = name.strip()
+        if _ENV_VAR_NAME_RE.fullmatch(name) and (credential_carrier or is_secret_env_name(name)):
+            names.add(redact_text(name) or name)
     return sorted(names)
 
 
@@ -1025,7 +1101,7 @@ def _transport(server: dict[str, Any]) -> str | None:
 def _looks_like_local_documentation(server_name: str, server: dict[str, Any]) -> bool:
     if isinstance(server.get("url"), str):
         return False
-    if _env_secret_names(server.get("env")):
+    if _env_secret_names(server):
         return False
     text = " ".join(
         [
@@ -1038,8 +1114,20 @@ def _looks_like_local_documentation(server_name: str, server: dict[str, Any]) ->
     return bool(tokens & {"doc", "docs", "documentation", "readme"})
 
 
-def _iter_mcp_candidate_files(root: Path) -> list[Path]:
+def _is_config_path(rel: str, config_path: str) -> bool:
+    return rel == config_path or rel.endswith(f"/{config_path}")
+
+
+def _mcp_config_files(root: Path) -> tuple[list[Path], list[tuple[Path, str]]]:
+    """The MCP config files under ``root`` this reader reads, and the ones it names.
+
+    The first are :data:`READ_MCP_CONFIG_FILES`; the second, with the host each
+    is for, :data:`UNREAD_HOST_MCP_CONFIG_FILES`. Both are found at any depth,
+    in one walk, in path order.
+    """
+
     candidates: list[Path] = []
+    unread: list[tuple[Path, str]] = []
     stack = [root]
     while stack:
         current = stack.pop()
@@ -1054,13 +1142,16 @@ def _iter_mcp_candidate_files(root: Path) -> list[Path]:
             if not child.is_file():
                 continue
             rel = _relative(child, root)
-            if (
-                rel == ".codex/config.toml"
-                or rel.endswith("/.codex/config.toml")
-                or child.name == ".mcp.json"
-            ):
+            if any(_is_config_path(rel, config) for config in READ_MCP_CONFIG_FILES):
                 candidates.append(child)
-    return sorted(candidates)
+                continue
+            host = next(
+                (host for config, host in UNREAD_HOST_MCP_CONFIG_FILES if _is_config_path(rel, config)),
+                None,
+            )
+            if host is not None:
+                unread.append((child, host))
+    return sorted(candidates), sorted(unread)
 
 
 def _text_or_none(value: Any) -> str | None:
@@ -1083,6 +1174,8 @@ def _json_pointer_escape(value: str) -> str:
 
 __all__ = [
     "DUPLICATE_SERVER_DECLARATION",
+    "READ_MCP_CONFIG_FILES",
+    "UNREAD_HOST_MCP_CONFIG_FILES",
     "NormalizedMcpServer",
     "NormalizedMcpTool",
     "load_codex_config_mcp_sources",

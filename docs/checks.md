@@ -923,7 +923,11 @@ inventory.
 ### SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED
 
 An n8n MCP Client Tool exposes `All` or `All Except` tools without a local
-inventory. Select explicit MCP tools or provide a local MCP inventory for
+inventory. The node selects with `include`: `all`, which is n8n's default and
+is left out of an exported workflow, so a node with no `include` exposes every
+tool; `except`, whose `excludeTools` the finding lists as `excluded_tools`; or
+`selected`, which names its `includeTools` and does not fire this check unless
+it names none. Select explicit MCP tools or provide a local MCP inventory for
 release review. The severity is environment-sensitive because the selector is
 easy to narrow before production, while production-like use increases blast
 radius.
@@ -1234,9 +1238,13 @@ a changed file — env- or settings-bound factories never guess a match.
 
 Fires when a statically parsed MCP server passes through secret-like
 environment variables, such as token, password, API key, or credential
-names. Secret pass-through changes the credential boundary available to the
-server, so Shipgate routes the change to human review without exposing raw
-secret values in evidence.
+names. Besides an `env` entry, a server can forward a variable by name: in
+Codex's `env_vars` list or `env_http_headers`, as a `bearer_token_env_var`
+(always counted, since it holds a bearer token), or as a `${NAME}` reference in
+a `headers` value. A forwarded variable counts when its name, or the header
+carrying it, is secret-like. Secret pass-through changes the credential
+boundary available to the server, so Shipgate routes the change to human
+review without exposing raw secret values in evidence.
 
 ### SHIP-MCP-AUTO-APPROVE-SIDE-EFFECT
 

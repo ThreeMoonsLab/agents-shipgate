@@ -1073,7 +1073,7 @@
             "SHIP-INVENTORY-WILDCARD-TOOLS",
             "SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED"
           ],
-          "reads": "An MCP client node whose tool selection is `all`, `all_except`, or unreadable: one `<node>.*` action stands in for a selection the workflow does not enumerate.",
+          "reads": "An MCP client node whose `include` is `all` \u2014 n8n's default, which an export leaves out \u2014 or `except`, or whose selection is unreadable: one `<node>.*` action stands in for a selection the workflow does not enumerate, and an `except` node's `excludeTools` are recorded.",
           "shape": "dynamic_construction",
           "status": "extracted",
           "surface": null,
@@ -1524,7 +1524,7 @@
       "label": "Codex / MCP host config",
       "manifest_section": null,
       "manifest_section_role": "activates",
-      "reads": "`.mcp.json`, `.codex/config.toml`, and the other host MCP config files under the root a `tool_sources[]` entry names \u2014 including the servers a plugin block declares."
+      "reads": "`.mcp.json` and `.codex/config.toml`, at any depth under the root a `tool_sources[]` entry names \u2014 including the servers a plugin block of `.codex/config.toml` declares. Other hosts' MCP config files there (`.cursor/mcp.json` and `.vscode/mcp.json`) are not read; each one present is named in a source warning."
     },
     {
       "adapter": "codex_plugin",
