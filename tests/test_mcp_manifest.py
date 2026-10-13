@@ -1207,10 +1207,12 @@ def test_a_forwarded_header_counts_when_the_header_or_the_variable_is_secret(
     [
         ("Bearer ${env:GITHUB_TOKEN}", ["GITHUB_TOKEN"]),
         ("Bearer ${GITHUB_TOKEN:-}", ["GITHUB_TOKEN"]),
+        ("Bearer ${GITHUB_TOKEN:?x}", ["GITHUB_TOKEN"]),
+        ("Bearer ${GITHUB_TOKEN:=d}", ["GITHUB_TOKEN"]),
         # A prompted input is not an environment variable, so it names none.
         ("Bearer ${input:githubToken}", None),
     ],
-    ids=["env_prefix", "default_value", "input_prefix"],
+    ids=["env_prefix", "default_value", "required_value", "assigned_default", "input_prefix"],
 )
 def test_a_prefixed_reference_names_the_variable_not_its_prefix(
     tmp_path: Path, value: str, expected: list[str] | None
