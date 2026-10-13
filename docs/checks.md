@@ -1242,7 +1242,8 @@ names. Besides an `env` entry, a server can forward a variable by name: in
 Codex's `env_vars` list or `env_http_headers`, as a `bearer_token_env_var`
 (always counted, since it holds a bearer token), or as a `${NAME}` reference in
 a `headers` value. A forwarded variable counts when its name, or the header
-carrying it, is secret-like. Secret pass-through changes the credential
+carrying it, is secret-like. An editor's `${env:NAME}` is read as `NAME`; a
+prompted `${input:…}` names no environment variable. Secret pass-through changes the credential
 boundary available to the server, so Shipgate routes the change to human
 review without exposing raw secret values in evidence.
 

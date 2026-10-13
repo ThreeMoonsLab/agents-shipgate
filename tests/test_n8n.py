@@ -20,6 +20,7 @@ from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.risk_hints import enrich_tools_with_risk_hints, risk_tags
 from agents_shipgate.inputs import common as inputs_common
 from agents_shipgate.inputs.n8n import load_n8n_artifacts
+from agents_shipgate.inputs.n8n._tools import _is_unfiltered_mode, _selection_mode
 
 
 def test_n8n_top_level_config_is_accepted_and_tool_source_type_is_rejected(tmp_path):
@@ -548,6 +549,33 @@ def test_n8n_mcp_client_include_outranks_a_legacy_spelling(tmp_path):
         "list_issues",
     ]
     assert report.frameworks["n8n"]["dynamic_tool_surface_count"] == 0
+
+
+@pytest.mark.parametrize(
+    ("parameters", "trigger_unfiltered", "client_mode"),
+    [
+        # Shapes n8n gives only the MCP Client Tool: the trigger reads none.
+        ({"include": "all"}, False, "all"),
+        ({"include": "except"}, False, "all_except"),
+        ({"toolSelection": "selected"}, False, "all"),
+        ({}, False, "all"),
+        # The earlier spellings both have always read.
+        ({"toolsToInclude": "All"}, True, "all"),
+        ({"toolSelection": "All Except"}, True, "all_except"),
+    ],
+)
+def test_n8n_mcp_server_trigger_keeps_the_selection_it_read(
+    parameters, trigger_unfiltered, client_mode
+):
+    """n8n's `include` and its defaults belong to the client node (#1025 review).
+
+    The MCP Server Trigger has no selection of its own; it is read by the
+    earlier spellings only, as before, so a shape n8n gives only the client
+    adds no `mcp_server_wildcard` surface to a trigger.
+    """
+
+    assert _is_unfiltered_mode(parameters) is trigger_unfiltered
+    assert _selection_mode(parameters, client=True) == client_mode
 
 
 def test_n8n_nested_send_and_wait_text_does_not_count_as_human_review(tmp_path):

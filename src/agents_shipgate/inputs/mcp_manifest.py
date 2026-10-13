@@ -41,7 +41,13 @@ _ENABLED_TOOL_KEYS = (
 _TOOLS_KEYS = ("tools", "tool_overrides")
 _SCHEMA_KEYS = ("inputSchema", "input_schema", "schema")
 _OUTPUT_SCHEMA_KEYS = ("outputSchema", "output_schema")
-_ENV_REF_RE = re.compile(r"\$[{(]?([A-Za-z_][A-Za-z0-9_]*)[})]?")
+#: An environment-variable reference in a value: `$NAME`, `${NAME}`,
+#: `${NAME:-default}`, `$(NAME)`, or the editors' `${env:NAME}`, read as
+#: `NAME`. Any other `${prefix:…}`, such as VS Code's `${input:id}`, names no
+#: environment variable, so its prefix is not read as one.
+_ENV_REF_RE = re.compile(
+    r"\$(?:\{env:|[{(])?([A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_])(?!:(?!-))"
+)
 _ENV_VAR_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _SKIPPED_SCAN_DIRS = {
     ".git",

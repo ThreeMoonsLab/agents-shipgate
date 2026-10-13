@@ -1202,6 +1202,42 @@ def test_a_forwarded_header_counts_when_the_header_or_the_variable_is_secret(
     assert tool.annotations["mcp_env_secret_names"] == [variable]
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("Bearer ${env:GITHUB_TOKEN}", ["GITHUB_TOKEN"]),
+        ("Bearer ${GITHUB_TOKEN:-}", ["GITHUB_TOKEN"]),
+        # A prompted input is not an environment variable, so it names none.
+        ("Bearer ${input:githubToken}", None),
+    ],
+    ids=["env_prefix", "default_value", "input_prefix"],
+)
+def test_a_prefixed_reference_names_the_variable_not_its_prefix(
+    tmp_path: Path, value: str, expected: list[str] | None
+) -> None:
+    """`${env:NAME}` was read as a variable named `env`, `${input:id}` as `input` (#1072 review)."""
+
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "github": {
+                        "type": "http",
+                        "url": "https://mcp.example.com/github",
+                        "headers": {"Authorization": value},
+                        "tools": {"read_issue": {}},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    tool = load_codex_config_mcp_sources(tmp_path, tmp_path)[0].tools[0]
+
+    assert tool.annotations.get("mcp_env_secret_names") == expected
+
+
 def test_a_forwarded_name_that_is_not_secret_is_not_counted(tmp_path: Path) -> None:
     (tmp_path / ".codex").mkdir()
     (tmp_path / ".codex" / "config.toml").write_text(

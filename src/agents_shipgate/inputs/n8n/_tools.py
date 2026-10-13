@@ -256,7 +256,7 @@ def _mcp_client_tools(
 
     # n8n leaves `include` out of an export at its default, `all`, so a node
     # that names no selection exposes every tool its server lists (#1025).
-    mode = _selection_mode(item.parameters, absent="all")
+    mode = _selection_mode(item.parameters, client=True)
     selected = _selected_mcp_tools(item.parameters) if mode == "selected" else []
     record: dict[str, Any] = {
         **_node_record(item, source_path, workflow_id),
@@ -445,11 +445,15 @@ def _from_ai_parameters(value: Any) -> list[dict[str, str | None]]:
 # --- MCP Client Tool selection-mode helpers ---------------------------------
 
 
+#: The spellings this reader read a selection mode from before #1025. n8n
+#: writes none of them; they stay aliases on the MCP Client Tool and remain
+#: the only ones read for any other node, such as the MCP Server Trigger.
+#: Ordered, so the first one present decides under any hash seed.
+_LEGACY_SELECTION_MODE_KEYS = ("toolSelection", "toolsToInclude", "toolSelectionMode")
 #: The parameter n8n's MCP Client Tool selects its tools with, `include` —
 #: `all` (the default, which an export leaves out), `selected` or `except` —
-#: then the spellings this reader read before it, kept as aliases (#1025).
-#: Ordered, so the first one present decides under any hash seed.
-_SELECTION_MODE_KEYS = ("include", "toolSelection", "toolsToInclude", "toolSelectionMode")
+#: read before the earlier spellings (#1025).
+_CLIENT_SELECTION_MODE_KEYS = ("include", *_LEGACY_SELECTION_MODE_KEYS)
 #: Where a node lists the tools `selected` keeps: n8n's `includeTools`, then
 #: the earlier spellings.
 _INCLUDED_TOOL_KEYS = ("includeTools", "tools", "toolNames", "selectedTools", "toolName")
@@ -457,19 +461,23 @@ _INCLUDED_TOOL_KEYS = ("includeTools", "tools", "toolNames", "selectedTools", "t
 _EXCLUDED_TOOL_KEYS = ("excludeTools",)
 
 
-def _selection_mode(parameters: dict[str, Any], *, absent: str = "unspecified") -> str:
+def _selection_mode(parameters: dict[str, Any], *, client: bool = False) -> str:
     """How an n8n MCP node selects the tools it exposes.
 
-    ``absent`` is the mode of a node that names neither a mode nor a tool:
-    ``all`` for an MCP Client Tool, whose `include` an export leaves out at
-    its default. A `selected` node that lists no tool is ``all``, because n8n
-    filters by `includeTools` only when it names one.
+    ``client`` is n8n's MCP Client Tool, read as n8n runs it (#1025): its
+    `include` first, whose `except` is all-except; `all` when it names neither
+    a mode nor a tool, since an export leaves the default out; and `all` for a
+    `selected` that lists no tool, since n8n filters by `includeTools` only
+    when it names one. Any other node, such as the MCP Server Trigger, which
+    has no selection of its own, is read by the earlier spellings only, as it
+    was before.
     """
 
+    keys = _CLIENT_SELECTION_MODE_KEYS if client else _LEGACY_SELECTION_MODE_KEYS
     value = next(
         (
             raw.strip()
-            for key in _SELECTION_MODE_KEYS
+            for key in keys
             if isinstance(raw := parameters.get(key), str) and raw.strip()
         ),
         None,
@@ -477,15 +485,15 @@ def _selection_mode(parameters: dict[str, Any], *, absent: str = "unspecified") 
     normalized = (value or "").lower().replace(" ", "_").replace("-", "_")
     if normalized in {"all", "all_tools", "alltools"}:
         return "all"
-    if normalized in {"except", "all_except", "allexcept"}:
+    if normalized in {"all_except", "allexcept"} or (client and normalized == "except"):
         return "all_except"
     if normalized in {"selected", "selected_tools", "specific"}:
-        return "selected" if _selected_mcp_tools(parameters) else "all"
+        return "selected" if not client or _selected_mcp_tools(parameters) else "all"
     if value:
         return "unknown"
     if _selected_mcp_tools(parameters):
         return "selected"
-    return absent
+    return "all" if client else "unspecified"
 
 
 def _is_unfiltered_mode(parameters: dict[str, Any]) -> bool:
