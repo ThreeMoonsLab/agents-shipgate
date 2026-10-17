@@ -10,7 +10,10 @@ from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 def _relative_display_path(path: Path, base_dir: Path) -> str:
     resolved = path.resolve()
     base = base_dir.resolve()
-    rel = os.path.relpath(resolved, base)
+    try:
+        rel = os.path.relpath(resolved, base)
+    except ValueError:
+        return str(resolved)
     if rel == ".." or rel.startswith(f"..{os.sep}"):
         return str(resolved)
     return rel
@@ -26,7 +29,10 @@ def _anchored_display_path(path: Path, base_dir: Path) -> str:
     which would publish the target of a link the engine never read.
     """
 
-    rel = os.path.relpath(path, base_dir.resolve())
+    try:
+        rel = os.path.relpath(path, base_dir.resolve())
+    except ValueError:
+        return str(path)
     if rel == ".." or rel.startswith(f"..{os.sep}"):
         return str(path)
     return rel
