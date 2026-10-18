@@ -120,7 +120,11 @@ from agents_shipgate.core.permission_lattice import (
     subsumes,
     whole_tool_risk,
 )
-from agents_shipgate.core.privacy import SENSITIVE_VALUE_KEYS, redact_text
+from agents_shipgate.core.privacy import (
+    AUTH_SCHEME_PATTERN,
+    SENSITIVE_VALUE_KEYS,
+    redact_text,
+)
 from agents_shipgate.core.trust_roots import (
     IdentityBoundReadSession,
     IdentityReadBudget,
@@ -171,10 +175,11 @@ _SECRET_ARG_RE = re.compile(
 #: A credential header's value, with the authentication scheme that may lead
 #: it: ``Authorization: Bearer <token>`` is redacted whole. Without the
 #: optional scheme the scheme word alone was taken as the value, and the token
-#: after it was published.
+#: after it was published. The scheme alternation is the shared output
+#: redaction's (``core.privacy``), so the two cannot drift.
 _HEADER_SECRET_RE = re.compile(
     r"(?i)\b(authorization|proxy-authorization|cookie|set-cookie|x-api-key)"
-    r"(\s*:\s*)((?:(?:bearer|basic|digest|token|negotiate)\s+)?[^\s'\";,\)]+)"
+    rf"(\s*:\s*)((?:{AUTH_SCHEME_PATTERN}\s+)?[^\s'\";,\)]+)"
 )
 _BEARER_SECRET_RE = re.compile(r"(?i)\b(bearer)(\s+)([^\s'\";,\)]+)")
 #: ``NAME=value`` whose name holds a credential word. The lookahead states what
