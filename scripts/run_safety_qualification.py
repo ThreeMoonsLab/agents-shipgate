@@ -62,7 +62,7 @@ from agents_shipgate.schemas.safety_qualification import (
     tier_for_requirements,
 )
 from agents_shipgate.schemas.verification_identity import VerificationReceipt
-from agents_shipgate.schemas.verifier import VerifierArtifact
+from agents_shipgate.schemas.verifier import VerifierArtifact, map_merge_verdict
 from agents_shipgate.schemas.verify_run import VerifyRunArtifact
 
 if __package__:
@@ -83,12 +83,9 @@ DECISIONS: tuple[ReleaseDecisionStatus, ...] = (
     "blocked",
 )
 QUALIFYING_ORIGINS = {"real_history", "rejected_or_reverted", "design_partner"}
-EXPECTED_MERGE_VERDICT = {
-    "passed": "mergeable",
-    "review_required": "human_review_required",
-    "insufficient_evidence": "insufficient_evidence",
-    "blocked": "blocked",
-}
+# The verifier's projection, read from its one authority rather than copied:
+# a copy would reject every receipt the day that authority changes (#1029).
+EXPECTED_MERGE_VERDICT = {decision: map_merge_verdict(decision) for decision in DECISIONS}
 
 # Match the receipt reader's per-artifact bound; wheels have their own bound
 # because they contain the whole distribution. These are input limits, never

@@ -15,6 +15,7 @@ from agents_shipgate.schemas.verification_identity import (
     VerificationPlan,
     content_id,
 )
+from agents_shipgate.schemas.verifier import applicability_for, merge_verdict_for
 
 VERIFY_RUN_SCHEMA_VERSION = "shipgate.verify_run/v5"
 
@@ -204,29 +205,17 @@ class VerifyRunOutcome(BaseModel):
 
     @model_validator(mode="after")
     def _control_projects_outcome(self) -> VerifyRunOutcome:
-        expected_applicability = (
-            "verified"
-            if self.decision is not None
-            else {
-                "not_run": "not_evaluated",
-                "skipped": "not_applicable",
-                "failed": "failed",
-            }.get(self.execution, "not_evaluated")
+        # Both projections come from the verifier's single authority, never a
+        # copy of its table: a copy keeps validating the old mapping after the
+        # authority changes, and every verify run then fails here (#1029).
+        expected_applicability = applicability_for(
+            decision=self.decision, execution=self.execution
         )
         if self.applicability != expected_applicability:
             raise ValueError("verify-run applicability contradicts execution")
         if self.decision is not None and self.execution != "succeeded":
             raise ValueError("verify-run decisions require succeeded execution")
-        expected_verdict = (
-            {
-                "passed": "mergeable",
-                "review_required": "human_review_required",
-                "insufficient_evidence": "insufficient_evidence",
-                "blocked": "blocked",
-            }.get(self.decision, "human_review_required")
-            if self.decision is not None
-            else ("mergeable" if self.execution == "skipped" else "unknown")
-        )
+        expected_verdict = merge_verdict_for(decision=self.decision, execution=self.execution)
         if self.merge_verdict != expected_verdict:
             raise ValueError("verify-run merge verdict contradicts its decision")
         expected = bool(
