@@ -612,3 +612,54 @@ def test_dropping_fail_on_beside_a_blocking_tool_still_fails_ci(tmp_path: Path) 
     assert payload["merge_verdict"] == "blocked"
     assert result.exit_code == 20, result.output
     assert _fail_policy(out)["fail_on"] == []
+
+
+def test_ignoring_a_control_no_suppression_can_waive_still_fails_ci(tmp_path: Path) -> None:
+    """#1029: a change that ignores its own blocker cannot exit 0 under fail_on.
+
+    The change suppresses both critical findings the refund tool raises. The
+    approval finding is waivable and leaves the gate. The rollback control is
+    a mandatory current-surface control, so the decision keeps it a blocker,
+    and the exit code now reads that blocker too: in ``report.json``, in
+    ``verifier.json`` and in the process exit.
+    """
+
+    repo = _sample_repo(tmp_path)
+    _set_ci(repo, mode="advisory", fail_on=["critical"])
+    _add_bound_refund_tool(repo)
+    _commit(repo, "advisory base failing on critical, with a refund tool")
+    _git(repo, "checkout", "-q", "-b", "pr")
+    manifest = repo / "shipgate.yaml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8")
+        + "\nchecks:\n  ignore:\n"
+        + "".join(
+            f"    - check_id: {check_id}\n"
+            "      tool: stripe.create_refund\n"
+            "      reason: accepted for this test\n"
+            for check_id in (
+                "SHIP-POLICY-APPROVAL-MISSING",
+                "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
+            )
+        ),
+        encoding="utf-8",
+    )
+    _commit(repo, "ignore the refund tool's critical findings")
+    out = tmp_path / "out"
+
+    result, payload = _verify(repo, "--base", "main", "--head", "HEAD", out=out)
+
+    assert payload["merge_verdict"] == "blocked"
+    blockers = {item["check_id"] for item in payload["release_decision"]["blockers"]}
+    assert "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING" in blockers
+    assert "SHIP-POLICY-APPROVAL-MISSING" not in blockers
+    failing = {
+        "ci_mode": "advisory",
+        "fail_on": ["critical"],
+        "new_findings_only": False,
+        "would_fail_ci": True,
+        "exit_code": 20,
+    }
+    assert _fail_policy(out) == failing
+    assert payload["release_decision"]["fail_policy"] == failing
+    assert result.exit_code == 20, result.output
