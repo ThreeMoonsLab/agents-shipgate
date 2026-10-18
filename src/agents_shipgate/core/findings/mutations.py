@@ -5,6 +5,7 @@ from collections import Counter
 from agents_shipgate.core.check_ids import (
     UNSUPPRESSIBLE_FINDING_CATEGORIES,
     expands_to_check_id,
+    governing_configured_check_id,
 )
 from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.tool_identity import tool_identity_aliases
@@ -121,9 +122,5 @@ def _matching_suppression(
 def _severity_override_for_check(
     check_id: str, overrides: dict[str, Severity]
 ) -> Severity | None:
-    if override := overrides.get(check_id):
-        return override
-    for configured_check_id, override in overrides.items():
-        if expands_to_check_id(configured_check_id, check_id):
-            return override
-    return None
+    configured_check_id = governing_configured_check_id(check_id, overrides)
+    return overrides[configured_check_id] if configured_check_id is not None else None
