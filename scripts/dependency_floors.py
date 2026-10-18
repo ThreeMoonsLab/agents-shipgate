@@ -69,8 +69,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TARGET_PYTHON = "3.12"
 
 #: The test tools the floors job installs beside the runtime closure, pinned to
-#: the versions `constraints/dev.txt` locks, so the only thing that differs from
-#: the ordinary suite is the runtime dependencies under test.
+#: the versions `constraints/dev.txt` locks, so the tools are not a variable:
+#: what differs from the ordinary suite is the runtime dependencies under test
+#: and what they pull in.
 TEST_TOOLS = ("pytest", "pytest-xdist", "hypothesis", "jsonschema")
 DEV_LOCK = "constraints/dev.txt"
 
