@@ -80,10 +80,15 @@ from agents_shipgate.core.host_input_failure import (
     safe_failure_text,
 )
 from agents_shipgate.core.host_settings import (
+    CLAUDE_COMMAND_OBJECT_SETTINGS,
+    CLAUDE_COMMAND_SETTINGS,
     CLAUDE_LIST_SETTINGS,
     CLAUDE_SCALAR_SETTINGS,
+    SettingRating,
+    claude_env_rating,
     claude_setting_values,
     rate_claude_setting,
+    read_at_top_level,
 )
 from agents_shipgate.core.inline_hook_allow import inline_allow_facts
 from agents_shipgate.core.instruction_structure import (
@@ -2080,7 +2085,159 @@ def _claude_grants(data: Any, *, scope: HostScope, source: str) -> list[dict[str
                 "name": label, "enabled": None,
             })
     grants.extend(_hooks_grants(data, host="claude-code", scope=scope, source=source))
+    grants.extend(_claude_command_grants(data, scope=scope, source=source))
     return grants
+
+
+def _claude_command_grants(data: dict[str, Any], *, scope: HostScope, source: str) -> list[dict[str, Any]]:
+    """The settings Claude Code runs as a command, and the ``env`` entries that redirect it or load code (#1027).
+
+    A command setting (:data:`CLAUDE_COMMAND_SETTINGS`) is rated as a hook a
+    settings file declares, ``execute``/``high``: its whole value is the
+    grant's digest, and its command is published as a hook handler's is
+    (:func:`_hook_command`), never as text. An ``env`` entry is a grant only
+    for a name :func:`claude_env_rating` models, published by name with the
+    value digested and withheld; every other entry stays out of the grants,
+    and its value out of every digest a comparison reads. A ``null`` value
+    declares nothing to run.
+    """
+
+    grants: list[dict[str, Any]] = []
+    for setting in CLAUDE_COMMAND_SETTINGS:
+        value = data.get(setting)
+        if value is None:
+            continue
+        if setting in CLAUDE_COMMAND_OBJECT_SETTINGS:
+            command = value.get("command") if isinstance(value, dict) else None
+        else:
+            command = value
+        published = _hook_command(command)
+        grants.append({
+            **_grant_base(
+                host="claude-code", scope=scope, source=source, kind="command_setting",
+                identity=setting, config=value, access="execute", risk="high",
+            ),
+            "setting": setting,
+            **({"command": published} if published is not None else {}),
+        })
+    env = data.get("env")
+    if isinstance(env, dict):
+        for name, value in sorted(env.items(), key=lambda item: str(item[0])):
+            rating = _claude_env_rating(str(name))
+            if rating is None:
+                continue
+            grants.append({
+                **_grant_base(
+                    host="claude-code", scope=scope, source=source, kind="env",
+                    identity=str(name), config=value, access=rating.access, risk=rating.risk,
+                ),
+                "name": str(name),
+            })
+    return grants
+
+
+def _claude_env_rating(name: str) -> SettingRating | None:
+    """The rating of an ``env`` name the settings reader models, or ``None`` (#1027).
+
+    A modelled name is also one the grant may publish: a plain environment
+    variable name that no redaction rule rewrites and that names no secret.
+    """
+
+    if (
+        not _ENV_VAR_NAME.fullmatch(name)
+        or _is_secret_key(name)
+        or published_workflow_label(name) != name
+    ):
+        return None
+    return claude_env_rating(name)
+
+
+#: The ``permissions`` keys the settings reader compares.
+_CLAUDE_READ_PERMISSION_KEYS = frozenset({
+    "allow", "ask", "deny", "additionalDirectories", *CLAUDE_SCALAR_SETTINGS,
+})
+#: Top-level settings the reader compares when they hold an object.
+_CLAUDE_READ_OBJECT_KEYS = frozenset({"sandbox", "enabledPlugins", "extraKnownMarketplaces", "hooks"})
+#: A settings key an artifact may publish (#1027).
+_SETTINGS_KEY_RE = re.compile(r"[A-Za-z0-9$._+-]{1,80}")
+
+
+def _published_settings_key(key: str) -> str:
+    """A settings key as published: as written when plain and no redaction rule rewrites it (#1027)."""
+
+    if _SETTINGS_KEY_RE.fullmatch(key) and _detail_string_rules(key) == key:
+        return key
+    return DETAIL_NOT_SHOWN
+
+
+def _claude_key_read(data: dict[str, Any], key: str) -> bool:
+    """Whether a grant reader of this entry compares top-level ``key`` of a settings document (#1027)."""
+
+    value = data[key]
+    return (
+        key in CLAUDE_COMMAND_SETTINGS
+        or (key in _CLAUDE_READ_OBJECT_KEYS and isinstance(value, dict))
+        or (key == "additionalDirectories" and isinstance(value, list))
+        or read_at_top_level(data, key)
+    )
+
+
+def _claude_unmodelled_keys(data: Any) -> list[dict[str, str]]:
+    """The keys of one Claude Code settings document that no reader of this entry compares (#1027).
+
+    Each top-level key no grant reader compares, each key inside
+    ``permissions`` other than the rules, the additional directories and the
+    modelled scalar settings (``permissions.<key>``), and ``env`` for the
+    entries whose names the reader does not model. Each is published with
+    the digest of the key and its value as ``config_sha256``'s input holds
+    them, so a comparison can name the ones that changed; an ``env`` value or
+    a secret-named value is redacted there, so rotating one moves nothing.
+    """
+
+    if not isinstance(data, dict):
+        return []
+    unread: list[tuple[str, dict[str, Any]]] = []
+    for raw_key, value in data.items():
+        key = str(raw_key)
+        if key == "permissions" and isinstance(value, dict):
+            unread.extend(
+                (f"permissions.{inner}", {"permissions": {inner: item}})
+                for inner, item in value.items()
+                if str(inner) not in _CLAUDE_READ_PERMISSION_KEYS
+            )
+        elif key == "env" and isinstance(value, dict):
+            rest = {name: item for name, item in value.items() if _claude_env_rating(str(name)) is None}
+            if rest:
+                unread.append((key, {key: rest}))
+        elif not _claude_key_read(data, key):
+            unread.append((key, {key: value}))
+    return sorted(
+        (
+            {"key": _published_settings_key(label), "sha256": redacted_config_sha256(held)}
+            for label, held in unread
+        ),
+        key=lambda entry: (entry["key"], entry["sha256"]),
+    )
+
+
+def _claude_unmodelled_commands(data: dict[str, Any]) -> list[str]:
+    """Top-level keys no reader compares whose value is shaped as a command Claude Code runs (#1027).
+
+    An object holding a string ``command``, the shape of ``statusLine`` and
+    a hook handler, or a string under a ``…Helper`` key, the shape of
+    ``apiKeyHelper``. ``policyHelper`` raises its own limit.
+    """
+
+    found: list[str] = []
+    for raw_key, value in data.items():
+        key = str(raw_key)
+        if key == "policyHelper" or _claude_key_read(data, key):
+            continue
+        if (isinstance(value, dict) and isinstance(value.get("command"), str)) or (
+            key.endswith("Helper") and isinstance(value, str)
+        ):
+            found.append(_published_settings_key(key))
+    return sorted(set(found))
 
 
 def _privacy_projected_path(value: str) -> str:
@@ -4905,6 +5062,31 @@ def _collect_file(
                 blocking=True,
             )
         )
+    if (
+        host == "claude-code" and kind == "config" and source in _CLAUDE_SETTINGS_RANK
+        and isinstance(data, dict) and artifacts and artifacts[-1]["path"] == public_host_path(source)
+    ):
+        # What no reader of this entry compares is named on the artifact, so
+        # a change confined to it is never read as no change (#1027), and one
+        # shaped as a command Claude Code runs keeps coverage partial, as
+        # policyHelper does.
+        unmodelled = _claude_unmodelled_keys(data)
+        if unmodelled:
+            artifacts[-1]["unmodelled_keys"] = unmodelled
+        issues.extend(
+            _inventory_issue(
+                kind="unsupported",
+                host="claude-code",
+                source=source,
+                message=(
+                    f"{key} is shaped as a command Claude Code runs (an object with a command, "
+                    "or a Helper string), and this entry does not model it; the static audit "
+                    "does not run it and cannot establish complete coverage"
+                ),
+                blocking=True,
+            )
+            for key in _claude_unmodelled_commands(data)
+        )
     if kind == "mcp":
         grants.extend(_mcp_grants(data, host=host, scope=scope, source=source))
         if host == "vscode":
@@ -6756,7 +6938,10 @@ def host_grants_sha256(grants: dict[str, Any]) -> str:
 
     if not isinstance(grants.get("grants"), list):
         return _sha(grants)
-    return _sha({**grants, "grants": [compared_grant(grant) for grant in grants["grants"]]})
+    compared = {**grants, "grants": [compared_grant(grant) for grant in grants["grants"]]}
+    if isinstance(grants.get("artifacts"), list):
+        compared["artifacts"] = [compared_artifact(artifact) for artifact in grants["artifacts"]]
+    return _sha(compared)
 
 
 def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
@@ -6786,6 +6971,7 @@ def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
         "inventory": {
             **normalized,
             "grants": [compared_grant(grant) for grant in normalized["grants"]],
+            "artifacts": [compared_artifact(artifact) for artifact in normalized["artifacts"]],
         },
     }
     return HostGrantsBaselineV9.model_validate(payload).model_dump(mode="json")
@@ -7048,7 +7234,17 @@ def diff_host_grants(baseline: dict[str, Any], current: dict[str, Any]) -> list[
 DISPLAY_ONLY_GRANT_FIELDS: dict[str, frozenset[str]] = {
     "hook": frozenset({"handlers", "omitted_handlers"}),
     "mcp_server": frozenset({"package", "args_sha256", "launch_source", "env_var_names"}),
+    # A command setting's command, published as a hook handler's is (#1027).
+    "command_setting": frozenset({"command"}),
 }
+
+#: Members an artifact publishes beside what ``redacted_sha256`` already
+#: binds (#1027): a settings file's keys no reader compares, each with its
+#: digest. ``redacted_sha256`` moves whenever one of those does, so leaving
+#: them out of artifact equality, the inventory digests and a saved baseline
+#: loses no change, and a baseline saved before they were published still
+#: compares equal to a reading of the same files.
+DISPLAY_ONLY_ARTIFACT_FIELDS: frozenset[str] = frozenset({"unmodelled_keys"})
 
 
 def compared_grant(grant: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -7060,6 +7256,14 @@ def compared_grant(grant: dict[str, Any] | None) -> dict[str, Any] | None:
     if not hidden or not hidden.intersection(grant):
         return grant
     return {key: value for key, value in grant.items() if key not in hidden}
+
+
+def compared_artifact(artifact: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The artifact as comparisons and digests read it: without its display-only members (#1027)."""
+
+    if artifact is None or not DISPLAY_ONLY_ARTIFACT_FIELDS.intersection(artifact):
+        return artifact
+    return {key: value for key, value in artifact.items() if key not in DISPLAY_ONLY_ARTIFACT_FIELDS}
 
 
 def hook_dependency_only_change(before: dict | None, after: dict | None) -> bool:
@@ -7134,7 +7338,9 @@ def _diff_host_artifacts(
     for artifact_id in sorted(set(base_by_id) | set(current_by_id)):
         before = base_by_id.get(artifact_id)
         after = current_by_id.get(artifact_id)
-        if before != after and not _same_instruction_artifact(before, after):
+        if compared_artifact(before) != compared_artifact(after) and not _same_instruction_artifact(
+            before, after
+        ):
             changes.append(
                 {"artifact_id": artifact_id, "baseline": before, "current": after}
             )
@@ -7427,6 +7633,9 @@ def host_grant_direction_unknown(
     if kind in {"permission_mode", "sandbox"}:
         context = [change] if comparison_changes is None else comparison_changes
         return _setting_change_direction(change, context) is None
+    if kind in {"command_setting", "env"}:
+        # Another command, or another value, establishes no direction (#1027).
+        return before is not None
     return False
 
 
@@ -7566,6 +7775,13 @@ def host_grant_expansion_signals(
                 signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
         elif kind == "additional_path" and before is None:
             signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}")
+        elif kind in {"command_setting", "env"} and before is None:
+            # A command Claude Code now runs, or an env entry that now
+            # redirects its requests, changes its trust or loads code (#1027).
+            # An edit to one is a change of unknown direction, as a hook
+            # command's is.
+            label = after.get("setting") if kind == "command_setting" else after.get("name")
+            signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}:{label}")
         elif kind == "workflow":
             previous = before or {}
             old_writes = set(previous.get("effective_write_scopes", previous.get("write_scopes", [])))

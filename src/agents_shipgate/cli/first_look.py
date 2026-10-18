@@ -165,6 +165,11 @@ def _host_grants_line(workspace: Path) -> tuple[str | None, bool]:
             "hook": "hook",
             "sandbox": "sandbox setting",
             "additional_path": "additional path",
+            # A setting Claude Code runs as a command, and an env entry that
+            # redirects it or loads code (#1027): without a label a repo
+            # holding only these read as having no host configuration.
+            "command_setting": "command setting",
+            "env": "env setting",
             "plugin_or_app": "plugin/app",
             "workflow": "workflow",
             "instruction_trust_root": "instruction trust root",

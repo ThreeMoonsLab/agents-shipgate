@@ -118,11 +118,13 @@ Conditional review choices only; current control permissions still apply. A PR n
 
 The answer is one of these, and they mean different things: named changes,
 like these; `No static host-grant changes detected.` when no compared grant
-differs; or `Cannot compare against <base>: <reason>` when an input could not be
-read, which is an input limit and never a quiet pass. Either of the first two
-can open with `Not compared:` and a list of sources the change did not touch
-and `diff` could not read; nothing is claimed about those. Since `1.2.0` there
-is also a fourth answer, `Partial comparison
+differs and no settings file changed; `Changed, not compared: <file> (<keys>)`
+when a settings, MCP or hook file changed with no row, such as in a key this
+entry does not compare (#1027); or `Cannot compare against <base>: <reason>`
+when an input could not be read, which is an input limit and never a quiet
+pass. Any of the first three can open with `Not compared:` and a list of
+sources the change did not touch and `diff` could not read; nothing is claimed
+about those. Since `1.2.0` there is also a fifth answer, `Partial comparison
 against <base> …: <reason>`, where the only inputs it could not read are
 plugin directories whose references stop inside them: it names each one as
 `Not compared: <directory>`, shows the changes outside it, and says they are

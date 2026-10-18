@@ -435,7 +435,8 @@
   "tests/test_memory_bank_effects.py": 2.6,
   "tests/test_verification_receipt_consumers.py": 3.7,
   "tests/test_verify_base_and_gate_removal.py": 17.9,
-  "tests/test_verify_pr_controlled_inputs.py": 23.4
+  "tests/test_verify_pr_controlled_inputs.py": 23.4,
+  "tests/test_claude_command_settings.py": 21.0
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -544,6 +545,17 @@
    },
    "case_count": 25,
    "command": "python -m pytest tests/test_verify_pr_controlled_inputs.py --junitxml=pr-controlled-inputs.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "c6bb59ce with issue #1027 command settings increment",
+   "report_sha256": "2764336c22a1f7dff91ef1e2ca5d810d5fa4b6920685df7f3ad600bba443b90b",
+   "files": {
+    "tests/test_claude_command_settings.py": 21.0
+   },
+   "case_count": 14,
+   "command": "python -m pytest tests/test_claude_command_settings.py --junitxml=command-settings.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

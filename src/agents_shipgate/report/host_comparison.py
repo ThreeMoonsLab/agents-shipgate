@@ -449,8 +449,10 @@ def _side_text(item: HostComparisonCoverageItem) -> str:
 
 
 #: What a zero-row line cannot show: the inventory redacts these values, so no
-#: comparison compares them (#812).
-_REDACTED_VALUES = "(redacted values such as env values and apiKeyHelper are not compared)"
+#: comparison compares them (#812). `apiKeyHelper` and the endpoint and loader
+#: env entries are compared by digest since #1027, and keys no reader compares
+#: are named in the item's detail, so only redaction is left to name here.
+_REDACTED_VALUES = "(redacted values, such as env values this entry does not model, are not compared)"
 
 #: The same note for a workflow, which holds no `apiKeyHelper`: what its
 #: grant does not compare, and where the unread agent steps are named (#823
@@ -604,7 +606,16 @@ def coverage_item_text(
             f"{where}a hook it declares runs a script this entry does not resolve, so a "
             f"change to that script is not shown: {_text(item.detail or '', markdown=markdown)}"
         )
-    if item.status == "changed_without_grant_change":
+    if item.status == "changed_without_grant_change" and item.detail:
+        # Keys no reader compares changed (#1027): named, never read as no change.
+        change = "changed, not compared" if item.side == "both" else (
+            "declares no grant this entry compares; not compared"
+        )
+        finding = (
+            f"{change} ({_text(item.detail, markdown=markdown)}), so no row"
+            f"{_redacted_values_note(item.source)}"
+        )
+    elif item.status == "changed_without_grant_change":
         # One side only is an added or removed file: it declares no compared grant.
         change = (
             "changed, but no grant this entry compares changed"
@@ -612,6 +623,8 @@ def coverage_item_text(
             else "declares no grant this entry compares"
         )
         finding = f"{change}, so no row{_redacted_values_note(item.source)}"
+    elif item.status == "changed_without_rows" and item.detail:
+        finding = f"changed, not compared ({_text(item.detail, markdown=markdown)}), so no row"
     elif item.status == "unchanged_not_proven":
         finding = (
             "no grant this entry compares changed, but the file was not proven "
@@ -631,6 +644,60 @@ def coverage_item_text(
         # no grant, so it gives no row on the one side that has it.
         finding = "declares no grant this entry compares, so no row"
     return f"{_side_text(item)}; {finding}"
+
+
+#: The headline of a comparable comparison with no row and no source that changed.
+NO_CHANGE_HEADLINE = "No static host-grant changes detected. No verdict is implied."
+#: The same headline where `verify` and the PR comment print it.
+NO_CHANGE_COVERED_HEADLINE = (
+    "No static host-grant changes detected in the covered comparison. No verdict is implied."
+)
+#: The source kinds a "changed, not compared" headline names (#1027): host
+#: settings, MCP configuration and hook files. A workflow names what it does
+#: not compare on its own coverage line, and an instruction document is
+#: guidance, not a setting.
+_SETTINGS_SOURCE_KINDS = frozenset({"config", "mcp", "hooks", "requirements"})
+#: How many changed sources that headline names before counting.
+_NOT_COMPARED_NAMES = 3
+
+
+def not_compared_headline(comparison: HostComparison, *, markdown: bool = False) -> str | None:
+    """The headline of a comparable comparison with no row in which a host settings file changed (#1027).
+
+    A settings file can change with no row: in keys no reader of this entry
+    compares, in a value the inventory redacts, or in a way the published
+    data does not attribute to a grant. "No static host-grant changes
+    detected" read as no change there, and a code-execution edit to
+    `.claude/settings.json` was presented as a no-op. So such a file is named
+    as changed, not compared, with the keys its coverage item names. ``None``
+    where no settings file changed, a row exists, or coverage was not
+    recorded: the no-change headline is then the answer it always was.
+    """
+
+    if comparison.comparison_status != "comparable" or comparison.rows or comparison.coverage is None:
+        return None
+    changed = [
+        item
+        for item in comparison.coverage.items
+        if item.status in {"changed_without_grant_change", "changed_without_rows"}
+        and _source_kind(item.source) in _SETTINGS_SOURCE_KINDS
+        # A hook script's change is its hook's row (#702), never a setting.
+        and not _SCRIPT_NAME.search(item.source)
+    ]
+    if not changed:
+        return None
+    named = [
+        _text(item.source, markdown=markdown)
+        + (f" ({_text(item.detail, markdown=markdown)})" if item.detail else "")
+        for item in changed[:_NOT_COMPARED_NAMES]
+    ]
+    more = len(changed) - _NOT_COMPARED_NAMES
+    return (
+        "Changed, not compared: "
+        + "; ".join(named)
+        + (f"; and {more} more" if more > 0 else "")
+        + ". No host-grant row describes this change. No verdict is implied."
+    )
 
 
 #: How many sources compared with no change the text names before counting.
@@ -980,7 +1047,7 @@ def host_comparison_lines(
         lines = ["Repository-declared host capability changes:"]
     if not changes and not partial:
         lines.append(
-            "No static host-grant changes detected in the covered comparison. No verdict is implied."
+            not_compared_headline(comparison, markdown=markdown) or NO_CHANGE_COVERED_HEADLINE
         )
     # A bound of at least ENTRY_MIN_CHARS cuts a longer entry; a smaller one
     # prints it in its shortest form (#819 review, cycle 6).

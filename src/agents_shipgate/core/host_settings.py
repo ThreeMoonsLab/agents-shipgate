@@ -281,6 +281,92 @@ def rate_claude_setting(setting: str, value: Any) -> SettingRating:
     return _UNKNOWN
 
 
+#: Settings whose value Claude Code runs as a shell command (#1027), per its
+#: settings reference: an object whose ``command`` it runs, or a string it runs
+#: as the command itself. Each is a ``command_setting`` grant, rated
+#: ``execute``/``high`` like a hook a settings file declares.
+CLAUDE_COMMAND_OBJECT_SETTINGS: tuple[str, ...] = ("statusLine", "subagentStatusLine", "fileSuggestion")
+CLAUDE_HELPER_SETTINGS: tuple[str, ...] = (
+    "apiKeyHelper", "otelHeadersHelper", "awsAuthRefresh", "awsCredentialExport",
+)
+CLAUDE_COMMAND_SETTINGS: tuple[str, ...] = CLAUDE_COMMAND_OBJECT_SETTINGS + CLAUDE_HELPER_SETTINGS
+
+#: What Claude Code runs each command for, as a row's ``why`` says it.
+_COMMAND_PURPOSE: dict[str, str] = {
+    "statusLine": "to draw the status line",
+    "subagentStatusLine": "to draw a subagent's status line",
+    "fileSuggestion": "to suggest files for an @ mention",
+    "apiKeyHelper": "and sends what it prints as the API credential",
+    "otelHeadersHelper": "and sends what it prints as telemetry request headers",
+    "awsAuthRefresh": "to refresh AWS credentials",
+    "awsCredentialExport": "and reads AWS credentials from what it prints",
+}
+
+
+def command_setting_basis(setting: str) -> str:
+    """What a ``command_setting`` grant permits, in a reviewer's words (#1027)."""
+
+    purpose = _COMMAND_PURPOSE.get(setting, "")
+    return f"runs a shell command{f' {purpose}' if purpose else ''}, with the user's authority"
+
+
+#: ``env`` names that set where Claude Code, or a tool it starts, sends
+#: requests (#1027): any ``*_BASE_URL`` (``ANTHROPIC_BASE_URL`` and the
+#: Bedrock, Vertex and Foundry ones), the OpenTelemetry exporter endpoints and
+#: the proxies (``NO_PROXY`` decides which requests skip one).
+_ENV_ENDPOINT_NAMES = frozenset({"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"})
+_ENV_OTEL_ENDPOINT_PREFIX = "OTEL_EXPORTER_OTLP_"
+#: ``env`` names that change which TLS certificates Claude Code, or a tool it
+#: starts, trusts: Node.js's, and the certificate bundles OpenSSL, Python
+#: ``requests`` and curl read.
+_ENV_TRUST_NAMES = frozenset({
+    "NODE_EXTRA_CA_CERTS", "NODE_TLS_REJECT_UNAUTHORIZED",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+})
+#: ``env`` names that load or wrap code in the processes Claude Code starts:
+#: Node.js options (``--require``), the script a shell sources before every
+#: non-interactive command (``BASH_ENV``, ``ENV``), Claude Code's documented
+#: prefix for every bash command, the directories commands and libraries are
+#: found in (``PATH`` and the dynamic loader's and the language runtimes'
+#: search paths), the dynamic loader's preload lists, the options and startup
+#: files the language runtimes read, and the commands Git and SSH run.
+_ENV_LOADER_NAMES = frozenset({
+    "NODE_OPTIONS", "BASH_ENV", "ENV", "CLAUDE_CODE_SHELL_PREFIX", "PROMPT_COMMAND",
+    "PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH",
+    "DYLD_FRAMEWORK_PATH",
+    "NODE_PATH", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME", "PERL5OPT", "PERL5LIB", "RUBYOPT",
+    "RUBYLIB", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS",
+    "GIT_SSH", "GIT_SSH_COMMAND", "GIT_EXEC_PATH", "GIT_ASKPASS", "SSH_ASKPASS",
+})
+
+
+def claude_env_rating(name: str) -> SettingRating | None:
+    """The rating of one modelled Claude Code ``env`` name, or ``None`` for a name this entry does not model (#1027).
+
+    Only the name decides: the value is never published, and a grant compares
+    its digest. Every modelled name is ``high``: each redirects the agent's
+    traffic, weakens what it trusts, or runs code beside it. A name is read
+    without regard to case, since Windows reads an environment variable that
+    way (``Path``) and a spelling that is no variable elsewhere is
+    over-reported rather than missed.
+    """
+
+    name = name.upper()
+    if name in _ENV_LOADER_NAMES:
+        return SettingRating("execute", "high", "loads or wraps code in the processes Claude Code starts")
+    if name in _ENV_TRUST_NAMES:
+        return SettingRating("external", "high", "changes which TLS certificates Claude Code trusts")
+    if (
+        name in _ENV_ENDPOINT_NAMES
+        or name.endswith("_BASE_URL")
+        or (name.startswith(_ENV_OTEL_ENDPOINT_PREFIX) and name.endswith("ENDPOINT"))
+    ):
+        return SettingRating(
+            "external", "high", "sets where Claude Code, or a tool it starts, sends requests"
+        )
+    return None
+
+
 def read_at_top_level(data: Any, key: str) -> bool:
     """Whether the reader reads top-level ``key`` of ``data`` as a modelled setting.
 
@@ -299,11 +385,16 @@ def read_at_top_level(data: Any, key: str) -> bool:
 
 __all__ = [
     "CLAUDE_BOOLEAN_SETTINGS",
+    "CLAUDE_COMMAND_OBJECT_SETTINGS",
+    "CLAUDE_COMMAND_SETTINGS",
+    "CLAUDE_HELPER_SETTINGS",
     "CLAUDE_LIST_SETTINGS",
     "CLAUDE_SCALAR_SETTINGS",
     "SettingRating",
     "SettingValue",
+    "claude_env_rating",
     "claude_setting_values",
+    "command_setting_basis",
     "rate_claude_setting",
     "read_at_top_level",
     "setting_value_text",

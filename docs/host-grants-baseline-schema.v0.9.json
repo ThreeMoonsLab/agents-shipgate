@@ -413,6 +413,21 @@
           ],
           "title": "Scope",
           "type": "string"
+        },
+        "unmodelled_keys": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/HostUnmodelledKeyV9"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unmodelled Keys"
         }
       },
       "required": [
@@ -424,6 +439,101 @@
         "parse_status"
       ],
       "title": "HostArtifactV9",
+      "type": "object"
+    },
+    "HostCommandSettingGrantV9": {
+      "additionalProperties": false,
+      "description": "A Claude Code setting whose value the host runs as a shell command (#1027).\n\n``setting`` is ``statusLine``, ``subagentStatusLine`` or\n``fileSuggestion``, whose object's ``command`` Claude Code runs, or\n``apiKeyHelper``, ``otelHeadersHelper``, ``awsAuthRefresh`` or\n``awsCredentialExport``, whose string it runs. ``config_sha256`` digests\nthe whole value, as every grant's does, so a change to any field of it is\na row. ``command`` is that command as a hook handler's is published\n(:class:`HostHookCommandV9`): the executable's name, a digest and a\nshape, never its text, and absent when the value holds no string command.\nLike a hook's handlers it is display-only: left out of grant equality,\nthe inventory digests and saved baselines. Extended in place: ``0.9`` has\nnot shipped in a tagged release.",
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostHookCommandV9"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "command_setting",
+          "default": "command_setting",
+          "title": "Kind",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "setting": {
+          "title": "Setting",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk",
+        "setting"
+      ],
+      "title": "HostCommandSettingGrantV9",
       "type": "object"
     },
     "HostCoverageV8": {
@@ -488,6 +598,90 @@
       "title": "HostCoverageV8",
       "type": "object"
     },
+    "HostEnvGrantV9": {
+      "additionalProperties": false,
+      "description": "A Claude Code ``env`` entry that redirects requests, changes trust or loads code (#1027).\n\nPublished only for a name the settings reader models, read without regard\nto case: a ``*_BASE_URL``, an OpenTelemetry exporter endpoint, a proxy\n(``HTTP_PROXY``, ``HTTPS_PROXY``, ``ALL_PROXY``, ``NO_PROXY``), a\ncertificate setting (``NODE_EXTRA_CA_CERTS``,\n``NODE_TLS_REJECT_UNAUTHORIZED``, ``SSL_CERT_FILE``, ``SSL_CERT_DIR``,\n``REQUESTS_CA_BUNDLE``, ``CURL_CA_BUNDLE``), or a name that loads or wraps\ncode (``NODE_OPTIONS``, ``BASH_ENV``, ``ENV``, ``CLAUDE_CODE_SHELL_PREFIX``,\n``PROMPT_COMMAND``, ``PATH``, ``LD_PRELOAD``, ``LD_LIBRARY_PATH``,\n``DYLD_INSERT_LIBRARIES``, ``DYLD_LIBRARY_PATH``, ``DYLD_FRAMEWORK_PATH``,\n``NODE_PATH``, ``PYTHONPATH``, ``PYTHONSTARTUP``, ``PYTHONHOME``,\n``PERL5OPT``, ``PERL5LIB``, ``RUBYOPT``, ``RUBYLIB``, ``JAVA_TOOL_OPTIONS``,\n``_JAVA_OPTIONS``, ``JDK_JAVA_OPTIONS``, ``GIT_SSH``, ``GIT_SSH_COMMAND``,\n``GIT_EXEC_PATH``, ``GIT_ASKPASS``, ``SSH_ASKPASS``). The value is never\npublished: ``config_sha256`` is its digest as every grant's input holds\nit, with credential shapes and a URL's path withheld, so a value change is\na ``changed`` row. Extended in place: ``0.9`` has not shipped in a tagged\nrelease.",
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "env",
+          "default": "env",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk",
+        "name"
+      ],
+      "title": "HostEnvGrantV9",
+      "type": "object"
+    },
     "HostGrantsBaselineV9": {
       "additionalProperties": false,
       "properties": {
@@ -536,6 +730,8 @@
             "discriminator": {
               "mapping": {
                 "additional_path": "#/$defs/HostAdditionalPathGrantV2",
+                "command_setting": "#/$defs/HostCommandSettingGrantV9",
+                "env": "#/$defs/HostEnvGrantV9",
                 "hook": "#/$defs/HostHookComparisonV7",
                 "instruction_trust_root": "#/$defs/HostInstructionGrantV2",
                 "mcp_server": "#/$defs/HostMcpServerBaselineGrantV9",
@@ -586,6 +782,12 @@
               },
               {
                 "$ref": "#/$defs/HostOpenShellPolicyGrantV9"
+              },
+              {
+                "$ref": "#/$defs/HostCommandSettingGrantV9"
+              },
+              {
+                "$ref": "#/$defs/HostEnvGrantV9"
               }
             ]
           },
@@ -612,6 +814,162 @@
         "scope"
       ],
       "title": "HostGrantsNormalizedSnapshotV9",
+      "type": "object"
+    },
+    "HostHookCommandShapeV9": {
+      "additionalProperties": false,
+      "description": "What a hook's inline command is made of, without any of its text (#934).\n\nRead by a bounded, static reading of the command as ``config_sha256``'s\ninput holds it, never run. ``commands`` lists, in the order they are\nwritten, the first 12 distinct programs named at a command position, each\na plain token (``[A-Za-z0-9._+-]``, at most 80 characters) no redaction\nrule rewrites, the last ``/`` segment of the word; ``commands_more`` counts\nthe distinct programs past those, and ``unnamed`` the command positions\nwhose word is not such a token (a variable, a substitution, a quoted or\nglob word), both left out when 0. ``statements`` counts the simple\ncommands, ``pipes`` the ``|`` and ``|&`` operators, ``substitutions`` the\n``$( \u2026 )`` command substitutions, ``control_flow`` the ``if``, ``elif``,\n``while``, ``until`` and ``for`` keywords and ``quoted`` the quoted\nstrings, each across the whole command. ``redirects`` lists, in order, at\nmost 8 redirects to a file as ``> target``, ``>> target`` or ``< target``,\nthe target only when it is ``/dev/null`` or a repository-relative path of\nletters, digits, ``.``, ``_`` and ``-`` with no ``..`` segment that no\nredaction rule rewrites, ``<not-shown>`` otherwise; ``redirects_more``\ncounts those past them. ``script`` is a script path published as a\nhandler's ``args`` publish one: a command word shaped as a relative script\npath, or the first such argument of an interpreter. A command that runs\n``bash -c '\u2026'`` with a literal script is read inside that script too.\n\nNo argument, quoted string, variable or absolute path is published. It\ndescribes the command's structure and claims nothing about what it does,\nwhether a host runs it, or in which direction a change moves authority.",
+      "properties": {
+        "commands": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Commands",
+          "type": "array"
+        },
+        "commands_more": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commands More"
+        },
+        "control_flow": {
+          "title": "Control Flow",
+          "type": "integer"
+        },
+        "pipes": {
+          "title": "Pipes",
+          "type": "integer"
+        },
+        "quoted": {
+          "title": "Quoted",
+          "type": "integer"
+        },
+        "redirects": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Redirects"
+        },
+        "redirects_more": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Redirects More"
+        },
+        "script": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Script"
+        },
+        "statements": {
+          "title": "Statements",
+          "type": "integer"
+        },
+        "substitutions": {
+          "title": "Substitutions",
+          "type": "integer"
+        },
+        "unnamed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unnamed"
+        }
+      },
+      "required": [
+        "commands",
+        "statements",
+        "pipes",
+        "substitutions",
+        "control_flow",
+        "quoted"
+      ],
+      "title": "HostHookCommandShapeV9",
+      "type": "object"
+    },
+    "HostHookCommandV9": {
+      "additionalProperties": false,
+      "description": "A hook command plus the shape of the inline command, or why it has none (#934).\n\nExactly one of ``shape`` and ``shape_limit`` is present. ``shape_limit``\nsays why the command is not described and the digest is all there is to\ncompare: ``too_long`` (more than 8,192 characters as ``config_sha256``'s\ninput holds it), ``unsupported_shell`` (the handler's ``shell`` setting is\nneither ``bash`` nor ``sh``) or ``unsupported_syntax`` (a form the bounded\nreading refuses whole: a here-document, a backquote, ``$(( \u2026 ))``,\n``case``, a function definition, an unterminated quote or group, or a\ncommand past its word or nesting bound). A row then says so and that the\nconfig has to be opened to read the change. Left out of grant equality,\nthe inventory digests and saved baselines, like the rest of ``handlers``.",
+      "properties": {
+        "executable": {
+          "title": "Executable",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "shape": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostHookCommandShapeV9"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "shape_limit": {
+          "anyOf": [
+            {
+              "enum": [
+                "too_long",
+                "unsupported_shell",
+                "unsupported_syntax"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shape Limit"
+        }
+      },
+      "required": [
+        "executable",
+        "sha256"
+      ],
+      "title": "HostHookCommandV9",
       "type": "object"
     },
     "HostHookComparisonV7": {
@@ -1802,6 +2160,28 @@
         "value"
       ],
       "title": "HostSandboxGrantV2",
+      "type": "object"
+    },
+    "HostUnmodelledKeyV9": {
+      "additionalProperties": false,
+      "description": "One key of a Claude Code settings file that no reader of this entry compares (#1027).\n\n``key`` is the top-level key, or ``permissions.<key>`` for a key inside\n``permissions``, as written when it is a plain key (letters, digits,\n``$``, ``.``, ``_``, ``+`` and ``-``, at most 80 characters) that no\nredaction rule rewrites, and ``<not-shown>`` otherwise. For ``env`` it\nstands for the entries whose names the reader does not model. ``sha256``\ndigests the key and its value as ``config_sha256``'s input holds them, so\na secret-named value, and the value of an ``env`` entry, is redacted and\nrotating it moves nothing.",
+      "properties": {
+        "key": {
+          "maxLength": 200,
+          "title": "Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "sha256"
+      ],
+      "title": "HostUnmodelledKeyV9",
       "type": "object"
     },
     "HostWorkflowAgentLaunchV7": {

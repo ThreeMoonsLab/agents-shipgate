@@ -45,8 +45,11 @@ def _tokens(change: dict[str, Any]) -> tuple[str | None, str | None]:
     kind, key = change["kind"], change["key"]
     if kind == "permission_rule":
         name = key.split(":", 1)[1]
-    elif kind in {"mcp_server", "hook", "plugin"}:
+    elif kind in {"mcp_server", "hook", "plugin", "command_setting"}:
         name = key
+    elif kind == "env":
+        # A row names an env entry, never its value (#1027).
+        name = f"env.{key}"
     elif kind == "additional_path":
         name = "additional_path"
     elif kind == "setting":

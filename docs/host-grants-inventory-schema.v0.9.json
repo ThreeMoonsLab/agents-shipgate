@@ -413,6 +413,21 @@
           ],
           "title": "Scope",
           "type": "string"
+        },
+        "unmodelled_keys": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/HostUnmodelledKeyV9"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unmodelled Keys"
         }
       },
       "required": [
@@ -424,6 +439,101 @@
         "parse_status"
       ],
       "title": "HostArtifactV9",
+      "type": "object"
+    },
+    "HostCommandSettingGrantV9": {
+      "additionalProperties": false,
+      "description": "A Claude Code setting whose value the host runs as a shell command (#1027).\n\n``setting`` is ``statusLine``, ``subagentStatusLine`` or\n``fileSuggestion``, whose object's ``command`` Claude Code runs, or\n``apiKeyHelper``, ``otelHeadersHelper``, ``awsAuthRefresh`` or\n``awsCredentialExport``, whose string it runs. ``config_sha256`` digests\nthe whole value, as every grant's does, so a change to any field of it is\na row. ``command`` is that command as a hook handler's is published\n(:class:`HostHookCommandV9`): the executable's name, a digest and a\nshape, never its text, and absent when the value holds no string command.\nLike a hook's handlers it is display-only: left out of grant equality,\nthe inventory digests and saved baselines. Extended in place: ``0.9`` has\nnot shipped in a tagged release.",
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostHookCommandV9"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "command_setting",
+          "default": "command_setting",
+          "title": "Kind",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "setting": {
+          "title": "Setting",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk",
+        "setting"
+      ],
+      "title": "HostCommandSettingGrantV9",
       "type": "object"
     },
     "HostCoverageV8": {
@@ -488,6 +598,90 @@
       "title": "HostCoverageV8",
       "type": "object"
     },
+    "HostEnvGrantV9": {
+      "additionalProperties": false,
+      "description": "A Claude Code ``env`` entry that redirects requests, changes trust or loads code (#1027).\n\nPublished only for a name the settings reader models, read without regard\nto case: a ``*_BASE_URL``, an OpenTelemetry exporter endpoint, a proxy\n(``HTTP_PROXY``, ``HTTPS_PROXY``, ``ALL_PROXY``, ``NO_PROXY``), a\ncertificate setting (``NODE_EXTRA_CA_CERTS``,\n``NODE_TLS_REJECT_UNAUTHORIZED``, ``SSL_CERT_FILE``, ``SSL_CERT_DIR``,\n``REQUESTS_CA_BUNDLE``, ``CURL_CA_BUNDLE``), or a name that loads or wraps\ncode (``NODE_OPTIONS``, ``BASH_ENV``, ``ENV``, ``CLAUDE_CODE_SHELL_PREFIX``,\n``PROMPT_COMMAND``, ``PATH``, ``LD_PRELOAD``, ``LD_LIBRARY_PATH``,\n``DYLD_INSERT_LIBRARIES``, ``DYLD_LIBRARY_PATH``, ``DYLD_FRAMEWORK_PATH``,\n``NODE_PATH``, ``PYTHONPATH``, ``PYTHONSTARTUP``, ``PYTHONHOME``,\n``PERL5OPT``, ``PERL5LIB``, ``RUBYOPT``, ``RUBYLIB``, ``JAVA_TOOL_OPTIONS``,\n``_JAVA_OPTIONS``, ``JDK_JAVA_OPTIONS``, ``GIT_SSH``, ``GIT_SSH_COMMAND``,\n``GIT_EXEC_PATH``, ``GIT_ASKPASS``, ``SSH_ASKPASS``). The value is never\npublished: ``config_sha256`` is its digest as every grant's input holds\nit, with credential shapes and a URL's path withheld, so a value change is\na ``changed`` row. Extended in place: ``0.9`` has not shipped in a tagged\nrelease.",
+      "properties": {
+        "access": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "execute",
+            "external",
+            "admin",
+            "unknown"
+          ],
+          "title": "Access",
+          "type": "string"
+        },
+        "config_sha256": {
+          "title": "Config Sha256",
+          "type": "string"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "enum": [
+            "codex",
+            "claude-code",
+            "cursor",
+            "vscode",
+            "github"
+          ],
+          "title": "Host",
+          "type": "string"
+        },
+        "kind": {
+          "const": "env",
+          "default": "env",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "none",
+            "low",
+            "medium",
+            "high",
+            "critical",
+            "unknown"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "repository",
+            "local_static"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "grant_id",
+        "host",
+        "scope",
+        "source",
+        "config_sha256",
+        "access",
+        "risk",
+        "name"
+      ],
+      "title": "HostEnvGrantV9",
+      "type": "object"
+    },
     "HostGrantsInventoryV9": {
       "additionalProperties": false,
       "properties": {
@@ -510,6 +704,8 @@
             "discriminator": {
               "mapping": {
                 "additional_path": "#/$defs/HostAdditionalPathGrantV2",
+                "command_setting": "#/$defs/HostCommandSettingGrantV9",
+                "env": "#/$defs/HostEnvGrantV9",
                 "hook": "#/$defs/HostHookGrantV9",
                 "instruction_trust_root": "#/$defs/HostInstructionGrantV2",
                 "mcp_server": "#/$defs/HostMcpServerGrantV9",
@@ -560,6 +756,12 @@
               },
               {
                 "$ref": "#/$defs/HostOpenShellPolicyGrantV9"
+              },
+              {
+                "$ref": "#/$defs/HostCommandSettingGrantV9"
+              },
+              {
+                "$ref": "#/$defs/HostEnvGrantV9"
               }
             ]
           },
@@ -2366,6 +2568,28 @@
         "value"
       ],
       "title": "HostSandboxGrantV2",
+      "type": "object"
+    },
+    "HostUnmodelledKeyV9": {
+      "additionalProperties": false,
+      "description": "One key of a Claude Code settings file that no reader of this entry compares (#1027).\n\n``key`` is the top-level key, or ``permissions.<key>`` for a key inside\n``permissions``, as written when it is a plain key (letters, digits,\n``$``, ``.``, ``_``, ``+`` and ``-``, at most 80 characters) that no\nredaction rule rewrites, and ``<not-shown>`` otherwise. For ``env`` it\nstands for the entries whose names the reader does not model. ``sha256``\ndigests the key and its value as ``config_sha256``'s input holds them, so\na secret-named value, and the value of an ``env`` entry, is redacted and\nrotating it moves nothing.",
+      "properties": {
+        "key": {
+          "maxLength": 200,
+          "title": "Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "sha256"
+      ],
+      "title": "HostUnmodelledKeyV9",
       "type": "object"
     },
     "HostWorkflowAgentLaunchV7": {

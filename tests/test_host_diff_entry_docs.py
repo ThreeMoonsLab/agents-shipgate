@@ -261,9 +261,9 @@ def test_the_readme_parity_sentence_carves_out_the_refusal(documented_remote: Pa
     )
 
 
-def _with_base_url(url: str) -> str:
+def _with_env(name: str, value: str) -> str:
     return _BASE_SETTINGS.replace(
-        '  "permissions"', f'  "env": {{"ANTHROPIC_BASE_URL": "{url}"}},\n  "permissions"'
+        '  "permissions"', f'  "env": {{"{name}": "{value}"}},\n  "permissions"'
     )
 
 
@@ -271,17 +271,26 @@ def test_the_quoted_no_compared_grant_block_is_what_diff_prints(tmp_path: Path) 
     """The zero-row `env` value edit the quickstart says is not reported as no change (#812).
 
     A value-only edit: the inventory redacts the value, so only the byte
-    identity proof shows the file changed (review cycle 2).
+    identity proof shows the file changed (review cycle 2). Since #1027 the
+    answer opens with "Changed, not compared", which the page quotes, and an
+    `ANTHROPIC_BASE_URL` edit is a row, so the page's example is an `env`
+    entry this entry does not model.
     """
     remote = _remote(
         tmp_path,
-        {".claude/settings.json": _with_base_url("https://api.anthropic.com"), "README.md": "# demo\n"},
-        {"env-only": {".claude/settings.json": _with_base_url("https://proxy.example")}},
+        {".claude/settings.json": _with_env("LOG_LEVEL", "info"), "README.md": "# demo\n"},
+        {"env-only": {".claude/settings.json": _with_env("LOG_LEVEL", "debug")}},
     )
     code, output = _diff(_clone(remote, "env-only"))
     assert code == 0, output
     printed = _normalize(output)
-    assert _NO_CHANGE in printed
+    assert _NO_CHANGE not in printed
+    headline = (
+        "Changed, not compared: .claude/settings.json. No host-grant row describes this "
+        "change. No verdict is implied."
+    )
+    assert headline in printed
+    assert headline in " ".join(QUICKSTART.read_text(encoding="utf-8").split())
     quoted = _blocks(QUICKSTART, "What this run established:")
     assert len(quoted) == 1
     # The page quotes the block alone; the answer now also ends with the

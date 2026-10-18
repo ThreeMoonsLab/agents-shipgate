@@ -36,11 +36,42 @@ CLAUDE_SUPPORTED_KEYS = frozenset({
     # "MCP restrictions" in the matrix: which project `.mcp.json` servers load.
     "enabledMcpjsonServers", "disabledMcpjsonServers",
 })
-CLAUDE_UNSUPPORTED_CAPABILITY_KEYS = frozenset({
-    "apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "otelHeadersHelper",
-    "statusLine", "fileSuggestion", "subagentStatusLine", "env",
-    "forceLoginMethod", "forceLoginOrgUUID",
+#: "settings it runs as commands" in the matrix (#1027): the settings
+#: reference documents each as a shell command Claude Code runs, the first
+#: three as an object's `command`, the rest as the string itself.
+CLAUDE_COMMAND_KEYS = frozenset({
+    "statusLine", "subagentStatusLine", "fileSuggestion",
+    "apiKeyHelper", "otelHeadersHelper", "awsAuthRefresh", "awsCredentialExport",
 })
+#: "endpoint, trust and loader `env` entries" in the matrix (#1027): the names
+#: that set where requests go (any `*_BASE_URL`, an OpenTelemetry exporter
+#: endpoint, the proxies), which TLS certificates the agent or a tool it starts
+#: trusts, or what code loads beside the agent (`PATH`, the loader and runtime
+#: search paths and option variables, the commands Git and SSH run). Any other
+#: `env` entry is unsupported. A name is read without regard to case.
+CLAUDE_ENV_NAMES = frozenset({
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+    "NODE_EXTRA_CA_CERTS", "NODE_TLS_REJECT_UNAUTHORIZED",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+    "NODE_OPTIONS", "BASH_ENV", "ENV", "CLAUDE_CODE_SHELL_PREFIX", "PROMPT_COMMAND",
+    "PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH",
+    "DYLD_FRAMEWORK_PATH",
+    "NODE_PATH", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME", "PERL5OPT", "PERL5LIB", "RUBYOPT",
+    "RUBYLIB", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS",
+    "GIT_SSH", "GIT_SSH_COMMAND", "GIT_EXEC_PATH", "GIT_ASKPASS", "SSH_ASKPASS",
+})
+CLAUDE_UNSUPPORTED_CAPABILITY_KEYS = frozenset({"forceLoginMethod", "forceLoginOrgUUID"})
+
+
+def claude_env_supported(name: str) -> bool:
+    """Whether the support matrix claims a Claude Code `env` entry by this name (#1027)."""
+
+    name = name.upper()
+    return (
+        name in CLAUDE_ENV_NAMES
+        or name.endswith("_BASE_URL")
+        or (name.startswith("OTEL_EXPORTER_OTLP_") and name.endswith("ENDPOINT"))
+    )
 #: Keys with no capability effect: presentation, model choice, housekeeping.
 CLAUDE_BENIGN_KEYS = frozenset({
     "$schema", "model", "fallbackModel", "availableModels", "theme", "outputStyle",
@@ -132,6 +163,20 @@ def claude_settings(before_text: str | None, after_text: str | None) -> dict[str
             changes += _list_changes("additional_path", "", old, new)
         elif key in {"enabledMcpjsonServers", "disabledMcpjsonServers"}:
             changes += _list_changes("setting", f"{key}:", old, new)
+        elif key in CLAUDE_COMMAND_KEYS:
+            if change := _change("command_setting", key, old, new):
+                changes.append(change)
+        elif key == "env" and isinstance(old or {}, dict) and isinstance(new or {}, dict):
+            for change in _map_changes("env", "", old, new):
+                if claude_env_supported(change["key"]):
+                    changes.append(change)
+                else:
+                    changes.append({**change, "kind": "unsupported_setting", "key": f"env.{change['key']}"})
+                    scope = "unsupported"
+        elif key == "env":
+            if change := _change("unsupported_setting", key, old, new):
+                changes.append(change)
+            scope = "unsupported"
         elif key in CLAUDE_SUPPORTED_KEYS:
             if change := _change("setting", key, old, new):
                 changes.append(change)

@@ -321,7 +321,10 @@ def test_an_identical_declaration_written_another_way_is_no_row(tmp_path: Path) 
     repo = _repository(tmp_path, {SETTINGS: base}, {SETTINGS: head})
     text, payload = _diff(repo)
     assert payload["rows"] == []
-    assert "No static host-grant changes detected." in text
+    # No row; the bytes changed, so the file is named as changed, not compared,
+    # never as no change (#1027): a redacted value would read the same.
+    assert "Changed, not compared: .claude/settings.json." in text
+    assert "No static host-grant changes detected." not in text
 
 
 #: An argument holding a credential #987 withholds: rotating it is no row.
