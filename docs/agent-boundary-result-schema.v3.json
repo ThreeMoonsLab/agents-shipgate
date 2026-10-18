@@ -628,6 +628,7 @@
       "type": "object"
     },
     "CapabilityDiffRow": {
+      "additionalProperties": false,
       "properties": {
         "after": {
           "title": "After",
