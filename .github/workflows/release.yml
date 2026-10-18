@@ -239,7 +239,7 @@ jobs:
           echo "REHEARSAL_RUN_ID=${run_id}" >> "${GITHUB_ENV}"
 
       - name: Download verified candidate
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: ${{ needs.candidate.outputs.artifact_name }}
           path: dist
@@ -491,7 +491,7 @@ jobs:
           fi
 
       - name: Download verified candidate
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: ${{ needs.candidate.outputs.artifact_name }}
           path: dist
@@ -674,13 +674,13 @@ jobs:
           fi
 
       - name: Download verified candidate
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: ${{ needs.candidate.outputs.artifact_name }}
           path: dist
 
       - name: Download signatures
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: release-signatures-${{ needs.candidate.outputs.release_tag }}
           path: signatures
