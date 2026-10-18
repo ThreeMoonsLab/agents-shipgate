@@ -122,6 +122,21 @@
           ],
           "title": "Scope",
           "type": "string"
+        },
+        "unmodelled_keys": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/HostUnmodelledKeyV9"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unmodelled Keys"
         }
       },
       "required": [
@@ -405,6 +420,28 @@
         "blocking"
       ],
       "title": "HostInventoryIssueV9",
+      "type": "object"
+    },
+    "HostUnmodelledKeyV9": {
+      "additionalProperties": false,
+      "description": "One key of a Claude Code settings file that no reader of this entry compares (#1027).\n\n``key`` is the top-level key, or ``permissions.<key>`` for a key inside\n``permissions``, as written when it is a plain key (letters, digits,\n``$``, ``.``, ``_``, ``+`` and ``-``, at most 80 characters) that no\nredaction rule rewrites, and ``<not-shown>`` otherwise. For ``env`` it\nstands for the entries whose names the reader does not model. ``sha256``\ndigests the key and its value as ``config_sha256``'s input holds them, so\na secret-named value, and the value of an ``env`` entry, is redacted and\nrotating it moves nothing.",
+      "properties": {
+        "key": {
+          "maxLength": 200,
+          "title": "Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "sha256"
+      ],
+      "title": "HostUnmodelledKeyV9",
       "type": "object"
     },
     "InstructionStructureEvidence": {

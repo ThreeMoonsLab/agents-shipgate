@@ -317,21 +317,29 @@ bounded candidate list recognises (see below).
 
 A zero-row answer is not always "no change". A file is listed as compared
 with no change only when its bytes are proven identical on both sides. When a
-file changed and no grant this entry compares changed — here the
-`ANTHROPIC_BASE_URL` value under `env` in `.claude/settings.json` points at
-another host, and `apiKeyHelper` or an MCP server's `env` value would read the
-same — there is still no row, and the block says the file changed instead of
-listing it as unchanged:
+settings file changed and no grant this entry compares changed — here a
+`LOG_LEVEL` value under `env` in `.claude/settings.json`, an entry this entry
+does not model, and an MCP server's `env` value would read the same — there is
+still no row: the answer opens with `Changed, not compared:
+.claude/settings.json. No host-grant row describes this change. No verdict is
+implied.` instead of the no-change line, and the block says the file changed
+instead of listing it as unchanged:
 
 ```text
 What this run established:
   only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent
-  .claude/settings.json (claude-code): compared; changed, but no grant this entry compares changed, so no row (redacted values such as env values and apiKeyHelper are not compared)
+  .claude/settings.json (claude-code): compared; changed, but no grant this entry compares changed, so no row (redacted values, such as env values this entry does not model, are not compared)
 ```
 
 That line says only that no compared grant changed. It does not say which
 fields did: a reordered rule reads the same, and the values the inventory
-redacts are never compared, so read the file. Where the bytes can be neither
+redacts are never compared, so read the file. A key no reader compares, such
+as `outputStyle` or an unknown one, is named instead: `compared; changed, not
+compared (keys this entry does not compare: outputStyle), so no row`. An `env`
+entry that redirects requests or loads code (`ANTHROPIC_BASE_URL`,
+`NODE_OPTIONS`) and a setting Claude Code runs as a command (`statusLine`,
+`apiKeyHelper`) are rows since #1027
+([commands and env](host-boundary-support.md#claude-code-commands-and-env)). Where the bytes can be neither
 proven identical nor shown to differ, such as a settings file read through a
 link, or a checkout that wrote it with `CRLF` line endings (`eol=crlf`, or
 `core.autocrlf=true` on Windows) while Git reports it unchanged, the line reads

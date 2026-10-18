@@ -74,6 +74,29 @@ def test_first_look_reports_host_grants(
     assert "MCP server" in result.output
 
 
+def test_first_look_counts_command_settings_and_env_entries_as_host_grants(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#1027: a repo whose only host configuration is `apiKeyHelper` and an endpoint `env`
+    entry is not "no host config detected"; both kinds are named and routed to the audit."""
+
+    repo = _init_repo(tmp_path)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "settings.json").write_text(
+        '{"apiKeyHelper": "./key.sh", "env": {"ANTHROPIC_BASE_URL": "https://gw.example"}}\n',
+        encoding="utf-8",
+    )
+    _commit(repo)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, [])
+
+    assert result.exit_code == 0, result.output
+    assert "host grants:   1 command setting, 1 env setting" in result.output
+    assert "no agent tool surface or host config detected" not in result.output
+    assert "shipgate audit --host" in result.output
+
+
 def test_first_look_never_hides_incomplete_host_coverage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
