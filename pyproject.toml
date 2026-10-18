@@ -52,13 +52,20 @@ classifiers = [
   "Environment :: Console",
   "Typing :: Typed",
 ]
+# Each floor is the oldest version CI's `dependency-floors` job tests, never
+# the newest release: a floor above a version an agent project already pins
+# makes pip install an old Agents Shipgate in its place, without a warning
+# (#1028). A floor moves only when the code needs a newer version or a version
+# it admits is known to break it, and a cap only where a break is known.
+# CONTRIBUTING.md § Changing dependencies has the rule;
+# `scripts/dependency_floors.py` enforces the shape.
 dependencies = [
-  "cryptography>=50.0.1,<51",
-  "packaging>=26.3,<27",
-  "pydantic>=2.13.4,<3",
-  "pyyaml>=6.0.3,<7",
-  "ruamel.yaml>=0.19.1,<1",
-  "typer>=0.27.0,<1",
+  "cryptography>=44.0.3",
+  "packaging>=24.2",
+  "pydantic>=2.12.5,<3",
+  "pyyaml>=6.0.2,<7",
+  "ruamel.yaml>=0.18.10,<1",
+  "typer>=0.20.0,<1",
 ]
 
 [project.urls]

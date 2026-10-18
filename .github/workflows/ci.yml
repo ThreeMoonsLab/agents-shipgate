@@ -444,6 +444,111 @@ jobs:
       - name: The installed command answers over stdio with five read-only tools
         run: python scripts/mcp_extra_requirement.py --stdio-smoke
 
+  dependency-floors:
+    # #1028: the runtime floors in pyproject.toml are a contract with every
+    # environment Agents Shipgate is installed into. While they tracked the
+    # newest upstream release, `pip install agents-shipgate` beside an agent
+    # project's ordinary pins quietly installed 0.15.0. This job holds the two
+    # facts that keep that from coming back:
+    #
+    # - pip installs this version beside those pins (`coinstall`: one
+    #   `pip install --dry-run --report` per scenario); and
+    # - the engine works at its floors. `uv pip compile --resolution
+    #   lowest-direct` puts every runtime dependency at exactly its floor and
+    #   everything else at the newest release, and the checks below run there.
+    #
+    # It resolves from the index on purpose: beside an adopter's floors, their
+    # resolver picks the newest of everything else, and that moves. What is
+    # installed is still hash-checked against what this job compiled, with the
+    # uv that constraints/release-publish.txt pins.
+    #
+    # The tests are the ones that exercise each runtime dependency's API: the
+    # CLI and doctor (typer), manifests, reports, scan and verify (pydantic,
+    # PyYAML), manifest patches (ruamel.yaml), signed human authorization
+    # (cryptography) and the safety canaries, plus every sample golden byte for
+    # byte. `scripts/generate_schemas.py --check` is not among them: the
+    # committed JSON schemas are rendered by the locked pydantic, and an older
+    # one renders some differently (#1088), which says nothing about what the
+    # engine emits or accepts.
+    #
+    # Its first run took under two minutes: 19 s for the three dry runs and 55 s
+    # for the tests. The dry runs are the one step whose time the index sets
+    # (CrewAI's resolves about 140 distributions), so the cap is the usual one.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install the resolver and the scripts' dependencies, apart from the floors
+        # Their own environment, because `packaging` is one of the floors under
+        # test: the copy the scripts import must not be the one the tests run
+        # on. `uv` comes from the publication lock and `packaging` from the
+        # build-backend lock, both hash-checked.
+        run: |
+          python -m venv "${RUNNER_TEMP}/tools"
+          "${RUNNER_TEMP}/tools/bin/python" -m pip install --require-hashes --requirement constraints/release-publish.txt
+          "${RUNNER_TEMP}/tools/bin/python" -m pip install --require-hashes --requirement constraints/build-backend.txt
+
+      - name: pip installs this version beside the pins agent projects carry
+        run: '"${RUNNER_TEMP}/tools/bin/python" scripts/dependency_floors.py coinstall'
+
+      - name: Resolve every runtime dependency at exactly its floor
+        run: >-
+          "${RUNNER_TEMP}/tools/bin/python" scripts/dependency_floors.py compile
+          --uv "${RUNNER_TEMP}/tools/bin/uv" --output "${RUNNER_TEMP}/floors.txt"
+
+      - name: Install that closure, and nothing else
+        # Not the project itself: pytest's `pythonpath` and the scripts put
+        # `src` on the path, and an editable install would need a build backend
+        # whose own `packaging` would move a floor under test.
+        run: |
+          python -m pip install --require-hashes --requirement "${RUNNER_TEMP}/floors.txt"
+          python -m pip check
+          python scripts/dependency_floors.py installed
+
+      - name: The engine's dependency-heavy tests at the floors
+        # About 290 seconds of test time. The whole suite passed at these
+        # floors when they were set (#1028); here it would need the six shards
+        # `suite` uses.
+        run: >-
+          python -m pytest -n auto -m "not perf and not slow"
+          tests/test_cli.py
+          tests/test_environment.py
+          tests/test_config.py
+          tests/test_scan.py
+          tests/test_verify.py
+          tests/test_apply_patches.py
+          tests/test_declaration_authoring.py
+          tests/test_authorization_cli.py
+          tests/test_authorization_execution.py
+          tests/test_human_review_decision.py
+          tests/test_p0_safety_canaries.py
+          tests/test_p0_binding_canaries.py
+          tests/test_agent_boundary.py
+          tests/test_dependency_floors.py
+
+      - name: Every sample golden, byte for byte, at the floors
+        run: python scripts/regenerate_goldens.py --check
+
+      - name: doctor finds every dependency at or above its floor
+        # The floors differ from the lock the other jobs install, so the only
+        # dependency code doctor may report here is the lock-drift warning.
+        run: |
+          ./shipgate doctor --config samples/support_refund_agent/shipgate.yaml --json > doctor.json
+          python - <<'PY'
+          import json, pathlib
+          environment = json.loads(pathlib.Path("doctor.json").read_text())[0]["environment"]
+          codes = {entry["code"] for entry in environment["mismatches"]}
+          assert codes <= {"dependency_differs_from_lock"}, environment["mismatches"]
+          PY
+
   clean-checkout-launcher:
     # `./shipgate` has to work on a checkout where Agents Shipgate itself is
     # not installed: no console script on `PATH`, no editable install, no
