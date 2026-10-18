@@ -17,6 +17,7 @@ checks:
 - id: SHIP-DOC-INJECTION-RISK
   default_severity: medium
   mvp_tier: core
+  publish_when_policy_ineligible: true
   description: Tool description contains instruction-override-like language.
   rationale: Tool metadata can be placed into model context and should not contain
     prompt-like directives.
@@ -28,6 +29,7 @@ checks:
 - id: SHIP-DOC-SECRET-IN-DESCRIPTION
   default_severity: medium
   mvp_tier: core
+  publish_when_policy_ineligible: true
   description: Tool description contains a secret-like value.
   rationale: Credentials in tool metadata can leak into reports, prompts, or logs.
   fires_when: |-
@@ -38,6 +40,7 @@ checks:
 - id: SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER
   default_severity: high
   mvp_tier: core
+  publish_when_policy_ineligible: true
   description: n8n workflow JSON contains a secret-like value.
   rationale: |-
     Workflow JSON, pinned data, static data, and node notes can be committed or reported; hardcoded secret-like values should be moved into credentials or variables.
