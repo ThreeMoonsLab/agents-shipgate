@@ -1317,7 +1317,9 @@ checks:
 ```
 
 Policy pack paths use the same manifest-relative containment policy as other
-local inputs. External rule IDs must not start with `SHIP-`; use an
+local inputs. `optional: true` tolerates only a missing pack (a warning); a pack
+that is present must load and match its `sha256` pin, optional or not. External
+rule IDs must not start with `SHIP-`; use an
 organization namespace such as `ORG-*`. Findings emitted by policy packs support
 the same suppressions, severity overrides, baselines, Markdown, JSON, and SARIF
 output as built-in findings.

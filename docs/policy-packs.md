@@ -29,6 +29,13 @@ checks:
 agents-shipgate scan --config shipgate.yaml --policy-pack policies/org-release.yaml
 ```
 
+`optional: true` tolerates one thing only: no file at the declared path. That
+is a source warning and the scan continues without the pack's rules. A pack
+that is there must load and match its pin whether or not it is optional: a
+`sha256` mismatch, a malformed or unreadable pack, or a link or directory in
+its place fails the scan with a config error (exit 2), so editing a pinned
+pack cannot quietly drop its rules (#1030).
+
 External rule IDs must not start with `SHIP-`; that namespace is reserved for
 built-in checks. Use an organization namespace such as `ORG-*`.
 

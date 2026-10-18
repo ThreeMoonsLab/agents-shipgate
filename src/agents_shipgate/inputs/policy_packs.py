@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -58,6 +59,18 @@ def load_policy_packs(
     resolved_rules: list[ResolvedPolicyPackRule] = []
     warnings: list[str] = []
     for config in configs:
+        # ``optional`` tolerates exactly one failure: nothing exists at the
+        # declared path (#1030). A pack that is there must load and match its
+        # pin. Downgrading every load error of an optional pack to a warning
+        # let a pinned pack whose content changed — or that was swapped for a
+        # link, a directory or an oversized file — drop its rules from the
+        # scan with only a warning, which is what the pin exists to prevent.
+        if config.optional and _policy_pack_absent(base_dir, config.path):
+            warnings.append(
+                f"Optional policy pack {config.path!r} failed to load: no file "
+                "exists at that path; continuing without its rules."
+            )
+            continue
         try:
             path = resolve_input_path(base_dir, config.path)
             sha256, sha256_status = _verify_pack_pin(path, config)
@@ -84,14 +97,22 @@ def load_policy_packs(
                 ResolvedPolicyPackRule(pack=pack, rule=rule) for rule in pack_file.rules
             )
         except (ConfigError, InputParseError, ValidationError) as exc:
-            if config.optional:
-                warnings.append(f"Optional policy pack {config.path!r} failed to load: {exc}")
-                continue
             if isinstance(exc, ConfigError):
                 raise
             raise ConfigError(f"Invalid policy pack {config.path!r}: {exc}") from exc
     _validate_rule_ids(resolved_rules)
     return LoadedPolicyPacks(rules=resolved_rules, loaded=loaded, warnings=warnings)
+
+
+def _policy_pack_absent(base_dir: Path, value: str) -> bool:
+    """Whether nothing at all exists at a declared pack path.
+
+    Lexical: a link is something, even one whose target is missing, so
+    replacing a pack with a dangling link is an error, not an absence.
+    """
+    raw = Path(value)
+    candidate = raw if raw.is_absolute() else base_dir / raw
+    return not os.path.lexists(candidate)
 
 
 def run_policy_pack_rules(
