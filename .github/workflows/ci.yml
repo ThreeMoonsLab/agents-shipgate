@@ -471,11 +471,11 @@ jobs:
     # one renders some differently (#1088), which says nothing about what the
     # engine emits or accepts.
     #
-    # Five minutes of the budget is the tests; the rest is the index. CrewAI's
-    # dry run resolves about 140 distributions, so a cold download cache is the
-    # one step whose time is not ours to set.
+    # Its first run took under two minutes: 19 s for the three dry runs and 55 s
+    # for the tests. The dry runs are the one step whose time the index sets
+    # (CrewAI's resolves about 140 distributions), so the cap is the usual one.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
