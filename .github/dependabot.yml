@@ -17,11 +17,12 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     ignore:
-      # `# via cyclonedx-bom`, which requires chardet<6.0,>=5.1. cyclonedx-bom
-      # 7.3.1 is the latest release overall, not merely the latest 7.x, so no
-      # release accepts chardet 6 or above. Closed #407 on this. Major updates
-      # only: 5.x movement is still legitimate, and this reopens on its own if
-      # cyclonedx-bom ever lifts the cap.
+      # `# via cyclonedx-bom`, which requires chardet!=6.*,<8,>=5.1 since 7.5.0
+      # (7.3.1 capped it at <6.0, which is why #407 was closed). chardet 7.x is
+      # admitted and locked; 6.* is excluded and 8 is beyond the cap, so a
+      # semver-major bump here can only ever be unsatisfiable. Major updates
+      # only: movement within 7.x is still legitimate, and this is worth
+      # revisiting if cyclonedx-bom ever lifts the <8 cap.
       - dependency-name: "chardet"
         update-types: ["version-update:semver-major"]
       # `# via pydantic`, which pins it *exactly* rather than as a range:
