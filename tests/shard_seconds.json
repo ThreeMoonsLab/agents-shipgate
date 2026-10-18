@@ -436,7 +436,8 @@
   "tests/test_verification_receipt_consumers.py": 3.7,
   "tests/test_verify_base_and_gate_removal.py": 17.9,
   "tests/test_verify_pr_controlled_inputs.py": 23.4,
-  "tests/test_claude_command_settings.py": 21.0
+  "tests/test_claude_command_settings.py": 21.0,
+  "tests/test_dependency_floors.py": 0.1
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -556,6 +557,17 @@
    },
    "case_count": 14,
    "command": "python -m pytest tests/test_claude_command_settings.py --junitxml=command-settings.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "4e1f0474 with issue #1028 dependency floors increment",
+   "report_sha256": "f22986dde00b5ae55c287e937ebb9a830dd839d13ced5134e4cac43fa2949400",
+   "files": {
+    "tests/test_dependency_floors.py": 0.1
+   },
+   "case_count": 22,
+   "command": "python -m pytest -m \"not slow\" tests/test_dependency_floors.py --junitxml=dependency-floors.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

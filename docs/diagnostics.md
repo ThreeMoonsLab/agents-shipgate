@@ -337,6 +337,13 @@ dies before a line of Shipgate runs.
 | `installed_version_differs` | warning | Two *installed* copies shadow each other, so which one answers depends on path order. Not raised when a source checkout out-votes an install: that is intended, and an editable install's metadata lags every version bump by design. |
 | `console_script_interpreter_missing` | error | A wrapper on `PATH` names an interpreter that no longer exists, so it fails before Shipgate starts. |
 | `console_script_runs_other_interpreter` | warning | A bare `agents-shipgate` would execute a different installation than this command did. |
+| `dependency_below_declared_floor` | error | A runtime dependency is installed below the floor the running build declares: its `pyproject.toml` in a source checkout, its `Requires-Dist` when installed. Nothing tests that version. The `command` reinstalls: the checkout's `constraints/dev.txt` with hashes, or else the declared requirement. |
+| `dependency_differs_from_lock` | warning | Source checkout only. A runtime dependency differs from the version `constraints/dev.txt` pins, the closure CI tests the tree against, so a result here may not reproduce in CI. |
+
+Dependency versions are what `importlib.metadata` records for the running
+interpreter. A dependency with no recorded metadata, a requirement behind an
+environment marker, and a version the standard-library comparison cannot read
+(an epoch) are left unjudged rather than guessed at.
 
 Nothing here runs an interpreter or executes a console script to find out.
 That is the trust-model invariant (`tests/test_adapter_static_only.py` bans
