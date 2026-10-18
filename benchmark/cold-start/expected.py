@@ -45,12 +45,20 @@ CLAUDE_COMMAND_KEYS = frozenset({
 })
 #: "endpoint, trust and loader `env` entries" in the matrix (#1027): the names
 #: that set where requests go (any `*_BASE_URL`, an OpenTelemetry exporter
-#: endpoint, the documented proxies), which TLS certificates Node.js trusts,
-#: or what code loads beside the agent. Any other `env` entry is unsupported.
+#: endpoint, the proxies), which TLS certificates the agent or a tool it starts
+#: trusts, or what code loads beside the agent (`PATH`, the loader and runtime
+#: search paths and option variables, the commands Git and SSH run). Any other
+#: `env` entry is unsupported. A name is read without regard to case.
 CLAUDE_ENV_NAMES = frozenset({
-    "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
     "NODE_EXTRA_CA_CERTS", "NODE_TLS_REJECT_UNAUTHORIZED",
-    "NODE_OPTIONS", "BASH_ENV", "CLAUDE_CODE_SHELL_PREFIX", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+    "NODE_OPTIONS", "BASH_ENV", "ENV", "CLAUDE_CODE_SHELL_PREFIX", "PROMPT_COMMAND",
+    "PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH",
+    "DYLD_FRAMEWORK_PATH",
+    "NODE_PATH", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME", "PERL5OPT", "PERL5LIB", "RUBYOPT",
+    "RUBYLIB", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS",
+    "GIT_SSH", "GIT_SSH_COMMAND", "GIT_EXEC_PATH", "GIT_ASKPASS", "SSH_ASKPASS",
 })
 CLAUDE_UNSUPPORTED_CAPABILITY_KEYS = frozenset({"forceLoginMethod", "forceLoginOrgUUID"})
 
@@ -58,6 +66,7 @@ CLAUDE_UNSUPPORTED_CAPABILITY_KEYS = frozenset({"forceLoginMethod", "forceLoginO
 def claude_env_supported(name: str) -> bool:
     """Whether the support matrix claims a Claude Code `env` entry by this name (#1027)."""
 
+    name = name.upper()
     return (
         name in CLAUDE_ENV_NAMES
         or name.endswith("_BASE_URL")

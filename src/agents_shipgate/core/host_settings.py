@@ -313,17 +313,30 @@ def command_setting_basis(setting: str) -> str:
 #: ``env`` names that set where Claude Code, or a tool it starts, sends
 #: requests (#1027): any ``*_BASE_URL`` (``ANTHROPIC_BASE_URL`` and the
 #: Bedrock, Vertex and Foundry ones), the OpenTelemetry exporter endpoints and
-#: the documented proxies.
-_ENV_ENDPOINT_NAMES = frozenset({"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"})
+#: the proxies (``NO_PROXY`` decides which requests skip one).
+_ENV_ENDPOINT_NAMES = frozenset({"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"})
 _ENV_OTEL_ENDPOINT_PREFIX = "OTEL_EXPORTER_OTLP_"
-#: ``env`` names that change which TLS certificates Node.js trusts.
-_ENV_TRUST_NAMES = frozenset({"NODE_EXTRA_CA_CERTS", "NODE_TLS_REJECT_UNAUTHORIZED"})
+#: ``env`` names that change which TLS certificates Claude Code, or a tool it
+#: starts, trusts: Node.js's, and the certificate bundles OpenSSL, Python
+#: ``requests`` and curl read.
+_ENV_TRUST_NAMES = frozenset({
+    "NODE_EXTRA_CA_CERTS", "NODE_TLS_REJECT_UNAUTHORIZED",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+})
 #: ``env`` names that load or wrap code in the processes Claude Code starts:
-#: Node.js options (``--require``), the script bash sources before every
-#: non-interactive command, Claude Code's documented prefix for every bash
-#: command, and the dynamic loader's preload lists.
+#: Node.js options (``--require``), the script a shell sources before every
+#: non-interactive command (``BASH_ENV``, ``ENV``), Claude Code's documented
+#: prefix for every bash command, the directories commands and libraries are
+#: found in (``PATH`` and the dynamic loader's and the language runtimes'
+#: search paths), the dynamic loader's preload lists, the options and startup
+#: files the language runtimes read, and the commands Git and SSH run.
 _ENV_LOADER_NAMES = frozenset({
-    "NODE_OPTIONS", "BASH_ENV", "CLAUDE_CODE_SHELL_PREFIX", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES",
+    "NODE_OPTIONS", "BASH_ENV", "ENV", "CLAUDE_CODE_SHELL_PREFIX", "PROMPT_COMMAND",
+    "PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH",
+    "DYLD_FRAMEWORK_PATH",
+    "NODE_PATH", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME", "PERL5OPT", "PERL5LIB", "RUBYOPT",
+    "RUBYLIB", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS",
+    "GIT_SSH", "GIT_SSH_COMMAND", "GIT_EXEC_PATH", "GIT_ASKPASS", "SSH_ASKPASS",
 })
 
 
@@ -332,9 +345,13 @@ def claude_env_rating(name: str) -> SettingRating | None:
 
     Only the name decides: the value is never published, and a grant compares
     its digest. Every modelled name is ``high``: each redirects the agent's
-    traffic, weakens what it trusts, or runs code beside it.
+    traffic, weakens what it trusts, or runs code beside it. A name is read
+    without regard to case, since Windows reads an environment variable that
+    way (``Path``) and a spelling that is no variable elsewhere is
+    over-reported rather than missed.
     """
 
+    name = name.upper()
     if name in _ENV_LOADER_NAMES:
         return SettingRating("execute", "high", "loads or wraps code in the processes Claude Code starts")
     if name in _ENV_TRUST_NAMES:

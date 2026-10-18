@@ -1421,11 +1421,19 @@ class HostCommandSettingGrantV9(HostGrantBaseV2):
 class HostEnvGrantV9(HostGrantBaseV2):
     """A Claude Code ``env`` entry that redirects requests, changes trust or loads code (#1027).
 
-    Published only for a name the settings reader models: a ``*_BASE_URL``,
-    an OpenTelemetry exporter endpoint, ``HTTP_PROXY`` or ``HTTPS_PROXY``,
-    ``NODE_EXTRA_CA_CERTS``, ``NODE_TLS_REJECT_UNAUTHORIZED``,
-    ``NODE_OPTIONS``, ``BASH_ENV``, ``CLAUDE_CODE_SHELL_PREFIX``,
-    ``LD_PRELOAD`` or ``DYLD_INSERT_LIBRARIES``. The value is never
+    Published only for a name the settings reader models, read without regard
+    to case: a ``*_BASE_URL``, an OpenTelemetry exporter endpoint, a proxy
+    (``HTTP_PROXY``, ``HTTPS_PROXY``, ``ALL_PROXY``, ``NO_PROXY``), a
+    certificate setting (``NODE_EXTRA_CA_CERTS``,
+    ``NODE_TLS_REJECT_UNAUTHORIZED``, ``SSL_CERT_FILE``, ``SSL_CERT_DIR``,
+    ``REQUESTS_CA_BUNDLE``, ``CURL_CA_BUNDLE``), or a name that loads or wraps
+    code (``NODE_OPTIONS``, ``BASH_ENV``, ``ENV``, ``CLAUDE_CODE_SHELL_PREFIX``,
+    ``PROMPT_COMMAND``, ``PATH``, ``LD_PRELOAD``, ``LD_LIBRARY_PATH``,
+    ``DYLD_INSERT_LIBRARIES``, ``DYLD_LIBRARY_PATH``, ``DYLD_FRAMEWORK_PATH``,
+    ``NODE_PATH``, ``PYTHONPATH``, ``PYTHONSTARTUP``, ``PYTHONHOME``,
+    ``PERL5OPT``, ``PERL5LIB``, ``RUBYOPT``, ``RUBYLIB``, ``JAVA_TOOL_OPTIONS``,
+    ``_JAVA_OPTIONS``, ``JDK_JAVA_OPTIONS``, ``GIT_SSH``, ``GIT_SSH_COMMAND``,
+    ``GIT_EXEC_PATH``, ``GIT_ASKPASS``, ``SSH_ASKPASS``). The value is never
     published: ``config_sha256`` is its digest as every grant's input holds
     it, with credential shapes and a URL's path withheld, so a value change is
     a ``changed`` row. Extended in place: ``0.9`` has not shipped in a tagged

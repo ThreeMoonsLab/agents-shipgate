@@ -533,9 +533,13 @@ routed the edit to review, so no gate was bypassed.
   `command_setting` (`statusLine`, `subagentStatusLine`, `fileSuggestion`,
   `apiKeyHelper`, `otelHeadersHelper`, `awsAuthRefresh`,
   `awsCredentialExport`; `execute`/`high`, with a display-only `command` as
-  a hook handler's) and `env` (endpoint, trust and loader names only, `high`,
-  the value digested and never published). Adding one is a widening, editing
-  one a `changed` row of unknown direction. Both merge across settings layers.
+  a hook handler's) and `env` (endpoint, proxy, certificate, search-path and
+  loader names only, such as `ANTHROPIC_BASE_URL`, `HTTPS_PROXY`,
+  `SSL_CERT_FILE`, `NODE_OPTIONS` and `PATH`, listed in
+  [the support matrix](docs/host-boundary-support.md#claude-code-commands-and-env)
+  and read without regard to case; `high`, the value digested and never
+  published). Adding one is a widening, editing one a `changed` row of unknown
+  direction. Both merge across settings layers.
 - **Artifacts.** A parsed Claude Code settings artifact gains display-only
   `unmodelled_keys`: each key no reader compares, with a digest. Artifact
   equality, the inventory digests and saved baselines leave it out, so

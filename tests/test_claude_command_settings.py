@@ -178,6 +178,64 @@ def test_a_value_change_moves_the_digest_and_publishes_no_value(
     assert base_grant["config_sha256"] != grant["config_sha256"]
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "PATH", "Path", "PYTHONPATH", "NODE_PATH", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "PERL5OPT",
+        "RUBYOPT", "JAVA_TOOL_OPTIONS", "ENV", "GIT_SSH_COMMAND", "GIT_EXEC_PATH",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+        "ALL_PROXY", "all_proxy", "NO_PROXY", "node_options", "http_proxy",
+    ],
+)
+def test_a_loader_search_path_certificate_or_proxy_env_entry_is_a_row_not_a_quiet_value(
+    tmp_path: Path, name: str
+) -> None:
+    """`PATH`, a runtime's search path or startup file, a certificate bundle and the proxy family
+    run code beside the agent or redirect its requests as `NODE_OPTIONS` and `HTTPS_PROXY` do:
+    editing the value is a high `changed` row on every route, not a file "changed, not compared".
+    A name is read without regard to case, since Windows reads `Path` as `PATH`."""
+
+    repo = _repository(tmp_path, {SETTINGS: {**BASE_SETTINGS, "env": {name: "/usr/bin"}}})
+    _write(repo, SETTINGS, {**BASE_SETTINGS, "env": {name: f"/tmp/{MARKER}/bin:/usr/bin"}})
+    _commit(repo, "edit the value")
+
+    text, payload, verify_text, comparison, comment = _routes(repo, tmp_path)
+
+    label = f"env.{name}"
+    assert [(row["subject"], row["before"], row["after"], row["direction"], row["severity"]) for row in payload["rows"]] == [
+        (SUBJECT, label, label, "changed", "high"),
+    ]
+    digests = re.findall(r"sha256:([0-9a-f]{12})", payload["review"]["changes"][0]["change"])
+    assert len(digests) == 2 and digests[0] != digests[1]
+    for output in (text, verify_text, comment, json.dumps(payload), json.dumps(comparison)):
+        assert MARKER not in output
+        assert NO_CHANGE not in output
+        assert "Changed, not compared" not in output
+    # The inventory publishes the grant by name, never the value, and keeps Claude Code complete.
+    head = _inventory(repo)
+    assert MARKER not in json.dumps(head)
+    assert [grant["name"] for grant in head["grants"] if grant["kind"] == "env"] == [name]
+    assert {item["host"]: item["status"] for item in head["host_coverage"]}["claude-code"] == "complete"
+
+
+def test_an_env_entry_no_reader_models_stays_a_redacted_remainder_not_a_row(tmp_path: Path) -> None:
+    """Secret-named entries and names outside the model keep their value redacted: rotation is quiet,
+    and the file is still named as changed, not compared."""
+
+    env = {"LOG_LEVEL": "info", "ANTHROPIC_API_KEY": "old", "PATH_TOKEN": "old", "EDITOR": "vi"}
+    repo = _repository(tmp_path, {SETTINGS: {**BASE_SETTINGS, "env": env}})
+    _write(repo, SETTINGS, {**BASE_SETTINGS, "env": {**env, "LOG_LEVEL": MARKER, "ANTHROPIC_API_KEY": MARKER,
+                                                      "PATH_TOKEN": MARKER, "EDITOR": MARKER}})
+    _commit(repo, "rotate")
+
+    text, payload, _verify_text, _comparison, _comment = _routes(repo, tmp_path)
+
+    assert payload["rows"] == []
+    assert _not_compared(SETTINGS) in text.splitlines()
+    assert MARKER not in text + json.dumps(payload)
+    assert [grant for grant in _inventory(repo)["grants"] if grant["kind"] == "env"] == []
+
+
 def test_a_change_only_to_a_key_no_reader_compares_is_changed_not_compared(tmp_path: Path) -> None:
     """A synthetic unknown key: no row, and every route says the file changed and was not compared."""
 
@@ -297,11 +355,21 @@ def test_the_cold_start_oracle_supports_exactly_what_the_reader_models() -> None
         "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "HTTP_PROXY", "https_proxy", "NODE_EXTRA_CA_CERTS",
         "NODE_TLS_REJECT_UNAUTHORIZED", "NODE_OPTIONS", "BASH_ENV", "CLAUDE_CODE_SHELL_PREFIX",
         "LD_PRELOAD", "DYLD_INSERT_LIBRARIES",
-        "LOG_LEVEL", "ANTHROPIC_API_KEY", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "NO_PROXY",
-        "node_options", "OTEL_EXPORTER_OTLP_PROTOCOL",
+        "PATH", "Path", "PYTHONPATH", "NODE_PATH", "LD_LIBRARY_PATH", "PERL5OPT", "RUBYOPT",
+        "JAVA_TOOL_OPTIONS", "ENV", "GIT_SSH_COMMAND", "GIT_EXEC_PATH", "SSL_CERT_FILE",
+        "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "ALL_PROXY", "all_proxy", "NO_PROXY",
+        "node_options",
+        "LOG_LEVEL", "ANTHROPIC_API_KEY", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
+        "OTEL_EXPORTER_OTLP_PROTOCOL", "EDITOR", "HOME", "LANG", "TERM",
     ]
     for name in names:
         assert oracle.claude_env_supported(name) is (claude_env_rating(name) is not None), name
+    # Every name the oracle restates from the docs is one the reader models, and the reverse.
+    assert all(claude_env_rating(name) is not None for name in oracle.CLAUDE_ENV_NAMES)
+    assert [name for name in names if oracle.claude_env_supported(name)] == [
+        name for name in names if claude_env_rating(name) is not None
+    ]
+    assert not any(claude_env_rating(name) for name in ("LOG_LEVEL", "EDITOR", "HOME", "LANG", "TERM"))
     case = oracle.claude_settings(
         json.dumps({}),
         json.dumps({"statusLine": {"command": "x"}, "env": {"NODE_OPTIONS": "y", "LOG_LEVEL": "z"}}),

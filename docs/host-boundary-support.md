@@ -1407,15 +1407,26 @@ comment, `check`'s rows and `audit --host` name a change to one as a row:
   the script gives no row.
 - **`env`** — an entry whose name sets where Claude Code, or a tool it starts,
   sends requests (any `*_BASE_URL`, an `OTEL_EXPORTER_OTLP_…ENDPOINT`,
-  `HTTP_PROXY`, `HTTPS_PROXY`), which TLS certificates it trusts
-  (`NODE_EXTRA_CA_CERTS`, `NODE_TLS_REJECT_UNAUTHORIZED`), or what code
-  loads in the processes it starts (`NODE_OPTIONS`, `BASH_ENV`,
-  `CLAUDE_CODE_SHELL_PREFIX`, `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`). Rated
-  `high`. The row names the entry, `env.ANTHROPIC_BASE_URL (value not shown,
-  sha256:…)`; the value is never published, and a value change reads
-  `value changed (sha256:… → sha256:…)`. The digest is of the value as every
-  grant's is held, with credential shapes and a URL's path withheld, so a
-  change only to a URL's path is not a row (#772).
+  `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`), which TLS certificates
+  it trusts (`NODE_EXTRA_CA_CERTS`, `NODE_TLS_REJECT_UNAUTHORIZED`,
+  `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`), or
+  what code loads or runs in the processes it starts: `NODE_OPTIONS`,
+  `BASH_ENV`, `ENV`, `CLAUDE_CODE_SHELL_PREFIX`, `PROMPT_COMMAND`, `PATH`, the
+  loader's and the language runtimes' search paths and preload lists
+  (`LD_PRELOAD`, `LD_LIBRARY_PATH`, `DYLD_INSERT_LIBRARIES`,
+  `DYLD_LIBRARY_PATH`, `DYLD_FRAMEWORK_PATH`, `NODE_PATH`, `PYTHONPATH`,
+  `PYTHONHOME`, `PERL5LIB`, `RUBYLIB`), the option and startup variables the
+  runtimes read (`PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`, `JAVA_TOOL_OPTIONS`,
+  `_JAVA_OPTIONS`, `JDK_JAVA_OPTIONS`), and the commands Git and SSH run
+  (`GIT_SSH`, `GIT_SSH_COMMAND`, `GIT_EXEC_PATH`, `GIT_ASKPASS`,
+  `SSH_ASKPASS`). A name is read without regard to case, since Windows reads
+  `Path` as `PATH`. Rated `high`. The row names the entry,
+  `env.ANTHROPIC_BASE_URL (value not shown, sha256:…)`; the value is never
+  published, and a value change reads `value changed (sha256:… → sha256:…)`.
+  The digest is of the value as every grant's is held, with credential shapes
+  and a URL's path withheld, so a change only to a URL's path is not a row
+  (#772). The list is of names, not exhaustive: a variable outside it is the
+  redacted remainder below.
 
 Adding either is a widening (`⚠`); editing one is a `changed` row whose
 direction is unknown; removing one is a removal. Every other `env` entry stays
