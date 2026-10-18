@@ -1290,9 +1290,11 @@
         "computed_hash",
         "audit_log_path",
         "latest_audit_run_id",
+        "latest_audit_baseline_path",
+        "recorded_baselines",
         "error"
       ],
-      "fires_when": "The baseline file's SHA-256 differs from the latest audit log entry's hash_after, the audit log is missing, empty, or malformed, an entry's provenance.run_id is not in the audit log, or an entry pre-dates v0.5 and lacks provenance entirely.",
+      "fires_when": "The baseline file's SHA-256 differs from the hash_after of the latest audit log entry recorded for that baseline file, the audit log is missing, empty, or malformed, the audit log has no entry for that baseline file, an entry's provenance.run_id is not in the audit log, or an entry pre-dates v0.5 and lacks provenance entirely.",
       "floor_severity": null,
       "id": "SHIP-BASELINE-INTEGRITY-MISMATCH",
       "mvp_tier": "lifecycle",

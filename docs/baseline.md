@@ -28,6 +28,14 @@ previously-set value, and preserves each entry's original
 JSON — hand-edits trip the integrity hash
 (`SHIP-BASELINE-INTEGRITY-MISMATCH`).
 
+Several baselines can share a directory (for example `baseline.json` and
+`baseline-prod.json`). They append to its one `baseline-audit.log`, and each
+verifies against the rows its own saves wrote, so saving one never changes
+whether another verifies. A baseline renamed or copied by hand has no audit
+history under its new name; save it under that name to record it. Line-ending
+conversions (a Windows checkout's CRLF) are not edits: the hash reads them as
+LF.
+
 Severity values in the baseline are the report-visible severities after
 `checks.severity_overrides` are applied. Matching still uses fingerprints, not
 severity, so changing an override does not create a new baseline identity.
