@@ -163,6 +163,18 @@ load in older package versions.
 `release_decision.baseline_delta`; `--diff-from` drives `tool_surface_diff` and
 `action_surface_diff`.
 
+In `verify`, `--diff-from` also stands in for the base scan, so it is the
+"before" half of every base-relative comparison, including the base policy
+snapshot `SHIP-VERIFY-POLICY-WEAKENED` reads. It is therefore never taken from
+the change under review (#1024). With a base (`--base`, or one detected), a
+path inside the repository is read as the base commit holds it; if the base has
+no regular file at that path, verify scans the base instead and says so in
+`base_notes`. A path outside the repository is the operator's and is read where
+it is, as is any path with `--no-base`. The `--baseline` file is read from the
+evaluated head. An in-repository `--diff-from`, `--baseline` or `--policy-pack`
+file that the change edits is reported by `SHIP-VERIFY-TRUST-ROOT-TOUCHED`
+(class `shipgate_state`, or `policy` for a pack), so a human reviews the edit.
+
 Finding delta buckets compare **identity**, not whether the PR caused a risk.
 `new_findings` means an identity was absent from the reference;
 `resolved_findings` means it is absent from the head; `unchanged_findings` means

@@ -33,6 +33,7 @@ from agents_shipgate.core.trust_roots import (  # noqa: F401
     _LEGACY_TRUST_ROOT_SURFACES,
     PROTECTED_FILE_EDITS,
     TRUST_ROOT_SURFACES,
+    configured_input_trust_root,
     is_configured_manifest,
     is_context_configured_manifest,
 )
@@ -64,7 +65,13 @@ def run(context: ScanContext) -> list[Finding]:
         if not path or path in seen:
             continue
         seen.add(path)
-        classification = _configured_manifest(context, path) or _classify(path)
+        # A command-line input (#1024) is classified only where nothing else
+        # already explains the path, so existing rows keep their fingerprints,
+        # but it is never cleared by the structural shortcuts below.
+        configured_input = configured_input_trust_root(context, path)
+        classification = (
+            _configured_manifest(context, path) or _classify(path) or configured_input
+        )
         if path in assessment.openshell_safe_paths and classification is None:
             continue
         if classification is None and path in assessment.openshell_paths:
@@ -72,6 +79,9 @@ def run(context: ScanContext) -> list[Finding]:
         if classification is None:
             continue
         trust_root_class, matched_glob = classification
+        if configured_input is not None:
+            findings.append(_finding(context, path, trust_root_class, matched_glob))
+            continue
         if (
             trust_root_class in {"agent_instructions", "tool_surface_decl"}
             and instruction_profile(path) is not None

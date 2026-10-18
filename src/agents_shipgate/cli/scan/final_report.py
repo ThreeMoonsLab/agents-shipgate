@@ -19,6 +19,7 @@ from agents_shipgate.core.lenses.effective_policy import (
 )
 from agents_shipgate.core.semantic_consistency import validate_semantic_consistency
 from agents_shipgate.report.json_report import report_json_payload
+from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.surfaces import ActionDeclarationFacts
@@ -35,6 +36,7 @@ def _build_final_report(
     plan: _OutputPlan,
     config_path: Path,
     declared_ci: CiConfig | None = None,
+    exit_fail_on_floor: list[Severity] | None = None,
 ) -> tuple[ReadinessReport, Any]:
     """Phase 8: hash the run_id, build the ``ReadinessReport`` from the
     fully sanitized surfaces, run capability-diff enrichment, and
@@ -108,6 +110,7 @@ def _build_final_report(
         policy_evidence_gaps=sanitized.policy_evidence_gaps,
         source_omissions=sanitized.source_omissions,
         source_recovery_evidence=sanitized.source_recovery_evidence,
+        exit_fail_on_floor=exit_fail_on_floor,
     )
     if report.release_decision is not None:
         reference_facts = (
