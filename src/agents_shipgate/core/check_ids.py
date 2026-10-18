@@ -63,5 +63,24 @@ def expands_to_check_id(configured_check_id: str, emitted_check_id: str) -> bool
     )
 
 
+def governing_configured_check_id(
+    emitted_check_id: str, configured_check_ids: Iterable[str]
+) -> str | None:
+    """The configured id whose setting applies to an emitted finding.
+
+    An exact id wins; otherwise the first configured legacy alias or split
+    umbrella, in configuration order, that expands to it. This is the one
+    rule both applying a severity override and gating it use, so the gate
+    always judges the findings the override will actually change (#1030).
+    """
+    configured = list(configured_check_ids)
+    if emitted_check_id in configured:
+        return emitted_check_id
+    for configured_check_id in configured:
+        if expands_to_check_id(configured_check_id, emitted_check_id):
+            return configured_check_id
+    return None
+
+
 def known_check_ids_with_legacy(check_ids: Iterable[str]) -> set[str]:
     return {*check_ids, *LEGACY_CHECK_ID_ALIASES}

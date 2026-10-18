@@ -18,6 +18,7 @@ import shutil
 from datetime import date, timedelta
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.checks.baseline_integrity import (
@@ -46,6 +47,7 @@ from agents_shipgate.core.baseline_audit import (
 )
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.domain import Agent
+from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.evaluation_clock import use_evaluation_date
 from agents_shipgate.schemas.baseline import (
     BaselineFile,
@@ -891,3 +893,227 @@ def test_cli_baseline_save_honors_manifest_audit_log_override(tmp_path):
     assert [
         f for f in report.findings if f.check_id.startswith("SHIP-BASELINE-")
     ] == []
+
+
+# --- #1030: each baseline verifies against its own audit rows -------------
+
+
+def _invoke_verify(baseline: Path, *extra: str):
+    return CliRunner().invoke(
+        app, ["baseline", "verify", "--baseline", str(baseline), *extra]
+    )
+
+
+def test_two_baselines_in_one_directory_verify_independently(tmp_path, monkeypatch):
+    """#1030 acceptance: saving a sibling baseline must not fail an untouched one.
+
+    Both baselines share ``.agents-shipgate/`` and so one
+    ``baseline-audit.log``. Before #1030, verification compared every
+    baseline with the log's last row, so the second save turned an untouched
+    ``baseline.json`` into a critical ``hash_mismatch`` (exit 6 under
+    ``--strict``). Tampering with either baseline must still be detected.
+    """
+    sample_dir = tmp_path / "sample"
+    shutil.copytree(SAMPLE.parent, sample_dir, ignore=shutil.ignore_patterns("expected"))
+    monkeypatch.chdir(sample_dir)
+    runner = CliRunner()
+    for out, extra in (
+        (".agents-shipgate/baseline.json", []),
+        (".agents-shipgate/baseline-prod.json", ["--owner", "other-team"]),
+    ):
+        result = runner.invoke(
+            app, ["baseline", "save", "--config", "shipgate.yaml", "--out", out, *extra]
+        )
+        assert result.exit_code == 0, result.output
+    state = sample_dir / ".agents-shipgate"
+    rows = read_audit_log(state / "baseline-audit.log")
+    assert [Path(row.baseline_path).name for row in rows] == [
+        "baseline.json",
+        "baseline-prod.json",
+    ]
+    assert rows[0].hash_after != rows[1].hash_after
+    for name in ("baseline.json", "baseline-prod.json"):
+        result = _invoke_verify(state / name, "--strict")
+        assert result.exit_code == 0, result.output
+        assert "Baseline OK" in result.output
+
+    # `scan --baseline` on the untouched baseline raises no integrity finding.
+    report, _ = run_scan(
+        config_path=sample_dir / "shipgate.yaml",
+        output_dir=tmp_path / "out",
+        formats=["json"],
+        ci_mode="advisory",
+        baseline_path=state / "baseline.json",
+    )
+    assert [
+        f for f in report.findings if f.check_id == "SHIP-BASELINE-INTEGRITY-MISMATCH"
+    ] == []
+
+    # Tampering with either baseline is still detected.
+    for name in ("baseline.json", "baseline-prod.json"):
+        path = state / name
+        original = path.read_bytes()
+        path.write_bytes(original.replace(b"\n", b" \n", 1))
+        result = _invoke_verify(path, "--strict", "--json")
+        assert result.exit_code == 6, result.output
+        kinds = [issue["kind"] for issue in json.loads(result.output)["issues"]]
+        assert "hash_mismatch" in kinds
+        path.write_bytes(original)
+        assert _invoke_verify(path, "--strict").exit_code == 0
+
+
+def test_a_sibling_baselines_content_is_not_vouched_for_by_its_row(tmp_path):
+    """Copying the sibling saved last over a baseline is tampering.
+
+    Before #1030 the copy matched the log's last row and verified clean, so
+    one baseline's accepted debt could be swapped into another unnoticed.
+    """
+    write_baseline(_stub_report(("SHIP-X", "tool_a")), tmp_path / "baseline.json")
+    write_baseline(
+        _stub_report(("SHIP-X", "tool_a"), ("SHIP-Y", "tool_b")),
+        tmp_path / "baseline-prod.json",
+    )
+    (tmp_path / "baseline.json").write_bytes(
+        (tmp_path / "baseline-prod.json").read_bytes()
+    )
+    issues = verify_baseline(tmp_path / "baseline.json", tmp_path / "baseline-audit.log")
+    assert "hash_mismatch" in [issue.kind for issue in issues]
+    assert has_hash_mismatch(issues)
+
+
+def test_latest_audit_entry_selects_rows_for_the_named_baseline(tmp_path):
+    log_path = tmp_path / "baseline-audit.log"
+    for run_id, path in (
+        ("run_1", ".agents-shipgate/baseline.json"),
+        ("run_2", ".agents-shipgate/baseline-prod.json"),
+        ("run_3", "/ci/work/repo/.agents-shipgate/baseline.json"),
+        ("run_4", r"C:\repo\.agents-shipgate\baseline-prod.json"),
+    ):
+        append_audit_entry(
+            log_path,
+            BaselineAuditEntry(
+                timestamp=utc_now_isoformat(),
+                run_id=run_id,
+                scanner_version="1.2.0",
+                baseline_path=path,
+                hash_before=None,
+                hash_after=f"sha256:{run_id}",
+            ),
+        )
+    assert latest_audit_entry(log_path).run_id == "run_4"
+    assert latest_audit_entry(log_path, baseline_path=Path("baseline.json")).run_id == "run_3"
+    assert (
+        latest_audit_entry(log_path, baseline_path=tmp_path / "baseline-prod.json").run_id
+        == "run_4"
+    )
+    assert latest_audit_entry(log_path, baseline_path=Path("baseline-dev.json")) is None
+
+
+def test_audit_log_from_a_released_version_still_verifies(tmp_path):
+    """Backward compatibility: rows a released scanner wrote keep verifying.
+
+    Released versions recorded ``baseline_path`` as the saving command spelled
+    it — relative to its working directory, absolute, or with Windows
+    separators — and hashed the file's text with line endings read as LF.
+    The per-baseline lookup keys on the recorded file name, so every such
+    row still identifies its baseline and no migration is needed.
+    """
+    base = tmp_path / ".agents-shipgate"
+    baseline = base / "baseline.json"
+    prod = base / "baseline-prod.json"
+    write_baseline(_stub_report(("SHIP-X", "tool_a")), baseline)
+    write_baseline(_stub_report(("SHIP-Y", "tool_b")), prod)
+    log_path = base / "baseline-audit.log"
+    spellings = {
+        "baseline.json": ".agents-shipgate/baseline.json",
+        "baseline-prod.json": r"D:\a\repo\repo\.agents-shipgate\baseline-prod.json",
+    }
+    # Rewrite the log as a released 1.2.0 scanner on two machines wrote it.
+    log_path.write_text(
+        "".join(
+            json.dumps(
+                {
+                    **row.model_dump(mode="json"),
+                    "scanner_version": "1.2.0",
+                    "baseline_path": spellings[Path(row.baseline_path).name],
+                },
+                separators=(",", ":"),
+            )
+            + "\n"
+            for row in read_audit_log(log_path)
+        ),
+        encoding="utf-8",
+    )
+    assert verify_baseline(baseline, log_path) == []
+    assert verify_baseline(prod, log_path) == []
+
+
+def test_baseline_with_no_row_of_its_own_fails_with_an_actionable_message(tmp_path):
+    """A renamed or copied baseline has no audit history under its new name.
+
+    The log has rows, all for another file. Verification must not borrow
+    them (that was #1030) and must not silently pass: it reports
+    ``missing_audit_log`` naming the file, what the log does record, and
+    the command that records it — a strict failure until it is re-saved.
+    """
+    write_baseline(_stub_report(("SHIP-X", "tool_a")), tmp_path / "baseline.json")
+    renamed = tmp_path / "baseline-main.json"
+    (tmp_path / "baseline.json").rename(renamed)
+    issues = verify_baseline(renamed, tmp_path / "baseline-audit.log")
+    [issue] = [issue for issue in issues if issue.kind == "missing_audit_log"]
+    assert issue.default_severity == "critical"
+    assert "baseline-main.json" in issue.title
+    assert "record baseline.json" in issue.title
+    assert "baseline save" in issue.title
+    assert issue.evidence["recorded_baselines"] == ["baseline.json"]
+    assert has_hash_mismatch(issues)
+    result = _invoke_verify(renamed, "--strict")
+    assert result.exit_code == 6
+    assert "no entry for baseline-main.json" in result.output
+
+    # Re-saving under the new name records it, and the baseline verifies.
+    write_baseline(_stub_report(("SHIP-X", "tool_a")), renamed)
+    assert verify_baseline(renamed, tmp_path / "baseline-audit.log") == []
+
+
+def test_empty_baseline_with_no_row_of_its_own_is_not_an_issue(tmp_path):
+    """Same carve-out as a missing log: an empty baseline accepts nothing."""
+    write_baseline(_stub_report(("SHIP-X", "tool_a")), tmp_path / "baseline.json")
+    empty = tmp_path / "baseline-empty.json"
+    empty.write_text(
+        BaselineFile(
+            created_at="2026-01-01T00:00:00Z",
+            source_report_run_id="run_empty",
+        ).model_dump_json(indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    assert verify_baseline(empty, tmp_path / "baseline-audit.log") == []
+
+
+def test_baseline_hash_reads_line_endings_as_lf_as_its_docstring_states(tmp_path):
+    """#1030 (#109): the CRLF behaviour and the docstring agree.
+
+    ``compute_baseline_hash_from_file`` documents that a line-ending
+    conversion alone does not change the hash (a Git for Windows checkout
+    performs one on an untouched file) while every content edit does. The
+    docstring previously claimed line endings were detected.
+    """
+    doc = " ".join((compute_baseline_hash_from_file.__doc__ or "").split())
+    assert "A line-ending conversion alone does not" in doc
+    assert "CRLF and a lone CR hash as LF" in doc
+
+    baseline_path, audit_path = _bootstrap_baseline(tmp_path)
+    lf = baseline_path.read_bytes()
+    assert b"\r" not in lf
+    for converted in (lf.replace(b"\n", b"\r\n"), lf.replace(b"\n", b"\r")):
+        baseline_path.write_bytes(converted)
+        assert verify_baseline(baseline_path, audit_path) == []
+        result = _invoke_verify(baseline_path, "--audit-log", str(audit_path), "--strict")
+        assert result.exit_code == 0, result.output
+    # A content edit is detected whatever the line endings, and so is a BOM.
+    baseline_path.write_bytes(lf.replace(b"\n", b"\r\n").replace(b"\r\n", b" \r\n", 1))
+    assert has_hash_mismatch(verify_baseline(baseline_path, audit_path))
+    baseline_path.write_bytes(b"\xef\xbb\xbf" + lf)
+    with pytest.raises(InputParseError):
+        verify_baseline(baseline_path, audit_path)

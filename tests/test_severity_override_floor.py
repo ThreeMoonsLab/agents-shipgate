@@ -1088,3 +1088,265 @@ def test_aggregator_handles_override_without_manifest_section() -> None:
     assert audit_row.applied_severity == "medium"
     assert audit_row.direction == "downgrade"
     assert audit_row.tier_crossed is True
+
+
+# --- #1030: the tier gate judges the severity each finding was emitted at ---
+
+_SIDEFX = "SHIP-SIDEFX-IDEMPOTENCY-MISSING"
+
+
+def _emitted(check_id: str, severity: str, tool: str = "stripe.create_refund") -> Finding:
+    return Finding(
+        check_id=check_id,
+        title=f"{check_id} on {tool}",
+        severity=severity,
+        category="side_effects",
+        tool_name=tool,
+        recommendation="fix",
+    )
+
+
+def _builtin_catalog() -> list[CheckMetadata]:
+    from agents_shipgate.checks.registry import CHECK_METADATA
+
+    return list(CHECK_METADATA)
+
+
+def _builtin_dynamic_defaults(catalog: list[CheckMetadata]) -> dict[str, str]:
+    return {entry.id: entry.default_severity for entry in catalog if entry.dynamic_default}
+
+
+def test_sidefx_catalog_default_is_below_its_dynamic_critical() -> None:
+    """Precondition for the tests below: the check emits above its default.
+
+    ``SHIP-SIDEFX-IDEMPOTENCY-MISSING`` is ``critical`` when the tool's
+    retry policy is known, from tool evidence no manifest declares, so it
+    is not (and cannot be) a ``dynamic_default`` check.
+    """
+    entry = next(e for e in _builtin_catalog() if e.id == _SIDEFX)
+    assert entry.default_severity == "high"
+    assert entry.dynamic_default is False
+
+
+def test_override_lowering_a_finding_emitted_above_its_default_needs_ack() -> None:
+    """#1030: lowering a dynamically critical finding to high crosses a tier.
+
+    The resolver compared the override with the catalog default (``high``),
+    saw ``high → high`` and accepted it with no acknowledgement, although
+    the finding it lowered was emitted ``critical``.
+    """
+    catalog = _builtin_catalog()
+    with pytest.raises(ConfigError) as excinfo:
+        resolve_severity_overrides(
+            overrides={_SIDEFX: SeverityOverrideEntry(severity="high")},
+            acknowledgements=[],
+            catalog=catalog,
+            extra_known_check_defaults=_builtin_dynamic_defaults(catalog),
+            findings=[
+                _emitted(_SIDEFX, "high", tool="shopify.cancel_order"),
+                _emitted(_SIDEFX, "critical"),
+            ],
+        )
+    message = str(excinfo.value)
+    assert "'critical' → 'high'" in message
+    assert "critical → high tier boundary" in message
+    assert "emitted a finding it governs at 'critical'" in message
+    assert "acknowledge_overrides" in message
+
+
+def test_override_lowering_an_emitted_critical_finding_with_ack_is_audited() -> None:
+    catalog = _builtin_catalog()
+    resolution = resolve_severity_overrides(
+        overrides={_SIDEFX: SeverityOverrideEntry(severity="high")},
+        acknowledgements=[
+            OverrideAcknowledgement(check_id=_SIDEFX, reason="retries are bounded upstream")
+        ],
+        catalog=catalog,
+        extra_known_check_defaults=_builtin_dynamic_defaults(catalog),
+        findings=[_emitted(_SIDEFX, "critical")],
+    )
+    [row] = resolution.audit.severity_overrides_applied
+    assert row.default_severity == "critical"
+    assert row.applied_severity == "high"
+    assert row.direction == "downgrade"
+    assert row.tier_crossed is True
+    assert row.reason == "retries are bounded upstream"
+
+
+def test_override_matching_the_emitted_default_still_needs_no_ack() -> None:
+    """No finding above the default: the pre-#1030 answer is unchanged."""
+    catalog = _builtin_catalog()
+    resolution = resolve_severity_overrides(
+        overrides={_SIDEFX: SeverityOverrideEntry(severity="high")},
+        acknowledgements=[],
+        catalog=catalog,
+        extra_known_check_defaults=_builtin_dynamic_defaults(catalog),
+        findings=[_emitted(_SIDEFX, "high"), _emitted("SHIP-OTHER", "critical")],
+    )
+    [row] = resolution.audit.severity_overrides_applied
+    assert (row.default_severity, row.direction, row.tier_crossed) == ("high", "same", False)
+
+
+def test_override_that_lowers_no_emitted_finding_keeps_its_audit_row() -> None:
+    """Only a finding the override lowers raises the base.
+
+    Overriding to ``critical`` lowers nothing, so the row reads as the
+    upgrade from the catalog default it read before #1030.
+    """
+    catalog = _builtin_catalog()
+    resolution = resolve_severity_overrides(
+        overrides={_SIDEFX: SeverityOverrideEntry(severity="critical")},
+        acknowledgements=[],
+        catalog=catalog,
+        extra_known_check_defaults=_builtin_dynamic_defaults(catalog),
+        findings=[_emitted(_SIDEFX, "critical"), _emitted(_SIDEFX, "high", tool="t2")],
+    )
+    [row] = resolution.audit.severity_overrides_applied
+    assert (row.default_severity, row.applied_severity, row.direction) == (
+        "high",
+        "critical",
+        "upgrade",
+    )
+
+
+def test_alias_override_is_judged_by_the_findings_it_governs() -> None:
+    """Another spelling reaches the same gate.
+
+    ``SHIP-API-OPERATIONAL-READINESS`` is a deprecated catalog entry
+    (default ``medium``) that expands to the v0.4 API checks, among them
+    ``SHIP-API-RETRY-WITHOUT-IDEMPOTENCY`` (default ``high``). Judged by the
+    alias's own default, an override through it at ``medium`` was
+    ``medium → medium`` and lowered a ``high`` finding with no
+    acknowledgement. Judged by what it governs, it crosses a tier — and so
+    does ``high`` against a governed finding emitted ``critical``. A finding
+    an exact-id override governs instead is not the alias's to answer for:
+    the same exact-id-first rule ``apply_severity_overrides`` uses.
+    """
+    catalog = _builtin_catalog()
+    alias = "SHIP-API-OPERATIONAL-READINESS"
+    alias_entry = next(e for e in catalog if e.id == alias)
+    assert alias_entry.default_severity == "medium"
+    with pytest.raises(ConfigError, match=r"'high' → 'medium'.*high → normal tier boundary"):
+        resolve_severity_overrides(
+            overrides={alias: SeverityOverrideEntry(severity="medium")},
+            acknowledgements=[],
+            catalog=catalog,
+            extra_known_check_defaults=_builtin_dynamic_defaults(catalog),
+            findings=[_emitted("SHIP-API-RETRY-WITHOUT-IDEMPOTENCY", "high")],
+        )
+    governed = _emitted("SHIP-API-RETRY-WITHOUT-IDEMPOTENCY", "critical")
+    with pytest.raises(ConfigError, match=r"SHIP-API-OPERATIONAL-READINESS.*critical → high"):
+        resolve_severity_overrides(
+            overrides={alias: SeverityOverrideEntry(severity="high")},
+            acknowledgements=[],
+            catalog=catalog,
+            extra_known_check_defaults=_builtin_dynamic_defaults(catalog),
+            findings=[governed],
+        )
+    resolution = resolve_severity_overrides(
+        overrides={
+            "SHIP-API-OPERATIONAL-READINESS": SeverityOverrideEntry(severity="high"),
+            "SHIP-API-RETRY-WITHOUT-IDEMPOTENCY": SeverityOverrideEntry(severity="critical"),
+        },
+        acknowledgements=[],
+        catalog=catalog,
+        extra_known_check_defaults=_builtin_dynamic_defaults(catalog),
+        findings=[governed],
+    )
+    applied = {row.check_id: row for row in resolution.audit.severity_overrides_applied}
+    # The alias governs no finding here, so its row is judged by its own
+    # default: medium → high is an upgrade. The exact override lowers
+    # nothing (critical stays critical), so it too keeps its default base.
+    assert (applied[alias].default_severity, applied[alias].direction) == ("medium", "upgrade")
+    exact = applied["SHIP-API-RETRY-WITHOUT-IDEMPOTENCY"]
+    assert (exact.default_severity, exact.direction) == ("high", "upgrade")
+    apply_severity_overrides([governed], resolution.override_by_check_id)
+    assert governed.severity == "critical"
+
+
+def test_no_builtin_check_emitted_above_its_default_lowers_without_ack() -> None:
+    """Catalog-wide: the gate does not depend on which emitters exceed defaults.
+
+    For every built-in check whose default is below ``critical``, a finding
+    emitted ``critical`` and an override back to the catalog default (which
+    every floor permits) is a tier-crossing downgrade and is refused without
+    an acknowledgement. Before #1030 this held only for the
+    ``dynamic_default`` checks the aggregator knows about.
+    """
+    catalog = _builtin_catalog()
+    dynamic = _builtin_dynamic_defaults(catalog)
+    accepted: list[str] = []
+    checked = 0
+    for entry in catalog:
+        if entry.default_severity == "critical":
+            continue
+        checked += 1
+        try:
+            resolve_severity_overrides(
+                overrides={entry.id: SeverityOverrideEntry(severity=entry.default_severity)},
+                acknowledgements=[],
+                catalog=catalog,
+                extra_known_check_defaults=dynamic,
+                findings=[_emitted(entry.id, "critical")],
+            )
+        except ConfigError as exc:
+            assert "tier boundary" in str(exc), (entry.id, str(exc))
+        else:
+            accepted.append(entry.id)
+    assert checked > 50
+    assert accepted == []
+
+
+def test_scan_rejects_unacknowledged_override_of_dynamically_critical_sidefx(tmp_path) -> None:
+    """#1030 acceptance, end to end on the support-refund sample.
+
+    ``stripe.create_refund`` declares a retry policy, so its
+    ``SHIP-SIDEFX-IDEMPOTENCY-MISSING`` finding is ``critical``. Lowering
+    the check to ``high`` without an acknowledgement is a config error
+    (exit 2); with one, the override applies and the audit row records
+    the real ``critical → high`` downgrade.
+    """
+    import shutil
+    from pathlib import Path
+
+    from agents_shipgate.cli.scan import run_scan
+
+    sample = Path("samples/support_refund_agent")
+    work = tmp_path / "sample"
+    shutil.copytree(sample, work, ignore=shutil.ignore_patterns("expected"))
+    config = work / "shipgate.yaml"
+    original = config.read_text(encoding="utf-8")
+    assert original.count("checks:\n  ignore:") == 1
+
+    baseline_report, _ = run_scan(
+        config_path=config, output_dir=tmp_path / "r0", formats=["json"], ci_mode="advisory"
+    )
+    assert "critical" in {
+        f.severity for f in baseline_report.findings if f.check_id == _SIDEFX
+    }, "precondition: the sample emits the check at critical"
+
+    override = f"checks:\n  severity_overrides:\n    {_SIDEFX}: high\n  ignore:"
+    config.write_text(original.replace("checks:\n  ignore:", override), encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"'critical' → 'high'"):
+        run_scan(
+            config_path=config, output_dir=tmp_path / "r1", formats=["json"], ci_mode="advisory"
+        )
+
+    acknowledged = override.replace(
+        "\n  ignore:",
+        f"\n  acknowledge_overrides:\n    - check_id: {_SIDEFX}\n"
+        "      reason: retries are deduplicated by the payment gateway\n  ignore:",
+    )
+    config.write_text(original.replace("checks:\n  ignore:", acknowledged), encoding="utf-8")
+    report, _ = run_scan(
+        config_path=config, output_dir=tmp_path / "r2", formats=["json"], ci_mode="advisory"
+    )
+    assert {f.severity for f in report.findings if f.check_id == _SIDEFX} == {"high"}
+    [row] = [r for r in report.policy_audit.severity_overrides_applied if r.check_id == _SIDEFX]
+    assert (row.default_severity, row.applied_severity, row.direction, row.tier_crossed) == (
+        "critical",
+        "high",
+        "downgrade",
+        True,
+    )
+    assert row.reason == "retries are deduplicated by the payment gateway"

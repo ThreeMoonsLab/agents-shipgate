@@ -356,6 +356,108 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="trust-config-1030"></a>
+
+## Migration Note: Unreleased — each baseline verifies against its own audit rows, the override tier gate reads emitted severity, and an optional pack's pin is fatal (#1030)
+
+**What was wrong.** Three trust-configuration checks compared against the
+wrong reference.
+
+- Every baseline in a directory appends to the one `baseline-audit.log`
+  there, and verification compared a baseline with the log's last row,
+  whichever baseline wrote it. Saving `baseline-prod.json` turned an untouched
+  `baseline.json` into a critical, unsuppressible
+  `SHIP-BASELINE-INTEGRITY-MISMATCH` (`baseline verify --strict` exited `6`,
+  and `scan --baseline` moved from `insufficient_evidence` to `blocked`), while
+  a copy of the baseline saved last, or a renamed baseline, verified clean. The
+  hash function's docstring also claimed line-ending edits were detected; they
+  never were.
+- The severity-override tier gate measured a downgrade against the catalog
+  default, not the severity a finding was emitted at.
+  `SHIP-SIDEFX-IDEMPOTENCY-MISSING` is `critical` when the tool's retry policy
+  is known (catalog default `high`), so
+  `checks.severity_overrides: {SHIP-SIDEFX-IDEMPOTENCY-MISSING: high}` lowered it
+  with no acknowledgement and `policy_audit` recorded `high → high`,
+  `direction: same`. A deprecated alias whose own default is below what it
+  expands to did the same: `SHIP-API-OPERATIONAL-READINESS: medium` (its
+  default) lowered a `high` `SHIP-API-RETRY-WITHOUT-IDEMPOTENCY`.
+- An `optional: true` policy pack whose `sha256` pin no longer matched — or
+  that had been replaced by a malformed file, a directory or a link — became a
+  source warning, and the scan ran without the pack's rules.
+
+**What changes.**
+
+- **Baseline audit lookup.** `baseline verify` and `scan --baseline` compare a
+  baseline with the latest audit row recorded **for that baseline**: the row
+  whose `baseline_path` names the same file. `baseline_path` is spelled as the
+  saving command spelled it — relative to that command's working directory, or
+  absolute, with either separator — so its final component (the file name) is
+  what is compared. A log that has rows but none for the baseline is
+  `missing_audit_log` (critical, exit `6` under `--strict`) whose title names
+  the baseline, the files the log does record and the `baseline save` that
+  records it, with `evidence.recorded_baselines`; an empty baseline is still
+  not an issue.
+  `hash_mismatch` evidence gains `latest_audit_baseline_path`, the row it was
+  compared with.
+- **Line endings.** The baseline hash is, as in every release, the SHA-256 of
+  the file's UTF-8 text with CRLF and lone CR read as LF; the docstring now
+  says so. Any content edit changes it — a value, a key order, a space, a
+  blank line; a line-ending conversion alone does not, because it cannot
+  change the parsed baseline, and because Git for Windows' default
+  `core.autocrlf=true` performs one on checkout of an untouched file.
+- **Override tier gate.** When an override would lower a finding it governs
+  that was emitted above both the catalog default and the manifest-effective
+  dynamic default, that finding's pre-override severity is the tier-crossing
+  base; otherwise the base is what it was. "Governs" is the rule that applies
+  the override: the exact check id, otherwise the first configured legacy
+  alias or split umbrella that expands to it.
+  `policy_audit.severity_overrides_applied[].default_severity` reports that
+  base, and the `ConfigError` names the emitted severity when it raised it. An
+  override that lowers no emitted finding (for example one to `critical`)
+  keeps the audit row it had.
+- **Optional policy packs.** `optional: true` tolerates exactly one failure:
+  nothing exists at the declared path (a dangling link is something). That is
+  a warning, `Optional policy pack '<path>' failed to load: no file exists at
+  that path; continuing without its rules.` Anything else — a pin mismatch, an
+  unreadable or non-regular file, a path outside the manifest directory, a
+  malformed pack, a schema or team-reference error — is a config error (exit
+  `2`), as for a required pack. Every command that loads packs goes through
+  the one loader (`scan`, `verify`, `doctor`, `baseline save`, and the Action
+  through `verify`/`scan`).
+
+**Released audit logs.** No migration is needed for a log a released version
+wrote. Every row already records `baseline_path`, and in a directory holding
+one baseline — the default — the latest row recorded for it is the log's last
+row, so verification gives the answer it gave before; `hash_after` values
+verify because the hash is unchanged. A baseline that verified only by
+borrowing another file's row now fails with the message above: a baseline
+renamed or copied without a save has no audit history under its new name, so
+re-run `agents-shipgate baseline save --out <it>`. The audit row shape and
+`audit_schema_version` (`0.1`) are unchanged, so released readers keep reading
+logs this version writes.
+
+**Who must act.**
+
+- A manifest whose override lowers a finding across a tier from the severity
+  it was emitted at now fails with exit `2` naming the override. Add a
+  `checks.acknowledge_overrides` entry with a reason, or raise the override.
+  Until the base branch carries the fix, `verify`'s base scan reports
+  `scan_failed` and leaves the head gate unchanged.
+- Same-named baselines in different directories that share one log through
+  `baseline.audit_log` are not told apart: give them distinct file names or
+  distinct logs.
+- An `optional: true` pack that is present but broken must be fixed, or its
+  declaration removed.
+
+**What does not change.** No CLI flag, schema, check ID, control state or exit
+code is added or moved. The baseline and audit-log formats, `integrity_mode`,
+floors, acknowledgement and expiry rules, the `dynamic_default` contract, a
+required pack's behaviour and a missing optional pack's warning are unchanged.
+An override that needed an acknowledgement still needs one: the tier base
+never drops below the defaults it used before.
+
+---
+
 <a id="secret-observations-1026"></a>
 
 ## Migration Note: Unreleased — secret and injection observations are published, and redaction rules `0.2` (#1026)
@@ -5011,7 +5113,7 @@ In `agents-shipgate-reports/report.json`, the following are guaranteed:
 - `release_decision.contribution_rules[].{finding_id, fingerprint, check_id, category, rule, rationale}` (v0.17+) — deterministic per-finding audit of how each finding contributed to the release decision. Required + always present. Exactly one row per `report.findings` entry, including suppressed findings. v0.33 adds `rule="unsupported_evidence"`, always with `category="excluded"`, for typed support that is not policy-eligible.
 - `baseline.{matched_count, new_count, resolved_count, path}` (when `--baseline` is used)
 - `tool_inventory[].{name, source_type, source_ref, risk_tags, auth_scopes, owner, confidence}`
-- `loaded_policy_packs[].{id, name, version, path, source, sha256, sha256_status, owner, rule_count}` (v0.27+) — deterministic policy-pack distribution and ownership metadata for organization audit. `sha256_status` is `"verified"` when a manifest pin matched and `"unpinned"` otherwise. Hash mismatch still fails closed during pack loading; this metadata never introduces a second release verdict.
+- `loaded_policy_packs[].{id, name, version, path, source, sha256, sha256_status, owner, rule_count}` (v0.27+) — deterministic policy-pack distribution and ownership metadata for organization audit. `sha256_status` is `"verified"` when a manifest pin matched and `"unpinned"` otherwise. Hash mismatch still fails closed during pack loading, for an `optional: true` pack too (#1030): `optional` tolerates a pack that does not exist, never one that fails its pin or does not load. This metadata never introduces a second release verdict.
 - `loaded_plugins[].{name, value, distribution, version, check_id}`
 - `loaded_plugins[].{validation_status, validation_errors, runtime_errors}` (v0.17+ / M5; `dynamic_default_not_supported` added v0.18) — plugin validation provenance, required + present on every entry. `validation_status` is one of `valid | load_failed | bad_signature | bad_metadata | dynamic_default_not_supported | id_collision | bad_floor`; the two error lists are always present and empty for clean plugins. Invalid plugins still appear in this array (with `check_id: null` for entries that failed before metadata parsing), so reviewers can see what was skipped without reading scanner logs. Plugin findings whose `check_id` does not match the declared metadata are dropped at runtime and recorded under `runtime_errors`. `dynamic_default_not_supported` (v0.18+) rejects plugins declaring `AGENTS_SHIPGATE_METADATA.dynamic_default=True` — plugins have no path to wire into `core/dynamic_defaults.py`'s aggregator, so a swing check would never receive a manifest-effective default and would be silently bypassable.
 - `policy_audit.severity_overrides_applied[].{check_id, default_severity, applied_severity, manifest_path, reason, tier_crossed, direction, expires}` (v0.17+ / M1) — top-of-report audit envelope for severity overrides applied during scan. Always present on emitted scans (empty when no overrides applied); required + non-nullable on the wire. `direction` is one of `downgrade | upgrade | same`. `tier_crossed=true` indicates the override crossed a severity tier boundary (critical / high / medium-low); tier-crossing downgrades require a matching `checks.acknowledge_overrides` entry, which is reflected in `reason`. `expires` is an ISO-8601 date carried from the matching acknowledgement (or the rich-form override entry); on/past this date the manifest fails to load with exit 2. Verify computes the hard-expiry date as the later of its wall-clock date and the content-bound `evaluation_date`; commit timestamps can never extend trust.
@@ -5109,13 +5211,30 @@ the only such built-in is `SHIP-ACTION-POLICY-VIOLATION` (emits at
 `action_surface.policies[].severity`). Policy-pack rule IDs flow
 through the same `extra_known_check_defaults` mechanism but live
 outside the catalog. The severity-override resolver uses
-`max(catalog default, manifest-effective default)` as the
-tier-crossing comparison base, so a `severity: critical` action
+`max(catalog default, manifest-effective default)` as the tier-crossing
+comparison base — raised to the emitted severity when the override lowers
+a finding emitted above it (below) — so a `severity: critical` action
 policy with override `high` cannot appear same-tier against the
 catalog's `high` default. The
 `policy_audit.severity_overrides_applied[].default_severity` row
 reports the effective (dynamic-aware) default so reviewers see the
 real before/after.
+
+**Per-finding tier gate** (#1030). The emitted severity is the strongest
+pre-override severity among this scan's findings that the override
+governs — the exact check id, otherwise the first configured legacy alias
+or split umbrella that expands to it, the same rule that applies the
+override. When the override would lower it, and it is above both
+defaults, it is the comparison base. A check can emit above its catalog
+default from evidence no manifest declares
+(`SHIP-SIDEFX-IDEMPOTENCY-MISSING` is `critical` when a tool's retry
+policy is known, against a `high` default), so the gate does not rely on
+`dynamic_default` to see it: an override that would lower any finding
+across a tier boundary from the severity it was emitted at needs an
+`acknowledge_overrides` entry, whatever the catalog says. The base never
+drops below the defaults, so the gate only ever asks for more
+acknowledgements than the defaults alone would, and an override that
+lowers no emitted finding keeps the audit row it had.
 
 Two contract rules pin the design (v0.18):
 
@@ -5625,7 +5744,8 @@ Each `agents-shipgate baseline save` appends one JSON line to
 - `run_id` — scan's run_id (matches `BaselineProvenance.run_id` for any
   fingerprints added in this save)
 - `scanner_version` — Agents Shipgate version that wrote the row
-- `baseline_path` — string path saved at the time of the row
+- `baseline_path` — string path saved at the time of the row, spelled as the
+  saving command spelled it (relative to its working directory, or absolute)
 - `hash_before` — `"sha256:…"` of the prior baseline file content, or `null`
   when this was the first save
 - `hash_after` — `"sha256:…"` of the new baseline file content
@@ -5635,6 +5755,23 @@ The audit log is append-only and intentionally co-located with the baseline so
 a single `.agents-shipgate/` directory carries both. Commit both files
 together; reviewers can `git log .agents-shipgate/baseline-audit.log` to see
 when fingerprints joined the baseline.
+
+**Which row vouches for a baseline** (#1030). Every baseline in a directory
+appends to that directory's one log. Verification compares a baseline with
+the latest row recorded for **that** baseline — the row whose `baseline_path`
+has the same final component (file name), with either path separator —
+never with a row another baseline wrote. A log with rows but none for the
+baseline is `missing_audit_log`; re-run `baseline save --out <it>` to record
+it (a renamed or copied baseline has no history under its new name). Two
+same-named baselines in different directories can share a log only through
+`baseline.audit_log`; they are not told apart, so give them distinct names or
+distinct logs.
+
+**What the hash covers.** `hash_before`, `hash_after` and the verified hash
+are the SHA-256 of the baseline's UTF-8 text with CRLF and lone CR read as
+LF. Every content edit changes it; a line-ending conversion alone does not,
+because it cannot change the parsed baseline and Git for Windows' default
+`core.autocrlf=true` performs one on checkout of an untouched file.
 
 `manifest.baseline.integrity_mode` controls behavior when `scan --baseline X`
 detects an integrity issue. Stable values:
@@ -5650,8 +5787,9 @@ detects an integrity issue. Stable values:
 New stable check IDs (v0.11+):
 
 - `SHIP-BASELINE-INTEGRITY-MISMATCH` (critical) — file hash mismatch, missing
-  audit log, audit log empty or malformed, entry references unknown `run_id`,
-  or entry loaded from a legacy schema without provenance.
+  audit log, audit log empty or malformed or without a row for that baseline,
+  entry references unknown `run_id`, or entry loaded from a legacy schema
+  without provenance.
 - `SHIP-BASELINE-ENTRY-EXPIRED` (high) — `provenance.expires` < today.
 - `SHIP-BASELINE-ENTRY-STALE` (low) — deprecated check ID in the entry, or
   the entry matched no active finding (scan-aware; resolved-not-pruned).

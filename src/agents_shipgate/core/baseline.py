@@ -15,8 +15,9 @@ from agents_shipgate.core.baseline_audit import (
     append_audit_entry,
     compute_baseline_hash,
     compute_baseline_hash_from_file,
-    latest_audit_entry,
+    latest_entry_for_baseline,
     read_audit_log,
+    recorded_baseline_name,
     utc_now_isoformat,
 )
 from agents_shipgate.core.check_ids import LEGACY_CHECK_ID_ALIASES
@@ -191,7 +192,9 @@ def write_baseline(
     if path.exists():
         try:
             hash_before = compute_baseline_hash_from_file(path)
-        except OSError:
+        except (OSError, ValueError):
+            # Unreadable, not UTF-8, or not a regular file: a corrupt prior
+            # baseline must not block the save that repairs it.
             hash_before = None
     path.parent.mkdir(parents=True, exist_ok=True)
     canonical = baseline.model_dump_json(indent=2, exclude_none=False) + "\n"
@@ -651,12 +654,18 @@ def _verify_audit_log_alignment(
     log_path: Path,
     baseline: BaselineFile,
 ) -> list[BaselineIntegrityIssue]:
-    """Hash baseline vs. latest audit entry's hash_after; report mismatch.
+    """Hash baseline vs. its latest audit entry's hash_after; report mismatch.
 
-    A baseline with zero findings and no audit log is a fresh / unsaved
+    "Its" is load-bearing (#1030): several baselines can share one
+    directory and so one log, and only a row recorded for this baseline
+    (``audit_entry_records_baseline``) vouches for it. Comparing against
+    the log's last row let saving ``baseline-prod.json`` fail an untouched
+    ``baseline.json``, and let a copy of the sibling saved last pass.
+
+    A baseline with zero findings and no audit row is a fresh / unsaved
     state — not an integrity violation. Only flag when the baseline
     contains entries (i.e., someone took the trouble to populate it)
-    but no audit row exists, or the most recent audit row's
+    but no audit row for it exists, or its most recent audit row's
     ``hash_after`` disagrees with the file on disk.
     """
     if not log_path.exists():
@@ -676,7 +685,7 @@ def _verify_audit_log_alignment(
             )
         ]
     try:
-        latest = latest_audit_entry(log_path)
+        entries = read_audit_log(log_path)
     except InputParseError as exc:
         return [
             BaselineIntegrityIssue(
@@ -692,18 +701,46 @@ def _verify_audit_log_alignment(
                 },
             )
         ]
+    latest = latest_entry_for_baseline(entries, baseline_path)
     if latest is None:
         if not baseline.findings:
             return []
+        if not entries:
+            return [
+                BaselineIntegrityIssue(
+                    kind="missing_audit_log",
+                    default_severity="critical",
+                    title="Audit log exists but is empty",
+                    evidence={
+                        "baseline_path": str(baseline_path),
+                        "audit_log_path": str(log_path),
+                        "entry_count": len(baseline.findings),
+                        "kind": "missing_audit_log",
+                    },
+                )
+            ]
+        # The log has rows, but every one was written by a save of another
+        # baseline: a sibling in the same directory, or this file under an
+        # earlier name (a rename or copy carries no audit history). Name
+        # what the log does record so the fix is evident; never fall back
+        # to another baseline's row, which is what let one save fail or
+        # pass a different file (#1030).
+        recorded = sorted({recorded_baseline_name(entry.baseline_path) for entry in entries})
         return [
             BaselineIntegrityIssue(
                 kind="missing_audit_log",
                 default_severity="critical",
-                title="Audit log exists but is empty",
+                title=(
+                    f"Audit log has no entry for {baseline_path.name}; its "
+                    f"entries record {', '.join(recorded)}. Re-run "
+                    f"`agents-shipgate baseline save` for {baseline_path.name} "
+                    "to record it"
+                ),
                 evidence={
                     "baseline_path": str(baseline_path),
                     "audit_log_path": str(log_path),
                     "entry_count": len(baseline.findings),
+                    "recorded_baselines": recorded,
                     "kind": "missing_audit_log",
                 },
             )
@@ -722,6 +759,7 @@ def _verify_audit_log_alignment(
                     "computed_hash": on_disk_hash,
                     "latest_audit_run_id": latest.run_id,
                     "latest_audit_timestamp": latest.timestamp,
+                    "latest_audit_baseline_path": latest.baseline_path,
                     "kind": "hash_mismatch",
                 },
             )

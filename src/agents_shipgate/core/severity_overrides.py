@@ -33,16 +33,21 @@ verifier's wall clock even when a commit carries a backdated timestamp.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date
 from typing import TYPE_CHECKING
 
-from agents_shipgate.core.check_ids import expands_to_check_id
+from agents_shipgate.core.check_ids import (
+    expands_to_check_id,
+    governing_configured_check_id,
+)
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.evaluation_clock import trust_expiry_date
 from agents_shipgate.schemas.checks import CheckMetadata
 from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.report import (
+    Finding,
     PolicyAudit,
     SeverityOverrideAuditEntry,
 )
@@ -125,6 +130,7 @@ def resolve_severity_overrides(
     acknowledgements: list[OverrideAcknowledgement],
     catalog: list[CheckMetadata],
     extra_known_check_defaults: dict[str, Severity] | None = None,
+    findings: Iterable[Finding] = (),
     manifest_path_prefix: str = "shipgate.yaml#/checks/severity_overrides",
     today: date | None = None,
 ) -> SeverityOverrideResolution:
@@ -169,12 +175,25 @@ def resolve_severity_overrides(
        default, the resolver uses the supplied value for tier-crossing
        and audit purposes. Floor enforcement still uses the catalog
        floor (the static gate floor for the check class).
+
+    ``findings`` are this scan's findings *before* any override applies
+    (#1030). A check may emit above its catalog default from evidence no
+    manifest declares — ``SHIP-SIDEFX-IDEMPOTENCY-MISSING`` is ``critical``
+    when the tool's retry policy is known, against a ``high`` default — so
+    neither of the two defaults above sees it. When the override would
+    lower a finding it governs (the same exact-id-then-alias rule
+    ``apply_severity_overrides`` uses) that was emitted above both
+    defaults, that finding's severity is the tier-crossing base, so
+    lowering it across a tier needs its acknowledgement like any other
+    downgrade. The base never drops below the defaults, so no override
+    that needed an acknowledgement stops needing one.
     """
     today = today or trust_expiry_date()
     catalog_by_id = _catalog_index(catalog)
     known_ids = _known_check_ids(catalog)
     ack_by_id = _ack_by_check_id(acknowledgements)
     extra_defaults = extra_known_check_defaults or {}
+    emitted_by_override = _strongest_emitted_severity(findings, overrides)
 
     # 1. Expired acknowledgements are a config error regardless of
     #    whether the matching override is tier-crossing — the user
@@ -247,6 +266,21 @@ def resolve_severity_overrides(
             default_severity = dynamic_default
         else:
             default_severity = catalog_default_severity
+        # #1030: and never weaker than a finding this override would lower.
+        # The catalog and dynamic defaults describe the check; this
+        # describes what it actually emitted in this scan. Only a finding
+        # the override lowers raises the base, so an override that leaves
+        # every emitted severity as strong as it was keeps the audit row
+        # it had (an override to ``critical`` still reads as an upgrade).
+        emitted_severity = emitted_by_override.get(check_id)
+        emitted_above_default = False
+        if (
+            emitted_severity is not None
+            and _is_weaker(default_severity, emitted_severity)
+            and _is_weaker(applied_severity, emitted_severity)
+        ):
+            default_severity = emitted_severity
+            emitted_above_default = True
 
         # 2. Floor enforcement. Hard. No ack bypass. Policy-pack rules
         #    fall through with floor=None (extra_defaults path above).
@@ -269,11 +303,19 @@ def resolve_severity_overrides(
                 # Surface the alias path too — a user who configured
                 # SHIP-API-OPERATIONAL-READINESS gets the *alias* name in
                 # the diagnostic, not the expanded one.
+                emitted_note = (
+                    f" This scan emitted a finding it governs at "
+                    f"{emitted_severity!r}, above the check's "
+                    f"{catalog_default_severity!r} catalog default."
+                    if emitted_above_default
+                    else ""
+                )
                 raise ConfigError(
                     f"checks.severity_overrides[{check_id!r}] downgrades "
                     f"{default_severity!r} → {applied_severity!r}, "
                     f"crossing the {severity_tier(default_severity)} → "
-                    f"{severity_tier(applied_severity)} tier boundary. "
+                    f"{severity_tier(applied_severity)} tier boundary."
+                    f"{emitted_note} "
                     f"Add an acknowledge_overrides entry with a reason."
                 )
             # Ack reason wins when both are set — ack is the explicit
@@ -320,6 +362,30 @@ def resolve_severity_overrides(
         override_by_check_id=applied,
         audit=audit,
     )
+
+
+def _strongest_emitted_severity(
+    findings: Iterable[Finding],
+    overrides: dict[str, SeverityOverrideEntry],
+) -> dict[str, Severity]:
+    """Strongest pre-override severity among the findings each override governs.
+
+    Keyed by the configured override id. Governance is
+    :func:`governing_configured_check_id`, the rule
+    ``apply_severity_overrides`` applies, over the same configuration order,
+    so an override is judged by exactly the findings it will change.
+    """
+    strongest: dict[str, Severity] = {}
+    if not overrides:
+        return strongest
+    for finding in findings:
+        configured_check_id = governing_configured_check_id(finding.check_id, overrides)
+        if configured_check_id is None:
+            continue
+        current = strongest.get(configured_check_id)
+        if current is None or _is_weaker(current, finding.severity):
+            strongest[configured_check_id] = finding.severity
+    return strongest
 
 
 def _enforce_ack_expiry(
