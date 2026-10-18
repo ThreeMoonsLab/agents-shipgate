@@ -187,6 +187,7 @@ def _run_checks_and_decide(
             retained_findings.append(finding)
             continue
         source = finding.policy_evidence_source or finding.source
+        metadata = catalog_by_id.get(finding.check_id)
         context.policy_evidence_gaps.append(
             policy_evidence_gap(
                 status=support.status,
@@ -200,14 +201,20 @@ def _run_checks_and_decide(
                     if source is not None and source.pointer
                     else f"/checks/{finding.check_id}"
                 ),
+                # The catalog's one-line description says what the check
+                # detected, so a gap reads "a tool description contains a
+                # secret-like value" and not only that its applicability is
+                # inferred (#1026). Catalog text, never the matched value.
+                detected=metadata.description if metadata is not None else None,
             )
         )
-        metadata = catalog_by_id.get(finding.check_id)
         if metadata is not None and metadata.publish_when_policy_ineligible:
             # The finding remains explicitly non-policy-eligible. Keeping it
             # here publishes its observer-facing evidence; release_decision's
             # support guard still prevents it becoming a blocker or named
-            # policy review item.
+            # policy review item. A check opts in when its value is the
+            # observation itself — a credential or instruction-like text in
+            # a tool description — rather than a policy it may apply (#1026).
             retained_findings.append(finding)
     findings = retained_findings
     # v0.17 (M1) + v0.18 (PR #1): centralized aggregator covers every
