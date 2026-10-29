@@ -8,6 +8,7 @@ uses the network. ``repository`` scope is portable and deterministic;
 
 from __future__ import annotations
 
+import datetime
 import errno
 import hashlib
 import json
@@ -506,8 +507,20 @@ class EnabledPluginHookFiles:
         )
 
 
+def _canonical_default(obj: Any) -> str:
+    if isinstance(obj, (datetime.date, datetime.datetime)):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
+
 def _canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=_canonical_default,
+    )
 
 
 def _sha(value: Any) -> str:
@@ -795,6 +808,8 @@ def _redact_secret_values(value: Any, *, parent_key: str | None = None) -> Any:
         return redacted
     if isinstance(value, str):
         return _sanitize_sensitive_string(value)
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return value.isoformat()
     return value
 
 
