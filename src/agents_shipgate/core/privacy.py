@@ -97,13 +97,21 @@ def _is_basic_credential(match: re.Match[str]) -> bool:
     ``jürgen:pässwörd1`` is one. ``ReadOnly``, ``DataSets`` or ``MetaData``
     decode to bytes that are not text at all: of 703,344 casings of a
     235,976-word English list, one (``azoxyanisole``) passes.
+    URL-safe base64 (RFC 4648 §5) and unpadded tokens are supported (#1082).
     """
 
     token = match.group(1)
-    if len(token) < 8:
+    unpadded = token.rstrip("=")
+    pad_len = len(unpadded) % 4
+    if pad_len == 1:
+        return False
+    padded = unpadded.replace("-", "+").replace("_", "/")
+    if pad_len:
+        padded += "=" * (4 - pad_len)
+    if len(padded) < 8:
         return False
     try:
-        decoded = base64.b64decode(token, validate=True).decode("utf-8")
+        decoded = base64.b64decode(padded, validate=True).decode("utf-8")
     except (binascii.Error, UnicodeDecodeError, ValueError):
         return False
     user, colon, _password = decoded.partition(":")
@@ -117,7 +125,7 @@ def _is_basic_credential(match: re.Match[str]) -> bool:
 #: credential of any other shape is still redacted, by
 #: :data:`CREDENTIAL_LABEL_PATTERN`.
 BASIC_AUTH_RE = CheckedPattern(
-    re.compile(r"\b(?i:basic)\s+([A-Za-z0-9+/]{4,}={0,2})(?![A-Za-z0-9+/=_-])"),
+    re.compile(r"\b(?i:basic)\s+([A-Za-z0-9+/_\-]{4,}={0,2})(?![A-Za-z0-9+/=_\-])"),
     _is_basic_credential,
 )
 
@@ -160,9 +168,9 @@ def _is_random_token(match: re.Match[str]) -> bool:
 #: string.
 AWS_SECRET_ACCESS_KEY_RE = CheckedPattern(
     re.compile(
-        r"(?<![A-Za-z0-9/+])(?!/)"
+        r"(?<![A-Za-z0-9+])(?!/)"
         r"(?=[A-Za-z0-9/+]{0,39}[A-Z])(?=[A-Za-z0-9/+]{0,39}[a-z])(?=[A-Za-z0-9/+]{0,39}[0-9])"
-        r"[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+=])"
+        r"[A-Za-z0-9/+]{40}(?![A-Za-z0-9+=])"
     ),
     _is_random_token,
 )
