@@ -452,7 +452,7 @@ Every `doctor --json` payload carries an `environment` block, and so does every 
 | `source_tree` | The enclosing Agents Shipgate checkout, if any: `root`, `version`, `launcher`, and `contains_import`. |
 | `mismatches[]` | `code`, `severity` (`error` / `warning`), `detail`, and — when one exists — a runnable `command` spelled for this invocation. Empty is the normal state. |
 
-`mismatches[]` codes: `interpreter_unsupported`, `import_outside_source_tree`, `source_tree_version_differs`, `installed_version_differs`, `console_script_interpreter_missing`, `console_script_runs_other_interpreter`. Nothing here executes an interpreter or a console script to find out — a stale wrapper is identified by reading it, because a wrapper that cannot start is exactly the one that cannot report on itself.
+`mismatches[]` codes: `interpreter_unsupported`, `import_outside_source_tree`, `source_tree_version_differs`, `installed_version_differs`, `console_script_interpreter_missing`, `console_script_runs_other_interpreter`, `dependency_below_declared_floor` (a runtime dependency below the floor the running build declares), `dependency_differs_from_lock` (a source checkout's dependency off `constraints/dev.txt`, so CI may not reproduce the result). Nothing here executes an interpreter or a console script to find out — a stale wrapper is identified by reading it, because a wrapper that cannot start is exactly the one that cannot report on itself.
 
 ### One control vocabulary across the commands
 

@@ -8,6 +8,13 @@ diverge" — it is a subcommand that looks missing, a fix that appears not to
 take, or a console script that dies with ``ModuleNotFoundError`` before a line
 of Shipgate runs (#334, and the epic's step 5 in #338).
 
+The dependencies underneath diverge just as quietly. A virtualenv the launcher
+selected can sit below the floors the running build declares, or away from the
+lock CI tests a checkout against, and a change then passes locally and fails in
+CI or for an adopter. So the running build's runtime requirements are compared
+with what this interpreter has installed, and, in a source checkout, with
+``constraints/dev.txt`` (#1028).
+
 Everything here is answered by *reading*, never by running: no interpreter is
 spawned to interrogate it, no console script is executed to see what it does.
 That is not only the trust-model invariant the whole package is held to
@@ -26,6 +33,7 @@ import, and it has the same property.
 
 from __future__ import annotations
 
+import importlib.metadata as _metadata
 import os
 import re
 import sys
@@ -40,14 +48,17 @@ import agents_shipgate
 from agents_shipgate.invocation import (
     CONSOLE_SCRIPTS,
     Invocation,
+    join_argv,
     render_command,
     resolve_invocation,
 )
 
 __all__ = [
+    "DEVELOPMENT_LOCK",
     "DISTRIBUTION_NAME",
     "MINIMUM_PYTHON",
     "REPOSITORY_LAUNCHER",
+    "DependencyFact",
     "EnvironmentProbe",
     "describe_environment",
     "environment_report",
@@ -69,6 +80,10 @@ MINIMUM_PYTHON: tuple[int, int] = (3, 12)
 #: distinguished from one by living next to ``pyproject.toml`` rather than on
 #: ``PATH``.
 REPOSITORY_LAUNCHER = "shipgate"
+
+#: The hash-locked closure CI installs, relative to a source checkout's root:
+#: the dependency versions a source tree is actually tested against.
+DEVELOPMENT_LOCK = "constraints/dev.txt"
 
 # Enough of a wrapper to hold its shebang and, for the shell trampoline below,
 # the ``exec`` line naming an absolute interpreter path. Console-script wrappers
@@ -94,6 +109,43 @@ _SHELLS = frozenset({"sh", "bash", "dash", "ksh", "zsh"})
 # with ``re.match``, so ``exec`` has to be the command, not a mention of one.
 _EXEC_TARGET = re.compile(r"""['"]*exec['"]*\s+(?:"([^"]+)"|'([^']+)'|(\S+))""")
 
+# A declared requirement: a name, optional extras, then specifiers up to an
+# optional marker. Spelled for the declarations this project writes; whatever
+# it cannot read is left unjudged rather than guessed at.
+_REQUIREMENT = re.compile(
+    r"^\s*(?P<name>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\s*(?:\[[^\]]*\])?"
+    r"\s*\(?(?P<specifiers>[^;()]*)\)?\s*(?P<marker>;.*)?$"
+)
+
+# One pin in a `uv pip compile` lock: `name==version`, optionally `; marker`,
+# and the line continuation before its hashes.
+_LOCK_PIN = re.compile(
+    r"^(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*==\s*(?P<version>[^\s;\\]+)"
+    r"\s*(?P<marker>;[^\\]*)?\\?\s*$"
+)
+
+# The release segment of a version, and whatever follows it.
+_RELEASE = re.compile(r"^\s*v?(?P<release>\d+(?:\.\d+)*)(?P<rest>.*)$", re.IGNORECASE)
+
+# A pre- or development-release suffix: the one kind that sorts a version
+# *below* the release it is attached to.
+_PRE_RELEASE = re.compile(r"^[-_.]?(?:a|b|c|rc|alpha|beta|pre|preview|dev)", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class DependencyFact:
+    """One runtime requirement of the build that is running, and this interpreter's copy.
+
+    ``requirement`` is the declaration verbatim. ``installed`` is what
+    ``importlib.metadata`` records for it in this interpreter, ``None`` when it
+    records nothing. ``locked`` is the development lock's pin, read only for a
+    source checkout: that lock is the environment CI tests the tree in.
+    """
+
+    requirement: str
+    installed: str | None
+    locked: str | None = None
+
 
 @dataclass(frozen=True)
 class EnvironmentProbe:
@@ -117,6 +169,12 @@ class EnvironmentProbe:
     #: Suffixes that make a file executable, from ``PATHEXT``. Empty on POSIX,
     #: where the execute bit decides instead.
     path_extensions: tuple[str, ...] = ()
+    #: The imported build's runtime requirements, each with the version this
+    #: interpreter has installed (#1028). Empty when they cannot be read.
+    dependencies: tuple[DependencyFact, ...] = ()
+    #: The development lock those requirements' ``locked`` pins came from, for a
+    #: source checkout that has one.
+    dependency_lock: str | None = None
 
 
 def probe_environment(
@@ -131,10 +189,12 @@ def probe_environment(
         cwd = Path.cwd()
     except OSError:  # pragma: no cover - deleted working directory
         cwd = Path(os.sep)
+    package_file = getattr(agents_shipgate, "__file__", None)
+    dependencies, dependency_lock = _probe_dependencies(package_file)
     return EnvironmentProbe(
         executable=sys.executable,
         python_version=sys.version_info[:3],
-        package_file=getattr(agents_shipgate, "__file__", None),
+        package_file=package_file,
         imported_version=getattr(agents_shipgate, "__version__", None),
         installed_version=_installed_version(),
         path_entries=tuple(
@@ -146,6 +206,8 @@ def probe_environment(
         # on. Searched before the imported package's own root — see
         # `find_source_checkout` for why that order is load-bearing.
         search_from=tuple(path for path in (workspace, cwd) if path is not None),
+        dependencies=dependencies,
+        dependency_lock=dependency_lock,
     )
 
 
@@ -177,6 +239,165 @@ def _installed_version() -> str | None:
         return None
     except Exception:  # pragma: no cover - a corrupt metadata directory
         return None
+
+
+def _probe_dependencies(
+    package_file: str | None,
+) -> tuple[tuple[DependencyFact, ...], str | None]:
+    """The imported build's runtime requirements and this interpreter's copies.
+
+    The requirements come from the build that is *running*, not from whatever
+    distribution metadata happens to be installed: a source checkout declares
+    them in its own ``pyproject.toml`` (an editable install's recorded metadata
+    lags every edit to a floor), and a built distribution in its
+    ``Requires-Dist``. Installed versions are read through ``importlib.metadata``
+    at call time, so a test can state them by patching that module.
+    """
+
+    declared, lock = _declared_dependencies(_describe_import_source(package_file))
+    locked = _locked_versions(lock) if lock is not None else {}
+    facts = []
+    for requirement in declared:
+        parsed = _requirement_floor(requirement)
+        if parsed is None:
+            continue
+        name, _floor = parsed
+        facts.append(
+            DependencyFact(
+                requirement=requirement,
+                installed=_installed_distribution_version(name),
+                locked=locked.get(name),
+            )
+        )
+    return tuple(facts), (str(lock) if lock is not None else None)
+
+
+def _declared_dependencies(
+    import_source: Mapping[str, object],
+) -> tuple[list[str], Path | None]:
+    """The running build's runtime requirements, and its development lock if any.
+
+    Only unconditional requirements are kept from a built distribution: an
+    extra's entries carry an ``extra ==`` marker, and this module evaluates no
+    markers. ``import_source`` is :func:`_describe_import_source`'s answer, so
+    "source checkout" means the same thing here as in the report.
+    """
+
+    root = import_source.get("root")
+    kind = import_source.get("kind")
+    if kind == "source_checkout" and root:
+        checkout = Path(str(root)).parent
+        try:
+            parsed = tomllib.loads((checkout / "pyproject.toml").read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+            return [], None
+        project = parsed.get("project")
+        declared = project.get("dependencies") if isinstance(project, dict) else None
+        lock = checkout / DEVELOPMENT_LOCK
+        return (
+            [item for item in declared or [] if isinstance(item, str)],
+            lock if lock.is_file() else None,
+        )
+    if kind == "installed":
+        try:
+            declared = _metadata.requires(DISTRIBUTION_NAME) or []
+        except Exception:  # noqa: BLE001 - absent or corrupt metadata is a fact, not a fault
+            return [], None
+        return [item for item in declared if ";" not in item], None
+    return [], None
+
+
+def _locked_versions(lock: Path) -> dict[str, str]:
+    """The lock's unconditional pins; a name forked across markers is left out."""
+
+    try:
+        text = lock.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return {}
+    pins: dict[str, list[str | None]] = {}
+    for line in text.splitlines():
+        match = _LOCK_PIN.match(line)
+        if match is not None:
+            pins.setdefault(_canonical_name(match.group("name")), []).append(
+                None if match.group("marker") else match.group("version")
+            )
+    return {
+        name: versions[0]
+        for name, versions in pins.items()
+        if len(versions) == 1 and versions[0] is not None
+    }
+
+
+def _installed_distribution_version(name: str) -> str | None:
+    try:
+        return _metadata.version(name)
+    except _metadata.PackageNotFoundError:
+        return None
+    except Exception:  # noqa: BLE001 - a corrupt metadata directory
+        return None
+
+
+def _canonical_name(name: str) -> str:
+    """PEP 503 normalization, so ``ruamel.yaml`` and ``ruamel-yaml`` are one name."""
+
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _requirement_floor(requirement: str) -> tuple[str, str | None] | None:
+    """An unconditional requirement's canonical name and its single ``>=`` floor."""
+
+    match = _REQUIREMENT.match(requirement)
+    if match is None or match.group("marker"):
+        return None
+    floors = [
+        part.strip()[2:].strip()
+        for part in match.group("specifiers").split(",")
+        if part.strip().startswith(">=")
+    ]
+    return _canonical_name(match.group("name")), floors[0] if len(floors) == 1 else None
+
+
+def _release(version: str) -> tuple[tuple[int, ...], str] | None:
+    """A version's release segment, trailing zeros dropped, and its suffix.
+
+    ``None`` for an epoch (``1!2.0``): an epoch outranks every release segment,
+    and reading ``1`` as the release would invert the comparison.
+    """
+
+    if "!" in version:
+        return None
+    match = _RELEASE.match(version)
+    if match is None:
+        return None
+    parts = [int(part) for part in match.group("release").split(".")]
+    while len(parts) > 1 and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts), match.group("rest").strip().lower()
+
+
+def _below(installed: str, floor: str) -> bool:
+    """Whether ``installed`` sorts below ``floor`` under PEP 440, when that is certain.
+
+    Standard library only, so this compares release segments and handles the
+    one suffix that changes the answer at an equal release: a pre- or
+    development release of the floor sorts below it. A version this cannot
+    read (an epoch, say) is never called low: a false "below the floor" would
+    send someone to reinstall a working environment.
+    """
+
+    have, want = _release(installed), _release(floor)
+    if have is None or want is None:
+        return False
+    if have[0] != want[0]:
+        return have[0] < want[0]
+    return bool(_PRE_RELEASE.match(have[1])) and not want[1]
+
+
+def _same_version(left: str, right: str) -> bool:
+    first, second = _release(left), _release(right)
+    if first is None or second is None:
+        return left.strip().lower() == right.strip().lower()
+    return first == second
 
 
 def environment_report(
@@ -666,4 +887,64 @@ def _mismatches(
                 )
             )
 
+    found.extend(_dependency_mismatches(probe))
+    return found
+
+
+def _dependency_mismatches(probe: EnvironmentProbe) -> list[dict[str, object]]:
+    """Runtime dependencies below the build's floor, or off the tree's lock (#1028).
+
+    Below a floor is an ``error``: the build declares it does not support that
+    version, so a command can fail or behave as it does nowhere CI looks. Off
+    the development lock is a ``warning``, and only for a source checkout: the
+    version is supported, but a result here may not reproduce in CI. A missing
+    distribution is never reported — it is the launcher's import failure to
+    explain, and absent metadata is not evidence of an absent package.
+    """
+
+    found: list[dict[str, object]] = []
+    lock = probe.dependency_lock
+    lock_install = (
+        join_argv(
+            [probe.executable, "-m", "pip", "install", "--require-hashes", "--requirement", lock]
+        )
+        if lock
+        else None
+    )
+    for fact in probe.dependencies:
+        parsed = _requirement_floor(fact.requirement)
+        if parsed is None or fact.installed is None:
+            continue
+        name, floor = parsed
+        if floor is not None and _below(fact.installed, floor):
+            found.append(
+                _mismatch(
+                    "dependency_below_declared_floor",
+                    severity="error",
+                    detail=(
+                        f"{name} {fact.installed} is installed in {probe.executable}, "
+                        f"below the {floor} floor this build of Agents Shipgate "
+                        f"declares ({fact.requirement}). No version below the "
+                        "floor is tested, so a command can fail on it or behave "
+                        "differently than it does in CI."
+                    ),
+                    command=lock_install
+                    or join_argv(
+                        [probe.executable, "-m", "pip", "install", fact.requirement]
+                    ),
+                )
+            )
+        elif fact.locked is not None and not _same_version(fact.installed, fact.locked):
+            found.append(
+                _mismatch(
+                    "dependency_differs_from_lock",
+                    severity="warning",
+                    detail=(
+                        f"{name} {fact.installed} is installed in {probe.executable}, "
+                        f"but {lock} pins {fact.locked}, the version CI tests this "
+                        "checkout against. A result here may not reproduce in CI."
+                    ),
+                    command=lock_install,
+                )
+            )
     return found

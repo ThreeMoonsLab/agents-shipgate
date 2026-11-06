@@ -39,22 +39,22 @@
 # changed extra, marker, URL or range cannot slip past without recompiling.
 #
 #   declares: build<2,>=1.6.0
-#   declares: cryptography<51,>=50.0.1
+#   declares: cryptography>=44.0.3
 #   declares: cyclonedx-bom<8,>=7.3.1
 #   declares: hypothesis<7,>=6.165.10
 #   declares: jsonschema<5,>=4.26.0
-#   declares: packaging<27,>=26.3
+#   declares: packaging>=24.2
 #   declares: pip-audit<3,>=2.10.1
-#   declares: pydantic<3,>=2.13.4
+#   declares: pydantic<3,>=2.12.5
 #   declares: pytest-cov<8,>=7.1.0
 #   declares: pytest-xdist<4,>=3.8
 #   declares: pytest<10,>=9.1.1
-#   declares: pyyaml<7,>=6.0.3
-#   declares: ruamel-yaml<1,>=0.19.1
+#   declares: pyyaml<7,>=6.0.2
+#   declares: ruamel-yaml<1,>=0.18.10
 #   declares: ruff<1,>=0.16.1
 #   declares: sigstore<5,>=4.5.0
 #   declares: twine<8,>=7.0.0
-#   declares: typer<1,>=0.27.0
+#   declares: typer<1,>=0.20.0
 #
 annotated-doc==0.0.5 \
     --hash=sha256:117bac03a25ede5df5440e855b32d556049ca169ead221505badf432fed4b101 \

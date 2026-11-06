@@ -16,6 +16,16 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Updates move the locks and never a floor (#1028). `increase-if-necessary`
+    # leaves a range in pyproject.toml alone while it already admits the new
+    # release, and still rewrites an exact `==` pin in constraints/. Unset, the
+    # choice was Dependabot's: it raised floors (`increase`) whenever PyPI's
+    # summary for agents-shipgate differed from pyproject.toml's description,
+    # and widened ranges otherwise. `lockfile-only` is not the fix despite its
+    # name: Dependabot reads constraints/*.txt as requirement files, not as
+    # lockfiles, so it would stop proposing their updates, security fixes
+    # included. When a floor may move is CONTRIBUTING.md § Changing dependencies.
+    versioning-strategy: increase-if-necessary
     ignore:
       # `# via cyclonedx-bom`, which requires chardet!=6.*,<8,>=5.1 since 7.5.0
       # (7.3.1 capped it at <6.0, which is why #407 was closed). chardet 7.x is

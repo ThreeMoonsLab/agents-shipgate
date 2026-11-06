@@ -125,11 +125,61 @@ stale fails there by name rather than as a puzzling import error. See
 [`docs/release-runbook.md`](docs/release-runbook.md#the-environment-is-locked-and-it-is-cis)
 for which job installs which lock.
 
+### Runtime floors
+
+The `>=` floor of each `[project].dependencies` entry is the oldest version
+Agents Shipgate is tested on, not the newest one released. It is a contract
+with every environment the package is installed into. While the floors tracked
+the newest upstream release, `pip install agents-shipgate` in an agent project
+that already pinned `cryptography==46.0.7` or `packaging==24.2` quietly
+installed 0.15.0, and beside CrewAI (`pydantic<2.13`) it installed an older
+release or failed (#1028).
+
+A floor moves only when:
+
+- the code starts to need an API or a fix that the floor version lacks; or
+- a version at or above the floor is known to break Agents Shipgate. A
+  vulnerability counts when it is reachable through what Agents Shipgate calls.
+  An advisory in code it never calls does not: the adopter's resolver decides
+  whether a vulnerable release is installed, and a higher floor only takes the
+  newer Agents Shipgate away. Every `cryptography` release before 50.0.0 carries
+  advisories, and none of them is in the raw Ed25519 verification, which is all
+  this package uses `cryptography` for.
+
+A Dependabot pull request, a lock refresh or a new upstream release is never a
+reason to move a floor. An upper cap is declared only where a break is known.
+`tests/test_dependency_floors.py` lists the caps in force and the break each
+one stands for.
+
+CI's `dependency-floors` job proves the floors on every pull request. It
+resolves the runtime requirements with `uv pip compile --resolution
+lowest-direct` and fails unless each one lands exactly on its floor. It then
+runs the tests that exercise those dependencies, and every sample golden, in
+that closure, and checks with `pip install --dry-run --report` that pip still
+installs this version beside the pins in `scripts/dependency_floors.py`. To
+check a floor change before pushing:
+
+```bash
+python scripts/dependency_floors.py coinstall
+python scripts/dependency_floors.py compile --uv "$(command -v uv)" --output floors.txt
+```
+
+`doctor --json` reports `dependency_below_declared_floor` when the interpreter it
+runs in has a runtime dependency below its floor. In a source checkout it also
+reports `dependency_differs_from_lock` when one differs from
+`constraints/dev.txt`, the closure CI tests the tree against.
+
+### Dependabot
+
 Dependabot groups each week's minor and patch version updates into one pull
 request per ecosystem. Major bumps, security updates, `uv` and the harness's
-`claude-agent-sdk` still arrive individually. Dependabot edits the hash locks
-as plain requirement files, so a grouped pip PR is a request, never merged
-as-is. To act on it, raise any floor it changes in `pyproject.toml` or a
+`claude-agent-sdk` still arrive individually. Its pip updates use
+`versioning-strategy: increase-if-necessary`, so a range in `pyproject.toml`
+that already admits the new release is left alone: its pull requests move the
+locks, never a floor, and the harness's `claude-agent-sdk` range is proposed
+for change only when a release falls outside it. Dependabot edits the hash
+locks as plain requirement files, so a grouped pip PR is a request, never
+merged as-is. To act on it, move any exact toolchain pin it changes in a
 `constraints/*.in`, then recompile only the locks it touches, for example
 `python scripts/update_locks.py constraints/dev.txt`, with the `uv` version
 `constraints/release-publish.in` pinned before the PR. A recompile refreshes
