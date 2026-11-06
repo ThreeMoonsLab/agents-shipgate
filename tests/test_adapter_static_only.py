@@ -76,6 +76,7 @@ from __future__ import annotations
 import ast
 import re
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -83,6 +84,10 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCANNER_DIR = REPO_ROOT / "src" / "agents_shipgate"
+
+#: The scope of code that runs at import time, outside every ``def`` and
+#: ``class`` body: module-level imports and calls key to this name.
+MODULE_SCOPE = "<module>"
 
 
 @dataclass(frozen=True)
@@ -96,13 +101,19 @@ class Violation:
       ``"attr_call:<dotted>"``   — call to ``<module>.<func>`` (canonical-resolved)
       ``"name_call:<name>"``     — bare-name call to ``<name>`` (e.g., ``__import__``)
 
+    ``scope`` is the qualified name of the function or class whose body
+    holds the offending node, spelled as Python's ``__qualname__`` spells it
+    (``Class.method``, ``outer.<locals>.inner``), or ``MODULE_SCOPE`` at
+    module level; ``_scope_qualnames`` resolves it from the AST.
+
     ``snippet`` is the canonical ``ast.unparse`` of the offending AST node
-    (Import/ImportFrom/Call). Combined with ``line`` it lets the allowlist
-    pin individual call sites rather than blanket-permitting every
-    occurrence in a file.
+    (Import/ImportFrom/Call). With ``scope`` it lets the allowlist pin
+    individual call sites rather than blanket-permitting every occurrence in
+    a file. ``line`` is reported in messages but is not part of any key.
     """
 
     line: int
+    scope: str
     surface: str
     message: str
     snippet: str
@@ -113,41 +124,46 @@ class AllowedException:
     """v0.18 (PR #2): per-call-site allowed forbidden-surface entry,
     with prose rationale.
 
-    PR #2 review follow-up: the entry now pins ``line`` and ``snippet``
-    in addition to ``(relative_path, surface)``. The original
-    ``(relative_path, surface)``-only design blanket-permitted every
-    occurrence of a surface in a file, so a future unreviewed
-    ``subprocess.run(...)`` added to ``triggers.py`` would pass silently.
-    Pinning call-site granularity forces every new occurrence to be
-    individually allowlisted with rationale.
+    PR #2 review follow-up: the original ``(relative_path, surface)``-only
+    design blanket-permitted every occurrence of a surface in a file, so a
+    future unreviewed ``subprocess.run(...)`` added to ``triggers.py`` would
+    pass silently. Every occurrence is now individually allowlisted.
 
-    ``line`` is the 1-indexed line number of the offending AST node.
-    ``snippet`` is the canonical ``ast.unparse`` of the node. The two
-    contract tests assert that every entry matches a real violation
-    with the same ``(line, snippet)`` AND that every observed violation
-    has a matching entry.
+    #1078: an entry is keyed by ``(relative_path, scope, surface)`` — the
+    file, the qualified name of the function (or ``MODULE_SCOPE``) whose body
+    holds the call, and the surface — and states how many times that surface
+    occurs there (``count``) and the canonical ``ast.unparse`` of each
+    occurrence (``snippet``). It used to pin the line number instead, so any
+    edit above an allowlisted call, a merge of main included, failed the
+    test without anything the entry audits having changed.
 
-    Line drift (inserting a comment that pushes a call down) WILL fail
-    the test — that is the intended failure mode, forcing a reviewer to
-    confirm the change is benign and bump the entry.
+    The contract tests require, for every ``(relative_path, scope, surface)``
+    the scanner flags, exactly one entry, exactly ``count`` occurrences, and
+    every occurrence's snippet equal to ``snippet``; and every entry must
+    still match. So a second spawn inside an allowlisted function, a spawn
+    in any other function, a changed argv, and a removed call (a stale
+    entry) all fail, while moving a call within its function does not.
     """
 
     relative_path: str
+    scope: str
     surface: str
-    line: int
+    count: int
     snippet: str
     rationale: str
 
 
-# Per-call-site allowlist of forbidden-surface uses. Each entry MUST
-# correspond to a real call site (verified by
-# ``test_allowlist_entry_matches_real_surface``). Every observed forbidden
-# surface in the scanner MUST have a matching entry (verified by
-# ``test_no_unallowlisted_forbidden_surface_in_scanner``). Rationale text
-# is mirrored in STABILITY.md § "Meta-CLI surfaces (allowlisted, audited)".
+# Per-call-site allowlist of forbidden-surface uses, keyed by the enclosing
+# function (#1078). Each entry MUST correspond to real call sites (verified
+# by ``test_allowlist_entry_matches_real_surface``). Every observed forbidden
+# surface in the scanner MUST have a matching entry whose ``count`` and
+# ``snippet`` agree with it (verified by
+# ``test_no_unallowlisted_forbidden_surface_in_scanner``). Rationale text is
+# mirrored in STABILITY.md § "Meta-CLI surfaces (allowlisted, audited)".
 #
-# Adding a new call site requires adding an entry here AND updating the
-# rationale; the entries are intentionally verbose so review-by-grep
+# Adding a new call site requires adding an entry here (or, for another
+# occurrence in an allowlisted function, raising its ``count``) AND updating
+# the rationale; the entries are intentionally verbose so review-by-grep
 # captures the full audit trail.
 ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     # cli/bootstrap.py — chains detect/init/scan/apply-patches against
@@ -155,8 +171,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     # agents_shipgate``, never user input.
     AllowedException(
         relative_path="cli/bootstrap.py",
+        scope=MODULE_SCOPE,
         surface="import:subprocess",
-        line=31,
+        count=1,
         snippet="import subprocess",
         rationale=(
             "Bootstrap chains detect → init → scan → apply-patches against "
@@ -167,8 +184,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="cli/bootstrap.py",
+        scope="_run_step",
         surface="attr_call:subprocess.run",
-        line=82,
+        count=1,
         snippet=(
             "subprocess.run(argv, cwd=str(cwd), env=env, "
             "capture_output=True, text=True, check=False)"
@@ -187,8 +205,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     # for file inventory. Reads git metadata; no shell, no user-code exec.
     AllowedException(
         relative_path="cli/discovery/artifacts.py",
+        scope=MODULE_SCOPE,
         surface="import:subprocess",
-        line=6,
+        count=1,
         snippet="import subprocess",
         rationale=(
             "Discovery uses ``git ls-files`` to enumerate user-repo files "
@@ -198,8 +217,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="cli/discovery/artifacts.py",
+        scope="_git_candidate_files",
         surface="attr_call:subprocess.run",
-        line=591,
+        count=1,
         snippet=(
             "subprocess.run(['git', '--no-replace-objects', '-C', "
             "str(workspace), 'rev-parse', '--show-toplevel'], check=False, "
@@ -214,8 +234,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="cli/discovery/artifacts.py",
+        scope="_run_git_inventory_bounded",
         surface="attr_call:subprocess.Popen",
-        line=673,
+        count=1,
         snippet=(
             "subprocess.Popen(['git', '--no-replace-objects', '-C', "
             "str(workspace), *args], env=env, stdout=subprocess.PIPE, "
@@ -236,8 +257,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     # of its own.
     AllowedException(
         relative_path="cli/trigger.py",
+        scope=MODULE_SCOPE,
         surface="import:subprocess",
-        line=23,
+        count=1,
         snippet="import subprocess",
         rationale=(
             "trigger subcommand catches subprocess.CalledProcessError from "
@@ -250,8 +272,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     # It never fetches and never executes user code.
     AllowedException(
         relative_path="cli/verify/git.py",
+        scope=MODULE_SCOPE,
         surface="import:subprocess",
-        line=7,
+        count=1,
         snippet="import subprocess",
         rationale=(
             "Verify uses local git commands to resolve refs, collect diffs, "
@@ -262,8 +285,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="cli/verify/git.py",
+        scope="_run_git_bounded_result",
         surface="attr_call:subprocess.Popen",
-        line=3441,
+        count=1,
         snippet=(
             "subprocess.Popen(cmd, env=env, stderr=subprocess.PIPE, "
             "stdin=subprocess.PIPE if input is not None else "
@@ -285,8 +309,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="cli/verify/git.py",
+        scope="_run_process",
         surface="attr_call:subprocess.run",
-        line=3850,
+        count=1,
         snippet=(
             "subprocess.run(cmd, capture_output=capture_output, check=check, "
             "env=env, input=input, stderr=stderr, stdin=stdin, stdout=stdout, "
@@ -305,8 +330,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     # exact internally assembled argv after revalidation.
     AllowedException(
         relative_path="core/authorization_execution.py",
+        scope=MODULE_SCOPE,
         surface="import:subprocess",
-        line=16,
+        count=1,
         snippet="import subprocess",
         rationale=(
             "The guarded authorization executor snapshots/fscks one signed "
@@ -317,8 +343,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="core/authorization_execution.py",
+        scope="_run_process",
         surface="attr_call:subprocess.run",
-        line=518,
+        count=1,
         snippet=(
             "subprocess.run(cmd, capture_output=capture_output, check=check, "
             "cwd=cwd, env=env, input=input, stderr=stderr, stdin=stdin, "
@@ -332,8 +359,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="core/authorization_execution.py",
+        scope="_run_bounded_stdout_process",
         surface="attr_call:subprocess.Popen",
-        line=553,
+        count=1,
         snippet=(
             "subprocess.Popen(cmd, env=env, stdin=subprocess.PIPE, "
             "stdout=subprocess.PIPE, stderr=subprocess.PIPE)"
@@ -350,8 +378,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     # It never reads or executes user code.
     AllowedException(
         relative_path="cli/fixture.py",
+        scope=MODULE_SCOPE,
         surface="import:subprocess",
-        line=10,
+        count=1,
         snippet="import subprocess",
         rationale=(
             "Fixture run catches subprocess.CalledProcessError and invokes "
@@ -362,8 +391,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="cli/fixture.py",
+        scope="_git",
         surface="attr_call:subprocess.run",
-        line=529,
+        count=1,
         snippet=(
             "subprocess.run(['git', *args], cwd=cwd, check=True, capture_output=True, text=True)"
         ),
@@ -380,8 +410,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     # packages, never user workspace.
     AllowedException(
         relative_path="cli/self_check.py",
+        scope="_probe_cli_surface",
         surface="name_call:__import__",
-        line=144,
+        count=1,
         snippet="__import__(module_name)",
         rationale=(
             "self-check probes whether named modules import cleanly in the "
@@ -396,8 +427,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     # change the snippet and fail the test, forcing re-review.
     AllowedException(
         relative_path="triggers.py",
+        scope=MODULE_SCOPE,
         surface="import:importlib.resources.files",
-        line=26,
+        count=1,
         snippet="from importlib.resources import files",
         rationale=(
             "triggers.py reads the bundled docs/triggers.json catalog from "
@@ -408,8 +440,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="triggers.py",
+        scope="load_triggers",
         surface="attr_call:importlib.resources.files",
-        line=143,
+        count=1,
         snippet="files('agents_shipgate')",
         rationale=(
             "Resolves the bundled trigger catalog (docs/triggers.json) "
@@ -421,8 +454,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="fixtures.py",
+        scope=MODULE_SCOPE,
         surface="import:importlib.resources.files",
-        line=12,
+        count=1,
         snippet="from importlib.resources import files",
         rationale=(
             "fixtures.py reads the bundled samples/ directory from the "
@@ -432,8 +466,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="fixtures.py",
+        scope="fixtures_root",
         surface="attr_call:importlib.resources.files",
-        line=178,
+        count=1,
         snippet="files('agents_shipgate')",
         rationale=(
             "Resolves the bundled fixture directory (samples/*) inside the "
@@ -443,8 +478,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="cli/discovery/agent_instructions/adoption_kit.py",
+        scope=MODULE_SCOPE,
         surface="import:importlib.resources.files",
-        line=9,
+        count=1,
         snippet="from importlib.resources import files",
         rationale=(
             "adoption_kit.py reads bundled first-party adoption-kit files "
@@ -454,8 +490,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="cli/discovery/agent_instructions/adoption_kit.py",
+        scope="_bundled_target_root",
         surface="attr_call:importlib.resources.files",
-        line=359,
+        count=1,
         snippet="files('agents_shipgate')",
         rationale=(
             "Resolves bundled adoption-kits/* content inside the "
@@ -466,8 +503,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="core/openshell_native.py",
+        scope=MODULE_SCOPE,
         surface="import:subprocess",
-        line=11,
+        count=1,
         snippet="import subprocess",
         rationale=(
             "Explicit verify --openshell-proof-config execution uses one pinned "
@@ -477,8 +515,9 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
     ),
     AllowedException(
         relative_path="core/openshell_native.py",
+        scope="_execute",
         surface="attr_call:subprocess.Popen",
-        line=230,
+        count=1,
         snippet=(
             "subprocess.Popen(command, cwd=root, shell=False, start_new_session=True, "
             "stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, "
@@ -497,34 +536,61 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
 )
 
 
-def _lookup_allowed(
+def _allowlist_mismatches(
     relative_path: str,
-    surface: str,
-    line: int,
-    snippet: str,
-) -> AllowedException | None:
-    """v0.18 (PR #2): match a violation to an ``AllowedException`` on all
-    four fields. Returns the matching entry, or ``None`` if the violation
-    is not allowlisted.
+    violations: Iterable[Violation],
+    allowlist: Iterable[AllowedException] = ALLOWED_EXCEPTIONS,
+) -> list[str]:
+    """Every way one file's violations and its allowlist entries disagree.
 
-    Per-call-site pinning closes the P1 review hole: a future unreviewed
-    ``subprocess.run(...)`` added to an already-allowlisted file no
-    longer slips past, because its ``line`` and ``snippet`` will not
-    match any existing entry.
+    The one matcher behind every allowlist test (#1078). Violations are
+    grouped by ``(scope, surface)``; each group must have an entry for the
+    same ``(relative_path, scope, surface)`` whose ``count`` equals the
+    group's size and whose ``snippet`` equals every member's. An entry with
+    no group is stale. Returns one message per disagreement, so an empty
+    list means the file matches its allowlist exactly.
+
+    Per-call-site keying closes the P1 review hole: a future unreviewed
+    ``subprocess.run(...)`` added to an already-allowlisted file either lands
+    in a function with no entry or raises an allowlisted function's count.
+    Line numbers are not part of the key, so code moving around a call does
+    not change the result.
     """
-    for exc in ALLOWED_EXCEPTIONS:
-        if (
-            exc.relative_path == relative_path
-            and exc.surface == surface
-            and exc.line == line
-            and exc.snippet == snippet
-        ):
-            return exc
-    return None
+    entries = {
+        (exc.scope, exc.surface): exc for exc in allowlist if exc.relative_path == relative_path
+    }
+    observed: dict[tuple[str, str], list[Violation]] = {}
+    for violation in violations:
+        observed.setdefault((violation.scope, violation.surface), []).append(violation)
 
-
-def _violation_allowed(relative_path: str, surface: str, line: int, snippet: str) -> bool:
-    return _lookup_allowed(relative_path, surface, line, snippet) is not None
+    problems: list[str] = []
+    for key in sorted(observed):
+        scope, surface = key
+        found = observed[key]
+        site = f"{relative_path}::{scope} {surface} (line(s) {sorted(v.line for v in found)})"
+        exc = entries.get(key)
+        if exc is None:
+            problems.append(
+                f"{site}: not allowlisted; snippet(s): {sorted(v.snippet for v in found)!r}"
+            )
+            continue
+        if len(found) != exc.count:
+            problems.append(
+                f"{site}: the entry allows {exc.count} occurrence(s) in this scope, "
+                f"found {len(found)}"
+            )
+        for violation in found:
+            if violation.snippet != exc.snippet:
+                problems.append(
+                    f"{site}: line {violation.line} has snippet {violation.snippet!r}, "
+                    f"the entry pins {exc.snippet!r}"
+                )
+    for scope, surface in sorted(set(entries) - set(observed)):
+        problems.append(
+            f"{relative_path}::{scope} {surface}: allowlisted, but no such surface is in "
+            "that scope; the entry is stale"
+        )
+    return problems
 
 
 # Bare-name forbidden builtins. Catches direct calls like ``exec("...")``.
@@ -704,6 +770,52 @@ def _resolve_attribute_chain_all(
     ]
 
 
+_FUNCTION_NODES = (ast.FunctionDef, ast.AsyncFunctionDef)
+
+
+def _scope_qualnames(tree: ast.AST) -> dict[int, str]:
+    """Map ``id(node)`` to the qualified name of the scope that runs it.
+
+    The scope is the innermost ``def`` / ``async def`` / ``class`` whose
+    *body* holds the node, named as Python's ``__qualname__`` names it:
+    ``func``, ``Class.method``, ``outer.<locals>.inner``,
+    ``outer.<locals>.Class.method``. Code outside every body keys to
+    ``MODULE_SCOPE``. Decorators, default arguments, annotations and class
+    bases are evaluated by the enclosing scope, so they key to it, not to
+    the function or class they decorate. Lambdas and comprehensions are not
+    scopes here: a call inside one keys to the ``def`` around it, so it
+    counts toward that function's entry.
+
+    Iterative, so a deeply nested expression cannot exhaust the recursion
+    limit.
+    """
+    scopes: dict[int, str] = {}
+    # (node, scope that runs it, whether that scope is a function body)
+    pending: list[tuple[ast.AST, str, bool]] = [(tree, MODULE_SCOPE, False)]
+    while pending:
+        node, scope, in_function = pending.pop()
+        scopes[id(node)] = scope
+        if not isinstance(node, (*_FUNCTION_NODES, ast.ClassDef)):
+            pending.extend((child, scope, in_function) for child in ast.iter_child_nodes(node))
+            continue
+        if in_function:
+            qualname = f"{scope}.<locals>.{node.name}"
+        elif scope == MODULE_SCOPE:
+            qualname = node.name
+        else:
+            qualname = f"{scope}.{node.name}"
+        body_in_function = isinstance(node, _FUNCTION_NODES)
+        for field, value in ast.iter_fields(node):
+            for child in value if isinstance(value, list) else [value]:
+                if not isinstance(child, ast.AST):
+                    continue
+                if field == "body":
+                    pending.append((child, qualname, body_in_function))
+                else:
+                    pending.append((child, scope, in_function))
+    return scopes
+
+
 def _scan_source(source: str, path: Path) -> list[Violation]:
     """Return a list of structured ``Violation`` objects.
 
@@ -733,12 +845,14 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
         return [
             Violation(
                 line=exc.lineno or 0,
+                scope=MODULE_SCOPE,
                 surface="parse_error",
                 message=f"{path}:{exc.lineno}: failed to parse: {exc.msg}",
                 snippet="",
             )
         ]
     rel = path.relative_to(REPO_ROOT)
+    scopes = _scope_qualnames(tree)
     violations: list[Violation] = []
 
     # --- Pass 1: imports ---------------------------------------------------
@@ -763,6 +877,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                     violations.append(
                         Violation(
                             line=node.lineno,
+                            scope=scopes[id(node)],
                             surface=f"import:{alias.name}",
                             message=(
                                 f"{rel}:{node.lineno}: forbidden import "
@@ -783,6 +898,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                 violations.append(
                     Violation(
                         line=node.lineno,
+                        scope=scopes[id(node)],
                         surface=f"import:{mod}",
                         message=(
                             f"{rel}:{node.lineno}: forbidden from-import "
@@ -799,6 +915,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                         violations.append(
                             Violation(
                                 line=node.lineno,
+                                scope=scopes[id(node)],
                                 surface=f"import:{mod}.*",
                                 message=(
                                     f"{rel}:{node.lineno}: forbidden wildcard "
@@ -822,6 +939,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                         violations.append(
                             Violation(
                                 line=node.lineno,
+                                scope=scopes[id(node)],
                                 surface=f"import:{canonical}",
                                 message=(
                                     f"{rel}:{node.lineno}: forbidden from-import of {canonical!r}"
@@ -843,6 +961,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                 violations.append(
                     Violation(
                         line=node.lineno,
+                        scope=scopes[id(node)],
                         surface=f"name_call:{func.id}",
                         message=(f"{rel}:{node.lineno}: forbidden builtin call {func.id!r}"),
                         snippet=ast.unparse(node),
@@ -864,6 +983,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                         violations.append(
                             Violation(
                                 line=node.lineno,
+                                scope=scopes[id(node)],
                                 surface=f"attr_call:{canonical}",
                                 message=(f"{rel}:{node.lineno}: forbidden call {canonical!r}{via}"),
                                 snippet=ast.unparse(node),
@@ -879,6 +999,7 @@ def _scan_source(source: str, path: Path) -> list[Violation]:
                     violations.append(
                         Violation(
                             line=node.lineno,
+                            scope=scopes[id(node)],
                             surface=f"attr_call:{chain}",
                             message=(f"{rel}:{node.lineno}: forbidden call {chain!r}"),
                             snippet=ast.unparse(node),
@@ -918,25 +1039,23 @@ def test_scanner_source_contains_no_forbidden_calls_or_imports(
     """
     rel = str(scanner_source.relative_to(SCANNER_DIR))
     source = scanner_source.read_text(encoding="utf-8")
-    violations = _scan_source(source, scanner_source)
-    unallowed = [v for v in violations if not _violation_allowed(rel, v.surface, v.line, v.snippet)]
-    assert not unallowed, (
+    problems = _allowlist_mismatches(rel, _scan_source(source, scanner_source))
+    assert not problems, (
         "Trust-model invariant violation under src/agents_shipgate/:\n  "
-        + "\n  ".join(
-            f"{v.message}  (surface={v.surface!r}, snippet={v.snippet!r})" for v in unallowed
-        )
+        + "\n  ".join(problems)
         + "\n\n"
         + "The scanner MUST NOT execute or import user code. Parse with "
         + "ast.parse / yaml.safe_load / json.loads ONLY. See "
         + "STABILITY.md § 'Trust-model invariants' and the companion "
         + "tests/test_fixture_no_import.py live-load tests. If the surface "
         + "is a legitimate first-party meta-CLI operation, add an "
-        + "ALLOWED_EXCEPTIONS entry with the exact line, snippet, and "
-        + "prose rationale, and document it in STABILITY.md § 'Meta-CLI "
-        + "surfaces (allowlisted, audited)'. Existing entries cover "
-        + "specific call sites only — adding a new occurrence of an "
-        + "already-allowlisted surface in the same file STILL requires a "
-        + "new entry."
+        + "ALLOWED_EXCEPTIONS entry with the enclosing scope, count, exact "
+        + "snippet, and prose rationale, and document it in STABILITY.md § "
+        + "'Meta-CLI surfaces (allowlisted, audited)'. Existing entries cover "
+        + "specific call sites only — a new occurrence of an "
+        + "already-allowlisted surface in the same file STILL needs review: "
+        + "in another function it needs its own entry, and in the same "
+        + "function it raises that entry's count."
     )
 
 
@@ -1215,72 +1334,95 @@ def test_lint_scanner_does_not_false_positive_on_safe_shapes() -> None:
 @pytest.mark.parametrize(
     "exc",
     ALLOWED_EXCEPTIONS,
-    ids=lambda e: f"{e.relative_path}:{e.line}:{e.surface}",
+    ids=lambda e: f"{e.relative_path}:{e.scope}:{e.surface}",
 )
 def test_allowlist_entry_matches_real_surface(exc: AllowedException) -> None:
     """v0.18 (PR #2) stale-allowlist guard.
 
-    Every ``ALLOWED_EXCEPTIONS`` entry MUST correspond to a real
-    violation in the named file with the SAME ``(surface, line,
-    snippet)`` quadruple. Three failure modes are detected:
+    Every ``ALLOWED_EXCEPTIONS`` entry MUST correspond to real violations
+    in the named file: exactly ``count`` of them with the entry's
+    ``surface`` in the entry's ``scope``, each with the entry's
+    ``snippet``. Four failure modes are detected:
 
     - **Removed surface:** file refactored to remove the call site;
       entry has no matching violation → fail (entry is stale).
-    - **Line drift:** call site moved to a different line (e.g.,
-      a comment was added above); entry's ``line`` no longer
-      matches → fail (forces re-review of the move).
+    - **Moved to another function:** the call now runs in a different
+      scope, or the function was renamed → fail (forces re-review of
+      the move and a re-keyed entry).
+    - **Count drift:** a second occurrence was added to the same
+      function, or one of several was removed → fail.
     - **Snippet drift:** call site's argv or shape changed (e.g.,
       ``subprocess.run(['git', 'log'])`` was edited to
       ``subprocess.run(user_input)``); entry's ``snippet`` no
       longer matches → fail (forces re-review of the semantic
       change).
 
+    Moving a call within its function, or editing code above it, changes
+    none of these (#1078): the entry pinned the line number until then.
+
     PR #2 review follow-up: the original ``(file, surface)``-only
-    match blanket-permitted every occurrence in a file. The
-    quadruple match restricts each entry to a single call site.
+    match blanket-permitted every occurrence in a file. Keying by scope
+    and counting restricts each entry to the call sites it names.
     """
     path = SCANNER_DIR / exc.relative_path
     assert path.exists(), f"allowlisted file does not exist: {exc.relative_path}"
-    source = path.read_text(encoding="utf-8")
-    violations = _scan_source(source, path)
+    violations = _scan_source(path.read_text(encoding="utf-8"), path)
     same_surface = [v for v in violations if v.surface == exc.surface]
-    assert same_surface, (
-        f"allowlisted surface {exc.surface!r} not present in "
-        f"{exc.relative_path!r} at all; entry is stale, remove or "
-        f"refactor. Observed surfaces in this file: "
-        f"{sorted({v.surface for v in violations})!r}"
+    problems = _allowlist_mismatches(
+        exc.relative_path,
+        [v for v in same_surface if v.scope == exc.scope],
+        (exc,),
     )
-    same_line = [v for v in same_surface if v.line == exc.line]
-    assert same_line, (
-        f"allowlisted entry for {exc.relative_path}:{exc.surface} pins "
-        f"line {exc.line}, but no violation of that surface was found "
-        f"at that line. Lines actually flagged: "
-        f"{sorted({v.line for v in same_surface})!r}. Either the call "
-        f"moved (update the entry) or the entry is stale."
-    )
-    matching = [v for v in same_line if v.snippet == exc.snippet]
-    assert matching, (
-        f"allowlisted entry for {exc.relative_path}:{exc.line}:"
-        f"{exc.surface} has snippet {exc.snippet!r}, but the actual "
-        f"violation at that line has snippet "
-        f"{same_line[0].snippet!r}. The call's argv or shape changed "
-        f"— re-review the rationale and update the snippet."
+    assert not problems, (
+        "\n  ".join(problems)
+        + f"\nScopes in {exc.relative_path!r} that hold {exc.surface!r}: "
+        + f"{sorted({v.scope for v in same_surface})!r}. Either the call moved to "
+        + "another function (re-review it and re-key the entry), its argv or count "
+        + "changed (re-review the rationale and update the entry), or the entry is "
+        + "stale (remove it)."
     )
 
 
 def test_allowed_exceptions_have_no_duplicates() -> None:
     """v0.18 (PR #2 review follow-up): every ``ALLOWED_EXCEPTIONS``
-    entry must be a distinct ``(relative_path, surface, line)`` triple.
-    Two entries pointing at the same call site would both match the
-    same violation, hiding a real audit-trail bug.
+    entry must be a distinct ``(relative_path, scope, surface)`` triple.
+    Two entries for the same scope and surface would leave it ambiguous
+    which ``count`` and ``snippet`` apply, hiding a real audit-trail bug;
+    several occurrences in one function are one entry with a higher
+    ``count``.
     """
-    keys = [(e.relative_path, e.surface, e.line) for e in ALLOWED_EXCEPTIONS]
+    keys = [(e.relative_path, e.scope, e.surface) for e in ALLOWED_EXCEPTIONS]
     duplicates = sorted({k for k in keys if keys.count(k) > 1})
     assert not duplicates, (
         f"ALLOWED_EXCEPTIONS contains duplicate (relative_path, "
-        f"surface, line) entries: {duplicates}. Each call site must "
-        f"have exactly one entry."
+        f"scope, surface) entries: {duplicates}. Each scope's use of a "
+        f"surface must have exactly one entry."
     )
+
+
+def test_every_allowlist_entry_carries_a_prose_rationale() -> None:
+    """Every entry explains itself, and allows at least one occurrence.
+
+    The rationale is the audit trail a reviewer reads instead of the call
+    site; an entry without one is an unexplained exception. A ``count`` below
+    one would allow nothing and could never match.
+    """
+
+    unexplained = [
+        f"{e.relative_path}::{e.scope} {e.surface}"
+        for e in ALLOWED_EXCEPTIONS
+        if len(e.rationale.split()) < 10 or not e.rationale.rstrip().endswith(".")
+    ]
+    assert not unexplained, (
+        f"ALLOWED_EXCEPTIONS entries without a prose rationale (ten words or "
+        f"more, ending in a full stop): {unexplained}"
+    )
+    uncounted = [
+        f"{e.relative_path}::{e.scope} {e.surface} count={e.count!r}"
+        for e in ALLOWED_EXCEPTIONS
+        if not isinstance(e.count, int) or e.count < 1
+    ]
+    assert not uncounted, f"ALLOWED_EXCEPTIONS entries with no positive count: {uncounted}"
 
 
 def test_no_unallowlisted_forbidden_surface_in_scanner() -> None:
@@ -1292,31 +1434,35 @@ def test_no_unallowlisted_forbidden_surface_in_scanner() -> None:
     ``test_scanner_source_contains_no_forbidden_calls_or_imports``
     above catches per-file regressions. This non-parametrized form
     gives a single, definitive PASS/FAIL signal at the end of the
-    test session. A failure message lists every unallowlisted
-    ``(relative_path, line, surface, snippet)`` quadruple the
-    contributor must address — either by refactoring the offending
-    file or by adding an ``ALLOWED_EXCEPTIONS`` entry with prose
-    rationale.
+    test session. A failure message lists every disagreement between
+    the scanner and the allowlist — an unallowlisted
+    ``(relative_path, scope, surface)``, a count or snippet that no longer
+    matches its entry, or a stale entry — that the contributor must
+    address, either by refactoring the offending file or by adding or
+    updating an ``ALLOWED_EXCEPTIONS`` entry with prose rationale.
 
     PR #2 review follow-up: the previous version matched on
     ``(file, surface)`` only, so a future second occurrence of an
     already-allowlisted surface in the same file would silently pass.
-    The quadruple match closes that hole.
+    Keying by scope with a strict count closes that hole.
     """
-    unallowed: list[tuple[str, int, str, str]] = []
+    problems: list[str] = []
+    scanned: set[str] = set()
     for path in _scanner_sources():
         rel = str(path.relative_to(SCANNER_DIR))
-        for violation in _scan_source(path.read_text(encoding="utf-8"), path):
-            if not _violation_allowed(rel, violation.surface, violation.line, violation.snippet):
-                unallowed.append((rel, violation.line, violation.surface, violation.snippet))
-    assert unallowed == [], (
-        "Scanner has forbidden surfaces with no allowlist entry. "
-        "Add an ALLOWED_EXCEPTIONS entry with prose rationale, or "
-        "refactor the surface out. Unallowlisted:\n  "
-        + "\n  ".join(
-            f"{rel}:{line} {surface}  snippet={snippet!r}"
-            for rel, line, surface, snippet in unallowed
+        scanned.add(rel)
+        problems.extend(
+            _allowlist_mismatches(rel, _scan_source(path.read_text(encoding="utf-8"), path))
         )
+    problems.extend(
+        f"{exc.relative_path}::{exc.scope} {exc.surface}: allowlisted file is not a scanner source"
+        for exc in ALLOWED_EXCEPTIONS
+        if exc.relative_path not in scanned
+    )
+    assert problems == [], (
+        "Scanner and ALLOWED_EXCEPTIONS disagree. Add or update an "
+        "ALLOWED_EXCEPTIONS entry with prose rationale, refactor the "
+        "surface out, or remove a stale entry:\n  " + "\n  ".join(problems)
     )
 
 
@@ -1329,14 +1475,14 @@ def test_allowed_exceptions_pin_subprocess_per_call_site() -> None:
     root probe and one bounded inventory collector; verify has one shared
     conventional process boundary and one shared bounded-output boundary.
 
-    If the test fails because lines drifted, that is the intended
-    failure mode — the contributor must re-review the move and bump
-    the entries. If it fails because the count dropped, an existing
-    entry has gone stale (the call was removed but the entry remains).
+    If it fails because a count rose, a new spawn site was allowlisted in
+    one of these files without this test being updated; if a count dropped,
+    an existing entry has gone stale (the call was removed but the entry
+    remains).
     """
-    by_file_surface: dict[tuple[str, str], list[AllowedException]] = {}
+    allowed_in_file_surface: Counter[tuple[str, str]] = Counter()
     for exc in ALLOWED_EXCEPTIONS:
-        by_file_surface.setdefault((exc.relative_path, exc.surface), []).append(exc)
+        allowed_in_file_surface[(exc.relative_path, exc.surface)] += exc.count
 
     assert not [
         exc
@@ -1345,33 +1491,257 @@ def test_allowed_exceptions_pin_subprocess_per_call_site() -> None:
         and exc.surface.startswith(("import:subprocess", "attr_call:subprocess."))
     ], "triggers.py must use the verifier's audited Git transport"
 
-    artifacts_subprocess_run = by_file_surface.get(
-        ("cli/discovery/artifacts.py", "attr_call:subprocess.run"), []
-    )
-    artifacts_subprocess_popen = by_file_surface.get(
-        ("cli/discovery/artifacts.py", "attr_call:subprocess.Popen"), []
-    )
-    assert len(artifacts_subprocess_run) == 1, (
+    artifacts_subprocess_run = allowed_in_file_surface[
+        ("cli/discovery/artifacts.py", "attr_call:subprocess.run")
+    ]
+    artifacts_subprocess_popen = allowed_in_file_surface[
+        ("cli/discovery/artifacts.py", "attr_call:subprocess.Popen")
+    ]
+    assert artifacts_subprocess_run == 1, (
         "Expected one root-resolution subprocess.run exception for cli/discovery/artifacts.py."
     )
-    assert len(artifacts_subprocess_popen) == 1, (
+    assert artifacts_subprocess_popen == 1, (
         "Expected one bounded inventory subprocess.Popen exception for cli/discovery/artifacts.py."
     )
-    verify_subprocess_run = by_file_surface.get(
-        ("cli/verify/git.py", "attr_call:subprocess.run"), []
+    verify_subprocess_run = allowed_in_file_surface[
+        ("cli/verify/git.py", "attr_call:subprocess.run")
+    ]
+    verify_subprocess_popen = allowed_in_file_surface[
+        ("cli/verify/git.py", "attr_call:subprocess.Popen")
+    ]
+    assert verify_subprocess_run == 1, (
+        f"Expected 1 allowed cli/verify/git.py subprocess.run occurrence "
+        f"(the shared fixed-argv process boundary), got "
+        f"{verify_subprocess_run}."
     )
-    verify_subprocess_popen = by_file_surface.get(
-        ("cli/verify/git.py", "attr_call:subprocess.Popen"), []
+    assert verify_subprocess_popen == 1, (
+        "Expected one allowed cli/verify/git.py subprocess.Popen occurrence "
+        "(the shared bounded-output Git boundary)."
     )
-    assert len(verify_subprocess_run) == 1, (
-        f"Expected 1 AllowedException entry for cli/verify/git.py "
-        f"subprocess.run (the shared fixed-argv process boundary), got "
-        f"{len(verify_subprocess_run)}."
+
+
+# --- #1078: the allowlist matcher has fingers --------------------------------
+#
+# The contract tests above pass vacuously if ``_scope_qualnames`` or
+# ``_allowlist_mismatches`` stops telling call sites apart. These run both
+# against a small synthetic module and a synthetic allowlist for it, so the
+# guard cannot go blind without failing here.
+
+_SYNTHETIC_RELATIVE_PATH = "__synthetic_allowlist__.py"
+_SYNTHETIC_BASE = """\
+import subprocess
+
+
+def spawn(argv):
+    return subprocess.run(argv, check=False)
+"""
+_SYNTHETIC_ALLOWLIST: tuple[AllowedException, ...] = (
+    AllowedException(
+        relative_path=_SYNTHETIC_RELATIVE_PATH,
+        scope=MODULE_SCOPE,
+        surface="import:subprocess",
+        count=1,
+        snippet="import subprocess",
+        rationale="Synthetic module-level import for the allowlist matcher's own tests.",
+    ),
+    AllowedException(
+        relative_path=_SYNTHETIC_RELATIVE_PATH,
+        scope="spawn",
+        surface="attr_call:subprocess.run",
+        count=1,
+        snippet="subprocess.run(argv, check=False)",
+        rationale="Synthetic single spawn site for the allowlist matcher's own tests.",
+    ),
+)
+
+
+def _synthetic_violations(source: str) -> list[Violation]:
+    return _scan_source(source, SCANNER_DIR / _SYNTHETIC_RELATIVE_PATH)
+
+
+def _synthetic_mismatches(source: str) -> list[str]:
+    return _allowlist_mismatches(
+        _SYNTHETIC_RELATIVE_PATH, _synthetic_violations(source), _SYNTHETIC_ALLOWLIST
     )
-    assert len(verify_subprocess_popen) == 1, (
-        "Expected one AllowedException entry for cli/verify/git.py "
-        "subprocess.Popen (the shared bounded-output Git boundary)."
+
+
+def _spawn_lines(source: str) -> list[int]:
+    return [
+        v.line for v in _synthetic_violations(source) if v.surface == "attr_call:subprocess.run"
+    ]
+
+
+def test_allowlist_matcher_accepts_the_allowlisted_module() -> None:
+    """Non-vacuity: the synthetic module is flagged, and matches its allowlist."""
+
+    assert {v.surface for v in _synthetic_violations(_SYNTHETIC_BASE)} == {
+        "import:subprocess",
+        "attr_call:subprocess.run",
+    }
+    assert _synthetic_mismatches(_SYNTHETIC_BASE) == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(
+            "# a comment\n\n\nimport os\n\n\ndef helper():\n    return os.getcwd()\n\n\n"
+            + _SYNTHETIC_BASE,
+            id="lines-inserted-above-the-function",
+        ),
+        pytest.param(
+            _SYNTHETIC_BASE.replace(
+                "def spawn(argv):\n",
+                'def spawn(argv):\n    """Docstring."""\n    argv = list(argv)\n\n',
+            ),
+            id="lines-inserted-above-the-call-inside-its-function",
+        ),
+    ],
+)
+def test_allowlist_matcher_ignores_line_drift(source: str) -> None:
+    """Code inserted above an allowlisted call does not fail the guard (#1078)."""
+
+    moved = _spawn_lines(source)
+    assert moved and moved != _spawn_lines(_SYNTHETIC_BASE), (
+        "the perturbation did not move the spawn site; the case proves nothing"
     )
+    assert _synthetic_mismatches(source) == []
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        pytest.param(
+            _SYNTHETIC_BASE + "    subprocess.run(argv, check=False)\n",
+            "spawn attr_call:subprocess.run (line(s) [5, 6]): the entry allows 1 "
+            "occurrence(s) in this scope, found 2",
+            id="second-identical-call-in-the-allowlisted-function",
+        ),
+        pytest.param(
+            _SYNTHETIC_BASE.replace(
+                "    return subprocess.run",
+                "    subprocess.run(['git', 'status'], check=False)\n    return subprocess.run",
+            ),
+            "found 2",
+            id="second-different-call-in-the-allowlisted-function",
+        ),
+        pytest.param(
+            _SYNTHETIC_BASE
+            + "\n\ndef other(argv):\n    return subprocess.run(argv, check=False)\n",
+            "other attr_call:subprocess.run (line(s) [9]): not allowlisted",
+            id="call-in-a-function-without-an-entry",
+        ),
+        pytest.param(
+            _SYNTHETIC_BASE
+            + "\n\nclass Runner:\n    def spawn(self, argv):\n"
+            + "        return subprocess.run(argv, check=False)\n",
+            "Runner.spawn attr_call:subprocess.run (line(s) [10]): not allowlisted",
+            id="method-sharing-the-allowlisted-function-name",
+        ),
+        pytest.param(
+            _SYNTHETIC_BASE.replace(
+                "    return subprocess.run(argv, check=False)\n",
+                "    def inner():\n        return subprocess.run(argv, check=False)\n\n"
+                "    return inner()\n",
+            ),
+            "spawn.<locals>.inner attr_call:subprocess.run (line(s) [6]): not allowlisted",
+            id="call-moved-into-a-nested-function",
+        ),
+        pytest.param(
+            _SYNTHETIC_BASE + "\n\nsubprocess.run(['git', 'status'], check=False)\n",
+            "<module> attr_call:subprocess.run (line(s) [8]): not allowlisted",
+            id="module-level-call",
+        ),
+        pytest.param(
+            _SYNTHETIC_BASE + "    subprocess.Popen(argv)\n",
+            "spawn attr_call:subprocess.Popen (line(s) [6]): not allowlisted",
+            id="another-surface-in-the-allowlisted-function",
+        ),
+        pytest.param(
+            _SYNTHETIC_BASE.replace("check=False)", "check=False, shell=True)"),
+            "line 5 has snippet 'subprocess.run(argv, check=False, shell=True)', the entry "
+            "pins 'subprocess.run(argv, check=False)'",
+            id="argv-changed",
+        ),
+        pytest.param(
+            _SYNTHETIC_BASE.replace(
+                "    return subprocess.run(argv, check=False)\n", "    return None\n"
+            ),
+            "spawn attr_call:subprocess.run: allowlisted, but no such surface is in that "
+            "scope; the entry is stale",
+            id="allowlisted-call-deleted",
+        ),
+        pytest.param(
+            _SYNTHETIC_BASE.replace(
+                "import subprocess\n", "import subprocess\nimport subprocess\n"
+            ),
+            "<module> import:subprocess (line(s) [1, 2]): the entry allows 1 occurrence(s) in "
+            "this scope, found 2",
+            id="second-module-level-import",
+        ),
+    ],
+)
+def test_allowlist_matcher_catches_new_and_stale_sites(source: str, expected: str) -> None:
+    """A new spawn anywhere, a changed argv, and a stale entry all fail."""
+
+    problems = _synthetic_mismatches(source)
+    assert any(expected in problem for problem in problems), (
+        f"expected a mismatch containing {expected!r}; got {problems!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "body,scope",
+    [
+        pytest.param("subprocess.run(x)\n", MODULE_SCOPE, id="module"),
+        pytest.param("def f():\n    subprocess.run(x)\n", "f", id="function"),
+        pytest.param("async def f():\n    subprocess.run(x)\n", "f", id="async-function"),
+        pytest.param("class C:\n    def m(self):\n        subprocess.run(x)\n", "C.m", id="method"),
+        pytest.param(
+            "class C:\n    class D:\n        async def m(self):\n            subprocess.run(x)\n",
+            "C.D.m",
+            id="nested-class-method",
+        ),
+        pytest.param(
+            "def outer():\n    def inner():\n        subprocess.run(x)\n",
+            "outer.<locals>.inner",
+            id="nested-function",
+        ),
+        pytest.param(
+            "def outer():\n    class C:\n        def m(self):\n            subprocess.run(x)\n",
+            "outer.<locals>.C.m",
+            id="class-in-a-function",
+        ),
+        pytest.param("class C:\n    X = subprocess.run(x)\n", "C", id="class-body"),
+        pytest.param(
+            "def f(arg=subprocess.run(x)):\n    pass\n", MODULE_SCOPE, id="default-argument"
+        ),
+        pytest.param(
+            "@deco(subprocess.run(x))\ndef f():\n    pass\n", MODULE_SCOPE, id="decorator"
+        ),
+        pytest.param(
+            "def outer():\n    @deco(subprocess.run(x))\n    def inner():\n        pass\n",
+            "outer",
+            id="decorator-of-a-nested-function",
+        ),
+        pytest.param("class C(subprocess.run(x)):\n    pass\n", MODULE_SCOPE, id="class-base"),
+        pytest.param(
+            "def f():\n    return lambda: subprocess.run(x)\n", "f", id="lambda-in-a-function"
+        ),
+        pytest.param(
+            "def f():\n    return [subprocess.run(a) for a in x]\n",
+            "f",
+            id="comprehension-in-a-function",
+        ),
+    ],
+)
+def test_scope_resolution_follows_python_qualnames(body: str, scope: str) -> None:
+    """Each flagged call keys to the scope that runs it, spelled as
+    ``__qualname__`` spells it, so an entry names exactly one function."""
+
+    violations = _synthetic_violations("import subprocess\n" + body)
+    assert [v.scope for v in violations if v.surface == "attr_call:subprocess.run"] == [scope]
+    assert [v.scope for v in violations if v.surface == "import:subprocess"] == [MODULE_SCOPE]
 
 
 def test_scanner_sources_covers_known_files() -> None:
@@ -1443,7 +1813,10 @@ _SPAWN_CALL_PREFIXES: tuple[str, ...] = (
     "attr_call:os.posix_spawn",
     "attr_call:asyncio.create_subprocess_",
 )
-_BOUNDARY_TOKEN = re.compile(r"`([\w./-]+\.py)::(\w+)`")
+#: A table row's call site: ``<path>::<scope>``, where the scope is spelled
+#: as ``_scope_qualnames`` spells it (``func``, ``Class.method``,
+#: ``outer.<locals>.inner``, or ``<module>``).
+_BOUNDARY_TOKEN = re.compile(r"`([\w./-]+\.py)::(<module>|\w+(?:\.(?:<locals>|\w+))*)`")
 #: Interpreter flags that keep the working directory off a child's sys.path.
 _SAFE_PATH_FLAGS = frozenset({"-P", "-I"})
 
@@ -1466,24 +1839,11 @@ def _hook_runner_source() -> str:
     raise AssertionError("cli/install_hooks.py no longer defines _HOOK_SCRIPT_TEMPLATE")
 
 
-def _enclosing_function(tree: ast.AST, line: int) -> str:
-    """The innermost function or method whose body holds ``line``."""
-
-    best: ast.AST | None = None
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            end = node.end_lineno or node.lineno
-            if node.lineno <= line <= end and (
-                best is None or node.lineno >= best.lineno  # type: ignore[attr-defined]
-            ):
-                best = node
-    return best.name if best is not None else "<module>"  # type: ignore[attr-defined]
-
-
 def _spawn_sites(source: str, label: str, *, scan_path: Path) -> list[str]:
-    tree = ast.parse(source)
+    # Keyed by the same scope the allowlist uses (#1078), so the published
+    # table and ALLOWED_EXCEPTIONS cannot name one call site two ways.
     return [
-        f"{label}::{_enclosing_function(tree, violation.line)}"
+        f"{label}::{violation.scope}"
         for violation in _scan_source(source, scan_path)
         if violation.surface.startswith(_SPAWN_CALL_PREFIXES)
     ]

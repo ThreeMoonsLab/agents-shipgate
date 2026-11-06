@@ -483,8 +483,9 @@ for the full contract. Five axes:
 1. **AST trust lint** ([`tests/test_adapter_static_only.py`](../tests/test_adapter_static_only.py))
    — every `.py` under `src/agents_shipgate/` is statically scanned
    for `exec`/`eval`/`__import__`/`compile`/subprocess/`importlib.*`
-   surfaces. Four first-party meta-CLI uses are pinned per call site
-   (line + `ast.unparse` snippet) in `ALLOWED_EXCEPTIONS`. Runs as a
+   surfaces. First-party meta-CLI uses are pinned per call site
+   (enclosing function, occurrence count, and `ast.unparse` snippet) in
+   `ALLOWED_EXCEPTIONS`. Runs as a
    dedicated CI step *before* the main test suite. Companion live-load
    tests in [`test_fixture_no_import.py`](../tests/test_fixture_no_import.py)
    verify `sys.modules` snapshots stay clean.

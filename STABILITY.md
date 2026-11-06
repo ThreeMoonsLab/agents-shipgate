@@ -5479,10 +5479,15 @@ tests on every CI run, not by convention:
 
   **Meta-CLI surfaces (allowlisted, audited).** First-party meta-CLI
   surfaces are pinned **per call site** in
-  [`tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py)
-  by a four-tuple `(relative_path, surface, line, snippet)` where
-  `snippet` is the canonical `ast.unparse` of the offending AST node.
-  Each entry carries a prose rationale and pins a single call:
+  [`tests/test_adapter_static_only.py::ALLOWED_EXCEPTIONS`](tests/test_adapter_static_only.py).
+  Each entry is keyed by `(relative_path, scope, surface)`, where `scope`
+  is the qualified name of the enclosing function as Python spells
+  `__qualname__` (`Class.method`, `outer.<locals>.inner`), or `<module>`
+  at module level, and states how many times the surface occurs there
+  (`count`) and the canonical `ast.unparse` of each occurrence
+  (`snippet`). Line numbers are not part of the key, so editing code above
+  a call does not disturb its entry (#1078). Each entry carries a prose
+  rationale; every entry today allows a single call:
 
   - **`cli/bootstrap.py`** — one `subprocess.run` call shells the
     installed agents-shipgate CLI to chain
@@ -5552,21 +5557,28 @@ tests on every CI run, not by convention:
     `agents-shipgate self-check`, never during scan.
 
   Per-call-site pinning means **adding a second occurrence of an
-  already-allowlisted surface in the same file STILL requires a new
-  entry**. Changing the call's argv shape (the `snippet` changes)
-  also fails the test, forcing a reviewer to confirm the change is
-  benign. The literal-anchor invariant for
+  already-allowlisted surface in the same file STILL fails the test**:
+  in another function it has no entry, and in the same function it
+  exceeds the entry's `count`. Moving the call to another function,
+  changing the call's argv shape (the `snippet` changes), or removing
+  it (the entry goes stale) also fails, forcing a reviewer to confirm
+  the change is benign. The literal-anchor invariant for
   `importlib.resources.files('agents_shipgate')` is enforced by
   snippet pinning: a future `files(user_var)` call would not match.
 
   Three contract tests pin the audit trail:
-  `test_allowlist_entry_matches_real_surface` (every entry matches a
-  real violation on all four fields),
+  `test_allowlist_entry_matches_real_surface` (every entry matches
+  exactly `count` real violations of its surface in its scope, each with
+  its snippet),
   `test_no_unallowlisted_forbidden_surface_in_scanner` (every
-  observed violation has a matching entry), and
+  observed violation has a matching entry with the right count and
+  snippet), and
   `test_allowed_exceptions_pin_subprocess_per_call_site` (the
-  multi-call files have distinct entries per call site, regression-
-  testing the structural fix from the v0.18 PR #2 review).
+  multi-call files allow exactly one occurrence per call site, regression-
+  testing the structural fix from the v0.18 PR #2 review). Self-tests
+  run the same matcher over a synthetic module so it cannot go blind,
+  and `test_every_allowlist_entry_carries_a_prose_rationale` keeps the
+  rationale on every entry.
 
   Two more tie the allowlist to what a reader is told (#1020).
   `test_trust_model_lists_every_process_boundary` requires
