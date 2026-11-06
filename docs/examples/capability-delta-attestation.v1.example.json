@@ -22,7 +22,7 @@
         "capability_set_digest": "43aa853a6ed91788e322b665d47fc65d53880c5b3d97a61193f5b3ca5f09e9f9",
         "capability_standard_version": "0.5",
         "evidence_set_digest": "6bddeb86d13de74fc9856bbaba1880c9f85818456d847b9952035ded00ddb2d5",
-        "ref": "43d5c9a0ff90a5830479b9bee82a42fe7ee26e30",
+        "ref": "784be15243b972c93a8b529795743c624a10edf1",
         "subject_count": 1
       },
       "capability_payload_schema_version": "shipgate.capability_payload/v1",
@@ -33,7 +33,7 @@
         "capability_set_digest": "811c22832fa74d6878bb86cdb775be50336949e598a415d8553149b9eaf06938",
         "capability_standard_version": "0.5",
         "evidence_set_digest": "b2d4b4f257bf89ea81fd4ab6e09a388a48581374ddd075a7cc0c04e983f1269d",
-        "ref": "4bd1a69f0454848b5bae2bb2120b04e7f4cf16dd",
+        "ref": "4f027a14465940eb31d0b837dac46437bf1d5903",
         "subject_count": 2
       },
       "subjects": [
@@ -332,7 +332,7 @@
   "subject": [
     {
       "digest": {
-        "gitTree": "4bd1a69f0454848b5bae2bb2120b04e7f4cf16dd"
+        "gitTree": "4f027a14465940eb31d0b837dac46437bf1d5903"
       },
       "name": "samples/ai_generated_refund_pr"
     }
