@@ -25,6 +25,12 @@ if existing_pythonpath:
 # Subprocess smoke tests must import this worktree, not another editable install.
 os.environ["PYTHONPATH"] = os.pathsep.join(parts)
 
+# Fixture scans must not append to the hosted runner's own step summary or
+# outputs (#617). Removed here, before any module-scoped fixture runs; tests
+# that exercise summary writing set their own temporary path.
+for _runner_file_var in ("GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT"):
+    os.environ.pop(_runner_file_var, None)
+
 import pytest  # noqa: E402
 
 from ci_sharding import load_seconds, shard_assignment  # noqa: E402
