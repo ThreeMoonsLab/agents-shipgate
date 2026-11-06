@@ -318,8 +318,9 @@ _TOOL_DESCRIPTIONS = {
         "rejected, and a lock pair ignores `config`. `no_plugins` keeps "
         "third-party adapters out even when AGENTS_SHIPGATE_ENABLE_PLUGINS is "
         "set. Returns capability lock JSON or capability lock diff JSON; "
-        "neither is a release gate. It writes no lock and runs no findings, "
-        "scan or verify. The diff reads only the two files given: this tool "
+        "neither is a release gate. It writes no lock, produces no findings "
+        "and runs no scan or verify. The diff reads only the two files given: "
+        "this tool "
         "runs no git and checks out no base ref, so it is not the CLI's "
         "Git-backed host comparison (`agents-shipgate diff --base <ref>`)."
     ),
