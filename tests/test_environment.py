@@ -16,6 +16,7 @@ already correct.
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import os
 import shlex
@@ -27,11 +28,16 @@ import warnings
 from pathlib import Path
 
 import pytest
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 from agents_shipgate import __version__
 from agents_shipgate.environment import (
+    DEVELOPMENT_LOCK,
     MINIMUM_PYTHON,
+    DependencyFact,
     EnvironmentProbe,
+    _probe_dependencies,
     describe_environment,
     environment_report,
     same_interpreter,
@@ -39,8 +45,10 @@ from agents_shipgate.environment import (
 from agents_shipgate.invocation import (
     CLI_OVERRIDE_ENV_VAR,
     Invocation,
+    join_argv,
     render_cli_override,
 )
+from scripts.verify_dependency_lock import parse_lock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LAUNCHER = REPO_ROOT / "shipgate"
@@ -1227,3 +1235,237 @@ def test_a_mention_of_exec_inside_the_script_body_is_not_a_handoff(
     (described,) = report["launcher"]["console_scripts"]
     assert described["interpreter"] is None
     assert report["mismatches"] == []
+
+
+# ---------------------------------------------------------------------------
+# Runtime dependencies against the build's floors and the tree's lock (#1028)
+# ---------------------------------------------------------------------------
+
+
+def _codes(report: dict) -> list[str]:
+    return [entry["code"] for entry in report["mismatches"]]
+
+
+def test_a_dependency_below_its_declared_floor_is_an_error_with_a_reinstall() -> None:
+    """The adopter's case: a built distribution, after a `--no-deps` or forced downgrade."""
+
+    report = describe_environment(
+        _probe(dependencies=(DependencyFact("typer>=0.16.0,<1", installed="0.15.4"),))
+    )
+
+    (mismatch,) = report["mismatches"]
+    assert mismatch["code"] == "dependency_below_declared_floor"
+    assert mismatch["severity"] == "error"
+    assert mismatch["detail"].startswith("typer 0.15.4 is installed in /venv/bin/python")
+    assert "0.16.0 floor" in mismatch["detail"]
+    assert mismatch["command"] == "/venv/bin/python -m pip install 'typer>=0.16.0,<1'"
+
+
+def test_a_source_checkout_below_a_floor_is_sent_to_its_lock() -> None:
+    """Below the floor is reported once, as the error, not also as lock drift."""
+
+    report = describe_environment(
+        _probe(
+            dependencies=(
+                DependencyFact("typer>=0.16.0,<1", installed="0.15.4", locked="0.27.3"),
+            ),
+            dependency_lock="/work/my checkout/constraints/dev.txt",
+        )
+    )
+
+    (mismatch,) = report["mismatches"]
+    assert mismatch["code"] == "dependency_below_declared_floor"
+    assert mismatch["command"] == (
+        "/venv/bin/python -m pip install --require-hashes --requirement "
+        "'/work/my checkout/constraints/dev.txt'"
+    )
+
+
+def test_a_dependency_off_the_development_lock_is_a_warning() -> None:
+    """#1028's contributor case: supported, but not what CI tests this tree on."""
+
+    lock = "/checkout/constraints/dev.txt"
+    report = describe_environment(
+        _probe(
+            dependencies=(
+                DependencyFact("typer>=0.16.0,<1", installed="0.25.1", locked="0.27.3"),
+                DependencyFact("pyyaml>=6.0.2,<7", installed="6.0.3", locked="6.0.3"),
+                DependencyFact("packaging>=24.2", installed="26.0", locked="26"),
+            ),
+            dependency_lock=lock,
+        )
+    )
+
+    (mismatch,) = report["mismatches"]
+    assert mismatch["code"] == "dependency_differs_from_lock"
+    assert mismatch["severity"] == "warning"
+    assert mismatch["detail"].startswith("typer 0.25.1 is installed in /venv/bin/python")
+    assert f"{lock} pins 0.27.3" in mismatch["detail"]
+    assert mismatch["command"] == (
+        f"/venv/bin/python -m pip install --require-hashes --requirement {lock}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("installed", "floor", "below"),
+    [
+        ("0.15.4", "0.16.0", True),
+        ("44.0.3", "50.0.1", True),
+        ("0.9.9", "0.16.0", True),
+        ("0.16.0rc1", "0.16.0", True),
+        ("0.16.0.dev3", "0.16.0", True),
+        ("0.16.0", "0.16.0", False),
+        ("0.16", "0.16.0", False),
+        ("0.16.0.post1", "0.16.0", False),
+        ("0.16.0+local", "0.16.0", False),
+        ("0.16.1", "0.16.0", False),
+        ("1.0.0", "0.16.0", False),
+        ("0.17.0rc1", "0.16.0", False),
+        # An epoch outranks any release segment. It is beyond what this reads,
+        # so it is never called low, even where its digits look lower.
+        ("1!0.1", "2.0", False),
+    ],
+)
+def test_below_the_floor_follows_pep_440_order(installed: str, floor: str, below: bool) -> None:
+    report = describe_environment(
+        _probe(dependencies=(DependencyFact(f"typer>={floor}", installed=installed),))
+    )
+
+    assert _codes(report) == (["dependency_below_declared_floor"] if below else [])
+
+
+def test_what_cannot_be_judged_is_not_reported() -> None:
+    """No metadata, a marker, no floor, or no lock pin: each is silence, not a guess."""
+
+    report = describe_environment(
+        _probe(
+            dependencies=(
+                DependencyFact("typer>=0.16.0,<1", installed=None, locked="0.27.3"),
+                DependencyFact("tomli>=2; python_version < '3.11'", installed="1.0"),
+                DependencyFact("pydantic<3", installed="1.10.0"),
+                DependencyFact("pyyaml>=6.0.2,<7", installed="6.0.2", locked=None),
+            ),
+            dependency_lock="/checkout/constraints/dev.txt",
+        )
+    )
+
+    assert report["mismatches"] == []
+
+
+def _version_from(installed: dict[str, str]):
+    """A stand-in for `importlib.metadata.version` that knows only `installed`."""
+
+    def version(name: str) -> str:
+        key = canonicalize_name(name)
+        if key not in installed:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return installed[key]
+
+    return version
+
+
+def test_doctor_reads_installed_versions_through_importlib_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The acceptance criterion, on this checkout's real floors and lock.
+
+    Every runtime dependency `pyproject.toml` declares is stated at the version
+    `constraints/dev.txt` pins, except `typer`, stated below its floor. Only
+    `typer` may be reported, and as the error: lock drift is the lesser fact.
+    """
+
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = REPO_ROOT / DEVELOPMENT_LOCK
+    pins = parse_lock(lock)
+    installed = {}
+    for spec in project["project"]["dependencies"]:
+        name = canonicalize_name(Requirement(spec).name)
+        (branch,) = pins[name]
+        installed[name] = branch.version
+    installed["typer"] = "0.15.4"
+    monkeypatch.setattr(importlib.metadata, "version", _version_from(installed))
+
+    report = environment_report(workspace=REPO_ROOT)
+
+    dependency_mismatches = [
+        entry for entry in report["mismatches"] if entry["code"].startswith("dependency_")
+    ]
+    (mismatch,) = dependency_mismatches
+    assert mismatch["code"] == "dependency_below_declared_floor"
+    assert mismatch["detail"].startswith(f"typer 0.15.4 is installed in {sys.executable}")
+    assert mismatch["command"] == join_argv(
+        [sys.executable, "-m", "pip", "install", "--require-hashes", "--requirement", str(lock)]
+    )
+
+
+def test_a_built_distribution_is_judged_by_its_own_requires_dist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Outside a checkout the floors are the installed wheel's, and extras are skipped."""
+
+    requires = {
+        "agents-shipgate": [
+            "typer<1,>=0.16.0",
+            "pyyaml<7,>=6.0.2",
+            'weasyprint<71,>=70.0; extra == "pdf"',
+        ]
+    }
+    monkeypatch.setattr(importlib.metadata, "requires", lambda name: requires.get(name))
+    monkeypatch.setattr(
+        importlib.metadata,
+        "version",
+        _version_from({"typer": "0.15.4", "pyyaml": "6.0.3", "weasyprint": "60.0"}),
+    )
+
+    facts, lock = _probe_dependencies(
+        "/venv/lib/python3.12/site-packages/agents_shipgate/__init__.py"
+    )
+
+    assert lock is None
+    assert facts == (
+        DependencyFact("typer<1,>=0.16.0", installed="0.15.4"),
+        DependencyFact("pyyaml<7,>=6.0.2", installed="6.0.3"),
+    )
+    report = describe_environment(_probe(dependencies=facts))
+    assert _codes(report) == ["dependency_below_declared_floor"]
+    assert report["mismatches"][0]["command"] == (
+        "/venv/bin/python -m pip install 'typer<1,>=0.16.0'"
+    )
+
+
+def test_a_checkouts_lock_pins_are_read_and_a_forked_pin_is_left_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "checkout"
+    (root / "src" / "agents_shipgate").mkdir(parents=True)
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "agents-shipgate"\nversion = "1.2.3"\n'
+        'dependencies = ["typer>=0.16.0,<1", "ruamel.yaml>=0.18.10,<1", "forked>=1"]\n',
+        encoding="utf-8",
+    )
+    (root / "constraints").mkdir()
+    (root / "constraints" / "dev.txt").write_text(
+        "# a header line\n"
+        "typer==0.27.3 \\\n    --hash=sha256:aaaa\n"
+        "ruamel-yaml==0.19.1 \\\n    --hash=sha256:bbbb\n"
+        "forked==1.0 ; python_version < '3.13' \\\n    --hash=sha256:cccc\n"
+        "forked==2.0 ; python_version >= '3.13' \\\n    --hash=sha256:dddd\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        importlib.metadata,
+        "version",
+        _version_from({"typer": "0.27.3", "ruamel-yaml": "0.18.10", "forked": "1.0"}),
+    )
+
+    facts, lock = _probe_dependencies(str(root / "src" / "agents_shipgate" / "__init__.py"))
+
+    assert lock == str(root / "constraints" / "dev.txt")
+    assert facts == (
+        DependencyFact("typer>=0.16.0,<1", installed="0.27.3", locked="0.27.3"),
+        DependencyFact("ruamel.yaml>=0.18.10,<1", installed="0.18.10", locked="0.19.1"),
+        DependencyFact("forked>=1", installed="1.0", locked=None),
+    )
+    report = describe_environment(_probe(dependencies=facts, dependency_lock=lock))
+    assert _codes(report) == ["dependency_differs_from_lock"]
+    assert report["mismatches"][0]["detail"].startswith("ruamel-yaml 0.18.10")

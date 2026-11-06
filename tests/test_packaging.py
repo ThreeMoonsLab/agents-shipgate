@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -405,6 +406,44 @@ def test_wheel_declares_verification_identity_runtime_dependencies(
         for value in metadata.get_all("Requires-Dist", [])
     }
     assert "packaging" in requirements
+
+
+def _resolution_metadata(wheel: Path) -> tuple[object, ...]:
+    """The facts a resolver reads from a wheel, unconditional requirements only."""
+
+    with zipfile.ZipFile(wheel) as archive:
+        name = next(item for item in archive.namelist() if item.endswith(".dist-info/METADATA"))
+        metadata = message_from_bytes(archive.read(name))
+    requirements = [Requirement(value) for value in metadata.get_all("Requires-Dist", [])]
+    # Compared as a resolver reads them: `ruamel.yaml` and `ruamel-yaml` are one
+    # name, and the backend writes the second.
+    return (
+        canonicalize_name(metadata["Name"]),
+        metadata["Version"],
+        metadata["Requires-Python"],
+        sorted(
+            (canonicalize_name(requirement.name), str(requirement.specifier))
+            for requirement in requirements
+            if requirement.marker is None
+        ),
+    )
+
+
+def test_the_floors_check_resolves_the_metadata_the_wheel_ships(
+    built_wheel: Path, tmp_path: Path
+) -> None:
+    """`scripts/dependency_floors.py coinstall` resolves a metadata-only wheel (#1028).
+
+    That keeps a build backend, and the `packaging` it brings, out of CI's
+    floors job. It is only a valid stand-in while it states exactly what the
+    built wheel states to a resolver.
+    """
+
+    from scripts.dependency_floors import metadata_wheel
+
+    stand_in, _version = metadata_wheel(tmp_path)
+
+    assert _resolution_metadata(stand_in) == _resolution_metadata(built_wheel)
 
 
 def test_wheel_includes_org_policy_templates(built_wheel: Path) -> None:
