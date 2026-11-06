@@ -662,8 +662,11 @@ def _verify_audit_log_alignment(
     the log's last row let saving ``baseline-prod.json`` fail an untouched
     ``baseline.json``, and let a copy of the sibling saved last pass.
 
-    A baseline with zero findings and no audit row is a fresh / unsaved
-    state — not an integrity violation. Only flag when the baseline
+    A baseline with zero findings and no audit log, or an empty one, is a
+    fresh / unsaved state — not an integrity violation. When the log holds
+    only other baselines' rows, the exemption is narrower: the baseline
+    must also carry no surface facts, which ``scan --baseline`` would
+    otherwise diff against unvouched. Otherwise flag when the baseline
     contains entries (i.e., someone took the trouble to populate it)
     but no audit row for it exists, or its most recent audit row's
     ``hash_after`` disagrees with the file on disk.
@@ -703,9 +706,9 @@ def _verify_audit_log_alignment(
         ]
     latest = latest_entry_for_baseline(entries, baseline_path)
     if latest is None:
-        if not baseline.findings:
-            return []
         if not entries:
+            if not baseline.findings:
+                return []
             return [
                 BaselineIntegrityIssue(
                     kind="missing_audit_log",
@@ -725,6 +728,19 @@ def _verify_audit_log_alignment(
         # what the log does record so the fix is evident; never fall back
         # to another baseline's row, which is what let one save fail or
         # pass a different file (#1030).
+        #
+        # Only a baseline that carries nothing is exempt here: no findings
+        # to suppress and no surface facts. ``scan --baseline`` diffs the
+        # current surface against a baseline's ``tool_surface_facts`` and
+        # ``action_surface_facts``, so a findings-free baseline with
+        # surface facts still decides what a scan reports as changed, and
+        # without a row of its own nothing vouches for those facts.
+        if (
+            not baseline.findings
+            and baseline.tool_surface_facts is None
+            and baseline.action_surface_facts is None
+        ):
+            return []
         recorded = sorted({recorded_baseline_name(entry.baseline_path) for entry in entries})
         return [
             BaselineIntegrityIssue(

@@ -395,8 +395,14 @@ wrong reference.
   what is compared. A log that has rows but none for the baseline is
   `missing_audit_log` (critical, exit `6` under `--strict`) whose title names
   the baseline, the files the log does record and the `baseline save` that
-  records it, with `evidence.recorded_baselines`; an empty baseline is still
-  not an issue.
+  records it, with `evidence.recorded_baselines`. A baseline with no findings
+  is still not an issue when the log is missing or empty. When the log holds
+  only other baselines' rows, the exemption covers only a baseline that also
+  carries no `tool_surface_facts` or `action_surface_facts`, because
+  `scan --baseline` diffs against those. The file name is compared exactly:
+  a baseline reached under another letter case or through a symbolic link
+  has no row under that spelling and is `missing_audit_log`, so verify it by
+  the name it was saved under.
   `hash_mismatch` evidence gains `latest_audit_baseline_path`, the row it was
   compared with.
 - **Line endings.** The baseline hash is, as in every release, the SHA-256 of

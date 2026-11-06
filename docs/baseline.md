@@ -32,7 +32,9 @@ Several baselines can share a directory (for example `baseline.json` and
 `baseline-prod.json`). They append to its one `baseline-audit.log`, and each
 verifies against the rows its own saves wrote, so saving one never changes
 whether another verifies. A baseline renamed or copied by hand has no audit
-history under its new name; save it under that name to record it. Line-ending
+history under its new name; save it under that name to record it. The name is
+compared exactly, so pass `--baseline` the spelling it was saved under, not
+another letter case or a symbolic link to it. Line-ending
 conversions (a Windows checkout's CRLF) are not edits: the hash reads them as
 LF.
 

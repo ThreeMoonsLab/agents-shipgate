@@ -1091,6 +1091,38 @@ def test_empty_baseline_with_no_row_of_its_own_is_not_an_issue(tmp_path):
     assert verify_baseline(empty, tmp_path / "baseline-audit.log") == []
 
 
+def test_findings_free_baseline_with_surface_facts_needs_a_row_of_its_own(tmp_path):
+    """The carve-out covers a baseline that carries nothing, not one with surface facts.
+
+    ``scan --baseline`` diffs against a baseline's ``tool_surface_facts`` and
+    ``action_surface_facts``. With a sibling's rows in the shared log, a
+    baseline whose findings were emptied and whose own rows were removed
+    must not verify clean: nothing vouches for the surface it still carries.
+    """
+    log = tmp_path / "baseline-audit.log"
+    target = tmp_path / "baseline.json"
+    write_baseline(_stub_report(("SHIP-X", "tool_a")), target)
+    write_baseline(_stub_report(("SHIP-Y", "tool_b")), tmp_path / "baseline-prod.json")
+
+    data = json.loads(target.read_text(encoding="utf-8"))
+    assert data["tool_surface_facts"] is not None
+    data["findings"] = []
+    data["notes"] = ["edited without a save"]
+    target.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    kept = [
+        line
+        for line in log.read_text(encoding="utf-8").splitlines()
+        if Path(json.loads(line)["baseline_path"]).name != "baseline.json"
+    ]
+    assert kept
+    log.write_text("\n".join(kept) + "\n", encoding="utf-8")
+
+    issues = verify_baseline(target, log)
+    assert [issue.kind for issue in issues] == ["missing_audit_log"]
+    assert "no entry for baseline.json" in issues[0].title
+    assert issues[0].evidence["recorded_baselines"] == ["baseline-prod.json"]
+
+
 def test_baseline_hash_reads_line_endings_as_lf_as_its_docstring_states(tmp_path):
     """#1030 (#109): the CRLF behaviour and the docstring agree.
 
