@@ -360,17 +360,14 @@ class VerificationReceipt(BaseModel):
         )
         if self.decision_id != expected_decision_id:
             raise ValueError("receipt decision_id must hash its request, units, and outcome")
-        decision_projection = {
-            "passed": ("mergeable", True),
-            "review_required": ("human_review_required", False),
-            "insufficient_evidence": ("insufficient_evidence", False),
-            "blocked": ("blocked", False),
-        }
-        if self.decision in decision_projection:
-            expected_merge, expected_can_merge = decision_projection[self.decision]
+        if self.decision is not None:
+            # The verifier's projection, not a copy of it (#1029). Imported
+            # here because ``schemas.verifier`` imports this module.
+            from agents_shipgate.schemas.verifier import map_merge_verdict
+
             if (self.merge_verdict, self.can_merge_without_human) != (
-                expected_merge,
-                expected_can_merge,
+                map_merge_verdict(self.decision),
+                self.decision == "passed",
             ):
                 raise ValueError("receipt outcome contradicts its release decision")
         elif (self.merge_verdict, self.can_merge_without_human) not in {

@@ -164,6 +164,16 @@ def validate_semantic_consistency(
         raise SemanticConsistencyError(
             "strict insufficient_evidence must produce would_fail_ci=true, exit_code=20"
         )
+    # The exit code reads the decision's blockers (#1029): a blocker whose
+    # severity is in fail_on fails CI in either mode, whatever suppressed the
+    # finding behind it, and strict mode fails on any blocked decision.
+    if (
+        any(item.severity in decision.fail_policy.fail_on for item in decision.blockers)
+        or (decision.fail_policy.ci_mode == "strict" and decision.decision == "blocked")
+    ) and (decision.fail_policy.would_fail_ci is not True or decision.fail_policy.exit_code != 20):
+        raise SemanticConsistencyError(
+            "a release blocker in fail_on must produce would_fail_ci=true, exit_code=20"
+        )
 
 
 def _validate_exclusion_ledger(report: ReadinessReport) -> None:

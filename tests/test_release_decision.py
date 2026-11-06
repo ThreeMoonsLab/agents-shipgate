@@ -138,6 +138,27 @@ def _build(
     )
 
 
+#: A mandatory current-surface control: ``checks.ignore`` records the
+#: exception, but the engine keeps the finding a blocker (#1029).
+_MANDATORY_CONTROL = "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING"
+
+
+def _mandatory_control(
+    *,
+    severity: str = "critical",
+    baseline_status: str | None = None,
+    suppressed: bool = True,
+) -> Finding:
+    finding = _finding(
+        check_id=_MANDATORY_CONTROL,
+        severity=severity,
+        baseline_status=baseline_status,
+        suppressed=suppressed,
+    )
+    finding.blocks_release = True
+    return finding
+
+
 def test_advisory_with_new_critical_blocks_but_does_not_fail_ci():
     report = _report(findings=[_finding(severity="critical", baseline_status="new")])
     decision = _build(report, ci_mode="advisory")
@@ -620,19 +641,28 @@ def test_insufficient_evidence_reason_lists_both_counts():
 
 def test_fail_policy_exit_code_matches_exit_code_for_report():
     """The shared-helper refactor must keep release_decision.fail_policy.exit_code
-    in lockstep with the standalone exit_code_for_report() across the matrix."""
+    in lockstep with the standalone exit_code_for_report() across the matrix,
+    given the blockers and decision the engine computed."""
     matrix = [
         ("advisory", None, False, [_finding(severity="critical")]),
         ("strict", None, False, [_finding(severity="critical")]),
         ("strict", ["high"], False, [_finding(severity="high")]),
         ("strict", ["critical"], True, [_finding(severity="critical", baseline_status="matched")]),
         ("advisory", None, False, []),
+        ("advisory", ["critical"], False, [_mandatory_control()]),
+        ("advisory", ["critical"], False, [_finding(severity="critical", suppressed=True)]),
+        ("strict", None, False, [_mandatory_control()]),
     ]
     for ci_mode, fail_on, new_only, findings in matrix:
         report = _report(findings=findings)
         decision = _build(report, ci_mode=ci_mode, fail_on=fail_on, new_findings_only=new_only)
         expected = exit_code_for_report(
-            report, ci_mode, fail_on=fail_on, new_findings_only=new_only
+            report,
+            ci_mode,
+            blockers=decision.blockers,
+            fail_on=fail_on,
+            new_findings_only=new_only,
+            release_decision=decision.decision,
         )
         assert decision.fail_policy.exit_code == expected, (
             f"mismatch for ci_mode={ci_mode}, fail_on={fail_on}, new_findings_only={new_only}"
@@ -666,8 +696,156 @@ def test_exit_code_is_the_ci_gate_signal_not_the_release_decision(
 
     report = _report()
 
-    assert exit_code_for_report(report, "advisory", release_decision=decision) == advisory_exit
-    assert exit_code_for_report(report, "strict", release_decision=decision) == strict_exit
+    assert (
+        exit_code_for_report(report, "advisory", blockers=(), release_decision=decision)
+        == advisory_exit
+    )
+    assert (
+        exit_code_for_report(report, "strict", blockers=(), release_decision=decision)
+        == strict_exit
+    )
+
+
+_MATCHED_BASELINE = BaselineSummary(path=".agents-shipgate/baseline.json", matched_count=1)
+
+
+@pytest.mark.parametrize(
+    ("fail_on", "new_findings_only", "baseline_status", "expected_exit"),
+    [
+        # #1029: the suppression dropped the finding from the exit code's
+        # active set but not from the decision's blockers, so advisory +
+        # fail_on exited 0 on a `blocked` decision.
+        (["critical"], False, None, GATE_FAILURE_EXIT_CODE),
+        (["critical"], True, "new", GATE_FAILURE_EXIT_CODE),
+        (["critical", "high"], False, None, GATE_FAILURE_EXIT_CODE),
+        # Advisory semantics are otherwise unchanged: no fail_on, no failure;
+        # a fail_on that does not name the blocker's severity, no failure.
+        (None, False, None, 0),
+        (["high"], False, None, 0),
+        # The engine keeps a suppressed mandatory control a blocker whatever
+        # its baseline status, so the exit follows it — as strict mode's
+        # `blocked` rule already did.
+        (["critical"], True, "matched", GATE_FAILURE_EXIT_CODE),
+    ],
+)
+def test_advisory_fail_on_fails_on_a_blocker_no_suppression_can_waive(
+    fail_on, new_findings_only, baseline_status, expected_exit
+):
+    report = _report(
+        findings=[_mandatory_control(baseline_status=baseline_status)],
+        baseline=_MATCHED_BASELINE if baseline_status == "matched" else None,
+    )
+
+    decision = _build(
+        report, ci_mode="advisory", fail_on=fail_on, new_findings_only=new_findings_only
+    )
+
+    assert decision.decision == "blocked"
+    assert [item.check_id for item in decision.blockers] == [_MANDATORY_CONTROL]
+    assert decision.fail_policy.exit_code == expected_exit
+    assert decision.fail_policy.would_fail_ci is (expected_exit != 0)
+
+
+@pytest.mark.parametrize("ci_mode", ["advisory", "strict"])
+def test_a_suppression_still_waives_a_finding_that_is_not_a_mandatory_control(ci_mode):
+    """`checks.ignore` keeps clearing `fail_on` for every waivable finding."""
+
+    tools = [_tool()]
+    report = _report(findings=[_finding(severity="critical", suppressed=True)], tools=tools)
+
+    decision = _build(report, ci_mode=ci_mode, tools=tools, fail_on=["critical"])
+
+    assert decision.blockers == []
+    assert [rule.rule for rule in decision.contribution_rules] == ["suppressed"]
+    assert decision.fail_policy.exit_code == 0
+    assert decision.fail_policy.would_fail_ci is False
+
+
+def test_the_base_fail_on_floor_reads_the_same_blockers():
+    """`verify`'s base `ci.fail_on` floor (#1024) reaches the same blocker."""
+
+    report = _report(findings=[_mandatory_control()])
+
+    decision = build_release_decision(
+        report=report,
+        tools=[],
+        ci_mode="advisory",
+        fail_on=None,
+        new_findings_only=False,
+        exit_fail_on_floor=["critical"],
+    )
+
+    assert decision.decision == "blocked"
+    # The floor reaches the exit code only; the run's own list is reported.
+    assert decision.fail_policy.fail_on == []
+    assert decision.fail_policy.exit_code == GATE_FAILURE_EXIT_CODE
+
+
+@pytest.mark.parametrize(
+    ("finding_factory", "fail_on", "new_findings_only", "expected_exit"),
+    [
+        (lambda: _mandatory_control(), None, False, GATE_FAILURE_EXIT_CODE),
+        (lambda: _mandatory_control(severity="high"), None, False, GATE_FAILURE_EXIT_CODE),
+        (
+            lambda: _mandatory_control(baseline_status="matched"),
+            None,
+            True,
+            GATE_FAILURE_EXIT_CODE,
+        ),
+        (lambda: _finding(severity="critical", suppressed=True), None, False, 0),
+        (lambda: _finding(severity="critical", suppressed=True), ["critical"], False, 0),
+        (lambda: _finding(severity="critical"), None, False, GATE_FAILURE_EXIT_CODE),
+        (lambda: _finding(severity="critical", baseline_status="matched"), None, True, 0),
+        (
+            lambda: _finding(severity="critical", baseline_status="matched"),
+            None,
+            False,
+            GATE_FAILURE_EXIT_CODE,
+        ),
+        (lambda: _finding(severity="high"), None, False, 0),
+        (lambda: _finding(severity="high"), ["high"], False, GATE_FAILURE_EXIT_CODE),
+        (lambda: _policy_finding(severity="medium"), None, False, GATE_FAILURE_EXIT_CODE),
+        (
+            lambda: _policy_finding(severity="medium", baseline_status="matched"),
+            None,
+            True,
+            0,
+        ),
+        (
+            lambda: _policy_finding(severity="medium", baseline_status="matched"),
+            None,
+            False,
+            GATE_FAILURE_EXIT_CODE,
+        ),
+    ],
+)
+def test_strict_exit_codes_are_unchanged(
+    finding_factory, fail_on, new_findings_only, expected_exit
+):
+    """Strict mode already exits 20 on any `blocked` decision (#1029).
+
+    Reading the engine's blockers therefore moves no strict exit code. These
+    rows pin the strict codes this change could have touched — suppressed,
+    baseline-matched, mandatory or not — and pass unchanged before it.
+    """
+
+    finding = finding_factory()
+    tools = [_tool()]
+    report = _report(
+        findings=[finding],
+        tools=tools,
+        baseline=_MATCHED_BASELINE if finding.baseline_status == "matched" else None,
+    )
+
+    decision = _build(
+        report,
+        ci_mode="strict",
+        tools=tools,
+        fail_on=fail_on,
+        new_findings_only=new_findings_only,
+    )
+
+    assert decision.fail_policy.exit_code == expected_exit
 
 
 def test_summary_status_remains_baseline_blind():
@@ -896,6 +1074,15 @@ def _policy_finding(
             "excluded",
             "suppressed",
             False,
+            False,
+        ),
+        (
+            "suppressed_mandatory_control_stays_a_blocker",
+            lambda: _mandatory_control(baseline_status="new"),
+            {"ci_mode": "advisory"},
+            "blocker",
+            "policy_block_new",
+            True,
             False,
         ),
     ],

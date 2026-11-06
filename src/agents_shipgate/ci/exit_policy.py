@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from agents_shipgate.schemas.common import ReleaseDecisionStatus, Severity
 from agents_shipgate.schemas.report import (
     Finding,
     ReadinessReport,
+    ReleaseDecisionItem,
 )
 
 GATE_FAILURE_EXIT_CODE = 20
@@ -25,6 +28,10 @@ def baseline_filtered_active(report: ReadinessReport, *, new_findings_only: bool
     Findings with typed support therefore contribute to process policy only
     when that support is policy-eligible. Legacy findings without support keep
     their established behavior for frozen-report compatibility.
+
+    Suppression drops a finding here, but it does not drop a blocker the
+    decision engine keeps non-waivable: those reach the exit code through the
+    ``blockers`` argument of :func:`exit_code_for_report` (#1029).
     """
     active = [
         finding
@@ -41,13 +48,22 @@ def exit_code_for_report(
     report: ReadinessReport,
     ci_mode: str,
     *,
+    blockers: Sequence[ReleaseDecisionItem],
     fail_on: list[Severity] | None = None,
     new_findings_only: bool = False,
     release_decision: ReleaseDecisionStatus | None = None,
     has_semantic_gaps: bool = False,
 ) -> int:
-    # Summary counts exclude suppressed findings, so strict mode intentionally
-    # passes when every critical finding has an explicit suppression reason.
+    """The process exit code for a scan, read from the one decision engine.
+
+    ``blockers`` and ``release_decision`` are what ``build_release_decision``
+    computed for this report; they are required so that no caller can derive
+    an exit code beside the decision instead of from it. The exit code is not
+    a projection of the decision alone (see STABILITY.md "Exit codes"): in
+    advisory mode it is 20 only when the configured ``fail_on`` matches. But
+    when it does match, it matches what the decision blocks on, including a
+    blocker no suppression can waive.
+    """
     fail_on_resolved = effective_fail_on(ci_mode, fail_on)
     active = baseline_filtered_active(report, new_findings_only=new_findings_only)
     # v0.29: the semantic gate is not represented as a Finding on purpose —
@@ -63,6 +79,16 @@ def exit_code_for_report(
         return GATE_FAILURE_EXIT_CODE
     if not fail_on_resolved:
         return 0
+    # A suppression explains a waivable finding, so a suppressed finding
+    # leaves `active` and no longer matches `fail_on`. It cannot waive a
+    # mandatory current-surface control: the decision engine keeps that one
+    # as a blocker, and the exit code reads the engine's blockers rather than
+    # restating which suppressions count (#1029). Without this, advisory mode
+    # with `fail_on` exited 0 on a report whose decision was `blocked` by a
+    # blocker in that very `fail_on`. Strict mode already exits above on any
+    # `blocked` decision, so this changes no strict exit code.
+    if any(item.severity in fail_on_resolved for item in blockers):
+        return GATE_FAILURE_EXIT_CODE
     if any(finding.severity in fail_on_resolved for finding in active):
         return GATE_FAILURE_EXIT_CODE
     return 0

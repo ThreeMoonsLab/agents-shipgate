@@ -348,6 +348,100 @@ ci:
     assert exit_code == 20
 
 
+#: The three critical controls the #1029 repro ignores. Only the last is a
+#: mandatory current-surface control, which a suppression cannot waive.
+_IGNORED_CRITICAL_CONTROLS = (
+    "SHIP-POLICY-APPROVAL-MISSING",
+    "SHIP-SIDEFX-IDEMPOTENCY-MISSING",
+    "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING",
+)
+
+
+def _advisory_support_refund_sample(
+    tmp_path: Path, *, ignored: tuple[str, ...], fail_on: list[str] | None
+) -> Path:
+    root = tmp_path / "support_refund_agent"
+    shutil.copytree(SAMPLE.parent, root, ignore=shutil.ignore_patterns("expected"))
+    manifest_path = root / "shipgate.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["ci"]["mode"] = "advisory"
+    if fail_on is not None:
+        manifest["ci"]["fail_on"] = fail_on
+    manifest["checks"]["ignore"].extend(
+        {"check_id": check_id, "reason": "accepted for #1029"} for check_id in ignored
+    )
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    return manifest_path
+
+
+@pytest.mark.parametrize(
+    ("ignored", "fail_on", "expected_exit"),
+    [
+        # The repro: the ignores must not turn the configured gate green.
+        (_IGNORED_CRITICAL_CONTROLS, ["critical"], 20),
+        # Control: the same gate without the ignores.
+        ((), ["critical"], 20),
+        # Advisory without fail_on still never fails CI, blocked or not.
+        (_IGNORED_CRITICAL_CONTROLS, None, 0),
+    ],
+)
+def test_checks_ignore_cannot_turn_an_advisory_fail_on_gate_green(
+    tmp_path, ignored, fail_on, expected_exit
+):
+    """#1029: the exit code reads the blockers the decision engine keeps."""
+
+    manifest_path = _advisory_support_refund_sample(tmp_path, ignored=ignored, fail_on=fail_on)
+    out = tmp_path / "reports"
+
+    result = CliRunner().invoke(
+        app,
+        ["scan", "--config", str(manifest_path), "--out", str(out), "--no-plugins"],
+    )
+
+    assert result.exit_code == expected_exit, result.output
+    report = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    decision = report["release_decision"]
+    assert decision["decision"] == "blocked"
+    assert decision["fail_policy"]["exit_code"] == expected_exit
+    assert decision["fail_policy"]["would_fail_ci"] is (expected_exit != 0)
+    assert {
+        finding["check_id"] for finding in report["findings"] if finding["suppressed"]
+    } == set(ignored)
+    # The waivable controls stay waived; the mandatory one stays a blocker.
+    blocker_ids = {item["check_id"] for item in decision["blockers"]}
+    assert "SHIP-ACTION-FINANCIAL-WRITE-CONTROL-MISSING" in blocker_ids
+    assert ("SHIP-POLICY-APPROVAL-MISSING" in blocker_ids) is not bool(ignored)
+    assert ("SHIP-SIDEFX-IDEMPOTENCY-MISSING" in blocker_ids) is not bool(ignored)
+
+
+def test_a_blocker_in_fail_on_that_would_not_fail_ci_is_refused_at_emission(
+    tmp_path, monkeypatch
+):
+    """Negative control for #1029: an exit rule that stops reading the
+    decision's blockers fails the scan instead of shipping a green gate."""
+
+    from agents_shipgate.ci import release_decision
+    from agents_shipgate.core.semantic_consistency import SemanticConsistencyError
+
+    reads_blockers = release_decision.exit_code_for_report
+
+    def ignores_blockers(*args, blockers, **kwargs):
+        return reads_blockers(*args, blockers=(), **kwargs)
+
+    monkeypatch.setattr(release_decision, "exit_code_for_report", ignores_blockers)
+    manifest_path = _advisory_support_refund_sample(
+        tmp_path, ignored=_IGNORED_CRITICAL_CONTROLS, fail_on=["critical"]
+    )
+
+    with pytest.raises(SemanticConsistencyError, match="release blocker in fail_on"):
+        run_scan(
+            config_path=manifest_path,
+            output_dir=tmp_path / "reports",
+            formats=["json"],
+            plugins_enabled=False,
+        )
+
+
 def test_agent_finding_does_not_emit_duplicate_policy_evidence_source(tmp_path):
     """v0.19 reviewer-grade provenance: agent-level findings have a
     single citation site (the manifest pointer IS the primary

@@ -206,10 +206,13 @@ def build_release_decision(
     # blockers/review_items consider the full findings set, NOT
     # new_findings_only: baseline-matched criticals must remain visible
     # as accepted debt in review_items. The new_findings_only filter
-    # only affects fail_policy.exit_code (via exit_code_for_report).
+    # only affects fail_policy.exit_code (via exit_code_for_report, which
+    # also reads these blockers, so a blocker no suppression can waive
+    # still fails a matching fail_on — #1029).
     # v0.17: iterate report.findings directly so the contribution_rules
     # audit row set is exhaustive (suppressed findings get an audit row
-    # too, classified as excluded/suppressed).
+    # too, classified as excluded/suppressed, or as a blocker when the
+    # suppression cannot waive a mandatory current-surface control).
     blockers: list[ReleaseDecisionItem] = []
     review_items: list[ReleaseDecisionItem] = []
     contribution_rules: list[ContributionRule] = []
@@ -453,6 +456,7 @@ def build_release_decision(
     exit_code = exit_code_for_report(
         report,
         ci_mode,
+        blockers=blockers,
         fail_on=exit_fail_on,
         new_findings_only=new_findings_only,
         release_decision=decision,

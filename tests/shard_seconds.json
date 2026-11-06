@@ -437,6 +437,8 @@
   "tests/test_verify_base_and_gate_removal.py": 17.9,
   "tests/test_verify_pr_controlled_inputs.py": 23.4,
   "tests/test_claude_command_settings.py": 21.0,
+  "tests/test_step_summary_isolation.py": 3.9,
+  "tests/test_host_grants_yaml_timestamps.py": 2.1,
   "tests/test_dependency_floors.py": 0.1
  },
  "measured_at": "cbff1ef0b101",
@@ -557,6 +559,28 @@
    },
    "case_count": 14,
    "command": "python -m pytest tests/test_claude_command_settings.py --junitxml=command-settings.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "b980d4a9 with issue #617 step summary isolation increment",
+   "report_sha256": "b1380884759a6a6f37d939b6374f75c346c89a637cc41adec221c637456573cd",
+   "files": {
+    "tests/test_step_summary_isolation.py": 3.9
+   },
+   "case_count": 1,
+   "command": "python -m pytest tests/test_step_summary_isolation.py --junitxml=step-summary-isolation.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "ebc4f5378987 with issue #1100 YAML timestamp serialization increment",
+   "report_sha256": "d8703434c1cbb45219c901d3e3f514bd26de56c017d08b6c394db29628e15072",
+   "files": {
+    "tests/test_host_grants_yaml_timestamps.py": 2.1
+   },
+   "case_count": 9,
+   "command": "python -m pytest tests/test_host_grants_yaml_timestamps.py --junitxml=yaml-timestamps.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {
