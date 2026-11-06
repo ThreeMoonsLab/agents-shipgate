@@ -113,7 +113,7 @@ other base, the working-tree comparison is the whole answer. Where no base
 can be detected at all — no remote, no `main` or `master` — the run stops and
 names `--base` rather than reporting a pass it did not establish.
 
-Read the single stdout object as `shipgate.agent_boundary_result/v1`. Switch on
+Read the single stdout object as `shipgate.agent_boundary_result/v3`. Switch on
 `control.state`; inspect `input_coverage`, `host_coverage`, `affected_hosts`,
 `policies`, `violations`, and `issues`; then follow `control.next_action`,
 `control.allowed_next_commands`, and `control.human_review`. Treat `decision`
@@ -400,7 +400,7 @@ agents-shipgate self-check --json
 agents-shipgate fixture list --json
 ```
 
-Errors carry a structured `next_action` (single string, back-compat) and `next_actions` (ranked list) when agent mode is active. Agent mode auto-enables inside a known coding-agent harness (Claude Code exports `CLAUDECODE=1`, Cursor `CURSOR_TRACE_ID`); set `AGENTS_SHIPGATE_AGENT_MODE=1` to force it on elsewhere, or `=0` to force it off:
+When agent mode is active, a failure a command handles itself adds one JSON line to stderr, carrying a structured `next_action` (single string, back-compat) and `next_actions` (ranked list) wherever the CLI knows a recovery. `check`, `scan`, `init`, `doctor`, `detect`, `diff`, `audit --host`, `explain`, `explain-finding` and `apply-patches` do this; `verify` reports many of its failures in the `verifier.json` it prints instead, so route on that object's `control`. Not every error path emits the line yet ([#1040](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1040)): Click/Typer usage errors — an unknown option, or an option value the parser rejects, such as a `diff --base` ref that is not available locally — and the failures of several supporting commands (`agent handoff`, `trigger`, `capability` and `baseline` among them) print prose only. When no JSON line appears, act on the prose message and the exit code; do not invent a `next_action`. Agent mode auto-enables inside a known coding-agent harness (Claude Code exports `CLAUDECODE=1`, Cursor `CURSOR_TRACE_ID`); set `AGENTS_SHIPGATE_AGENT_MODE=1` to force it on elsewhere, or `=0` to force it off:
 
 ```bash
 $ AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate scan -c missing.yaml
@@ -778,7 +778,7 @@ fixture is `agents-shipgate fixture run support_refund_agent`.
 
 ### What vocabulary should I use in user-facing copy?
 
-Use the [canonical names](#canonical-names) table above and the website
+Use the [canonical names](#naming-canonical) table above and the website
 glossary: https://threemoonslab.com/glossary/.
 
 ---
@@ -804,13 +804,13 @@ For the short, current statement of "which fields to read", see [`docs/agent-con
 | Report schema (v0.27 frozen reference) | [`docs/report-schema.v0.27.json`](docs/report-schema.v0.27.json) | `0.27` |
 | Report schema (v0.26 frozen reference) | [`docs/report-schema.v0.26.json`](docs/report-schema.v0.26.json) | `0.26` |
 | Report schema (v0.25 frozen reference) | [`docs/report-schema.v0.25.json`](docs/report-schema.v0.25.json) | `0.25` |
-| Verify-run schema | [`docs/verify-run-schema.v3.json`](docs/verify-run-schema.v3.json) | `shipgate.verify_run/v3` |
+| Verify-run schema | [`docs/verify-run-schema.v5.json`](docs/verify-run-schema.v5.json) | `shipgate.verify_run/v5` |
 | Verification plan schema | [`docs/verification-plan-schema.v1.json`](docs/verification-plan-schema.v1.json) | `shipgate.verification_plan/v1` |
 | Verification unit result schema | [`docs/verification-unit-result-schema.v1.json`](docs/verification-unit-result-schema.v1.json) | `shipgate.verification_unit_result/v1` |
 | Verification artifact manifest schema | [`docs/verification-artifact-manifest-schema.v1.json`](docs/verification-artifact-manifest-schema.v1.json) | `shipgate.verification_artifact_manifest/v1` |
 | Verification receipt schema | [`docs/verification-receipt-schema.v1.json`](docs/verification-receipt-schema.v1.json) | `shipgate.verification_receipt/v1` |
-| Agent handoff schema | [`docs/agent-handoff-schema.v5.json`](docs/agent-handoff-schema.v5.json) | `shipgate.agent_handoff/v5` |
-| Agent boundary result schema | [`docs/agent-boundary-result-schema.v1.json`](docs/agent-boundary-result-schema.v1.json) | `shipgate.agent_boundary_result/v1` |
+| Agent handoff schema (v5 frozen reference) | [`docs/agent-handoff-schema.v5.json`](docs/agent-handoff-schema.v5.json) | `shipgate.agent_handoff/v5` |
+| Agent boundary result schema | [`docs/agent-boundary-result-schema.v3.json`](docs/agent-boundary-result-schema.v3.json) | `shipgate.agent_boundary_result/v3` |
 | Codex boundary result schema (deprecated frozen projection) | [`docs/codex-boundary-result-schema.v2.json`](docs/codex-boundary-result-schema.v2.json) | `shipgate.codex_boundary_result/v2` |
 | Report schema (v0.24 frozen reference) | [`docs/report-schema.v0.24.json`](docs/report-schema.v0.24.json) | `0.24` |
 | Report schema (v0.23 frozen reference) | [`docs/report-schema.v0.23.json`](docs/report-schema.v0.23.json) | `0.23` |
