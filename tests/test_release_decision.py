@@ -685,9 +685,11 @@ def test_exit_code_is_the_ci_gate_signal_not_the_release_decision(
     """Published exit-code semantics, pinned across all four decisions.
 
     The exit code answers "did the configured CI gate fail", and that depends on
-    `ci.mode`. It is not a projection of `release_decision.decision`: in
-    advisory mode every decision — `blocked` included — exits 0, and
-    `review_required` has no exit code of its own in either mode. A consumer
+    `ci.mode` and `fail_on`. It is not a projection of
+    `release_decision.decision`: in advisory mode with no `fail_on` (as here)
+    every decision — `blocked` included — exits 0, and `review_required` has no
+    exit code of its own in either mode. The rule for every mode and `fail_on`
+    is STABILITY.md "Exit codes". A consumer
     that reads exit 0 as merge authority is therefore wrong in advisory mode by
     construction, which is why `shipgate.agent_control/v1` reports
     `permissions.merge` beside `exit_code` rather than expecting the caller to

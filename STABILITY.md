@@ -4197,10 +4197,12 @@ hash was recorded. Repositories on local-contract schema 8 or 9 were reported as
 `skipped_user_modified` and left un-upgraded.
 
 Exit-code semantics are unchanged and now explicitly documented: the exit code
-is the CI gate signal and depends on `ci.mode`. In advisory mode every decision
-— `blocked` included — exits 0, and `review_required` has no exit code of its
-own in either mode. `permissions.merge` is the only field that answers "may I
-merge".
+is the CI gate signal and depends on `ci.mode` and `fail_on`. In advisory mode
+with an empty `fail_on` (the advisory default) every decision — `blocked`
+included — exits 0; with a `fail_on`, advisory mode exits 20 only when a
+blocker or an active finding has a listed severity (see
+[Exit codes](#exit-codes)). `review_required` has no exit code of its own in
+either mode. `permissions.merge` is the only field that answers "may I merge".
 
 <a id="migration-note-unreleased-publish-vs-merge"></a>
 
@@ -4863,7 +4865,7 @@ command-contract commitments yet. They remain consumers of `verify` artifacts;
 | `agents-shipgate registry report` | `--registry`, `--bypass`, `--json`, `--fail-on-bypass` |
 | `agents-shipgate registry summary` | `--registry`, `--json` |
 | `agents-shipgate registry verify` | `--registry`, `--json`, `--fail-on-issue` |
-| `shipgate audit --host` | `--workspace`, `--host`, `--json`, `--out`, `--save-baseline`, `--baseline`, `--drift`, `--fail-on-drift` |
+| `shipgate audit --host` | `--workspace`, `--host`, `--json`, `--out`, `--save-baseline`, `--baseline-file`, `--drift`, `--fail-on-drift` |
 
 `agents-shipgate feedback export` is introduced in v0.11 for design-partner
 feedback loops. Its current flags are `--from`, `--redact`/`--no-redact`,
@@ -4895,12 +4897,12 @@ release-gate artifact.
 
 | Code | Meaning |
 |---|---|
-| `0` | Pass — advisory mode or strict mode with no `fail_on` matches |
+| `0` | Success. For `scan` and `verify`: no exit-`20` condition below holds. Advisory mode with an empty resolved `fail_on` (the advisory default) therefore exits `0` on every decision, `blocked` included. Exit `0` is not merge permission. |
 | `2` | Manifest config error (missing/typo/invalid) |
 | `3` | Input parse error (malformed YAML/JSON, file too large, path traversal blocked) |
 | `4` | Other Agents Shipgate error |
 | `6` | Baseline integrity failure (v0.11+) — `agents-shipgate baseline verify --strict` detected `SHIP-BASELINE-INTEGRITY-MISMATCH`. Only the standalone `baseline verify` command emits this code; `scan` continues to use `20` for gate failure regardless of integrity-mode. |
-| `20` | Gate failure. Strict-mode scan/verify: ≥ 1 unsuppressed finding hit `fail_on`, or ≥ 1 active unbaselined finding sets `blocks_release`. `verify` with a base and without `--fail-on` also exits `20` when an active finding's severity is in the base manifest's declared `ci.fail_on`, in either mode, even where the change's own list (which still sets the verdict) leaves it out (#1024). Also emitted by opt-in governance gate flags (v0.13+): `baseline status --require-owner`/`--require-expiry`/`--max-age-days` on violations, and `audit --host --drift --fail-on-drift` on host-grant drift. Without those flags the commands are advisory and exit `0`. |
+| `20` | Gate failure. `scan` and `verify` exit `20` when either holds. **(1) Either mode:** a `release_decision.blockers[]` entry or an active finding has a severity in the resolved `fail_on`. **(2) Strict mode only, with or without a `fail_on` match:** the decision is `blocked` or `insufficient_evidence`; the run has a semantic, binding or policy evidence gap (a non-zero `semantic_coverage.gap_count`, `binding_coverage.gap_count` or `policy_gap_count` under `release_decision.evidence_coverage`), even where a named concern makes the decision `review_required`; or an active finding sets `blocks_release`. The resolved `fail_on` is `--fail-on` when given, else the manifest's `ci.fail_on`, else the mode's default: none in advisory, `critical` in strict. `verify` with a base and without `--fail-on` adds the base manifest's declared `ci.fail_on` to it for the exit code only, in either mode, even where the change's own list (which still sets the blockers and the verdict) leaves a severity out; without `--ci-mode`, it also runs strict when the base declares strict (#1024). An active finding is unsuppressed, carries no `support` or a `support` with `policy_eligible: true`, and, when a baseline is loaded, is not baseline-matched. Also emitted by opt-in governance gate flags (v0.13+): `baseline status --require-owner`/`--require-expiry`/`--max-age-days` on violations, and `audit --host --drift --fail-on-drift` on host-grant drift. Without those flags the commands are advisory and exit `0`. |
 
 ### Runtime contract JSON
 
@@ -6497,7 +6499,7 @@ These are not stable — assume they may grow but not shrink:
 - **Report `frameworks.{name}` blocks.** New framework summaries (e.g. `frameworks.langchain`) may appear, and new count keys may be added to an existing summary (e.g. `frameworks.google_adk.tool_binding_count`). Tool counts such as `function_tool_count` count tool *definitions*: one tool bound to three agents is one tool and three bindings, and only the binding count moves with the wiring.
 - **Manifest fields.** New optional fields under existing sections.
 - **Check default severities.** May tighten over time. To pin a severity for your repo, use `checks.severity_overrides`.
-- **`release_decision.decision` enum values.** New states (e.g., `insufficient_evidence` added at `report_schema_version` 0.14) may be added. Consumers that switch on the enum MUST fall back to `review_required` for unrecognized values — that is the safe default. Existing values' meanings will not change. New states do not change CI exit codes (exit 20 still requires a `fail_on` match on actual findings).
+- **`release_decision.decision` enum values.** New states (e.g., `insufficient_evidence` added at `report_schema_version` 0.14) may be added. Consumers that switch on the enum MUST fall back to `review_required` for unrecognized values — that is the safe default. Existing values' meanings will not change. New states do not change CI exit codes: the only states the exit code reads are `blocked` and `insufficient_evidence`, which exit 20 in strict mode with or without a `fail_on` match, and every other exit-20 condition reads `fail_on`, blockers, findings or evidence gaps rather than the state (see [Exit codes](#exit-codes)).
 - **`agent_summary.verdict` enum values.** Mirror `release_decision.decision`; same additivity and fallback rule.
 - **`reviewer_summary.verdict` enum values.** Mirror `release_decision.decision` and `agent_summary.verdict`; same additivity and fallback rule. The three enums move in lockstep — adding a value to one without the others is a contract violation.
 - **`reviewer_summary.first_recommended_surface.{kind, name}` enum values.** New surface kinds and names may be added (e.g., when a sixth reviewer lens or fourth audit envelope ships). Consumers that switch on `name` MUST fall back to "ignore the pointer and read every documented surface" for unrecognized values. The priority order between surfaces may also be revised additively when a new surface is added — the contract is the deterministic projection, not the specific ranking.

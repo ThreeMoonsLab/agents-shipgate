@@ -62,11 +62,12 @@ shipgate audit --host --json --out agents-shipgate-reports/host-grants.json
 
 | Code | Meaning |
 |---|---|
-| `0` | Pass (advisory mode or strict-no-blockers) |
+| `0` | Success; the gate did not fail (with no `fail_on` in effect, advisory mode exits `0` on every decision, `blocked` included) |
 | `2` | Manifest config error |
 | `3` | Input parse error |
 | `4` | Other Agents Shipgate error |
-| `20` | Strict-mode gate failure |
+| `6` | Baseline integrity failure: `baseline verify --strict` reported `SHIP-BASELINE-INTEGRITY-MISMATCH`; no other command exits `6` |
+| `20` | Gate failure: a blocker or finding matched `fail_on` (either mode), or strict mode saw a `blocked` or `insufficient_evidence` decision, a semantic, binding or policy evidence gap, or a `blocks_release` finding; also an opt-in governance gate flag that found a violation ([full rule](../../STABILITY.md#exit-codes)) |
 
 ## No shell? Use the MCP server
 
