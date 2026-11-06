@@ -192,9 +192,11 @@ def test_runtime_and_discovery_name_the_same_request_contract():
 # scripts/published_schema_pins.json (#1044). This table used to carry its own
 # digests, two of them over bytes no release shipped (verifier 0.16 before
 # #561's two open-grammar nodes; agent-result v3 with a 0.16.0 version
-# default), so the test undid those changes before hashing. v1.0.0 through
-# v1.2.0 published both files exactly as pinned now, so neither exception is
-# needed. #610 froze preflight 0.5 when 0.6 replaced the shared union in
+# default), so the test undid those changes before hashing. v1.2.0 published
+# both files exactly as pinned now, so neither exception is needed (v1.0.0 and
+# v1.1.0 published the same verifier 0.16, but each stamped its own version
+# into agent-result v3's `tool.version` default, the rewrite #1044 ends).
+# #610 froze preflight 0.5 when 0.6 replaced the shared union in
 # preflight's control; #662 widened agent-control v1 by owner decision
 # (contract v38).
 FROZEN_CONTROL_SCHEMAS = (

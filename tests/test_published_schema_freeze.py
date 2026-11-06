@@ -380,8 +380,8 @@ def test_no_unpublished_schema_carries_a_release_specific_default(
 ):
     """A successor schema version must not inherit the frozen version default.
 
-    The three version-stamped documents keep the ``"default": "1.2.0"`` they
-    were published with. Any schema document not yet published that carries
+    The three version-stamped documents keep the ``"default": "1.2.0"`` that
+    v1.2.0 published. Any schema document not yet published that carries
     a release version as a default is the #1044 defect starting again.
     """
 

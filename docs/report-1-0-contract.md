@@ -62,7 +62,8 @@ receipt collected against the frozen schema — see
    embeds the running package version any longer, so a release bump leaves
    them all byte-identical: agent-handoff v9, agent-result v3 and
    agent-boundary-result v3, which did, keep the `tool.version` default of
-   `1.2.0` they were published with.
+   `1.2.0` that v1.2.0 published (v1.0.0 and v1.1.0 each stamped its own
+   version there).
 4. **A deprecation cycle is counted in shipped releases, never in elapsed
    time on unreleased `main`.** A surface deprecated in `1.n` may be removed no
    earlier than `2.0`, and only if `1.n` was actually published. Time a
