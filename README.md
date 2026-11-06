@@ -465,7 +465,7 @@ agent harness (Claude Code exports `CLAUDECODE=1`, Cursor `CURSOR_TRACE_ID`).
 | `3` | Input parse error (file missing, malformed, path traversal blocked) |
 | `4` | Other Agents Shipgate error |
 | `6` | Baseline integrity failure: `baseline verify --strict` reported `SHIP-BASELINE-INTEGRITY-MISMATCH` (the baseline is not backed by its audit log); no other command exits `6` |
-| `20` | Gate failure: a blocker or finding matched `fail_on` (either mode), or strict mode saw a `blocked` or `insufficient_evidence` decision, a semantic, binding or policy evidence gap, or a `blocks_release` finding; also an opt-in governance gate flag that found a violation ([full rule](STABILITY.md#exit-codes)) |
+| `20` | Gate failure: a blocker or finding matched `fail_on` (either mode), or strict mode saw a `blocked` or `insufficient_evidence` decision, a semantic, binding or policy evidence gap, or a `blocks_release` finding; elsewhere, `skill lint`/`security`/`review` on a `fail_on` match, `fixture verify` on a changed fixture summary, `org status` on a governance violation, and an opt-in gate flag such as `audit --host --fail-on-drift` that found a violation ([full rule](STABILITY.md#exit-codes)) |
 
 Exit zero is not merge permission. Read the verdict.
 
