@@ -60,6 +60,7 @@ from agents_shipgate.schemas.report import (
     ReportSummary,
     ToolSurfaceSummary,
 )
+from agents_shipgate.schemas.surfaces import ActionSurfaceFacts, ToolSurfaceFacts
 
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 
@@ -1120,6 +1121,38 @@ def test_findings_free_baseline_with_surface_facts_needs_a_row_of_its_own(tmp_pa
     issues = verify_baseline(target, log)
     assert [issue.kind for issue in issues] == ["missing_audit_log"]
     assert "no entry for baseline.json" in issues[0].title
+    assert issues[0].evidence["recorded_baselines"] == ["baseline-prod.json"]
+
+
+@pytest.mark.parametrize(
+    "facts",
+    [
+        {"tool_surface_facts": ToolSurfaceFacts()},
+        {"action_surface_facts": ActionSurfaceFacts()},
+    ],
+    ids=["tool_surface_facts_only", "action_surface_facts_only"],
+)
+def test_either_surface_fact_field_alone_needs_a_row_of_its_own(tmp_path, facts):
+    """Each surface-fact field is a diff reference by itself, even when empty.
+
+    A findings-free skeleton beside a sibling's rows is exempt only while both
+    fields are null; either one present, ``{"tools": []}`` included, needs a
+    row recorded for this file.
+    """
+    write_baseline(_stub_report(("SHIP-X", "tool_a")), tmp_path / "baseline-prod.json")
+    skeleton = tmp_path / "baseline.json"
+    skeleton.write_text(
+        BaselineFile(
+            created_at="2026-01-01T00:00:00Z",
+            source_report_run_id="run_skeleton",
+            **facts,
+        ).model_dump_json(indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+
+    issues = verify_baseline(skeleton, tmp_path / "baseline-audit.log")
+    assert [issue.kind for issue in issues] == ["missing_audit_log"]
     assert issues[0].evidence["recorded_baselines"] == ["baseline-prod.json"]
 
 
