@@ -4470,8 +4470,9 @@ unused write/admin scopes are `high`; other unused scopes are `medium`.
 
 Baseline file integrity check failed. Emitted when the baseline JSON has been
 edited outside `agents-shipgate baseline save` (hash mismatch against the
-audit log), when the audit log is missing or empty for a non-empty baseline,
-when the audit log is malformed, when an entry's `provenance.run_id` is not
+latest audit log entry recorded for that baseline file), when the audit log is
+missing or empty for a non-empty baseline or has no entry for that baseline
+file, when the audit log is malformed, when an entry's `provenance.run_id` is not
 present in the audit log, or when an entry pre-dates the v0.5 provenance
 contract. In
 `baseline.integrity_mode: strict` the finding carries `blocks_release=true`

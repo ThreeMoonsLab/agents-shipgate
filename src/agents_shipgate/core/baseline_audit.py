@@ -6,7 +6,9 @@ prior baseline (if any) and the newly written one. Reviewers can:
 
 - ``git log`` the log to see when fingerprints joined the baseline.
 - Use ``agents-shipgate baseline verify`` to confirm the on-disk baseline
-  matches the most recent audit entry's ``hash_after``.
+  matches the ``hash_after`` of the most recent audit entry recorded for
+  *that* baseline (#1030). Several baselines can share one directory, and so
+  one log; a row only ever vouches for the baseline file it names.
 
 The audit log is **tamper-evident but not tamper-proof**. A well-resourced
 adversary who edits both the baseline JSON and the audit log atomically
@@ -21,12 +23,14 @@ returns entries in append order (oldest first).
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.static_inputs import read_static_input_bytes
 
 AUDIT_LOG_SCHEMA_VERSION = "0.1"
 
@@ -42,8 +46,14 @@ class BaselineAuditEntry(BaseModel):
     ``hash_before`` is the SHA-256 of the prior baseline file's canonical
     content (see :func:`compute_baseline_hash`) or ``None`` if this was
     the first save. ``hash_after`` is the new file's hash. Verification
-    walks the log to find the most recent entry and compares its
-    ``hash_after`` against the current baseline hash.
+    walks the log to find the most recent entry recorded for the baseline
+    being verified (see :func:`audit_entry_records_baseline`) and compares
+    its ``hash_after`` against the current baseline hash.
+
+    ``baseline_path`` is the path exactly as the saving command spelled it
+    — relative to that command's working directory, or absolute — so only
+    its final component identifies the baseline across machines and
+    working directories.
 
     ``added_fingerprints`` / ``removed_fingerprints`` describe the delta
     so reviewers can scan the log without diffing files. They are
@@ -64,24 +74,48 @@ class BaselineAuditEntry(BaseModel):
 
 
 def compute_baseline_hash(canonical_json: str) -> str:
-    """SHA-256 of canonical baseline JSON.
+    """SHA-256 of canonical baseline JSON text.
 
-    ``canonical_json`` should be the exact bytes that ``write_baseline``
-    writes to disk. We hash the literal file content rather than a model
-    dump so that ``verify_baseline`` can re-read the file and confirm
-    byte-equivalence without re-serializing.
+    ``canonical_json`` is the text ``write_baseline`` writes, whose line
+    endings are LF. We hash the file's text rather than a model dump so
+    that ``verify_baseline`` can re-read the file and confirm equivalence
+    without re-serializing; :func:`compute_baseline_hash_from_file` is the
+    reading half and defines exactly what "equivalent" means.
     """
     return "sha256:" + hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
 
 
-def compute_baseline_hash_from_file(path: Path) -> str:
-    """SHA-256 of a baseline file's exact on-disk bytes.
+def normalize_baseline_line_endings(text: str) -> str:
+    """Rewrite CRLF and lone CR line endings as LF."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
-    Used by ``verify_baseline`` to detect any hand-edits. Reads the file
-    bytes directly so trailing whitespace / line endings / re-ordering
-    are all detected.
+
+def compute_baseline_hash_from_file(path: Path) -> str:
+    """SHA-256 of a baseline file's UTF-8 text with line endings read as LF.
+
+    Used by ``verify_baseline`` to detect hand-edits. Every edit to the
+    file's content changes the hash: a value, a key order, added or removed
+    whitespace (spaces, tabs, blank lines), a byte-order mark. A line-ending
+    conversion alone does not: CRLF and a lone CR hash as LF.
+
+    That is deliberate (#1030), and it has been the behaviour of every
+    release since the audit log shipped:
+
+    - a line-ending conversion cannot change what the baseline accepts.
+      JSON treats CR and LF alike as insignificant whitespace and cannot
+      carry a raw one inside a string, so the parsed baseline is identical;
+    - Git rewrites line endings on checkout (Git for Windows defaults to
+      ``core.autocrlf=true``), so hashing raw bytes would turn every such
+      checkout of an untouched baseline into a critical, unsuppressible
+      ``SHIP-BASELINE-INTEGRITY-MISMATCH``;
+    - ``hash_after`` values in logs written by released versions were
+      computed this way, and must keep verifying.
+
+    The bytes come through the active static-input snapshot when there is
+    one, so the hash covers the same bytes ``load_baseline`` parsed.
     """
-    return compute_baseline_hash(path.read_text(encoding="utf-8"))
+    raw = read_static_input_bytes(path)
+    return compute_baseline_hash(normalize_baseline_line_endings(raw.decode("utf-8")))
 
 
 def append_audit_entry(log_path: Path, entry: BaselineAuditEntry) -> None:
@@ -120,14 +154,60 @@ def read_audit_log(log_path: Path) -> list[BaselineAuditEntry]:
     return entries
 
 
-def latest_audit_entry(log_path: Path) -> BaselineAuditEntry | None:
+_PATH_SEPARATORS = re.compile(r"[\\/]")
+
+
+def recorded_baseline_name(recorded_path: str) -> str:
+    """The file name an audit row's ``baseline_path`` records.
+
+    ``baseline_path`` is spelled as the saving command spelled it: relative
+    to whatever working directory that command ran in, or absolute, with
+    POSIX or Windows separators. Its final component is the one part that
+    names the same file however and wherever it was saved, so it is the
+    part verification compares.
+    """
+    return _PATH_SEPARATORS.split(recorded_path.rstrip("/\\"))[-1]
+
+
+def audit_entry_records_baseline(entry: BaselineAuditEntry, baseline_path: Path) -> bool:
+    """Whether ``entry`` was written by a save of ``baseline_path`` (#1030).
+
+    A row belongs to the baseline whose file name it records. Baselines in
+    one directory have distinct names, so each verifies against its own
+    rows: saving ``baseline-prod.json`` neither vouches for nor invalidates
+    ``baseline.json``. Two same-named baselines in different directories
+    can only meet in one log through ``baseline.audit_log``; they are not
+    told apart, and give them distinct names or distinct logs.
+    """
+    return recorded_baseline_name(entry.baseline_path) == baseline_path.name
+
+
+def latest_audit_entry(
+    log_path: Path,
+    *,
+    baseline_path: Path | None = None,
+) -> BaselineAuditEntry | None:
     """Return the most recently appended audit entry, or ``None``.
 
-    The most recent entry's ``hash_after`` is the value
-    ``verify_baseline`` compares against the current baseline file's hash.
+    With ``baseline_path``, only rows recorded for that baseline count (see
+    :func:`audit_entry_records_baseline`); that entry's ``hash_after`` is
+    the value ``verify_baseline`` compares against the current file's hash.
+    Without it, the last row of the log, whichever baseline wrote it.
     """
-    entries = read_audit_log(log_path)
-    return entries[-1] if entries else None
+    return latest_entry_for_baseline(read_audit_log(log_path), baseline_path)
+
+
+def latest_entry_for_baseline(
+    entries: list[BaselineAuditEntry],
+    baseline_path: Path | None,
+) -> BaselineAuditEntry | None:
+    """The last of ``entries`` recorded for ``baseline_path``, or ``None``."""
+    if baseline_path is None:
+        return entries[-1] if entries else None
+    for entry in reversed(entries):
+        if audit_entry_records_baseline(entry, baseline_path):
+            return entry
+    return None
 
 
 def audit_entry_for_run(

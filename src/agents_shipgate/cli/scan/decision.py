@@ -229,6 +229,10 @@ def _run_checks_and_decide(
         acknowledgements=manifest.acknowledge_overrides(),
         catalog=catalog,
         extra_known_check_defaults=effective_dynamic_defaults,
+        # Pre-override severities: the tier gate judges each override by
+        # the strongest finding it would lower, not only by the catalog
+        # default (#1030).
+        findings=findings,
     )
     apply_severity_overrides(findings, override_resolution.override_by_check_id)
     apply_suppressions(findings, manifest.checks.ignore, tools_and_agent.tools)

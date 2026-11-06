@@ -50,7 +50,8 @@ checks:
 
 `org status` reports sourced packs without a `sha256` as
 `policy_pack_unpinned`, and reports changed content as
-`policy_pack_pin_mismatch`. Normal `scan` still fails closed on a pin mismatch.
+`policy_pack_pin_mismatch`. Normal `scan` still fails closed on a pin mismatch,
+for an `optional: true` pack too.
 For a read-only policy-pack inventory, run:
 
 ```bash

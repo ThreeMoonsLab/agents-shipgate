@@ -68,8 +68,9 @@ _KIND_TO_RECOMMENDATION: dict[str, str] = {
         "reviewed."
     ),
     "missing_audit_log": (
-        "Re-run `agents-shipgate baseline save` to regenerate the "
-        "audit log alongside the baseline file."
+        "Re-run `agents-shipgate baseline save` for this baseline file to "
+        "record an audit entry for it in the log beside it. A renamed or "
+        "copied baseline has no audit history under its new name."
     ),
     "invalid_audit_log": (
         "Inspect the malformed audit log, then re-run "

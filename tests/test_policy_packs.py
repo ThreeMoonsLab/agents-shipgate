@@ -950,6 +950,118 @@ checks:
     assert any("Optional policy pack 'missing-pack.yaml' failed to load" in item for item in report.source_warnings)
 
 
+_PINNED_PACK_TEXT = """
+name: Org Pack
+rules:
+  - id: ORG-PINNED-RULE
+    title: Pinned rule
+    severity: high
+    block: true
+    recommendation: n/a
+    match:
+      risk_tags: [financial_action]
+"""
+
+
+def _optional_pack_manifest(tmp_path: Path, *, sha256: str | None) -> Path:
+    pin = f"\n      sha256: \"{sha256}\"" if sha256 is not None else ""
+    config = tmp_path / "shipgate.yaml"
+    config.write_text(
+        _manifest_without_policy_pack()
+        + f"""
+checks:
+  policy_packs:
+    - path: org-pack.yaml
+      optional: true{pin}
+""",
+        encoding="utf-8",
+    )
+    return config
+
+
+def test_optional_policy_pack_with_wrong_sha256_is_an_error(tmp_path):
+    """#1030 acceptance: ``optional`` never downgrades a pin mismatch.
+
+    A PR that edits a pinned optional pack (removing a blocking rule, say)
+    used to load zero packs with a warning and scan on without the org
+    rules. A wrong pin is the tampering the pin exists to catch.
+    """
+    _write_openapi(tmp_path)
+    (tmp_path / "org-pack.yaml").write_text(_PINNED_PACK_TEXT, encoding="utf-8")
+    pinned = hashlib.sha256(_PINNED_PACK_TEXT.encode("utf-8")).hexdigest()
+    config = _optional_pack_manifest(tmp_path, sha256=pinned)
+    report, _ = run_scan(
+        config_path=config,
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    assert [pack.sha256_status for pack in report.loaded_policy_packs] == ["verified"]
+
+    # The pack is edited after it was pinned: the blocking rule is gone.
+    (tmp_path / "org-pack.yaml").write_text(
+        _PINNED_PACK_TEXT.replace("block: true", "block: false"), encoding="utf-8"
+    )
+    with pytest.raises(ConfigError, match="does not match its pinned sha256"):
+        run_scan(
+            config_path=config,
+            output_dir=tmp_path / "reports2",
+            formats=["json"],
+            ci_mode="advisory",
+        )
+    result = runner.invoke(app, ["doctor", "--config", str(config), "--json"])
+    assert result.exit_code == 2, result.output
+
+
+def test_optional_policy_pack_missing_with_a_pin_still_warns(tmp_path):
+    """#1030 acceptance: absence is the one failure ``optional`` tolerates."""
+    _write_openapi(tmp_path)
+    config = _optional_pack_manifest(tmp_path, sha256="0" * 64)
+    report, _ = run_scan(
+        config_path=config,
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+    )
+    assert report.loaded_policy_packs == []
+    assert [
+        item for item in report.source_warnings if "Optional policy pack 'org-pack.yaml'" in item
+    ] == [
+        "Optional policy pack 'org-pack.yaml' failed to load: no file exists at "
+        "that path; continuing without its rules."
+    ]
+
+
+@pytest.mark.parametrize("replacement", ["malformed", "directory", "dangling_link"])
+def test_optional_policy_pack_that_exists_but_does_not_load_is_an_error(
+    tmp_path, replacement
+):
+    """Only a missing pack is tolerated; anything at the path must load.
+
+    Each replacement used to degrade to a warning, so swapping a pinned
+    optional pack for a broken file, a directory or a dangling link dropped
+    its rules exactly as a failed pin did.
+    """
+    from agents_shipgate.config.loader import load_manifest
+    from agents_shipgate.inputs.policy_packs import load_policy_packs
+
+    _write_openapi(tmp_path)
+    pack = tmp_path / "org-pack.yaml"
+    if replacement == "malformed":
+        pack.write_text("name: [unclosed\n", encoding="utf-8")
+    elif replacement == "directory":
+        pack.mkdir()
+    else:
+        try:
+            pack.symlink_to(tmp_path / "gone.yaml")
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks unavailable")
+    for sha256 in (None, "0" * 64):
+        config = _optional_pack_manifest(tmp_path, sha256=sha256)
+        with pytest.raises(ConfigError, match="org-pack.yaml"):
+            load_policy_packs(load_manifest(config), tmp_path)
+
+
 def _write_openapi(tmp_path: Path) -> None:
     (tmp_path / "openapi.yaml").write_text(
         """

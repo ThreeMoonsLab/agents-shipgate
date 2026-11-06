@@ -10,10 +10,11 @@ class PolicyPackConfig(ArtifactPathConfig):
     id: str | None = None
     source: str | None = None
     # v0.2 (org distribution): optional content pin. When set, the pack
-    # file's SHA-256 must match or the scan fails with a config error
-    # (optional packs degrade to a warning). Pin shared/org packs that are
-    # vendored or synced from another repo so a tampered pack cannot
-    # silently change the release policy.
+    # file's SHA-256 must match or the scan fails with a config error —
+    # for an ``optional: true`` pack too (#1030): ``optional`` tolerates a
+    # pack that does not exist, never one that fails its pin or does not
+    # load. Pin shared/org packs that are vendored or synced from another
+    # repo so a tampered pack cannot silently change the release policy.
     sha256: str | None = None
 
 
