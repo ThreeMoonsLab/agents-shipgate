@@ -448,11 +448,19 @@ ledger could not answer "who approved this change to what the agent may do".
   directory or `verifier.json`, inside `GITHUB_WORKSPACE`, or reached through
   a link inside either, is refused with exit `3`, as is a review that names
   another pull request or repository.
+- `approval.head_sha` is the commit the verify run evaluated, read from the
+  plan its receipt binds, and must be the pull request's head. Exit `3` when
+  it is not (a synthetic merge commit, another revision's artifacts), when
+  `--head-sha` names another commit, when verify evaluated uncommitted
+  working-tree changes, or when no receipt is beside `verifier.json`.
 - The attestation's `capability_lock` gains `definition_set_hash` and
   `capability_diff.summary` gains `definition_changed` (capability standard
   `0.6`).
 - Registry rows gain `approval_status` and `approval`; `registry summary`
-  gains `by_approval_status`. A row's id and the chain hash are taken without
+  gains `by_approval_status`. `registry ingest` validates the block as the
+  attestation model does and refuses one its rows do not support (exit `3`);
+  a ledger row whose block does not validate is skipped and reported by
+  `registry verify`. A row's id and the chain hash are taken without
   those two fields while they are `null`, so a ledger written by an earlier
   release verifies with the ids and chain it was written with.
 - `org bundle` reads a `0.5` attestation file as `0.6` with

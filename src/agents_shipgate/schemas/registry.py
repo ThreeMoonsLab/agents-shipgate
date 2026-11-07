@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from agents_shipgate.schemas.attestation import AttestationApprovalV1
 from agents_shipgate.schemas.verification_identity import CONTENT_ID_PATTERN
 
 REGISTRY_SCHEMA_VERSION = "0.5"
@@ -72,6 +73,37 @@ class RegistryRowV1(BaseModel):
     policy_packs: list[dict[str, Any]] = Field(default_factory=list)
     previous_row_id: str | None = None
     previous_row_sha256: str | None = None
+
+    @model_validator(mode="after")
+    def _approval_is_one_an_attestation_could_carry(self) -> RegistryRowV1:
+        """An approval block reads only as the attestation model reads it.
+
+        The block is stored as attested, so a row's id and chain hash are taken
+        over the bytes that were ingested. It is still validated as
+        :class:`AttestationApprovalV1`, on ingest and on every read: a row that
+        claims ``approved`` with no approver, or a status its rows do not
+        support, is not a row a reader counts.
+        """
+
+        if self.approval is None:
+            if self.approval_status is not None:
+                raise ValueError("approval_status is set but the row has no approval block")
+            return self
+        try:
+            approval = AttestationApprovalV1.model_validate(self.approval)
+        except ValidationError as exc:
+            first = exc.errors()[0]
+            where = ".".join(str(part) for part in first.get("loc", ()))
+            reason = str(first.get("msg", "")).removeprefix("Value error, ")
+            raise ValueError(
+                f"approval{'.' + where if where else ''}: {reason}"
+            ) from None
+        if self.approval_status != approval.status:
+            raise ValueError(
+                f"approval_status {self.approval_status!r} is not the approval "
+                f"block's status {approval.status!r}"
+            )
+        return self
 
 
 class RegistrySkippedRowV1(BaseModel):
