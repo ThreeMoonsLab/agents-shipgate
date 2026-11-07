@@ -121,6 +121,69 @@ the same verify run exits `3` with a `Verification receipt error` line naming
 the receipt; rerun `verify` rather than editing either file. See
 [verification reproducibility](verification-reproducibility.md#time-and-github-actions).
 
+### Who approved the change
+
+`org.actor` is who triggered the run and `human_ack` is what the manifest
+declares; neither is an approval by a second person. GitHub holds that as the
+pull request's reviews. The workflow fetches them and `attest --reviews`
+records them in the attestation's `approval` block (attestation `0.6`):
+
+```yaml
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  pull-requests: read   # the reviews API only
+
+# … after the steps that install agents-shipgate (a release with --reviews)
+# and run verify into agents-shipgate-reports/ …
+      - name: Fetch the pull request's reviews
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate --slurp \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+            | jq 'add // []' > "$RUNNER_TEMP/reviews.json"
+      - name: Attest with the approval
+        run: |
+          agents-shipgate attest \
+            --from agents-shipgate-reports/verifier.json \
+            --ci-context github-actions \
+            --reviews "$RUNNER_TEMP/reviews.json" \
+            --out agents-shipgate-reports/attestation.json
+```
+
+What the block establishes:
+
+- `status` is `approved` when someone other than the pull request's author
+  approved the attested head commit and no reviewer's latest review requests
+  changes; `approved_stale` when the standing approvals are on an earlier
+  commit; `changes_requested` when any reviewer's latest decisive review
+  requests changes; `not_approved` otherwise; and `not_supplied` on every
+  attestation made without `--reviews`. A reviewer's standing is their latest
+  `APPROVED`, `CHANGES_REQUESTED` or `DISMISSED` review; comments do not
+  change it.
+- An approval by the pull request's author or a bot account never counts. It
+  is listed under `ignored_approvals` with the reason.
+- `source_sha256` hashes the reviews file, and every review in it must name
+  this repository's pull request: a file from another pull request is refused
+  (exit `3`), never partly used.
+- The file must be outside the repository: a path inside the Git work tree
+  around the current directory or `verifier.json`, or inside
+  `GITHUB_WORKSPACE`, is refused (exit `3`), because the change under review
+  could write it. So is a link committed in the repository.
+- `--reviews` needs `--ci-context github-actions` and an event payload with a
+  pull request (`pull_request` or `pull_request_review`): the number, its
+  author and its head commit come from the event.
+
+The approval is evidence. It never changes `verdict`, `release_decision`,
+the exit code or the bypass report. `registry ingest` copies it into the row
+(`approval_status`, `approval`), and `registry summary` counts rows by
+`approval_status`. Rows from earlier attestations carry `null` there, and their
+row ids and chain hashes are unchanged.
+
 Append attestations to a local JSONL ledger:
 
 ```bash
