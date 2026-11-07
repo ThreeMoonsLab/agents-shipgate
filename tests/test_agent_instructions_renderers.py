@@ -13,8 +13,10 @@ import json
 import re
 from pathlib import Path
 
+from agents_shipgate import __version__
 from agents_shipgate.cli.discovery.agent_instructions.renderers import (
     CLAUDE_CODE_SKILL_PRIOR_RENDER_SHA256,
+    CLAUDE_COMMAND_PRIOR_RENDER_SHA256,
     CODEX_SKILL_PRIOR_RENDER_SHA256,
     render_agents_md,
     render_claude_code_skill_bundle_text,
@@ -30,6 +32,8 @@ from agents_shipgate.cli.discovery.agent_instructions.renderers import (
 from agents_shipgate.cli.discovery.agent_instructions.renderers._shared import (
     CI_POINTER_PARAGRAPH,
 )
+from agents_shipgate.schemas.agent_boundary import AGENT_BOUNDARY_RESULT_SCHEMA_VERSION
+from agents_shipgate.schemas.verifier import VerifierArtifact
 from harness.adoption import overlay as overlay_mod
 
 ALL_RENDERERS = {
@@ -43,8 +47,11 @@ ALL_RENDERERS = {
     "pr-template": render_pr_template,
 }
 REPO_ROOT = Path(__file__).resolve().parent.parent
+#: A fully spelled boundary-result schema version, the form an agent would
+#: compare ``schema_version`` against or pick a schema file by.
+BOUNDARY_RESULT_SCHEMA_TOKEN = re.compile(r"shipgate\.agent_boundary_result/v\d+")
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
-    ".claude/skills/agents-shipgate/SKILL.md": "a13de0cb4f38516d611772fdd1146ef6f149d1bd1e53d8cf6769acb2765ccf46",
+    ".claude/skills/agents-shipgate/SKILL.md": "38c6c4002dad4abbc27a237550c0840e4e0056b8a83a01d9598ebc163c87b759",
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "d9c1184c8c8f5c69550bee640653a30583fea5d6c5f1b6c09fd95213a656d211",
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "ff8794b6b6dfe34b43fed4f6cc7e5e0046f6581c4ec39e1dfa6f1c35d952e190",
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "f51855fd93728585fe3a74adf0e7e19029b9cafbdb6377c390ee6d878df22de4",
@@ -57,10 +64,10 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/prompts/verify-agent-diff.md": "1e0279c7b6beae88f468f478b4e3b7401d7cc53bead5c53b6edcc256f59e159c",
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
-    ".agents/skills/agents-shipgate/SKILL.md": "34ef4bdac90ff7b409eb2254f6b73c52888e92bd9ba44824d6f056c44c2a50ff",
+    ".agents/skills/agents-shipgate/SKILL.md": "d34336c2052b7ced6f2124e11c3203c87008d511fd7a420f48da5ed520d874b9",
     ".agents/skills/agents-shipgate/agents/openai.yaml": "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef",
     ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": "a33856e24e39a3eb9363eec448b72ac7530e8f169c2deb42075cf163f7233664",
-    ".agents/skills/agents-shipgate/references/recipes.md": "dcf9f982036d6189e4663923a97bf56ecd3ae68f34b4ce46081d135a88c4b564",
+    ".agents/skills/agents-shipgate/references/recipes.md": "c4cfcf755f6953c822ab19f9dc7a0b98d2bb9eb137070876a21a10306cad8093",
     ".agents/skills/agents-shipgate/references/report-reading.md": "d9709d600fa6ed6c697202f731977e66c102a4757e29ab825fa89935abe8f72a",
 }
 
@@ -195,6 +202,24 @@ def test_committed_claude_command_matches_renderer() -> None:
     assert committed == render_claude_command_file()
 
 
+def test_claude_command_names_the_boundary_schema_check_emits() -> None:
+    """``init`` writes this command into adopter repositories, and it told every
+    one of them to parse ``check`` stdout as ``/v1`` while every 1.x release
+    emitted ``/v3`` (#1039). The copy an adopter already has must still upgrade:
+    its hash is a prior render, and the new render is not."""
+    command = render_claude_command_file()
+    assert set(BOUNDARY_RESULT_SCHEMA_TOKEN.findall(command)) == {
+        AGENT_BOUNDARY_RESULT_SCHEMA_VERSION
+    }
+    rendered_sha = hashlib.sha256(command.encode("utf-8")).hexdigest()
+    assert rendered_sha not in CLAUDE_COMMAND_PRIOR_RENDER_SHA256
+    # The command 1.0.0 through 1.2.0 shipped.
+    assert (
+        "107e60198df59f7622bd8e416f1997cfbbb2e0a5206762944322b6ba36ce1b03"
+        in CLAUDE_COMMAND_PRIOR_RENDER_SHA256
+    )
+
+
 def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     payload = json.loads(render_local_contract_file())
     assert payload["schema_version"] == "10"
@@ -217,8 +242,8 @@ def test_local_contract_renderer_exposes_agent_operational_fields() -> None:
     )
     assert payload["agent_result_schema_version"] == "agent_result_v3"
     assert payload["agent_result_schema_path"] == "docs/agent-result-schema.v3.json"
-    assert payload["attestation_schema_version"] == "0.5"
-    assert payload["registry_schema_version"] == "0.4"
+    assert payload["attestation_schema_version"] == "0.6"
+    assert payload["registry_schema_version"] == "0.5"
     assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v2")
     assert payload["host_grants_inventory_schema_version"] == "0.9"
     assert payload["host_grants_baseline_schema_version"] == "0.9"
@@ -460,6 +485,14 @@ def test_claude_code_skill_has_required_surfaces() -> None:
     assert "AGENTS_SHIPGATE_AGENT_MODE=1" in skill
     assert "Do not claim a finding is fixed" in skill
     assert "agents-shipgate verify" in skill
+    # The skill names what this build emits (#1039): it said boundary result
+    # `/v2`, verifier `0.15` and "the current 0.x contract line" on 1.x.
+    assert set(BOUNDARY_RESULT_SCHEMA_TOKEN.findall(skill)) == {
+        AGENT_BOUNDARY_RESULT_SCHEMA_VERSION
+    }
+    verifier_version = VerifierArtifact.model_fields["verifier_schema_version"].default
+    assert f'`verifier_schema_version: "{verifier_version}"`' in skill
+    assert f"current {__version__.split('.')[0]}.x contract line" in skill
 
 
 def test_codex_skill_has_required_surfaces() -> None:
@@ -480,8 +513,23 @@ def test_codex_skill_has_required_surfaces() -> None:
     assert "install or upgrade `agents-shipgate`" in skill
     recipes = files[".agents/skills/agents-shipgate/references/recipes.md"]
     assert "minimum_control_contract_version: 21" in recipes
-    # The installed skill bundle remains deferred under #690.
-    assert "shipgate.agent_boundary_result/v2" in recipes
+    # #697 left this bundle saying `/v2` when `/v3` shipped, citing #690. #690
+    # suspended invoking the legacy repository skill; it did not freeze the
+    # bundle's text, and #781 already corrected shipped bundle content without
+    # conflicting with it. So the bundle names the schema `check` emits (#1039).
+    # The recipe still mentions `/v2` for a 0.16 pre-release that meets the
+    # same contract floor, but never spells it as the schema to parse.
+    assert AGENT_BOUNDARY_RESULT_SCHEMA_VERSION in recipes
+    assert AGENT_BOUNDARY_RESULT_SCHEMA_VERSION in skill
+    named = {
+        rel: set(BOUNDARY_RESULT_SCHEMA_TOKEN.findall(text)) for rel, text in files.items()
+    }
+    stale = {
+        rel: versions - {AGENT_BOUNDARY_RESULT_SCHEMA_VERSION}
+        for rel, versions in named.items()
+        if versions - {AGENT_BOUNDARY_RESULT_SCHEMA_VERSION}
+    }
+    assert not stale, stale
 
 
 def test_pr_template_uses_conditional_wording() -> None:

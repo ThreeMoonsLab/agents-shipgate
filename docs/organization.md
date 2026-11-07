@@ -121,6 +121,83 @@ the same verify run exits `3` with a `Verification receipt error` line naming
 the receipt; rerun `verify` rather than editing either file. See
 [verification reproducibility](verification-reproducibility.md#time-and-github-actions).
 
+### Who approved the change
+
+`org.actor` is who triggered the run and `human_ack` is what the manifest
+declares; neither is an approval by a second person. GitHub holds that as the
+pull request's reviews. The workflow fetches them and `attest --reviews`
+records them in the attestation's `approval` block (attestation `0.6`):
+
+```yaml
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  pull-requests: read   # the reviews API only
+
+# … after the steps that check out the pull request's head commit
+# (ref: ${{ github.event.pull_request.head.sha }}), install agents-shipgate
+# (a release with --reviews) and verify that commit into
+# agents-shipgate-reports/ (--head ${{ github.event.pull_request.head.sha }}) …
+      - name: Fetch the pull request's reviews
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate --slurp \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+            | jq 'add // []' > "$RUNNER_TEMP/reviews.json"
+      - name: Attest with the approval
+        run: |
+          agents-shipgate attest \
+            --from agents-shipgate-reports/verifier.json \
+            --ci-context github-actions \
+            --reviews "$RUNNER_TEMP/reviews.json" \
+            --out agents-shipgate-reports/attestation.json
+```
+
+What the block establishes:
+
+- `status` is `approved` when someone other than the pull request's author
+  approved the attested head commit and no reviewer's latest review requests
+  changes; `approved_stale` when the standing approvals are on an earlier
+  commit; `changes_requested` when any reviewer's latest decisive review
+  requests changes; `not_approved` otherwise; and `not_supplied` on every
+  attestation made without `--reviews`. A reviewer's standing is their latest
+  `APPROVED`, `CHANGES_REQUESTED` or `DISMISSED` review; comments do not
+  change it.
+- An approval by the pull request's author or a bot account never counts. It
+  is listed under `ignored_approvals` with the reason.
+- `source_sha256` hashes the reviews file, and every review in it must name
+  this repository's pull request: a file from another pull request is refused
+  (exit `3`), never partly used.
+- The file must be outside the repository: a path inside the Git work tree
+  around the current directory or `verifier.json`, or inside
+  `GITHUB_WORKSPACE`, is refused (exit `3`), because the change under review
+  could write it. So is a link committed in the repository.
+- `--reviews` needs `--ci-context github-actions` and an event payload with a
+  pull request (`pull_request` or `pull_request_review`): the number, its
+  author and its head commit come from the event.
+- `head_sha` is the commit the verify run evaluated, read from the plan its
+  `verification-receipt.json` binds, and the reviews are evaluated against
+  it. It must be the pull request's head: verify that commit, as above. A
+  run of the default `pull_request` checkout evaluates GitHub's synthetic
+  merge commit instead, and is refused (exit `3`), as are artifacts from
+  another revision, a `--head-sha` naming another commit, a run over
+  uncommitted working-tree changes, and a `verifier.json` with no receipt
+  beside it. An approval of one commit is never recorded against another.
+
+The approval is evidence. It never changes `verdict`, `release_decision`,
+the exit code or the bypass report. `registry ingest` copies it into the row
+(`approval_status`, `approval`), and `registry summary` counts rows by
+`approval_status`. Rows from earlier attestations carry `null` there, and their
+row ids and chain hashes are unchanged. Ingest validates the block as
+`attest` writes it and refuses (exit `3`) one whose `status` its own rows do
+not support. A ledger row whose block does not validate, or whose
+`approval_status` is not the block's `status`, is skipped by every registry
+reader and reported by `registry verify`.
+
 Append attestations to a local JSONL ledger:
 
 ```bash

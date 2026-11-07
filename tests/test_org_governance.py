@@ -700,7 +700,7 @@ organization:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["attestation"]["attestation_schema_version"] == "0.5"
+    assert payload["attestation"]["attestation_schema_version"] == "0.6"
     assert payload["attestation"]["run_id"] is None
     assert payload["attestation"]["policy_packs"] == []
 

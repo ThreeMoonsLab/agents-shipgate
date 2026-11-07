@@ -48,7 +48,7 @@ Writes / verifies:
 - docs/org-evidence-bundle-schema.v2.json
                                 (from agents_shipgate.schemas.org_evidence_bundle.
                                  OrgEvidenceBundleArtifactV1)
-- docs/registry-schema.v0.4.json
+- docs/registry-schema.v0.5.json
                                 (from agents_shipgate.schemas.registry.
                                  RegistryQueryResultV1)
 - docs/host-grants-inventory-schema.v0.9.json

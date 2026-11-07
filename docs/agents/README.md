@@ -62,10 +62,9 @@ workflows, not the scanner binary — install the CLI (`pipx install
 agents-shipgate && pipx upgrade agents-shipgate`) where Codex runs commands.
 Do not assume a contract floor: run `agents-shipgate contract --json` and
 compare `minimum_control_contract_version` against the floor the bundled kit
-states, which the kit renders from the build that produced it. No published
-release reports the current floor yet — the kit says so in the same breath as
-its install line. Marketplace details, kit overrides, and the beta-migration
-steps: [`use-with-codex.md`](use-with-codex.md).
+states, which the kit renders from the build that produced it. Upgrade the CLI
+when it reports a lower floor or none. Marketplace details, kit overrides, and
+the beta-migration steps: [`use-with-codex.md`](use-with-codex.md).
 
 **Cursor** — `init --agent-instructions=cursor` writes the auto-attach rule;
 see [`use-with-cursor.md`](use-with-cursor.md).

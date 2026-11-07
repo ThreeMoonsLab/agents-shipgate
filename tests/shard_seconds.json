@@ -442,7 +442,8 @@
   "tests/test_dependency_floors.py": 0.1,
   "tests/test_published_schema_freeze.py": 17.1,
   "tests/test_capability_definition.py": 0.2,
-  "tests/test_capability_payload_v2.py": 4.7
+  "tests/test_capability_payload_v2.py": 4.7,
+  "tests/test_attest_approval.py": 0.2
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -628,6 +629,17 @@
    },
    "case_count": 16,
    "command": "python -m pytest tests/test_capability_payload_v2.py --junitxml=capability-payload-v2.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "ec79327f4965 with issue #1118 increment",
+   "report_sha256": "5eaf6df0b71153f7adc8cbe2c864ad06da5b94ee1a11c2902ac8453b4f769ad5",
+   "files": {
+    "tests/test_attest_approval.py": 0.2
+   },
+   "case_count": 37,
+   "command": "python -m pytest tests/test_attest_approval.py --junitxml=attest-approval.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]
