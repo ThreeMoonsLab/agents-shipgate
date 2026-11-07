@@ -679,7 +679,9 @@ contract. Headlines:
   `packet_schema_version: "0.18"`; older schemas frozen.
 - **Exit codes**: `0` pass, `2` manifest config error, `3` input
   parse error, `4` other error, `6` baseline integrity failure (strict
-  `baseline verify` only), `20` strict-mode gate failure.
+  `baseline verify` only), `20` gate failure (a `fail_on` match in either
+  mode, or strict mode's own conditions; see
+  [STABILITY.md § Exit codes](../STABILITY.md#exit-codes)).
 - **Check IDs** never change in published versions; legacy aliases
   expand via `core/check_ids.py`.
 - **Gating signal** is `release_decision.decision`. Do not gate on
