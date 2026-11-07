@@ -1670,9 +1670,9 @@ sigstore==4.5.1 \
     --hash=sha256:02e000197b34980f1d382741d6f83c2fecbcef7debf7304f36a5253f3c892cd9 \
     --hash=sha256:14accda8a7d4ef47cb25b4903829fb10f011048c261a5937724a43d073c4f34d
     # via agents-shipgate (pyproject.toml)
-sigstore-models==0.0.6 \
-    --hash=sha256:5201a68f4d7d0f8bec1e2f4378eb646b084c52609a4e31db8c385095fff68b2e \
-    --hash=sha256:c766c09470c2a7e8a4a333c893f07e2001c56a3ff1757b1a246119f53169a849
+sigstore-models==0.0.7 \
+    --hash=sha256:9f3b909d0c9ab388f839b3a7dbfaab79c66aa8b479a2d95838a2bdad88c49651 \
+    --hash=sha256:a2906ac1ecac5a96e642a30e89112f591f26a29f596a42eb554aa55cc48be8d5
     # via sigstore
 sigstore-rekor-types==0.0.18 \
     --hash=sha256:19aef25433218ebf9975a1e8b523cc84aaf3cd395ad39a30523b083ea7917ec5 \
