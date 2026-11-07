@@ -257,6 +257,10 @@ no window.
 that could not compare, or a gap; without it the report exits `0` so a
 scheduled job can archive it.
 
+For an assessment, [`registry report --control-map`](control-evidence.md)
+arranges the same rows, with the attestations, by a framework's evidence items
+and writes the extract an assessor can recompute.
+
 ## Boundary
 
 The engine compares local files, writes one local JSONL line and reads it

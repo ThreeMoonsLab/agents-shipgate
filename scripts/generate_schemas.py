@@ -49,6 +49,12 @@ Writes / verifies:
                                 (from agents_shipgate.schemas.org_evidence_bundle.
                                  OrgEvidenceBundleArtifactV1)
 - docs/registry-schema.v0.6.json
+- docs/control-map-schema.v0.1.json
+                                (from agents_shipgate.schemas.control_evidence.
+                                 ControlMapV1)
+- docs/control-evidence-schema.v0.1.json
+                                (from agents_shipgate.schemas.control_evidence.
+                                 ControlEvidenceV1)
                                 (from agents_shipgate.schemas.registry.
                                  RegistryQueryResultV1)
 - docs/host-grants-inventory-schema.v0.9.json
@@ -2634,6 +2640,60 @@ def build_registry_schema() -> tuple[Path, str]:
     return target, _canonical_json(schema)
 
 
+def build_control_map_schema() -> tuple[Path, str]:
+    """Generate the control-map input schema (docs/control-maps/*.yaml)."""
+
+    from agents_shipgate.schemas.control_evidence import (
+        CONTROL_MAP_SCHEMA_VERSION,
+        ControlMapV1,
+    )
+
+    schema = ControlMapV1.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/control-map-schema.v{CONTROL_MAP_SCHEMA_VERSION}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = f"Agents Shipgate Control Map v{CONTROL_MAP_SCHEMA_VERSION}"
+    schema["description"] = (
+        "JSON Schema for a control map read by agents-shipgate registry report "
+        "--control-map: per evidence item of a framework, which registry row "
+        "kinds bear on it and which of the engine's gap rules apply. A map "
+        "arranges evidence; it judges no control."
+    )
+    target = DOCS / f"control-map-schema.v{CONTROL_MAP_SCHEMA_VERSION}.json"
+    return target, _canonical_json(schema)
+
+
+def build_control_evidence_schema() -> tuple[Path, str]:
+    """Generate the control-evidence extract schema."""
+
+    from agents_shipgate.schemas.control_evidence import (
+        CONTROL_EVIDENCE_SCHEMA_VERSION,
+        ControlEvidenceV1,
+    )
+
+    schema = ControlEvidenceV1.model_json_schema()
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        f"main/docs/control-evidence-schema.v{CONTROL_EVIDENCE_SCHEMA_VERSION}.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = (
+        f"Agents Shipgate Control Evidence v{CONTROL_EVIDENCE_SCHEMA_VERSION}"
+    )
+    schema["description"] = (
+        "JSON Schema for control-evidence.json, written by agents-shipgate "
+        "registry report --control-map: for one audit window, the registry rows "
+        "cited per evidence item, their counts, and every gap the map's rules "
+        "find, with the extract that recomputes them. It states rows, counts and "
+        "gaps and judges no control; release_decision.decision remains the only "
+        "release gate."
+    )
+    target = DOCS / f"control-evidence-schema.v{CONTROL_EVIDENCE_SCHEMA_VERSION}.json"
+    return target, _canonical_json(schema)
+
+
 def build_org_evidence_bundle_schema() -> tuple[Path, str]:
     """Generate the organization evidence bundle schema."""
 
@@ -3197,6 +3257,8 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     ("org_governance", build_org_governance_schema),
     ("org_evidence_bundle", build_org_evidence_bundle_schema),
     ("registry", build_registry_schema),
+    ("control_map", build_control_map_schema),
+    ("control_evidence", build_control_evidence_schema),
     ("host_grants_inventory", build_host_grants_inventory_schema),
     ("host_grants_baseline", build_host_grants_baseline_schema),
     ("host_grants_drift", build_host_grants_drift_schema),

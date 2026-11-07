@@ -229,6 +229,11 @@ attestation rows of its repository, and `registry report --drift` reads them
 back with the runs that found drift and the gaps between runs. See
 [post-approval monitoring](post-approval-monitoring.md).
 
+For an assessment, `registry report --control-map <map> --since --until
+--out <dir>` arranges one window of the ledger by a framework's evidence
+items, prints every gap, and writes the ledger lines that recompute it. See
+[control evidence](control-evidence.md).
+
 Build one compact artifact for CI upload or future read-only hosted ingestion:
 
 ```bash

@@ -537,6 +537,46 @@ workflow declares the time and moves the ledger.
 
 ---
 
+<a id="control-evidence"></a>
+
+## Migration Note: Unreleased — `registry report --control-map` writes an audit-window evidence extract (control map `0.1`, control evidence `0.1`, #1121)
+
+**What was wrong.** A team preparing an assessment turned the registry ledger
+into evidence by hand: picking the window's rows, deciding which bear on which
+control activity, and explaining the gaps. A hand-made summary cannot be
+checked against the ledger it came from.
+
+**What changes.**
+
+- `registry report` takes exactly one of `--bypass`, `--drift` or
+  `--control-map <file>`. `--control-map` needs `--since` and `--until` (UTC
+  days, inclusive) and takes `--repo`, `--expected-interval-days`, `--out
+  <dir>` and `--json`; `--fail-on-bypass` and `--fail-on-drift` do not apply,
+  and `--out` applies only here (exit `2` otherwise). A map it cannot read
+  exits `2`. It exits `0` whatever it finds.
+- A control map (`control_map_schema_version: "0.1"`,
+  `docs/control-map-schema.v0.1.json`) lists evidence items with the row kinds
+  and gap rules that apply; `docs/control-maps/aiuc-1.yaml` is the first, for
+  AIUC-1 B006 and E004 as the April 2026 evidence list numbers them.
+- `--out` writes `control-evidence.json` (`control_evidence_schema_version:
+  "0.1"`, `docs/control-evidence-schema.v0.1.json`), `control-evidence.md` and
+  `ledger-extract.jsonl`, the cited ledger lines byte for byte; the view's
+  `recompute` command over the extract gives the same `controls` block.
+- Gap rules, a closed set: `no_rows_in_window`, `observation_interval`,
+  `observation_incomparable`, `inventory_issues`,
+  `capability_comparison_absent`, `definition_digests_absent`,
+  `approval_not_supplied`, `approval_not_approved`. Each is printed as
+  `found`, `none` or `not_checked`.
+- `registry report` with neither mode now says "pass --bypass, --drift or
+  --control-map".
+
+**Who must act.** Nobody: the view is new and opt-in.
+
+**What does not change.** The ledger, every other report, and
+`release_decision.decision`. The output judges no control.
+
+---
+
 <a id="trust-config-1030"></a>
 
 ## Migration Note: Unreleased — each baseline verifies against its own audit rows, the override tier gate reads emitted severity, and an optional pack's pin is fatal (#1030)
@@ -5043,7 +5083,7 @@ command-contract commitments yet. They remain consumers of `verify` artifacts;
 | `agents-shipgate org bundle` | `--config`/`-c`, `--workspace`, `--from`, `--out`, `--attestation`, `--registry`, `--as-of`, `--json` |
 | `agents-shipgate registry ingest` | `--attestation`, `--observation`, `--capability-diff`, `--event-time`, `--workflow-run-id`, `--head-sha`, `--ci-context`, `--registry`, `--repo`, `--json` |
 | `agents-shipgate registry query` | `--registry`, `--repo`, `--org-id`, `--service`, `--tier`, `--actor`, `--verdict`, `--capability-id`, `--trust-root-touched`, `--policy-weakened`, `--human-ack-required`/`--human-ack-not-required`, `--human-ack-satisfied`/`--human-ack-not-satisfied`, `--json` |
-| `agents-shipgate registry report` | `--registry`, `--bypass`, `--drift`, `--repo`, `--since`, `--until`, `--expected-interval-days`, `--json`, `--fail-on-bypass`, `--fail-on-drift` |
+| `agents-shipgate registry report` | `--registry`, `--bypass`, `--drift`, `--control-map`, `--repo`, `--since`, `--until`, `--expected-interval-days`, `--out`, `--json`, `--fail-on-bypass`, `--fail-on-drift` |
 | `agents-shipgate registry summary` | `--registry`, `--json` |
 | `agents-shipgate registry verify` | `--registry`, `--json`, `--fail-on-issue` |
 | `shipgate audit --host` | `--workspace`, `--host`, `--json`, `--out`, `--save-baseline`, `--baseline-file`, `--drift`, `--fail-on-drift` |

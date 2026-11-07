@@ -1,0 +1,449 @@
+{
+  "$defs": {
+    "ControlEvidenceChainHeadV1": {
+      "additionalProperties": false,
+      "description": "The last row of one repository's chain in the ledger the extract read.",
+      "properties": {
+        "repo": {
+          "title": "Repo",
+          "type": "string"
+        },
+        "row_id": {
+          "title": "Row Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo",
+        "row_id"
+      ],
+      "title": "ControlEvidenceChainHeadV1",
+      "type": "object"
+    },
+    "ControlEvidenceControlV1": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/ControlEvidenceItemV1"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "gap_count": {
+          "minimum": 0,
+          "title": "Gap Count",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "shows": {
+          "title": "Shows",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "status",
+        "shows",
+        "gap_count"
+      ],
+      "title": "ControlEvidenceControlV1",
+      "type": "object"
+    },
+    "ControlEvidenceExtractRefV1": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "row_count": {
+          "minimum": 0,
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "row_count"
+      ],
+      "title": "ControlEvidenceExtractRefV1",
+      "type": "object"
+    },
+    "ControlEvidenceGapV1": {
+      "additionalProperties": false,
+      "description": "What one gap rule found for one cited row kind.\n\n``not_checked`` is a value, never an omission: a rule the run could not\napply (``observation_interval`` without ``--expected-interval-days``) is\nprinted as not checked rather than left out.",
+      "properties": {
+        "count": {
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "row_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Row Ids",
+          "type": "array"
+        },
+        "rule": {
+          "enum": [
+            "no_rows_in_window",
+            "observation_interval",
+            "observation_incomparable",
+            "inventory_issues",
+            "capability_comparison_absent",
+            "definition_digests_absent",
+            "approval_not_supplied",
+            "approval_not_approved"
+          ],
+          "title": "Rule",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "found",
+            "none",
+            "not_checked"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "stretches": {
+          "items": {
+            "$ref": "#/$defs/RegistryDriftGapV1"
+          },
+          "title": "Stretches",
+          "type": "array"
+        }
+      },
+      "required": [
+        "rule",
+        "status",
+        "count"
+      ],
+      "title": "ControlEvidenceGapV1",
+      "type": "object"
+    },
+    "ControlEvidenceItemV1": {
+      "additionalProperties": false,
+      "properties": {
+        "counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Counts",
+          "type": "object"
+        },
+        "gaps": {
+          "items": {
+            "$ref": "#/$defs/ControlEvidenceGapV1"
+          },
+          "title": "Gaps",
+          "type": "array"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "row_count": {
+          "minimum": 0,
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "row_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Row Ids",
+          "type": "array"
+        },
+        "row_kind": {
+          "enum": [
+            "attestation",
+            "drift_observation"
+          ],
+          "title": "Row Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "row_kind",
+        "row_count"
+      ],
+      "title": "ControlEvidenceItemV1",
+      "type": "object"
+    },
+    "ControlEvidenceMapRefV1": {
+      "additionalProperties": false,
+      "properties": {
+        "control_map_schema_version": {
+          "title": "Control Map Schema Version",
+          "type": "string"
+        },
+        "framework": {
+          "title": "Framework",
+          "type": "string"
+        },
+        "framework_label": {
+          "title": "Framework Label",
+          "type": "string"
+        },
+        "note": {
+          "title": "Note",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "control_map_schema_version",
+        "framework",
+        "framework_label",
+        "source",
+        "note"
+      ],
+      "title": "ControlEvidenceMapRefV1",
+      "type": "object"
+    },
+    "RegistryDriftGapV1": {
+      "additionalProperties": false,
+      "description": "A stretch with no observation longer than the expected interval.\n\n``after_row_id`` is ``None`` when the stretch opens at ``--since``, and\n``before_row_id`` when it closes at ``--until``.",
+      "properties": {
+        "after_row_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Row Id"
+        },
+        "before_row_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Before Row Id"
+        },
+        "duration_seconds": {
+          "minimum": 0,
+          "title": "Duration Seconds",
+          "type": "integer"
+        },
+        "end": {
+          "title": "End",
+          "type": "string"
+        },
+        "repo": {
+          "title": "Repo",
+          "type": "string"
+        },
+        "start": {
+          "title": "Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo",
+        "start",
+        "end",
+        "duration_seconds"
+      ],
+      "title": "RegistryDriftGapV1",
+      "type": "object"
+    },
+    "RegistrySkippedRowV1": {
+      "additionalProperties": false,
+      "properties": {
+        "line": {
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "line",
+        "reason"
+      ],
+      "title": "RegistrySkippedRowV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/control-evidence-schema.v0.1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for control-evidence.json, written by agents-shipgate registry report --control-map: for one audit window, the registry rows cited per evidence item, their counts, and every gap the map's rules find, with the extract that recomputes them. It states rows, counts and gaps and judges no control; release_decision.decision remains the only release gate.",
+  "properties": {
+    "anchor_row_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Anchor Row Ids",
+      "type": "array"
+    },
+    "chain_heads": {
+      "items": {
+        "$ref": "#/$defs/ControlEvidenceChainHeadV1"
+      },
+      "title": "Chain Heads",
+      "type": "array"
+    },
+    "cited_row_count": {
+      "minimum": 0,
+      "title": "Cited Row Count",
+      "type": "integer"
+    },
+    "control_evidence_schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Control Evidence Schema Version",
+      "type": "string"
+    },
+    "controls": {
+      "items": {
+        "$ref": "#/$defs/ControlEvidenceControlV1"
+      },
+      "title": "Controls",
+      "type": "array"
+    },
+    "expected_interval_days": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expected Interval Days"
+    },
+    "extract": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ControlEvidenceExtractRefV1"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "map": {
+      "$ref": "#/$defs/ControlEvidenceMapRefV1"
+    },
+    "recompute": {
+      "title": "Recompute",
+      "type": "string"
+    },
+    "registry": {
+      "title": "Registry",
+      "type": "string"
+    },
+    "repo": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Repo"
+    },
+    "since": {
+      "title": "Since",
+      "type": "string"
+    },
+    "skipped_count": {
+      "default": 0,
+      "title": "Skipped Count",
+      "type": "integer"
+    },
+    "skipped_rows": {
+      "items": {
+        "$ref": "#/$defs/RegistrySkippedRowV1"
+      },
+      "title": "Skipped Rows",
+      "type": "array"
+    },
+    "statement": {
+      "title": "Statement",
+      "type": "string"
+    },
+    "until": {
+      "title": "Until",
+      "type": "string"
+    }
+  },
+  "required": [
+    "statement",
+    "registry",
+    "map",
+    "since",
+    "until",
+    "controls",
+    "cited_row_count",
+    "recompute"
+  ],
+  "title": "Agents Shipgate Control Evidence v0.1",
+  "type": "object"
+}
