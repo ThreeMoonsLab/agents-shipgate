@@ -36,7 +36,15 @@ Claude Code registration (`.mcp.json`):
 | `shipgate.preflight` | `{workspace?, config?, plan?, changed_files?, diff_text?, capability_request?, base_preflight?}` | exact `PreflightResultV6` (preflight `0.6`) |
 | `shipgate.explain` | `{check_id}` or `{fingerprint, report_path}` | deterministic check/finding explanation JSON |
 | `shipgate.capabilities` | `{config}` or `{base_lock, head_lock}` | capability lock or capability lock diff JSON |
-| `shipgate.handoff` | `{verifier_path, report_path?, verify_run_path?}` | exact `shipgate.agent_handoff/v8` |
+| `shipgate.handoff` | `{verifier_path, report_path?, verify_run_path?}` | exact `shipgate.agent_handoff/v9` |
+
+Each tool's `tools/list` entry carries a description that a connected agent
+reads when it picks a tool: the task first, then every input the tool accepts,
+what it returns and what it cannot do. No tool runs git or the CLI's Git-backed
+host comparison: `shipgate.check` takes diff text the caller already has and
+obtains no base or head ref, and `shipgate.capabilities` compares two lock
+files that already exist. For a comparison against a base ref, run
+`agents-shipgate diff --base <ref>` from the CLI.
 
 `shipgate.check` is the same protocol surface documented in
 [`agents/protocol.md`](agents/protocol.md). `shipgate.preflight` is proactive
@@ -64,8 +72,10 @@ following a verification route or reporting completion.
 
 `shipgate.handoff` is a read-only projection over existing verifier artifacts.
 It never runs `verify`, shells out to git, or writes `agent-handoff.json`; it
-returns the same `shipgate.agent_handoff/v8` shape that `verify` writes for
-agents that need a compact control/release-readiness object.
+returns the same `shipgate.agent_handoff/v9` shape that `verify` writes for
+agents that need a compact control/release-readiness object. It does not check
+that those artifacts still match the working tree: they describe only the tree
+that `verify` run checked, so re-run `verify` after any change.
 
 ## Trust model
 

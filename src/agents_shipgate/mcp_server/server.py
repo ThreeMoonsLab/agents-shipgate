@@ -22,7 +22,9 @@ from agents_shipgate.core.capability_lock import (
 )
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.preflight import build_preflight_result
-from agents_shipgate.schemas.preflight import CapabilityRequestV1
+from agents_shipgate.schemas.agent_boundary import AGENT_BOUNDARY_RESULT_SCHEMA_VERSION
+from agents_shipgate.schemas.agent_handoff import AGENT_HANDOFF_SCHEMA_VERSION
+from agents_shipgate.schemas.preflight import PREFLIGHT_SCHEMA_VERSION, CapabilityRequestV1
 
 
 def shipgate_check(
@@ -251,6 +253,95 @@ def _load_mcp_sdk() -> tuple[Any, Any]:
     return MCPServer, ToolAnnotations
 
 
+# What an agent host shows a model when it chooses among these tools: the task
+# first, then the inputs the handler accepts, what it returns and what it cannot
+# do. Without them ``tools/list`` advertised five bare names (#800). Each one
+# restates its handler above and docs/mcp-server.md; none may promise a Git
+# comparison, a scan or verify run, or an authority the tool does not have.
+_TOOL_DESCRIPTIONS = {
+    "shipgate.check": (
+        "Check a coding agent's change against the agent-boundary policy for "
+        "host configuration and other boundary files (for example "
+        "`.codex/config.toml`, `.claude/settings.json`, `.mcp.json`), from a "
+        "unified diff you already have. Pass the change as `diff_text`; "
+        "optional `agent` (codex, claude-code or cursor; default codex), "
+        "`workspace` (holding the tree before or after the diff), `config` and "
+        "`policy`. The diff is detached: this tool runs no git and does not "
+        "obtain a base or head ref, so it is not the CLI's Git-backed host "
+        "comparison (`agents-shipgate diff --base <ref>`). Returns "
+        f"`{AGENT_BOUNDARY_RESULT_SCHEMA_VERSION}`: decision, affected hosts, "
+        "violations and advisory rows for only the host files the diff "
+        "changes. Because the diff is bound to no checkout, every result stops "
+        "for human routing (`control.state` `human_review_required`), "
+        "authorizes no verify command and grants no permission, even when "
+        "`decision` is `allow`. It runs no scan or verify and is not a release "
+        "or merge verdict."
+    ),
+    "shipgate.preflight": (
+        "Before editing, route a planned change: does it touch a protected "
+        "release surface, need a human, need capability evidence, or need "
+        "verify? Pass either `plan` (preferred: a `PreflightPlanV1` object "
+        "with `changed_files`, `diff_text`, `capability_requests` and "
+        "`host_permission_requests`) or the direct inputs `changed_files`, "
+        "`diff_text`, `capability_request` "
+        "and `base_preflight` (an earlier preflight result to compare policy "
+        "and trust-root hashes against), never both: a mixed request is "
+        "rejected. Optional `workspace` and `config`. Returns a preflight "
+        f"result (`preflight_schema_version` `{PREFLIGHT_SCHEMA_VERSION}`): "
+        "protected-surface touches, signals, required evidence, "
+        "`requires_human_review`, `requires_verify` and a routing `control`. "
+        "Projection only: it is not a release verdict, every permission in its "
+        "`control` is false and its `control.state` is never `complete`; when "
+        "verification is owed it names a CLI `verify` command but runs "
+        "nothing. It runs no git, host comparison, scan or verify."
+    ),
+    "shipgate.explain": (
+        "Explain an Agents Shipgate check, or one finding in an existing "
+        "report. Pass `check_id` (for example `SHIP-POLICY-APPROVAL-MISSING`) "
+        "for that check's catalog entry: what it checks, when it fires, its "
+        "default severity and recommendation. Or pass `fingerprint` with "
+        "`report_path` (a `report.json` that `scan` or `verify` already "
+        "wrote) for that finding's fields plus a deterministic explanation; "
+        "`fingerprint` requires `report_path` and takes precedence over "
+        "`check_id`. `no_plugins` keeps third-party check plugins out even "
+        "when AGENTS_SHIPGATE_ENABLE_PLUGINS is set. An unknown check ID or "
+        "fingerprint is an error. Lookup only: it produces no findings and "
+        "runs no scan, verify, git or host comparison."
+    ),
+    "shipgate.capabilities": (
+        "Export or compare static capability locks: the tools a Shipgate "
+        "manifest declares for an agent, with their typed actions. Pass "
+        "`config` (manifest path, default shipgate.yaml) to build a lock from "
+        "the manifest's declared tool sources, or both `base_lock` and "
+        "`head_lock` (existing capability lock JSON files, as `verify` or "
+        "`capability export` write them) to diff them; one lock alone is "
+        "rejected, and a lock pair ignores `config`. `no_plugins` keeps "
+        "third-party adapters out even when AGENTS_SHIPGATE_ENABLE_PLUGINS is "
+        "set. Returns capability lock JSON or capability lock diff JSON; "
+        "neither is a release gate. It writes no lock, produces no findings "
+        "and runs no scan or verify. The diff reads only the two files given: "
+        "this tool "
+        "runs no git and checks out no base ref, so it is not the CLI's "
+        "Git-backed host comparison (`agents-shipgate diff --base <ref>`)."
+    ),
+    "shipgate.handoff": (
+        "Read the compact agent handoff of a `verify` run that already "
+        "happened. Pass `verifier_path` (default "
+        "agents-shipgate-reports/verifier.json, which must exist); "
+        "`report_path` and `verify_run_path` default to `report.json` and "
+        "`verify-run.json` beside it and are read when present. Returns "
+        f"`{AGENT_HANDOFF_SCHEMA_VERSION}`, the projection `verify` writes: "
+        "release gate, control, blockers, remediation plan and "
+        "reproducibility identities. It is not a new verdict and grants "
+        "nothing the verifier did not; artifacts that disagree with each "
+        "other are refused. It runs no scan, verify, git or host comparison, "
+        "and does not check that the artifacts still match the working tree: "
+        "they describe only the tree that run verified, so re-run "
+        "`agents-shipgate verify` after any change."
+    ),
+}
+
+
 def create_server():
     MCPServer, ToolAnnotations = _load_mcp_sdk()
 
@@ -273,7 +364,11 @@ def create_server():
         ),
     )
 
-    @server.tool(name="shipgate.check", annotations=read_only)
+    @server.tool(
+        name="shipgate.check",
+        description=_TOOL_DESCRIPTIONS["shipgate.check"],
+        annotations=read_only,
+    )
     def _shipgate_check(
         agent: str = "codex",
         workspace: str = ".",
@@ -289,7 +384,11 @@ def create_server():
             policy=policy,
         )
 
-    @server.tool(name="shipgate.preflight", annotations=read_only)
+    @server.tool(
+        name="shipgate.preflight",
+        description=_TOOL_DESCRIPTIONS["shipgate.preflight"],
+        annotations=read_only,
+    )
     def _shipgate_preflight(
         workspace: str = ".",
         config: str = "shipgate.yaml",
@@ -309,7 +408,11 @@ def create_server():
             base_preflight=base_preflight,
         )
 
-    @server.tool(name="shipgate.explain", annotations=read_only)
+    @server.tool(
+        name="shipgate.explain",
+        description=_TOOL_DESCRIPTIONS["shipgate.explain"],
+        annotations=read_only,
+    )
     def _shipgate_explain(
         check_id: str | None = None,
         fingerprint: str | None = None,
@@ -323,7 +426,11 @@ def create_server():
             no_plugins=no_plugins,
         )
 
-    @server.tool(name="shipgate.capabilities", annotations=read_only)
+    @server.tool(
+        name="shipgate.capabilities",
+        description=_TOOL_DESCRIPTIONS["shipgate.capabilities"],
+        annotations=read_only,
+    )
     def _shipgate_capabilities(
         config: str = "shipgate.yaml",
         base_lock: str | None = None,
@@ -337,7 +444,11 @@ def create_server():
             no_plugins=no_plugins,
         )
 
-    @server.tool(name="shipgate.handoff", annotations=read_only)
+    @server.tool(
+        name="shipgate.handoff",
+        description=_TOOL_DESCRIPTIONS["shipgate.handoff"],
+        annotations=read_only,
+    )
     def _shipgate_handoff(
         verifier_path: str = "agents-shipgate-reports/verifier.json",
         report_path: str | None = None,
