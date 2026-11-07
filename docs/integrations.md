@@ -149,8 +149,9 @@ multi-config recipes are in
 [`examples/github-actions/`](../examples/github-actions/); the full input and
 output catalog is [`action.yml`](../action.yml).
 
-CI is advisory by default. Strict mode exits `20` only on unsuppressed critical
-findings, so on an existing project it fails on the backlog the first time it
+CI is advisory by default. Strict mode exits `20` on unsuppressed critical
+findings (its default `fail_on`) and on any `blocked` or `insufficient_evidence`
+decision, so on an existing project it fails on the backlog the first time it
 runs. Record that backlog as a baseline, then gate on what is new:
 
 ```bash
@@ -158,7 +159,7 @@ runs. Record that backlog as a baseline, then gate on what is new:
 agents-shipgate scan --config shipgate.yaml --ci-mode strict
 # 2. accept the current findings as the baseline
 agents-shipgate baseline save --config shipgate.yaml --out .agents-shipgate/baseline.json
-# 3. strict from here: fails only on findings the baseline does not carry
+# 3. strict from here: baselined findings no longer fail it; new ones and insufficient_evidence still do
 agents-shipgate scan --config shipgate.yaml --baseline .agents-shipgate/baseline.json --ci-mode strict
 ```
 

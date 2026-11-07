@@ -7,7 +7,8 @@ keeps the job testing the range the package actually declares.
 
 `--stdio-smoke` starts the installed `agents-shipgate mcp-serve` as a real stdio
 MCP server, lists its tools through the SDK client, and exits non-zero unless
-exactly the five read-only, closed-world tools answer.
+exactly the five read-only, closed-world tools answer, each with its own
+non-empty description.
 """
 
 from __future__ import annotations
@@ -69,7 +70,16 @@ def stdio_smoke() -> None:
             or annotations.open_world_hint is not False
         ):
             raise SystemExit(f"{tool.name} is not advertised read-only and closed-world")
+        # #800: a bare name tells a connected agent neither when to call the
+        # tool nor what it needs. The wording itself is held by
+        # tests/test_mcp_server.py; this proves the installed command sends it.
+        if not (tool.description or "").strip():
+            raise SystemExit(f"{tool.name} is listed with an empty description")
+    if len({tool.description for tool in tools}) != len(tools):
+        raise SystemExit("mcp-serve listed two tools with the same description")
     print(f"mcp-serve answered over stdio with {len(tools)} read-only tools")
+    for tool in sorted(tools, key=lambda item: item.name):
+        print(f"{tool.name}: {tool.description}")
 
 
 def main(argv: list[str]) -> None:
