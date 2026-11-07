@@ -1,13 +1,11 @@
 """Resolve the repository as it stands right now, for the control protocol.
 
-Its own module rather than a helper inside ``verify/git.py`` for two reasons.
-It is shared by every entry point that returns control authority — ``verify
+Its own module rather than a helper inside ``verify/git.py`` because it is
+shared by every entry point that returns control authority — ``verify
 --format control`` and ``agents-shipgate agent control`` — and two entry points
 into one decision must apply one currency test; when they did not, ``verify
 --format control`` reported ``complete`` with ``permissions.merge=true`` on a
 workspace ``agent control`` was simultaneously refusing as ``workspace_changed``.
-And ``verify/git.py`` carries line-pinned static-analysis allowlists for its
-subprocess surfaces, so inserting unrelated code there churns a security pin.
 
 Where a workspace's reports live by default is defined here for the same
 reason: ``verify`` writes there and ``agent control`` reads there, and when the
