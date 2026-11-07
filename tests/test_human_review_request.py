@@ -187,57 +187,36 @@ def test_runtime_and_discovery_name_the_same_request_contract():
 # The schema identifiers below are already published. #536 must not silently
 # widen any of them when adding a postcondition to a new, separate artifact.
 # Successor grammars get successor filenames; historical bytes stay readable.
-# #561 adds only explanatory metadata to the existing open EvidenceGap. Its
-# two additive nodes are checked separately below, then removed to compare
-# the entire preceding grammar against its ORIGINAL digest. No control field,
-# constraint, or other schema content is exempted from the freeze.
-FROZEN_CONTROL_SCHEMAS = {
-    "verifier-schema.v0.16.json": "cfa834d9bf047d3e39ffed531f19fbd7ed2cd6e82353789dddb7a458dfae408a",
-    "agent-handoff-schema.v8.json": "036dc757914a297b34ebb9b7ca10c21869c5c91820fa7f07bda415c1effe30c3",
-    "preflight-schema.v0.4.json": "048c4785253afa476e7b86f6175d61328ea299641f6253c3d4315c9d61d67583",
-    # Frozen by #610: 0.6 replaced the shared union in preflight's control with
-    # its own, so 0.5 is a predecessor grammar from here on.
-    "preflight-schema.v0.5.json": "b85dfd1d1ba84fadb87c739c147ec49d2d329f405f0f0cd2140c1c35667a7947",
-    "agent-result-schema.v3.json": "ad762ecbbcde20b6cbc117337b4e0ad208708ab062ccc851ffe26b4ff63df232",
-    "agent-boundary-result-schema.v2.json": "179f849080fabdc59cdf4b86b5ec6a0d9c605e1ac31eb130ee2463c6a0ab361d",
-    "verify-run-schema.v5.json": "19deb3ba50d3f610325b6e7457ad000ccbcbb737e03cb8bb0e8011c69343f141",
-    # #662 widened this grammar deliberately, by owner decision: an optional,
-    # bounded ``capability_rows`` block, published as contract v38 with a
-    # migration note. The pin moves with that decision and nothing else.
-    "agent-control-schema.v1.json": "4f28e47bc37deffe2bf9103d9c28bc92809f332dd914c778df6308cfc2dd5e71",
-}
+#
+# Their bytes are pinned in the one manifest every published schema uses,
+# scripts/published_schema_pins.json (#1044). This table used to carry its own
+# digests, two of them over bytes no release shipped (verifier 0.16 before
+# #561's two open-grammar nodes; agent-result v3 with a 0.16.0 version
+# default), so the test undid those changes before hashing. v1.2.0 published
+# both files exactly as pinned now, so neither exception is needed (v1.0.0 and
+# v1.1.0 published the same verifier 0.16, but each stamped its own version
+# into agent-result v3's `tool.version` default, the rewrite #1044 ends).
+# #610 froze preflight 0.5 when 0.6 replaced the shared union in
+# preflight's control; #662 widened agent-control v1 by owner decision
+# (contract v38).
+FROZEN_CONTROL_SCHEMAS = (
+    "verifier-schema.v0.16.json",
+    "agent-handoff-schema.v8.json",
+    "preflight-schema.v0.4.json",
+    "preflight-schema.v0.5.json",
+    "agent-result-schema.v3.json",
+    "agent-boundary-result-schema.v2.json",
+    "verify-run-schema.v5.json",
+    "agent-control-schema.v1.json",
+)
 
 
-@pytest.mark.parametrize("filename,digest", FROZEN_CONTROL_SCHEMAS.items())
-def test_review_postcondition_does_not_widen_a_published_control_grammar(filename, digest):
+@pytest.mark.parametrize("filename", FROZEN_CONTROL_SCHEMAS)
+def test_review_postcondition_does_not_widen_a_published_control_grammar(filename):
+    pins = json.loads(Path("scripts/published_schema_pins.json").read_text(encoding="utf-8"))
     raw = (Path("docs") / filename).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == pins["sha256"][filename]
     schema = json.loads(raw)
-    if filename == "verifier-schema.v0.16.json":
-        original = copy.deepcopy(schema)
-        gap = original["$defs"]["EvidenceGap"]
-        assert gap.get("additionalProperties", True) is True
-        assert "recovery" not in gap.get("required", [])
-        assert gap["properties"].pop("recovery") == {
-            "anyOf": [{"$ref": "#/$defs/CoverageRecovery"}, {"type": "null"}],
-            "default": None,
-        }
-        from agents_shipgate.schemas.coverage_recovery import CoverageRecovery
-
-        assert original["$defs"].pop("CoverageRecovery") == CoverageRecovery.model_json_schema()
-        raw = (json.dumps(original, indent=2, sort_keys=True) + "\n").encode()
-    if filename == "agent-result-schema.v3.json":
-        # The generator stamps the running package version as the default of
-        # `AgentResultTool.version`, so a release bump moves that one default.
-        # Only that default is restored to the stamp the digest was taken over;
-        # the rest of the grammar is still compared byte for byte.
-        from agents_shipgate import __version__
-
-        original = copy.deepcopy(schema)
-        stamp = original["$defs"]["AgentResultTool"]["properties"]["version"]
-        assert stamp["default"] == __version__
-        stamp["default"] = "0.16.0"
-        raw = (json.dumps(original, indent=2, sort_keys=True) + "\n").encode()
-    assert hashlib.sha256(raw).hexdigest() == digest
     action = {"actor": "human", "kind": "review", "command": None,
               "expects": None, "why": "Review the exact scope"}
     action_schema = {"$ref": "#/$defs/HumanControlAction", "$defs": schema["$defs"]}

@@ -342,6 +342,13 @@ that cannot be expressed additively needs `2.0`. A deprecation cycle is counted
 in **shipped releases**, never in elapsed time on unreleased `main` — a
 deprecation nobody could install gave nobody the chance to migrate. Every
 published `docs/report-schema.v<version>.json` keeps its bytes forever.
+So does every other `docs/*-schema*.json` a release tag carries: each is
+pinned by sha256 in `scripts/published_schema_pins.json`, the generator refuses
+to rewrite one, and a change needs a successor schema version (#1044). A
+release bump no longer rewrites agent-handoff v9, agent-result v3 or
+agent-boundary-result v3: their schema default for `tool.version` stays
+`1.2.0`, the value v1.2.0 published (v1.0.0 and v1.1.0 each stamped its own
+version there), while the field itself still reports the running version.
 
 The freeze is conditional: it holds while no breaking change lands, and a
 breaking change restarts it and invalidates every qualification receipt

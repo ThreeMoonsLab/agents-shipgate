@@ -12,7 +12,6 @@ Follow-ups to #411 (the #409 monotone rule), each a defect that shipped with it:
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import cast
@@ -873,112 +872,21 @@ def test_new_content_reaches_only_the_current_schema(
     assert marker in current_text
 
 
-#: sha256 of each frozen document as published. Checked in rather than read
-#: from git history: the main CI job checks out with ``fetch-depth: 1``, so a
-#: ``git show <old-rev>`` guard skipped in exactly the runs that must enforce
-#: this — a silent skip on the invariant, which is worse than not having it
-#: (PR #413 review 3). A deliberate re-freeze updates the hash here, in the
-#: same commit, where a reviewer sees it.
-_PUBLISHED_SCHEMA_SHA256 = {
-    "report-schema.v0.35.json": (
-        "cd3a971dd6a02676cfa0db798a443715778b364bd80510b23f3c83ea876003cf"
-    ),
-    "packet-schema.v0.12.json": (
-        "8bef394df037374a14153b743f46a4e279f65b8e1312842efcdec92a07d0bcb5"
-    ),
-    "verifier-schema.v0.9.json": (
-        "d477db7c202ba9c0629fa28ade7a69d37758052de370aa3246135ede9eeefeaf"
-    ),
-    "capability-lock-schema.v0.6.json": (
-        "0e43ccadea3258323cac279a59a431e771c2abbe9f4333c853ec5d1401f5285a"
-    ),
-    "capability-lock-diff-schema.v0.7.json": (
-        "e73210870bb5b1181fcbb90872ced3c71f3ecc1f11124188aa21579694eec93a"
-    ),
-    "report-schema.v0.36.json": (
-        "c9c0d7576b23fbacfff2da390d462b66add673f448c28eb8295938cf2f986308"
-    ),
-    "packet-schema.v0.13.json": (
-        "80e6665a4a4d4778b2259c96f756983b8f6857ebca3cb06ecf724c80cfae06eb"
-    ),
-    "verifier-schema.v0.10.json": (
-        "c582772273cadcb8abd2137b03486528d681093e088a7284e754a8c75f92e727"
-    ),
-    "report-schema.v0.37.json": (
-        "c5a8551abfab7a95f3c40b2470eb687a2fc95f4c572da318d5a38cfc91933b43"
-    ),
-    "packet-schema.v0.14.json": (
-        "7bb394413688adcdbbc7f4c599fd361d0c1280c3bf7a049a72d782a7852b85f8"
-    ),
-    "verifier-schema.v0.11.json": (
-        "adbbcd85f870b8f12f060c02b090395a34ffec4f660f1994d6001a2728397090"
-    ),
-    "report-schema.v0.38.json": (
-        "df00a7abfbd59fa3274caacd78acf5960f8c754fab2d6e1a62840b7997ca8d24"
-    ),
-    "packet-schema.v0.15.json": (
-        "b6a47a71482592732c2cac0120a154ce39a6830ed06cc457f6c1fdbb842bdead"
-    ),
-    "verifier-schema.v0.12.json": (
-        "fae9348ede7e04cd786f2104c55b80b4a9c623c69af1351dc6bca15af2037736"
-    ),
-    "capability-lock-schema.v0.7.json": (
-        "a90789c318f4a4c19347be9fc440d32322f9befa0c94461d10fb718f5a276704"
-    ),
-    "capability-lock-diff-schema.v0.8.json": (
-        "c872af71d41a445d1e28065704e034b2a0a32c88a5ec9e767ad8853f4373ac20"
-    ),
-    "report-schema.v0.39.json": (
-        "9a150c97a13c59b4f1ba68d86d4393be1c799e6c84d1638acee825e28646dab9"
-    ),
-    "report-schema.v0.41.json": (
-        "2d201cc9767ae8707c1c14dc9a56d49b65429d5d7c32ad6afc30b2c4d66f879b"
-    ),
-    "report-schema.v0.40.json": (
-        "eee3c02e3bdb25d12c2e3ec46a2c72407f735252f1e6d0804e23c43cf5e86aff"
-    ),
-    "packet-schema.v0.16.json": (
-        "47c3aee2737985c63899bd110f6805fdcd40172e47251fd215342bc728351e06"
-    ),
-    "verifier-schema.v0.13.json": (
-        "e692bf97e2880efab8f8d480da453d6094112664e109548cc4f26e48031f00a7"
-    ),
-    "report-schema.v0.42.json": (
-        "3f149478eb62809d3a40de060269520395ca763496a57ec0bc4a8d37e9b0076e"
-    ),
-    "packet-schema.v0.17.json": (
-        "269f7752f6cbe5b9097b259d18939ea64a06250e0802cf6ee6b2f655432164e8"
-    ),
-    "verifier-schema.v0.15.json": (
-        "f362d0bb211830d4900fca2e2f3d38e95256a9e15338ff992a88a03640f29ee5"
-    ),
-    "report-schema.v0.43.json": (
-        "e3d13aca31480e170e1c6656a4f075191ddc4da747cf00f5c5c7066d266ac7bd"
-    ),
-}
+def test_every_frozen_row_is_under_the_byte_freeze() -> None:
+    """The freeze is about bytes, not only about the token that exposed it.
 
+    The bytes are pinned in one place, ``scripts/published_schema_pins.json``,
+    over a set derived from the release tags rather than from a hand list, and
+    ``tests/test_published_schema_freeze.py`` holds every published file to its
+    pin (#1044). A row above naming an unpinned file would be a frozen document
+    outside that guard.
+    """
 
-def test_every_frozen_schema_has_a_pinned_hash() -> None:
-    """No frozen document may sit outside the guard."""
+    pins = json.loads(
+        (_REPO_ROOT / "scripts" / "published_schema_pins.json").read_text(encoding="utf-8")
+    )["sha256"]
 
-    assert {frozen for frozen, _, _ in _FROZEN_AND_CURRENT_SCHEMAS} == set(
-        _PUBLISHED_SCHEMA_SHA256
-    )
-
-
-@pytest.mark.parametrize(("frozen", "current", "marker"), _FROZEN_AND_CURRENT_SCHEMAS)
-def test_a_frozen_schema_keeps_the_bytes_it_was_published_with(
-    frozen: str, current: str, marker: str
-) -> None:
-    """The freeze is about bytes, not only about the token that exposed it."""
-
-    del current, marker
-    digest = hashlib.sha256((_DOCS / frozen).read_bytes()).hexdigest()
-
-    assert digest == _PUBLISHED_SCHEMA_SHA256[frozen], (
-        f"docs/{frozen} is published and pinned; consumers validate against "
-        "these exact bytes. Emit new content under a new version instead."
-    )
+    assert {frozen for frozen, _, _ in _FROZEN_AND_CURRENT_SCHEMAS} <= set(pins)
 
 
 def test_every_emitted_artifact_validates_against_its_own_current_schema(tmp_path) -> None:
