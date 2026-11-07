@@ -29,7 +29,11 @@ from agents_shipgate.core.org_governance import (
     host_grant_drift_payload,
     render_org_status_markdown,
 )
-from agents_shipgate.schemas.attestation import ReleaseAttestationV1
+from agents_shipgate.schemas.attestation import (
+    ATTESTATION_SCHEMA_VERSION,
+    ATTESTATION_SCHEMA_VERSIONS_UPGRADED_ON_READ,
+    ReleaseAttestationV1,
+)
 from agents_shipgate.schemas.org_evidence_bundle import (
     OrgEvidenceBundleArtifactRef,
     OrgEvidenceBundleV1,
@@ -406,11 +410,14 @@ def _load_optional_json_object(path: Path | None) -> dict[str, Any] | None:
 
 def _normalize_attestation_payload(payload: dict[str, Any]) -> dict[str, Any]:
     version = payload.get("attestation_schema_version")
-    if version not in {"0.3", "0.4"}:
+    if version not in ATTESTATION_SCHEMA_VERSIONS_UPGRADED_ON_READ:
         return payload
+    # 0.6 only added fields with defaults (``approval``, which reads as
+    # ``not_supplied``, and the definition digests), so a 0.5 attestation is
+    # upgraded by its version alone; 0.3 and 0.4 also lack the 0.5 fields.
     upgraded = {
         **payload,
-        "attestation_schema_version": "0.5",
+        "attestation_schema_version": ATTESTATION_SCHEMA_VERSION,
     }
     for field in (
         "run_id",

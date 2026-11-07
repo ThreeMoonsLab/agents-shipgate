@@ -153,8 +153,8 @@ def test_local_agent_contract_is_minimal_agent_operational_payload() -> None:
     assert payload["agent_boundary_result_schema_path"] == (
         "docs/agent-boundary-result-schema.v3.json"
     )
-    assert payload["attestation_schema_version"] == "0.5"
-    assert payload["registry_schema_version"] == "0.4"
+    assert payload["attestation_schema_version"] == "0.6"
+    assert payload["registry_schema_version"] == "0.5"
     assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v2")
     assert payload["host_grants_inventory_schema_version"] == "0.9"
     assert payload["host_grants_baseline_schema_version"] == "0.9"

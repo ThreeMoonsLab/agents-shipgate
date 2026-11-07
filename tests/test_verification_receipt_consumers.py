@@ -26,6 +26,7 @@ import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.schemas.attestation import ATTESTATION_SCHEMA_VERSION
 from agents_shipgate.schemas.verification_identity import (
     VERIFIER_SCHEMA_VERSIONS_BEFORE_RECEIPTS,
     requires_verification_receipt,
@@ -37,7 +38,9 @@ from scripts.github_action_outputs import append_step_summary, extract_outputs
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SAMPLE = REPO_ROOT / "samples" / "support_refund_agent"
 ATTESTATION_SCHEMA = json.loads(
-    (REPO_ROOT / "docs" / "attestation-schema.v0.5.json").read_text(encoding="utf-8")
+    (REPO_ROOT / "docs" / f"attestation-schema.v{ATTESTATION_SCHEMA_VERSION}.json").read_text(
+        encoding="utf-8"
+    )
 )
 CURRENT_VERIFIER = VerifierArtifact.model_fields["verifier_schema_version"].default
 IDENTITY_FIELDS = ("request_id", "receipt_id", "decision_id", "artifact_set_id")

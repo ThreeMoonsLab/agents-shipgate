@@ -423,6 +423,55 @@ changes nothing; one that needs definition changes reads the `v2` file.
 
 ---
 
+<a id="attestation-approval"></a>
+
+## Migration Note: Unreleased — an attestation can record who approved the change (attestation `0.6`, registry `0.5`, #1118)
+
+**What was wrong.** An attestation recorded who triggered the run
+(`org.actor`) and what the manifest declared (`human_ack`), but not who
+approved the pull request. Neither is an approval by a second person, so a
+ledger could not answer "who approved this change to what the agent may do".
+
+**What changes.**
+
+- `attest --reviews <file>` reads the JSON array GitHub's pull request
+  reviews API returns, fetched by the workflow. The attestation gains
+  `approval`: `status` (`approved`, `approved_stale`, `changes_requested`,
+  `not_approved`, `not_supplied`), `source`, `source_sha256`, `pr_number`,
+  `pr_author`, `head_sha`, `approvers[]` (`login`, `review_id`,
+  `submitted_at`, `commit_id`, `on_head`), `changes_requested_by[]` and
+  `ignored_approvals[]` (`login`, `review_id`, `reason`: `pr_author` or `bot`).
+  `status` is recomputed from the lists on read; an attestation whose status
+  its rows do not support is rejected.
+- `--reviews` needs `--ci-context github-actions` and an event payload with a
+  pull request. A reviews file inside the Git work tree around the current
+  directory or `verifier.json`, inside `GITHUB_WORKSPACE`, or reached through
+  a link inside either, is refused with exit `3`, as is a review that names
+  another pull request or repository.
+- The attestation's `capability_lock` gains `definition_set_hash` and
+  `capability_diff.summary` gains `definition_changed` (capability standard
+  `0.6`).
+- Registry rows gain `approval_status` and `approval`; `registry summary`
+  gains `by_approval_status`. A row's id and the chain hash are taken without
+  those two fields while they are `null`, so a ledger written by an earlier
+  release verifies with the ids and chain it was written with.
+- `org bundle` reads a `0.5` attestation file as `0.6` with
+  `approval.status: not_supplied`, as it already read `0.3` and `0.4`.
+
+**Who must act.** Nobody, to keep today's behaviour: without `--reviews`
+every attestation carries `approval: {"status": "not_supplied", …}` and
+nothing else changes. A consumer that validates attestations against
+`attestation-schema.v0.5.json` or registry output against
+`registry-schema.v0.4.json` moves to the new schemas. To record approvals, add
+the fetch step and `--reviews` shown in `docs/organization.md`.
+
+**What does not change.** `verdict`, `release_decision.decision`, exit codes,
+`human_ack`, the bypass report's rule, and the receipt identity rules.
+`attest` stays static-by-default and calls no API: the workflow fetches the
+reviews.
+
+---
+
 <a id="trust-config-1030"></a>
 
 ## Migration Note: Unreleased — each baseline verifies against its own audit rows, the override tier gate reads emitted severity, and an optional pack's pin is fatal (#1030)
@@ -4923,7 +4972,7 @@ command-contract commitments yet. They remain consumers of `verify` artifacts;
 
 | Command | Preview flags |
 |---|---|
-| `agents-shipgate attest` | `--from`, `--out`, `--redact`/`--no-redact`, `--config`, `--org-id`, `--repo`, `--service`, `--tier`, `--pr-number`, `--workflow-run-id`, `--actor`, `--merge-sha`, `--verify-run`, `--event-time`, `--source-url`, `--branch`, `--base-sha`, `--head-sha`, `--ci-context`, `--json` |
+| `agents-shipgate attest` | `--from`, `--out`, `--redact`/`--no-redact`, `--config`, `--org-id`, `--repo`, `--service`, `--tier`, `--pr-number`, `--workflow-run-id`, `--actor`, `--merge-sha`, `--verify-run`, `--event-time`, `--source-url`, `--branch`, `--base-sha`, `--head-sha`, `--ci-context`, `--reviews`, `--json` |
 | `agents-shipgate org status` | `--config`/`-c`, `--workspace`, `--baseline`, `--host-baseline`, `--as-of`, `--json` |
 | `agents-shipgate org policy-packs` | `--config`/`-c`, `--workspace`, `--json` |
 | `agents-shipgate org bundle` | `--config`/`-c`, `--workspace`, `--from`, `--out`, `--attestation`, `--registry`, `--as-of`, `--json` |
@@ -6312,18 +6361,19 @@ artifact does not leak usernames or confidential workspace directory names.
 `agents-shipgate attest` derives a deterministic, local attestation from
 `agents-shipgate-reports/verifier.json` (enriched from the sibling `report.json`
 when present). The current schema is
-[`docs/attestation-schema.v0.5.json`](docs/attestation-schema.v0.5.json). It
+[`docs/attestation-schema.v0.6.json`](docs/attestation-schema.v0.6.json). It
 records the verdict, the report-derived capability delta, optional local
-organization/CI context, detailed declared `human_ack` entries, a
+organization/CI context, detailed declared `human_ack` entries, the pull
+request's approving reviews when the workflow supplies them, a
 policy-snapshot hash, content hashes of the verify artifacts, and capability
 lock/diff hash bindings and the terminal receipt graph when verify emitted
 those artifacts. It carries no
 wall-clock timestamp — it is content-addressed by git SHAs and artifact hashes,
 so re-deriving from the same inputs is byte-identical. It does not gate;
-`release_decision.decision` remains the only gate. Current v0.5 fields:
+`release_decision.decision` remains the only gate. Current v0.6 fields:
 
 `org bundle` accepts previously generated attestation files through the frozen
-reader path. The emitted bundle projects a current v0.5 attestation and binds
+reader path. The emitted bundle projects a current v0.6 attestation and binds
 the same request, receipt, decision, and artifact-set IDs.
 
 With `--redact` (the default), `source_verifier`, capability lock/diff paths,
@@ -6342,9 +6392,10 @@ those identities should not be recorded.
 - `base_ref`, `head_ref`, `base_tree_sha`, `head_tree_sha`, `mode`
 - `verdict` (`merge_verdict`, `decision`, `applicability`, `can_merge_without_human`)
 - `capability` (`added`, `modified`, `removed`, `trust_root_touched`, `policy_weakened`, `change_ids`)
-- `capability_lock` (`path`, `sha256`, `capability_lock_schema_version`, `semantic_capability_set_hash`, `evidence_set_hash`, `source_set_hash`, `capability_count`)
-- `capability_diff` (`path`, `sha256`, `capability_lock_diff_schema_version`, base/head semantic hashes, `summary`) or `null`
+- `capability_lock` (`path`, `sha256`, `capability_lock_schema_version`, `semantic_capability_set_hash`, `evidence_set_hash`, `source_set_hash`, `definition_set_hash`, `capability_count`)
+- `capability_diff` (`path`, `sha256`, `capability_lock_diff_schema_version`, base/head semantic hashes, `summary` including `definition_changed`) or `null`
 - `human_ack` (`required`, `satisfied`, `outstanding`, `acks`)
+- `approval` (`status`, `source`, `source_sha256`, `pr_number`, `pr_author`, `head_sha`, `approvers[]`, `changes_requested_by[]`, `ignored_approvals[]`); `status: not_supplied` and nothing else without `--reviews`
 - `policy_snapshot_sha256`
 - `policy_packs[]` (`id`, `name`, `version`, `path`, `sha256`, `status`, `rule_count`)
 - `artifact_sha256`

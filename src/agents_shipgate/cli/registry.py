@@ -26,6 +26,7 @@ import typer
 from pydantic import ValidationError
 
 from agents_shipgate.schemas.registry import (
+    REGISTRY_LATE_OPTIONAL_FIELDS,
     REGISTRY_SCHEMA_VERSION,
     RegistryBypassReportV1,
     RegistryQueryResultV1,
@@ -61,6 +62,8 @@ def _row_from_attestation(
     verdict = attestation.get("verdict") or {}
     capability = attestation.get("capability") or {}
     human_ack = attestation.get("human_ack") or {}
+    approval = attestation.get("approval")
+    approval = approval if isinstance(approval, dict) else {}
     org = attestation.get("org") or {}
     human_ack_required = human_ack.get("required")
     human_ack_satisfied = human_ack.get("satisfied")
@@ -110,6 +113,8 @@ def _row_from_attestation(
         ),
         "human_ack_outstanding": [str(item) for item in human_ack.get("outstanding") or []],
         "human_ack": human_ack,
+        "approval_status": approval.get("status") if approval else None,
+        "approval": approval or None,
         "policy_snapshot_sha256": attestation.get("policy_snapshot_sha256"),
         "artifact_sha256": attestation.get("artifact_sha256"),
         "capability_lock": attestation.get("capability_lock") or {},
@@ -143,10 +148,10 @@ def _row_id(row: dict[str, Any] | RegistryRowV1) -> str:
 
 def _row_identity_payload(row: dict[str, Any] | RegistryRowV1) -> dict[str, Any]:
     if isinstance(row, RegistryRowV1):
-        payload = row.model_dump(mode="json")
+        payload = _hashed_row(row)
     else:
         pending = {**row, "row_id": str(row.get("row_id") or "att_pending")}
-        payload = RegistryRowV1.model_validate(pending).model_dump(mode="json")
+        payload = _hashed_row(RegistryRowV1.model_validate(pending))
     payload.pop("row_id", None)
     return payload
 
@@ -154,11 +159,26 @@ def _row_identity_payload(row: dict[str, Any] | RegistryRowV1) -> dict[str, Any]
 def _row_content_sha256(row: RegistryRowV1) -> str:
     return hashlib.sha256(
         json.dumps(
-            row.model_dump(mode="json"),
+            _hashed_row(row),
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
+
+
+def _hashed_row(row: RegistryRowV1) -> dict[str, Any]:
+    """The dumped row both hashes are taken over.
+
+    A field added to the row after ledgers existed is left out while it is
+    ``None``, so an old row's id and the chain hash a later row stored for it
+    are unchanged.
+    """
+
+    payload = row.model_dump(mode="json")
+    for name in REGISTRY_LATE_OPTIONAL_FIELDS:
+        if payload.get(name) is None:
+            payload.pop(name, None)
+    return payload
 
 
 def _load_registry(registry_path: Path) -> LoadedRegistry:
@@ -507,6 +527,7 @@ def _registry_summary_payload(
         by_repo=_counts(row.repo for row in rows if row.repo),
         by_service=_counts(row.service for row in rows),
         by_tier=_counts(row.tier for row in rows),
+        by_approval_status=_counts(row.approval_status for row in rows),
         bypass_count=sum(
             1
             for row in rows
