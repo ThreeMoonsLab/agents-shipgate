@@ -306,6 +306,16 @@ carry, so those are taken on trust. The `analysis_coverage_digest` of each side
 consumer holding the matching `view: "state"` payload can close the remaining
 gap itself — which is exactly why both views share one schema.
 
+**A change to a tool's definition alone.** The digests a record carries are
+the eight `v1` froze. A change to a tool's description, output schema or
+annotations that moves none of them is not a capability change in `v1`, so a
+delta that contains only such changes has no subject rows and states two equal
+`capability_set_digest`s. Capability standard `0.6` records those digests in
+the capability lock, and `capability-lock-diff.json` lists the change under
+`definition_changed`. A consumer that needs tool-definition integrity reads the
+lock diff beside this statement until a payload version that carries
+definitions is published (#1117).
+
 ## Consuming it
 
 ### As a gate input in your own system

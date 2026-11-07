@@ -439,7 +439,8 @@
   "tests/test_claude_command_settings.py": 21.0,
   "tests/test_step_summary_isolation.py": 3.9,
   "tests/test_host_grants_yaml_timestamps.py": 2.1,
-  "tests/test_dependency_floors.py": 0.1
+  "tests/test_dependency_floors.py": 0.1,
+  "tests/test_capability_definition.py": 0.2
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -592,6 +593,17 @@
    },
    "case_count": 22,
    "command": "python -m pytest -m \"not slow\" tests/test_dependency_floors.py --junitxml=dependency-floors.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "6294400944c5 with issue #1117 increment",
+   "report_sha256": "87f762e39acde4f412473c8c1be81b8a3f172f8ef47e1967292e067e856e107c",
+   "files": {
+    "tests/test_capability_definition.py": 0.2
+   },
+   "case_count": 19,
+   "command": "python -m pytest tests/test_capability_definition.py --junitxml=capability-definition.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

@@ -149,6 +149,13 @@ UNPUBLISHED_FACT_FIELDS: dict[str, str] = {
         "the extractor's internal working, and freezing it here would freeze "
         "internals this schema has to be able to change."
     ),
+    "definition": (
+        "Added to the fact after v1 froze (capability standard v0.6): digests "
+        "of the tool's description, output schema and annotations. v1 is "
+        "closed, so carrying them is a new payload version; until then the "
+        "capability lock diff's definition_changed rows are where a "
+        "definition-only change is recorded, and a v1 delta does not show it."
+    ),
 }
 
 #: Fields of the existing capability *lock file* — the state artifact this

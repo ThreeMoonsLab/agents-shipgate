@@ -79,8 +79,8 @@
 - Capability lock (stable static envelope): `.agents-shipgate/capabilities.lock.json`.
 - Verify head capability lock: `agents-shipgate-reports/capabilities.lock.json`.
 - Verify base capability lock and diff, when the base scan can be materialized: `agents-shipgate-reports/base.capabilities.lock.json`, `agents-shipgate-reports/capability-lock-diff.{json,md}`.
-- Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.8.json
-- Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.9.json
+- Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.9.json
+- Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.10.json
 - Capability delta attestation (verify, committed-tree runs only): `agents-shipgate-reports/capability-delta-attestation.json` — an in-toto statement, predicate type `https://threemoonslab.com/agents-shipgate/capability-delta/v1`, carrying the frozen `shipgate.capability_payload/v1` delta. Non-gating.
 - Capability delta attestation spec and schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-delta-attestation.md and https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-delta-attestation-schema.v1.json
 - Standalone capability-delta verifier (stdlib-only Python; validates an attestation and prints the delta without an agents-shipgate install): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/verify-capability-delta.py
@@ -171,8 +171,8 @@
 - Packet schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/packet-schema.v0.18.json
 - Preflight schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/preflight-schema.v0.6.json
 - Capability standard: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-standard.md
-- Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.8.json
-- Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.9.json
+- Capability lock schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-schema.v0.9.json
+- Capability lock diff schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-lock-diff-schema.v0.10.json
 - Capability payload schema (frozen): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-payload-schema.v1.json
 - Capability delta attestation schema (frozen): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-delta-attestation-schema.v1.json
 - Governance benchmark: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/governance-benchmark.md

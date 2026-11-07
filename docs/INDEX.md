@@ -147,10 +147,12 @@ remain separate, pending work.
 - [`registry-schema.v0.2.json`](registry-schema.v0.2.json) — frozen v0.2 registry reference
 - [`capability-payload-schema.v1.json`](capability-payload-schema.v1.json) — frozen JSON Schema for `shipgate.capability_payload/v1`; the shared payload of the exported delta and the committed state, non-gating
 - [`capability-delta-attestation-schema.v1.json`](capability-delta-attestation-schema.v1.json) — frozen JSON Schema for the in-toto statement `verify` writes as `capability-delta-attestation.json`, non-gating
-- [`capability-lock-schema.v0.8.json`](capability-lock-schema.v0.8.json) — current JSON Schema for `capabilities.lock.json`; carries typed semantic evidence and remains non-gating
+- [`capability-lock-schema.v0.9.json`](capability-lock-schema.v0.9.json) — current JSON Schema for `capabilities.lock.json`; carries typed semantic evidence and tool-definition digests, and remains non-gating
+- [`capability-lock-schema.v0.8.json`](capability-lock-schema.v0.8.json) — frozen v0.8 reference; a v0.8 lock still loads, and is re-exported before it is compared
 - [`capability-lock-schema.v0.7.json`](capability-lock-schema.v0.7.json) — frozen v0.7 reference
 - [`capability-lock-schema.v0.6.json`](capability-lock-schema.v0.6.json) — frozen v0.6 reference; a v0.6 lock still loads and is advanced on read
-- [`capability-lock-diff-schema.v0.9.json`](capability-lock-diff-schema.v0.9.json) — current JSON Schema for semantic capability-lock diff artifacts; remains non-gating
+- [`capability-lock-diff-schema.v0.10.json`](capability-lock-diff-schema.v0.10.json) — current JSON Schema for semantic capability-lock diff artifacts, with `definition_changed` rows; remains non-gating
+- [`capability-lock-diff-schema.v0.9.json`](capability-lock-diff-schema.v0.9.json) — frozen v0.9 reference
 - [`capability-lock-diff-schema.v0.8.json`](capability-lock-diff-schema.v0.8.json) — frozen v0.8 reference
 - [`capability-lock-diff-schema.v0.7.json`](capability-lock-diff-schema.v0.7.json) — frozen v0.7 reference
 - [`capability-lock-schema.v0.5.json`](capability-lock-schema.v0.5.json) — frozen v0.5 binding-hash reference

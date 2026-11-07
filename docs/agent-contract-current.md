@@ -824,8 +824,8 @@ Downstream repos generated with
 - Current preflight schema: `0.6` — [`docs/preflight-schema.v0.6.json`](preflight-schema.v0.6.json) (`0.5` and earlier stay frozen; `0.6` adds `planning_only` and denies every permission on every route)
 - Current downstream local agent contract schema: `10`
 - Current capability standard: `0.5` — [`docs/capability-standard.md`](capability-standard.md)
-- Current capability lock schema: `0.8` — [`docs/capability-lock-schema.v0.8.json`](capability-lock-schema.v0.8.json)
-- Current capability lock diff schema: `0.9` — [`docs/capability-lock-diff-schema.v0.9.json`](capability-lock-diff-schema.v0.9.json)
+- Current capability lock schema: `0.9` — [`docs/capability-lock-schema.v0.9.json`](capability-lock-schema.v0.9.json)
+- Current capability lock diff schema: `0.10` — [`docs/capability-lock-diff-schema.v0.10.json`](capability-lock-diff-schema.v0.10.json)
 - Current capability payload schema: `shipgate.capability_payload/v1` — [`docs/capability-payload-schema.v1.json`](capability-payload-schema.v1.json), specified in [`docs/capability-payload.md`](capability-payload.md)
 - Current capability delta attestation: `shipgate.capability_delta_attestation/v1`, predicate type `https://threemoonslab.com/agents-shipgate/capability-delta/v1` — [`docs/capability-delta-attestation-schema.v1.json`](capability-delta-attestation-schema.v1.json), specified in [`docs/capability-delta-attestation.md`](capability-delta-attestation.md)
 - Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)

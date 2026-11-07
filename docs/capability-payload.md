@@ -422,6 +422,7 @@ From the capability fact:
 |---|---|
 | `evidence.source_location` | A rendering of `source_path` plus `source_start_line`. Publishing both would put two spellings of one value on the wire. |
 | `semantic_assessment` | The derivation, not the fact. Its conclusions are published as `effect`, `authority` and `permission`; the claim/issue tree underneath is the extractor's working, and freezing it here would freeze internals this schema has to be able to change. |
+| `definition` | Added to the fact after `v1` froze (capability standard `0.6`): digests of the tool's description, output schema and annotations. `v1` is closed, so carrying them is a new payload version. Until one is published, a definition-only change is recorded in the capability lock diff's `definition_changed` rows and is not visible in a `v1` delta. |
 
 From the permission lattice
 (`core.capability_lattice.CapabilityPermissionProfile`), whose semantic half the
