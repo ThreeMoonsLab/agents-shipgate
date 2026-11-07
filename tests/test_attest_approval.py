@@ -766,7 +766,8 @@ def _old_content_sha256(row: dict) -> str:
 
 
 def test_a_ledger_written_before_approvals_keeps_its_ids_and_chain(tmp_path: Path) -> None:
-    """Registry 0.4 rows have no approval keys; their ids and chain still verify."""
+    """Registry 0.4 rows have no approval, row-kind or observation keys; their
+    ids and chain still verify."""
 
     verifier = _write_reports(tmp_path / "reports")
     attestation = tmp_path / "attestation.json"
@@ -784,7 +785,7 @@ def test_a_ledger_written_before_approvals_keeps_its_ids_and_chain(tmp_path: Pat
         row = {
             key: value
             for key, value in template.items()
-            if key not in {"approval", "approval_status"}
+            if key not in {"approval", "approval_status", "row_kind", "observation"}
         }
         row.update(
             registry_schema_version="0.4",

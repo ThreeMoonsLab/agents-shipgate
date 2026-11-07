@@ -13,6 +13,10 @@
 #   shipgate audit --host --save-baseline
 #   git add .agents-shipgate/host-grants.json && git commit
 #
+# To keep a record of every run (that it ran, against which baseline, and
+# what it found) in the Shipgate registry, see
+# docs/post-approval-monitoring.md.
+#
 # After reviewing a legitimate drift, re-acknowledge the new state with
 # the same command. Do not re-save to silence drift nobody reviewed.
 # --save-baseline refuses to overwrite a baseline older than schema 0.6,

@@ -8,6 +8,11 @@ projections of ``agents-shipgate attest`` output; ingest is idempotent
 (content-addressed by the attestation's own hashes), queries are
 deterministic. No network, nothing executed.
 
+Registry 0.6 adds a second row kind, ``drift_observation``: one scheduled
+``audit --host --drift`` (and optionally ``capability diff``) comparison of
+the repository with its approved state, chained in the same per-repo ledger
+(#1119). ``registry report --drift`` reads them back.
+
 This is intentionally tiny: a directory of repos can ingest into one
 shared file (vendored, or synced like a lockfile) and `registry query`
 becomes the org's capability-change audit trail. A hosted aggregation
@@ -18,17 +23,30 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import typer
 from pydantic import ValidationError
 
+from agents_shipgate.core.drift_observation import (
+    CapabilityDiffError,
+    ObservationError,
+    drift_observation,
+    drift_report,
+    drift_report_needs_review,
+    parse_event_time,
+)
 from agents_shipgate.schemas.registry import (
+    REGISTRY_LATE_DEFAULTED_FIELDS,
     REGISTRY_LATE_OPTIONAL_FIELDS,
     REGISTRY_SCHEMA_VERSION,
     RegistryBypassReportV1,
+    RegistryDriftObservationV1,
+    RegistryDriftReportV1,
     RegistryQueryResultV1,
     RegistryRowV1,
     RegistrySkippedRowV1,
@@ -141,10 +159,13 @@ def _row_from_attestation(
     return RegistryRowV1.model_validate(row)
 
 
+_ROW_ID_PREFIX = {"attestation": "att_", "drift_observation": "obs_"}
+
+
 def _row_id(row: dict[str, Any] | RegistryRowV1) -> str:
     payload = _row_identity_payload(row)
     return (
-        "att_"
+        _ROW_ID_PREFIX.get(str(payload.get("row_kind", "attestation")), "att_")
         + hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()[:16]
@@ -175,13 +196,17 @@ def _hashed_row(row: RegistryRowV1) -> dict[str, Any]:
     """The dumped row both hashes are taken over.
 
     A field added to the row after ledgers existed is left out while it is
-    ``None``, so an old row's id and the chain hash a later row stored for it
-    are unchanged.
+    ``None`` (or, for a field with a default, while it holds that default), so
+    an old row's id and the chain hash a later row stored for it are
+    unchanged.
     """
 
     payload = row.model_dump(mode="json")
     for name in REGISTRY_LATE_OPTIONAL_FIELDS:
         if payload.get(name) is None:
+            payload.pop(name, None)
+    for name, default in REGISTRY_LATE_DEFAULTED_FIELDS.items():
+        if payload.get(name) == default:
             payload.pop(name, None)
     return payload
 
@@ -258,12 +283,222 @@ def _last_row_for_repo(rows: list[RegistryRowV1], repo: str) -> RegistryRowV1 | 
     return None
 
 
+def _row_from_observation(
+    observation: RegistryDriftObservationV1,
+    *,
+    repo: str,
+    event_time: str,
+    workflow_run_id: str | None,
+    head_sha: str | None,
+    branch: str | None,
+    previous_row: RegistryRowV1 | None,
+) -> RegistryRowV1:
+    row = {
+        "registry_schema_version": REGISTRY_SCHEMA_VERSION,
+        "row_kind": "drift_observation",
+        "repo": repo,
+        "workflow_run_id": workflow_run_id,
+        "event_time": event_time,
+        "branch": branch,
+        "head_sha": head_sha,
+        "observation": observation.model_dump(mode="json"),
+        "previous_row_id": previous_row.row_id if previous_row is not None else None,
+        "previous_row_sha256": (
+            _row_content_sha256(previous_row) if previous_row is not None else None
+        ),
+    }
+    row["row_id"] = _row_id(row)
+    return RegistryRowV1.model_validate(row)
+
+
+def _observation_key(row: RegistryRowV1) -> tuple[Any, ...] | None:
+    """What makes two observation rows the same run.
+
+    Not the payload alone: two daily runs that found nothing print the same
+    bytes, and each is a run to record. The declared time, run and commit
+    tell them apart; ingesting one run's files twice gives the same key.
+    """
+
+    if row.row_kind != "drift_observation" or row.observation is None:
+        return None
+    capability = row.observation.capability
+    return (
+        row.repo,
+        row.observation.source_sha256,
+        capability.source_sha256 if capability is not None else None,
+        row.event_time,
+        row.workflow_run_id,
+        row.head_sha,
+    )
+
+
+def _observation_context(
+    *,
+    ci_context: str | None,
+    repo: str | None,
+    workflow_run_id: str | None,
+    head_sha: str | None,
+) -> dict[str, str | None]:
+    context: dict[str, str | None] = {
+        "repo": None,
+        "workflow_run_id": None,
+        "head_sha": None,
+        "branch": None,
+        "trigger": None,
+    }
+    if ci_context is not None:
+        if ci_context != "github-actions":
+            raise typer.BadParameter(
+                "unsupported ci context; supported value: github-actions",
+                param_hint="--ci-context",
+            )
+        context.update(
+            {
+                "repo": os.environ.get("GITHUB_REPOSITORY"),
+                "workflow_run_id": os.environ.get("GITHUB_RUN_ID"),
+                "head_sha": os.environ.get("GITHUB_SHA"),
+                "branch": os.environ.get("GITHUB_REF_NAME"),
+                "trigger": os.environ.get("GITHUB_EVENT_NAME"),
+            }
+        )
+    explicit = {"repo": repo, "workflow_run_id": workflow_run_id, "head_sha": head_sha}
+    context.update({key: value for key, value in explicit.items() if value is not None})
+    return {
+        key: (value.strip() or None) if isinstance(value, str) else None
+        for key, value in context.items()
+    }
+
+
+def _read_json_input(path: Path, label: str) -> tuple[bytes, Any]:
+    try:
+        raw = path.read_bytes()
+        return raw, json.loads(raw)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        typer.echo(f"Could not read {label} {path}: {exc}", err=True)
+        raise typer.Exit(3) from exc
+
+
+def _append_row(registry: Path, row: RegistryRowV1) -> None:
+    registry.parent.mkdir(parents=True, exist_ok=True)
+    with registry.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row.model_dump(mode="json"), sort_keys=True) + "\n")
+
+
+def _ingest_observation(
+    *,
+    observation_path: Path,
+    capability_diff_path: Path | None,
+    registry: Path,
+    repo: str | None,
+    event_time: str | None,
+    workflow_run_id: str | None,
+    head_sha: str | None,
+    ci_context: str | None,
+) -> tuple[str, RegistryRowV1]:
+    if event_time is None:
+        typer.echo(
+            "--observation needs --event-time: the time the comparison ran, which "
+            "the engine never reads from a clock. In a workflow pass "
+            '--event-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" from the step that ran it.',
+            err=True,
+        )
+        raise typer.Exit(2)
+    try:
+        declared_time = parse_event_time(event_time)
+    except ObservationError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--event-time") from exc
+    context = _observation_context(
+        ci_context=ci_context,
+        repo=repo,
+        workflow_run_id=workflow_run_id,
+        head_sha=head_sha,
+    )
+    raw, payload = _read_json_input(observation_path, "observation")
+    diff_raw, diff_payload = (
+        _read_json_input(capability_diff_path, "capability diff")
+        if capability_diff_path is not None
+        else (None, None)
+    )
+    try:
+        observation = drift_observation(
+            payload,
+            source_sha256=hashlib.sha256(raw).hexdigest(),
+            capability_diff=diff_payload,
+            capability_diff_sha256=(
+                hashlib.sha256(diff_raw).hexdigest() if diff_raw is not None else None
+            ),
+            trigger=context["trigger"],
+        )
+    except ObservationError as exc:
+        source = capability_diff_path if isinstance(exc, CapabilityDiffError) else observation_path
+        typer.echo(f"Observation error in {source}: {exc}", err=True)
+        raise typer.Exit(3) from exc
+    existing = _load_rows(registry)
+    label = context["repo"] or ""
+    row = _row_from_observation(
+        observation,
+        repo=label,
+        event_time=declared_time,
+        workflow_run_id=context["workflow_run_id"],
+        head_sha=context["head_sha"],
+        branch=context["branch"],
+        previous_row=_last_row_for_repo(existing, label),
+    )
+    key = _observation_key(row)
+    prior = next((item for item in existing if _observation_key(item) == key), None)
+    if prior is not None:
+        return "exists", prior
+    _append_row(registry, row)
+    return "ingested", row
+
+
 @registry_app.command("ingest")
 def registry_ingest(
-    attestation: Path = typer.Option(
-        ...,
+    attestation: Path | None = typer.Option(
+        None,
         "--attestation",
         help="Path to an attestation JSON produced by `agents-shipgate attest`.",
+    ),
+    observation: Path | None = typer.Option(
+        None,
+        "--observation",
+        help=(
+            "Path to the JSON `shipgate audit --host --drift --json` printed: one "
+            "scheduled comparison with the acknowledged host-grants baseline, "
+            "recorded as a drift_observation row. Copies ids, kinds and counts, "
+            "never a grant's values."
+        ),
+    ),
+    capability_diff: Path | None = typer.Option(
+        None,
+        "--capability-diff",
+        help=(
+            "With --observation: the same run's `agents-shipgate capability diff` "
+            "JSON, the reviewed lock against a fresh export."
+        ),
+    ),
+    event_time: str | None = typer.Option(
+        None,
+        "--event-time",
+        help=(
+            "With --observation (required): when the comparison ran, ISO 8601 with "
+            "an offset. Stored in UTC."
+        ),
+    ),
+    workflow_run_id: str | None = typer.Option(
+        None, "--workflow-run-id", help="With --observation: the run that compared."
+    ),
+    head_sha: str | None = typer.Option(
+        None, "--head-sha", help="With --observation: the commit that was compared."
+    ),
+    ci_context: str | None = typer.Option(
+        None,
+        "--ci-context",
+        help=(
+            "With --observation: read the repository, run id, commit, branch and "
+            "trigger from the CI environment. Supported: github-actions. Explicit "
+            "flags win."
+        ),
     ),
     registry: Path = typer.Option(
         DEFAULT_REGISTRY_PATH,
@@ -277,7 +512,47 @@ def registry_ingest(
     ),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Append one attestation to the ledger. Idempotent by exact attestation bytes."""
+    """Append one attestation or one drift observation to the ledger.
+
+    Idempotent: an attestation by its exact bytes, an observation by its files
+    and declared time, run and commit.
+    """
+    if (attestation is None) == (observation is None):
+        typer.echo(
+            "Pass exactly one of --attestation (a release attestation) or "
+            "--observation (a scheduled `audit --host --drift --json` comparison).",
+            err=True,
+        )
+        raise typer.Exit(2)
+    if observation is not None:
+        status, row = _ingest_observation(
+            observation_path=observation,
+            capability_diff_path=capability_diff,
+            registry=registry,
+            repo=repo,
+            event_time=event_time,
+            workflow_run_id=workflow_run_id,
+            head_sha=head_sha,
+            ci_context=ci_context,
+        )
+        _echo_ingest(status, row, registry=registry, json_output=json_output)
+        return
+    observation_only = {
+        "--capability-diff": capability_diff,
+        "--event-time": event_time,
+        "--workflow-run-id": workflow_run_id,
+        "--head-sha": head_sha,
+        "--ci-context": ci_context,
+    }
+    misplaced = [flag for flag, value in observation_only.items() if value is not None]
+    if misplaced:
+        typer.echo(
+            f"{', '.join(misplaced)} only apply to --observation; an attestation "
+            "carries its own run context (set it on `agents-shipgate attest`).",
+            err=True,
+        )
+        raise typer.Exit(2)
+    assert attestation is not None
     try:
         raw = attestation.read_bytes()
         data = json.loads(raw)
@@ -322,13 +597,25 @@ def registry_ingest(
             )
             raise typer.Exit(3) from exc
         status = "ingested"
-        registry.parent.mkdir(parents=True, exist_ok=True)
-        with registry.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(row.model_dump(mode="json"), sort_keys=True) + "\n")
+        _append_row(registry, row)
+    _echo_ingest(status, row, registry=registry, json_output=json_output)
+
+
+def _echo_ingest(status: str, row: RegistryRowV1, *, registry: Path, json_output: bool) -> None:
     if json_output:
-        typer.echo(json.dumps({"status": status, "row_id": row.row_id}))
+        payload: dict[str, Any] = {"status": status, "row_id": row.row_id}
+        if row.row_kind != "attestation":
+            payload["row_kind"] = row.row_kind
+            if row.observation is not None:
+                payload["observation_status"] = row.observation.status
+        typer.echo(json.dumps(payload))
     else:
-        typer.echo(f"{status}: {row.row_id} → {registry}")
+        suffix = (
+            f" ({row.observation.status})"
+            if row.row_kind == "drift_observation" and row.observation is not None
+            else ""
+        )
+        typer.echo(f"{status}: {row.row_id}{suffix} → {registry}")
 
 
 @registry_app.command("query")
@@ -403,13 +690,20 @@ def registry_query(
         )
         typer.echo(payload.model_dump_json(indent=2))
         return
-    typer.echo(f"{len(selected)} attestation row(s) in {registry}")
+    typer.echo(f"{len(selected)} row(s) in {registry}")
     if loaded.skipped:
         typer.echo(
             f"Skipped {len(loaded.skipped)} malformed registry row(s).",
             err=True,
         )
     for row in selected:
+        if row.row_kind == "drift_observation":
+            status = row.observation.status if row.observation is not None else "unknown"
+            typer.echo(
+                f"- {row.row_id} repo={row.repo or '—'} observation={status} "
+                f"at={row.event_time or '—'}"
+            )
+            continue
         flags = []
         if row.trust_root_touched:
             flags.append("trust-root")
@@ -424,6 +718,14 @@ def registry_query(
         )
 
 
+def _is_bypass_candidate(row: RegistryRowV1) -> bool:
+    return (
+        row.row_kind == "attestation"
+        and row.merge_verdict != "mergeable"
+        and row.human_ack_satisfied is not True
+    )
+
+
 @registry_app.command("report")
 def registry_report(
     registry: Path = typer.Option(DEFAULT_REGISTRY_PATH, "--registry"),
@@ -435,23 +737,88 @@ def registry_report(
             "attestation does not carry satisfied human acknowledgement."
         ),
     ),
+    drift: bool = typer.Option(
+        False,
+        "--drift",
+        help=(
+            "Report drift observations: runs that found drift, runs that could "
+            "not compare, and (with --expected-interval-days) stretches with no run."
+        ),
+    ),
+    repo: str | None = typer.Option(
+        None, "--repo", help="With --drift: only this repository label."
+    ),
+    since: str | None = typer.Option(
+        None, "--since", help="With --drift: first UTC day of the window (YYYY-MM-DD)."
+    ),
+    until: str | None = typer.Option(
+        None,
+        "--until",
+        help=(
+            "With --drift: last UTC day of the window (YYYY-MM-DD), inclusive. "
+            "Not later than the day the report runs, or the stretch after the "
+            "last run is measured into the future."
+        ),
+    ),
+    expected_interval_days: int | None = typer.Option(
+        None,
+        "--expected-interval-days",
+        min=1,
+        help=(
+            "With --drift: report a gap where a repository went longer than this "
+            "many days without an observation. Set it above the schedule's "
+            "period, since scheduled runs can start late."
+        ),
+    ),
     json_output: bool = typer.Option(False, "--json"),
     fail_on_bypass: bool = typer.Option(
         False,
         "--fail-on-bypass",
         help="Exit 20 when --bypass finds at least one row.",
     ),
+    fail_on_drift: bool = typer.Option(
+        False,
+        "--fail-on-drift",
+        help=(
+            "Exit 20 when --drift finds a run with drift, a run that could not "
+            "compare, or a gap."
+        ),
+    ),
 ) -> None:
-    """Emit derived registry reports. Currently supports --bypass."""
-    if not bypass:
-        typer.echo("Nothing to report: pass --bypass.", err=True)
+    """Emit derived registry reports: --bypass or --drift."""
+    if bypass == drift:
+        typer.echo(
+            "Pass exactly one of --bypass or --drift."
+            if bypass
+            else "Nothing to report: pass --bypass or --drift.",
+            err=True,
+        )
+        raise typer.Exit(2)
+    if drift:
+        _drift_report_command(
+            registry=registry,
+            repo=repo,
+            since=since,
+            until=until,
+            expected_interval_days=expected_interval_days,
+            json_output=json_output,
+            fail_on_drift=fail_on_drift,
+            fail_on_bypass=fail_on_bypass,
+        )
+        return
+    drift_only = {
+        "--repo": repo,
+        "--since": since,
+        "--until": until,
+        "--expected-interval-days": expected_interval_days,
+        "--fail-on-drift": fail_on_drift or None,
+    }
+    misplaced = [flag for flag, value in drift_only.items() if value is not None]
+    if misplaced:
+        typer.echo(f"{', '.join(misplaced)} only apply to --drift.", err=True)
         raise typer.Exit(2)
     loaded = _load_registry(registry)
-    rows = [
-        row
-        for row in loaded.rows
-        if row.merge_verdict != "mergeable" and row.human_ack_satisfied is not True
-    ]
+    rows = [row for row in loaded.rows if _is_bypass_candidate(row)]
     rows.sort(key=lambda row: row.row_id)
     payload = RegistryBypassReportV1(
         registry=str(registry),
@@ -480,6 +847,98 @@ def registry_report(
         raise typer.Exit(20)
 
 
+def _report_day(value: str | None, flag: str) -> date | None:
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError as exc:
+        raise typer.BadParameter(f"{value!r} is not a YYYY-MM-DD day", param_hint=flag) from exc
+
+
+def _drift_report_command(
+    *,
+    registry: Path,
+    repo: str | None,
+    since: str | None,
+    until: str | None,
+    expected_interval_days: int | None,
+    json_output: bool,
+    fail_on_drift: bool,
+    fail_on_bypass: bool,
+) -> None:
+    if fail_on_bypass:
+        typer.echo("--fail-on-bypass only applies to --bypass; use --fail-on-drift.", err=True)
+        raise typer.Exit(2)
+    loaded = _load_registry(registry)
+    try:
+        payload = drift_report(
+            registry=str(registry),
+            rows=loaded.rows,
+            skipped=loaded.skipped,
+            repo=repo,
+            since=_report_day(since, "--since"),
+            until=_report_day(until, "--until"),
+            expected_interval_days=expected_interval_days,
+        )
+    except ObservationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    if json_output:
+        typer.echo(payload.model_dump_json(indent=2))
+    else:
+        _echo_drift_report(payload, registry=registry, skipped=len(loaded.skipped))
+    if fail_on_drift and drift_report_needs_review(payload):
+        raise typer.Exit(20)
+
+
+def _echo_drift_report(payload: RegistryDriftReportV1, *, registry: Path, skipped: int) -> None:
+    window = ""
+    if payload.since or payload.until:
+        window = f" from {payload.since or 'the first row'} to {payload.until or 'the last row'}"
+    typer.echo(
+        f"{payload.observation_count} drift observation(s) in {registry}{window}: "
+        f"{payload.drift_count} with drift, {payload.incomparable_count} incomparable, "
+        f"{payload.clean_count} clean"
+    )
+    if payload.expected_interval_days is not None:
+        typer.echo(
+            f"{payload.gap_count} gap(s) longer than {payload.expected_interval_days} day(s)"
+        )
+    if payload.undated_count:
+        typer.echo(f"{payload.undated_count} observation(s) without a readable event_time.")
+    if skipped:
+        typer.echo(f"Skipped {skipped} malformed registry row(s).", err=True)
+    for row in payload.rows:
+        observation = row.observation
+        if observation is None or observation.status == "clean":
+            continue
+        host = observation.host
+        detail = (
+            f"host {len(host.grant_changes)} grant/{len(host.artifact_changes)} artifact "
+            f"change(s)"
+            if host.comparison_status == "comparable"
+            else "host comparison incomparable"
+        )
+        if observation.capability is not None and observation.capability.has_drift:
+            capability = observation.capability
+            moved = (
+                len(capability.added_ids)
+                + len(capability.removed_ids)
+                + len(capability.reidentified_ids)
+                + len(capability.changed_ids)
+                + len(capability.definition_changed_ids)
+            )
+            detail += f", {moved} capability change(s)"
+        typer.echo(
+            f"- {row.row_id} repo={row.repo or '—'} at={row.event_time or '—'} "
+            f"{observation.status}: {detail}"
+        )
+    for gap in payload.gaps:
+        days = gap.duration_seconds / 86400
+        typer.echo(f"- gap repo={gap.repo or '—'} {gap.start} → {gap.end} ({days:.1f} days)")
+
+
 @registry_app.command("summary")
 def registry_summary(
     registry: Path = typer.Option(DEFAULT_REGISTRY_PATH, "--registry"),
@@ -491,7 +950,12 @@ def registry_summary(
     if json_output:
         typer.echo(payload.model_dump_json(indent=2))
         return
-    typer.echo(f"{payload.count} attestation row(s) in {registry}")
+    typer.echo(f"{payload.count} row(s) in {registry}")
+    if payload.by_row_kind.get("drift_observation"):
+        typer.echo(
+            f"Attestations: {payload.by_row_kind.get('attestation', 0)}; "
+            f"drift observations: {payload.by_row_kind['drift_observation']}"
+        )
     typer.echo(f"Bypass candidates: {payload.bypass_count}")
     typer.echo(f"Trust-root touched: {payload.trust_root_touched_count}")
     typer.echo(f"Policy weakened: {payload.policy_weakened_count}")
@@ -533,23 +997,26 @@ def _registry_summary_payload(
     registry: Path,
     loaded: LoadedRegistry,
 ) -> RegistrySummaryV1:
-    rows = loaded.rows
+    every_row = loaded.rows
+    # The release counts below describe attestations; an observation row has
+    # no verdict, and would otherwise read as an unacknowledged bypass.
+    rows = [row for row in every_row if row.row_kind == "attestation"]
     return RegistrySummaryV1(
         registry=str(registry),
-        count=len(rows),
+        count=len(every_row),
         skipped_count=len(loaded.skipped),
         skipped_rows=loaded.skipped,
+        by_row_kind=_counts(row.row_kind for row in every_row),
+        by_observation_status=_counts(
+            row.observation.status for row in every_row if row.observation is not None
+        ),
         by_merge_verdict=_counts(row.merge_verdict for row in rows),
         by_decision=_counts(row.decision for row in rows),
         by_repo=_counts(row.repo for row in rows if row.repo),
         by_service=_counts(row.service for row in rows),
         by_tier=_counts(row.tier for row in rows),
         by_approval_status=_counts(row.approval_status for row in rows),
-        bypass_count=sum(
-            1
-            for row in rows
-            if row.merge_verdict != "mergeable" and row.human_ack_satisfied is not True
-        ),
+        bypass_count=sum(1 for row in rows if _is_bypass_candidate(row)),
         trust_root_touched_count=sum(1 for row in rows if row.trust_root_touched is True),
         policy_weakened_count=sum(1 for row in rows if row.policy_weakened is True),
         human_ack_required_count=sum(1 for row in rows if row.human_ack_required is True),
