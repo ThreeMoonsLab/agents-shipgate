@@ -1110,8 +1110,10 @@ and the other merge policies are in [`integrations.md`](integrations.md) and
 
 ### Baseline and strict mode
 
-Strict mode exits `20` on unsuppressed critical findings. On an existing
-project, save a baseline first so strict CI fails only on *new* findings:
+Strict mode exits `20` on unsuppressed critical findings (its default `fail_on`)
+and on any `blocked` or `insufficient_evidence` decision. On an existing
+project, save a baseline first so the findings you already have stop failing
+strict CI; *new* findings and an `insufficient_evidence` decision still fail it:
 
 ```bash
 agents-shipgate baseline save --config shipgate.yaml --out .agents-shipgate/baseline.json

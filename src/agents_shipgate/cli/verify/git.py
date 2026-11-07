@@ -3868,10 +3868,6 @@ def staged_paths_under(workspace: Path, subdir: str) -> list[str]:
     never fetches or writes. Used to warn when generated Agents Shipgate
     reports have been staged for commit — they are generated artifacts that
     ``init`` already gitignores. Returns ``[]`` outside a git checkout.
-
-    Defined below ``_run_git`` so the line-pinned static-only allowlist entry
-    for that subprocess call-site (``tests/test_adapter_static_only.py``)
-    stays stable.
     """
 
     prefix = subdir.rstrip("/") + "/"
@@ -3980,9 +3976,6 @@ def output_directory_inventory(
 
     Every read is bounded like every other metadata read here. A directory too
     large to list, or a Git failure, raises rather than reading as empty.
-
-    Defined below ``_run_git`` so the line-pinned static-only allowlist entries
-    for this module's subprocess call sites stay stable.
     """
 
     pathspec = [f":(top,literal){directory}"]

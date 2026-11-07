@@ -483,8 +483,9 @@ for the full contract. Five axes:
 1. **AST trust lint** ([`tests/test_adapter_static_only.py`](../tests/test_adapter_static_only.py))
    — every `.py` under `src/agents_shipgate/` is statically scanned
    for `exec`/`eval`/`__import__`/`compile`/subprocess/`importlib.*`
-   surfaces. Four first-party meta-CLI uses are pinned per call site
-   (line + `ast.unparse` snippet) in `ALLOWED_EXCEPTIONS`. Runs as a
+   surfaces. First-party meta-CLI uses are pinned per call site
+   (enclosing function, occurrence count, and `ast.unparse` snippet) in
+   `ALLOWED_EXCEPTIONS`. Runs as a
    dedicated CI step *before* the main test suite. Companion live-load
    tests in [`test_fixture_no_import.py`](../tests/test_fixture_no_import.py)
    verify `sys.modules` snapshots stay clean.
@@ -678,7 +679,9 @@ contract. Headlines:
   `packet_schema_version: "0.18"`; older schemas frozen.
 - **Exit codes**: `0` pass, `2` manifest config error, `3` input
   parse error, `4` other error, `6` baseline integrity failure (strict
-  `baseline verify` only), `20` strict-mode gate failure.
+  `baseline verify` only), `20` gate failure (a `fail_on` match in either
+  mode, or strict mode's own conditions; see
+  [STABILITY.md § Exit codes](../STABILITY.md#exit-codes)).
 - **Check IDs** never change in published versions; legacy aliases
   expand via `core/check_ids.py`.
 - **Gating signal** is `release_decision.decision`. Do not gate on
