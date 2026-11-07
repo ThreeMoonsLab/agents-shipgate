@@ -12,6 +12,7 @@ window of them back.
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 from pathlib import Path
 
@@ -41,6 +42,12 @@ from tests.test_capability_lock import _lock
 from tests.test_registry_ledger import _attestation_v03
 
 runner = CliRunner()
+#: Click's own usage errors are rendered by rich, which colours option names
+#: when GITHUB_ACTIONS or FORCE_COLOR is set, so an option name in the message
+#: is split by escape codes in CI. Tests that read such a message ask for plain
+#: output and strip whatever styling is left.
+PLAIN_ENV = {"NO_COLOR": "1", "GITHUB_ACTIONS": None, "FORCE_COLOR": None, "COLUMNS": "400"}
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_SCHEMA = REPO_ROOT / "docs" / f"registry-schema.v{REGISTRY_SCHEMA_VERSION}.json"
 
@@ -856,10 +863,15 @@ def test_an_observation_without_a_readable_time_is_undated(tmp_path: Path) -> No
     ],
 )
 def test_report_flags_are_checked(tmp_path: Path, args: list[str], message: str) -> None:
-    result = _report(tmp_path / "registry.jsonl", *args)
+    ledger = str(tmp_path / "registry.jsonl")
+    result = runner.invoke(
+        app,
+        ["registry", "report", "--drift", "--registry", ledger, "--json", *args],
+        env=PLAIN_ENV,
+    )
 
     assert result.exit_code == 2
-    assert message in result.output
+    assert message in _ANSI.sub("", result.output)
 
 
 def test_report_needs_exactly_one_kind_and_drift_flags_need_drift(tmp_path: Path) -> None:
