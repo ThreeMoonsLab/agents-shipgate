@@ -201,8 +201,8 @@ def test_local_contract_renderer_has_required_fields() -> None:
     assert payload["current_control_artifact"] == (
         "agents-shipgate-reports/current-control.json"
     )
-    assert payload["attestation_schema_version"] == "0.5"
-    assert payload["registry_schema_version"] == "0.4"
+    assert payload["attestation_schema_version"] == "0.6"
+    assert payload["registry_schema_version"] == "0.5"
     assert payload["org_evidence_bundle_schema_version"] == ("shipgate.org_evidence_bundle/v2")
     assert payload["agent_boundary_result_schema_version"] == ("shipgate.agent_boundary_result/v3")
     assert payload["host_grants_inventory_schema_version"] == "0.9"

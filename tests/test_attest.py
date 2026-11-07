@@ -10,10 +10,15 @@ from typer.testing import CliRunner
 
 from agents_shipgate.cli.attest import build_attestation_payload
 from agents_shipgate.cli.main import app
+from agents_shipgate.schemas.attestation import ATTESTATION_SCHEMA_VERSION
 
 runner = CliRunner()
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCHEMA = json.loads((REPO_ROOT / "docs/attestation-schema.v0.5.json").read_text(encoding="utf-8"))
+SCHEMA = json.loads(
+    (REPO_ROOT / f"docs/attestation-schema.v{ATTESTATION_SCHEMA_VERSION}.json").read_text(
+        encoding="utf-8"
+    )
+)
 
 
 def _verifier_payload() -> dict:
@@ -86,7 +91,7 @@ def test_build_attestation_core_fields() -> None:
         redacted=True,
         report=_report_payload(),
     )
-    assert att["attestation_schema_version"] == "0.5"
+    assert att["attestation_schema_version"] == "0.6"
     assert att["run_id"] is None
     assert att["verify_run_sha256"] is None
     assert att["event_time"] is None
@@ -328,6 +333,7 @@ def test_capability_artifact_bindings_resolve_siblings(tmp_path: Path) -> None:
         "semantic_capability_set_hash": "sem_head",
         "evidence_set_hash": "ev_head",
         "source_set_hash": "src_head",
+        "definition_set_hash": None,
         "capability_count": 2,
     }
     assert att["capability_diff"]["path"] == "capability-lock-diff.json"
