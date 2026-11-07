@@ -504,9 +504,14 @@ existing workflow is reported in `cross_reference_path`.
   human-readable stdout is unstable; the JSON shape is the contract.
 - `scan` does not have `--json`; instead pass `--format json` and read
   `agents-shipgate-reports/report.json`.
-- Errors emit a structured `next_action` JSON line on stderr when
-  `AGENTS_SHIPGATE_AGENT_MODE=1` is set. Surface that path to the user
-  rather than scraping prose.
+- When `AGENTS_SHIPGATE_AGENT_MODE=1` is set, the errors a command handles
+  itself emit a structured `next_action` JSON line on stderr. Surface that
+  path to the user rather than scraping prose. Not every path emits the line
+  yet ([#1040](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1040)): usage
+  errors and some supporting commands print prose only, and `verify` reports
+  many failures in the `verifier.json` it prints. When no JSON line appears,
+  act on the message and the exit code; [`AGENTS.md` § Agent
+  mode](../AGENTS.md#agent-mode) lists which commands emit it.
 
 ## Pre-flight reminder
 

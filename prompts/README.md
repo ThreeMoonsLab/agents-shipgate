@@ -16,7 +16,7 @@ Prebuilt prompts for AI coding agents (Claude Code, Codex, Cursor, Aider) workin
 
 ### Claude Code
 
-The repository ships a `/shipgate` slash command (`.claude/commands/shipgate.md`) that runs the bootstrap flow. For other tasks, paste the prompt content directly:
+The repository ships a `/shipgate` slash command (`.claude/commands/shipgate.md`) that runs one prominent flow: `shipgate audit --host` when its arguments include `audit`, `shipgate check` when they include `check`, and `agents-shipgate verify` otherwise. For other tasks, including adding Shipgate to a repository (`add-shipgate-to-repo.md`), paste the prompt content directly:
 
 ```
 > /shipgate
