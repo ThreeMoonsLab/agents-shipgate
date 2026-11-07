@@ -147,6 +147,10 @@ from agents_shipgate.schemas.capability_attestation import (
     CapabilityDeltaVerificationRef,
     render_attestation_json,
 )
+from agents_shipgate.schemas.capability_attestation_v2 import (
+    CAPABILITY_DELTA_ATTESTATION_V2_ARTIFACT_KEY,
+    CAPABILITY_DELTA_ATTESTATION_V2_FILENAME,
+)
 from agents_shipgate.schemas.capability_payload import CapabilityAnalysisCoverage
 from agents_shipgate.schemas.current_control import (
     CurrentControlOperation,
@@ -5085,6 +5089,7 @@ def _remove_scan_artifacts(out_dir: Path) -> None:
         "capability-lock-diff.json",
         "capability-lock-diff.md",
         CAPABILITY_DELTA_ATTESTATION_FILENAME,
+        CAPABILITY_DELTA_ATTESTATION_V2_FILENAME,
         HUMAN_REVIEW_REQUEST_FILENAME,
         # Remediation instructions must not outlive the report they describe:
         # an early verifier reset would otherwise clear report.json and leave a
@@ -6272,6 +6277,12 @@ def _write_capability_delta_attestation(
 
     Never gates and never raises: a review artifact that could not be produced
     is a note on the run, not a failure of it.
+
+    Two versions from one projection: ``capability-delta-attestation.json``
+    (``v1``, frozen, unchanged) and ``capability-delta-attestation.v2.json``
+    (``v2``, which also publishes each tool's definition digests, so a rewritten
+    tool description is a row). The payload's evolution policy publishes both
+    for a cycle rather than bending ``v1``.
     """
 
     if inputs is None:
@@ -6289,30 +6300,36 @@ def _write_capability_delta_attestation(
             "--head <ref> to attest the committed state."
         )
         return
-    try:
-        attestation = project_capability_delta_attestation(
-            inputs.base_facts,
-            inputs.head_facts,
-            subject_name=git.repository_id,
-            base_tree_sha=git.base_tree_sha,
-            head_tree_sha=git.head_tree_sha,
-            head_commit_sha=git.head_commit_sha,
-            base_analysis_coverage=inputs.base_coverage,
-            head_analysis_coverage=inputs.head_coverage,
-            verification=CapabilityDeltaVerificationRef(
-                status="bound",
-                input_set_id=plan.inputs.input_set_id,
-                subject_id=plan.subject.subject_id,
-            ),
-        )
-        path = out_dir / CAPABILITY_DELTA_ATTESTATION_FILENAME
-        path.write_text(render_attestation_json(attestation), encoding="utf-8")
-    except Exception as exc:  # noqa: BLE001 - review artifacts never gate.
-        verifier.base_notes.append(f"Capability delta attestation unavailable: {exc}")
-        return
-    verifier.artifacts[CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY] = _display_path(
-        path.resolve(), git_root
-    )
+    for version, filename, artifact_key in (
+        (1, CAPABILITY_DELTA_ATTESTATION_FILENAME, CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY),
+        (2, CAPABILITY_DELTA_ATTESTATION_V2_FILENAME, CAPABILITY_DELTA_ATTESTATION_V2_ARTIFACT_KEY),
+    ):
+        try:
+            attestation = project_capability_delta_attestation(
+                inputs.base_facts,
+                inputs.head_facts,
+                subject_name=git.repository_id,
+                base_tree_sha=git.base_tree_sha,
+                head_tree_sha=git.head_tree_sha,
+                head_commit_sha=git.head_commit_sha,
+                base_analysis_coverage=inputs.base_coverage,
+                head_analysis_coverage=inputs.head_coverage,
+                verification=CapabilityDeltaVerificationRef(
+                    status="bound",
+                    input_set_id=plan.inputs.input_set_id,
+                    subject_id=plan.subject.subject_id,
+                ),
+                version=version,  # type: ignore[arg-type]
+            )
+            path = out_dir / filename
+            path.write_text(render_attestation_json(attestation), encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001 - review artifacts never gate.
+            label = "" if version == 1 else f" (v{version})"
+            verifier.base_notes.append(
+                f"Capability delta attestation{label} unavailable: {exc}"
+            )
+            continue
+        verifier.artifacts[artifact_key] = _display_path(path.resolve(), git_root)
 
 
 def _load_base_capability_lock(

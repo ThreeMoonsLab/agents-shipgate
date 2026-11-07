@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from agents_shipgate.core.capabilities import build_capability_facts
 from agents_shipgate.core.capability_delta import (
+    CapabilityDefinitionDelta,
     CapabilityDeltaRow,
     diff_capability_fact_sets,
 )
@@ -21,6 +22,7 @@ from agents_shipgate.schemas.capabilities import (
     CAPABILITY_STANDARD_VERSION,
     CapabilityFactV1,
     CapabilityLockChangedFact,
+    CapabilityLockDefinitionChange,
     CapabilityLockDiffSummary,
     CapabilityLockDiffV1,
     CapabilityLockFileV1,
@@ -132,6 +134,9 @@ def diff_capability_locks(
     reidentified = [_lock_changed_fact(row) for row in semantic_diff.reidentified]
     changed = [_lock_changed_fact(row) for row in semantic_diff.changed]
     evidence_changed = [_lock_changed_fact(row) for row in semantic_diff.evidence_changed]
+    definition_changed = [
+        _lock_definition_change(delta) for delta in semantic_diff.definition_changed
+    ]
     summary = CapabilityLockDiffSummary(
         added=len(added),
         removed=len(removed),
@@ -139,6 +144,7 @@ def diff_capability_locks(
         changed=len(changed),
         evidence_changed=len(evidence_changed),
         unchanged=semantic_diff.unchanged_count,
+        definition_changed=len(definition_changed),
     )
     return CapabilityLockDiffV1(
         base=_lock_ref(base, path=base_path),
@@ -149,6 +155,7 @@ def diff_capability_locks(
         reidentified=reidentified,
         changed=changed,
         evidence_changed=evidence_changed,
+        definition_changed=definition_changed,
     )
 
 
@@ -214,6 +221,21 @@ def _lock_hashes(
                 ],
             }
         ),
+        definition_set_hash=_sha256(
+            {
+                "capabilities": [
+                    {
+                        "id": fact.id,
+                        "definition": (
+                            fact.definition.model_dump(mode="json")
+                            if fact.definition is not None
+                            else None
+                        ),
+                    }
+                    for fact in facts
+                ]
+            }
+        ),
     )
 
 
@@ -224,6 +246,7 @@ def _lock_ref(lock: CapabilityLockFileV1, *, path: Path | None) -> CapabilityLoc
         semantic_capability_set_hash=lock.hashes.semantic_capability_set_hash,
         evidence_set_hash=lock.hashes.evidence_set_hash,
         source_set_hash=lock.hashes.source_set_hash,
+        definition_set_hash=lock.hashes.definition_set_hash,
         capability_count=lock.summary.capability_count,
     )
 
@@ -243,7 +266,12 @@ def _lock_ref(lock: CapabilityLockFileV1, *, path: Path | None) -> CapabilityLoc
 #: the published ``docs/capability-lock-schema.v*.json`` set rather than a
 #: hardcoded version, so it cannot be left behind by the next bump the way the
 #: previous test — pinned to ``0.6`` — was.
-_STRUCTURALLY_CURRENT_LOCK_SCHEMAS = frozenset({"0.6", "0.7"})
+#: v0.8 joined at v0.9: the only delta was the optional ``definition`` block on
+#: each fact and the optional ``definition_set_hash``, both absent (``None``) on
+#: a v0.8 lock. It loads, and its standard row below still refuses comparison
+#: with a v0.9 lock, so a pre-definition lock is re-exported, never diffed as
+#: if every definition were unknown.
+_STRUCTURALLY_CURRENT_LOCK_SCHEMAS = frozenset({"0.6", "0.7", "0.8"})
 
 
 def _normalize_capability_lock_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -293,6 +321,9 @@ _CAPABILITY_STANDARD_BY_LOCK_SCHEMA = {
     # returns the current standard and would have relabelled a historical lock
     # as comparable.
     "0.7": "0.5",
+    # And again for v0.8, frozen when v0.9 added tool-definition digests
+    # (capability standard v0.6).
+    "0.8": "0.5",
     CAPABILITY_LOCK_SCHEMA_VERSION: CAPABILITY_STANDARD_VERSION,
 }
 
@@ -361,6 +392,26 @@ def _lock_changed_fact(row: CapabilityDeltaRow) -> CapabilityLockChangedFact:
         semantic_changes=row.semantic_changes,
         before=row.before,
         after=row.after,
+    )
+
+
+def _lock_definition_change(
+    delta: CapabilityDefinitionDelta,
+) -> CapabilityLockDefinitionChange:
+    before = delta.before.definition
+    after = delta.after.definition
+    if before is None or after is None:
+        # ``changed_definition_parts`` returns parts only when both sides
+        # carry a definition; a delta without one is a programming error.
+        raise ValueError(f"definition delta {delta.id} lacks a definition on one side")
+    return CapabilityLockDefinitionChange(
+        id=delta.id,
+        tool_name=delta.after.identity.tool_name,
+        provider=delta.after.identity.provider,
+        operation=delta.after.identity.operation,
+        parts=delta.parts,
+        before=before,
+        after=after,
     )
 
 

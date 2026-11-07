@@ -356,6 +356,73 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="capability-definitions"></a>
+
+## Migration Note: Unreleased — the capability lock records tool definitions (capability standard `0.6`, lock `0.9`, lock diff `0.10`, #1117)
+
+**What was wrong.** A capability fact hashed a tool's input schema
+(`schema_hash`) but nothing else the client hands the model about the tool. A
+change to an MCP `tools/list` entry's description, `outputSchema` or
+`annotations`, with the name and arguments unchanged, produced a lock whose
+facts and set hashes were identical, a lock diff reading `changed: 0,
+unchanged: 1`, and a capability-delta attestation reading `capability_changes:
+0`, while `verifier.json` `capability_review.top_changes[]` already said
+`tool definition changed`. A reviewed lock compared later could not see the
+change a tool-poisoning or rug-pull edit makes.
+
+**What changes.**
+
+- Each fact built from a tool carries `definition`: `description_hash` (the
+  description with leading and trailing whitespace removed), `output_schema_hash`
+  and `annotations_hash` (the map after the MCP reader drops reserved binding
+  keys). Each is the capability hash over canonical JSON, 16 hex characters.
+  Only digests are stored. A fact built from public `ActionFact` data, without
+  the tool record, carries `definition: null`.
+- The lock gains `hashes.definition_set_hash`, and `CapabilityLockRef` (a
+  diff's `base` and `head`) gains `definition_set_hash`.
+- The lock diff gains `definition_changed[]` and `summary.definition_changed`.
+  A row is a paired fact (same id, or reidentified) whose definition digests
+  differ, with `parts` (`description`, `output_schema`, `annotations`, in that
+  order, exactly the ones that moved), `provider`, and both sides' digests. It
+  is independent of the semantic buckets: a fact can be `unchanged` and listed
+  here. A fact without a definition on either side is never listed.
+- `capability-lock-diff.md` adds a "Tool Definitions Changed" table and, when
+  rows exist, a count on its summary line.
+
+**Who must act.** A committed `.agents-shipgate/capabilities.lock.json` written
+by an earlier release is a `0.8` lock under capability standard `0.5`. It still
+loads, but `capability diff` (and `verify`'s fallback to the committed lock)
+refuses to pair it with a `0.9` lock and prints the exact `capability export`
+command that re-exports it. Re-export it once, from a reviewed state, and commit
+it. Do not re-export from a change under review: that records the change as
+the reviewed state.
+
+**What does not change.** `release_decision.decision`, `merge_verdict`, exit
+codes and every finding are unchanged; a definition change is evidence with no
+direction. `CapabilityHashName`, the fact `hashes`, the semantic and evidence
+set hashes, the report and verifier schemas are unchanged. The frozen
+`shipgate.capability_payload/v1` and `capability-delta/v1` attestation are
+unchanged in shape; they stamp `capability_standard_version: "0.6"` and do not
+carry definitions.
+
+**Payload and attestation v2.** `shipgate.capability_payload/v2` and
+`shipgate.capability_delta_attestation/v2` (predicate type
+`https://threemoonslab.com/agents-shipgate/capability-delta/v2`) publish the
+definition: every record's `digests` gains `description_hash`,
+`output_schema_hash` and `annotations_hash` (`null` together when no definition
+is stated), `changed_dimensions` may name them, and they are inside
+`capability_set_digest`. A definition-only change is a `changed` row with
+direction `unknown`. Everything else is `v1`'s. `verify` writes
+`capability-delta-attestation.v2.json` beside the unchanged `v1` file, as the
+payload's evolution policy prescribes, and `contract --json` and
+`.well-known/agents-shipgate.json` name the v2 versions, schema paths,
+predicate type and artifact in six new fields beside v1's. The authorization
+closure accepts the new artifact; `tools/verify-capability-delta.py` (1.1.0)
+verifies both versions, choosing by `predicateType`. A consumer pinned to `v1`
+changes nothing; one that needs definition changes reads the `v2` file.
+
+---
+
 <a id="trust-config-1030"></a>
 
 ## Migration Note: Unreleased — each baseline verifies against its own audit rows, the override tier gate reads emitted severity, and an optional pack's pin is fatal (#1030)
@@ -6288,17 +6355,21 @@ those identities should not be recorded.
 envelope to `.agents-shipgate/capabilities.lock.json` and, by default, a
 byte-identical generated mirror at
 `agents-shipgate-reports/capabilities.lock.json`. The current lock schema is
-[`docs/capability-lock-schema.v0.8.json`](docs/capability-lock-schema.v0.8.json)
-and emitted locks carry `capability_lock_schema_version: "0.8"` plus
-`experimental: false`. Prior schemas stay frozen; a lock declaring `0.6` or
-`0.7` is advanced to `0.8` on read, so nothing needs regenerating.
+[`docs/capability-lock-schema.v0.9.json`](docs/capability-lock-schema.v0.9.json)
+and emitted locks carry `capability_lock_schema_version: "0.9"` plus
+`experimental: false`. Prior schemas stay frozen; a lock declaring `0.6`,
+`0.7` or `0.8` is advanced to `0.9` on read. A `0.8` lock was written under
+capability standard `0.5`, without tool-definition digests, so a diff that
+pairs it with a `0.9` lock is refused with the re-export command.
 
 `agents-shipgate capability diff` compares two lockfiles and emits added,
 removed, `reidentified`, semantic `changed`, and `evidence_changed` rows. The
 current diff schema is
-[`docs/capability-lock-diff-schema.v0.9.json`](docs/capability-lock-diff-schema.v0.9.json)
-and emitted diffs carry `capability_lock_diff_schema_version: "0.9"` plus
-`experimental: false`. `reidentified` is the scope/resource case: scope is part
+[`docs/capability-lock-diff-schema.v0.10.json`](docs/capability-lock-diff-schema.v0.10.json)
+and emitted diffs carry `capability_lock_diff_schema_version: "0.10"` plus
+`experimental: false`. `definition_changed` rows (capability standard `0.6`)
+list paired facts whose tool description, output schema or annotations
+digests moved, independent of the semantic buckets. `reidentified` is the scope/resource case: scope is part
 of capability identity, so a scope escalation changes the id and is paired by
 agent/provider/operation/tool identity instead of being reported as unrelated add/remove
 churn.

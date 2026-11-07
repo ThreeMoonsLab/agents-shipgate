@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from agents_shipgate.schemas.capabilities import (
     CapabilityFactV1,
     CapabilityLockChangedFact,
+    CapabilityLockDefinitionChange,
     CapabilityLockDiffV1,
 )
 from agents_shipgate.schemas.capability_semantics import CapabilitySemanticChange
@@ -21,6 +22,11 @@ def render_capability_lock_diff_markdown(
     marker = "#" * max(1, min(6, heading_level))
     lines = [f"{marker} Capability Diff", ""]
     summary = diff.summary
+    definitions = (
+        f" {summary.definition_changed} tool definition(s) changed."
+        if summary.definition_changed
+        else ""
+    )
     lines.append(
         "Summary: "
         f"+{summary.added}, "
@@ -29,6 +35,7 @@ def render_capability_lock_diff_markdown(
         f"{summary.reidentified} reidentified, "
         f"{summary.evidence_changed} evidence-only, "
         f"{summary.unchanged} unchanged."
+        f"{definitions}"
     )
     lines.append(
         "Base: "
@@ -59,6 +66,7 @@ def render_capability_lock_diff_markdown(
         max_rows=max_rows,
         note="Provenance-only changes; static capability semantics did not drift.",
     )
+    _append_definition_section(lines, marker, diff.definition_changed, max_rows=max_rows)
     if _has_no_rows(diff):
         lines.extend(["", f"{marker}# No Semantic Capability Drift"])
         lines.append("No added, removed, changed, reidentified, or evidence-only rows.")
@@ -132,6 +140,45 @@ def _append_changed_section(
     _append_omitted(lines, changes, rows)
 
 
+_DEFINITION_PART_LABELS = {
+    "description": "description",
+    "output_schema": "output schema",
+    "annotations": "annotations",
+}
+
+
+def _append_definition_section(
+    lines: list[str],
+    marker: str,
+    changes: list[CapabilityLockDefinitionChange],
+    *,
+    max_rows: int | None,
+) -> None:
+    rows = _limit(changes, max_rows=max_rows)
+    if not rows:
+        return
+    lines.extend(
+        [
+            "",
+            f"{marker}# Tool Definitions Changed",
+            "What the tool publishes to the model moved. Only digests are compared; "
+            "read the source file for the text. This is independent of the semantic "
+            "rows above and carries no direction.",
+            "| Tool | Provider | Operation | Moved |",
+            "|---|---|---|---|",
+        ]
+    )
+    for change in rows:
+        lines.append(
+            "| "
+            f"{_cell(change.tool_name)} | "
+            f"{_cell(change.provider)} | "
+            f"{_cell(change.operation)} | "
+            f"{_cell(_join(_DEFINITION_PART_LABELS[part] for part in change.parts))} |"
+        )
+    _append_omitted(lines, changes, rows)
+
+
 def _semantic_rationale(changes: Iterable[CapabilitySemanticChange]) -> str:
     rationales = [change.rationale for change in changes if change.rationale]
     if rationales:
@@ -158,6 +205,7 @@ def _has_no_rows(diff: CapabilityLockDiffV1) -> bool:
         or diff.changed
         or diff.reidentified
         or diff.evidence_changed
+        or diff.definition_changed
     )
 
 

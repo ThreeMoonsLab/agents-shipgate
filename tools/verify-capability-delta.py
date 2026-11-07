@@ -2,9 +2,11 @@
 """Standalone verifier for an Agents Shipgate capability-delta attestation.
 
 Reads `capability-delta-attestation.json` — an in-toto Statement whose
-predicate carries the frozen `shipgate.capability_payload/v1` delta — checks
-every rule the format promises, and prints what the agent can do after the
-change. **Stdlib only, one file, no `agents-shipgate` install.** That is the
+predicate carries the frozen `shipgate.capability_payload/v1` delta — or
+`capability-delta-attestation.v2.json`, whose `capability_payload/v2` delta also
+publishes each tool's definition digests. The version is read from
+`predicateType`. It checks every rule the format promises, and prints what the
+agent can do after the change. **Stdlib only, one file, no `agents-shipgate` install.** That is the
 point: the format is only an interchange format if consuming it requires
 nothing of ours at runtime.
 
@@ -61,12 +63,15 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-SCRIPT_VERSION = "1.0.0"
+SCRIPT_VERSION = "1.1.0"
 
 IN_TOTO_STATEMENT_TYPE = "https://in-toto.io/Statement/v1"
 PREDICATE_TYPE = "https://threemoonslab.com/agents-shipgate/capability-delta/v1"
 PREDICATE_SCHEMA_VERSION = "shipgate.capability_delta_attestation/v1"
 PAYLOAD_SCHEMA_VERSION = "shipgate.capability_payload/v1"
+PREDICATE_TYPE_V2 = "https://threemoonslab.com/agents-shipgate/capability-delta/v2"
+PREDICATE_SCHEMA_VERSION_V2 = "shipgate.capability_delta_attestation/v2"
+PAYLOAD_SCHEMA_VERSION_V2 = "shipgate.capability_payload/v2"
 
 SUBJECT_KEY_PREFIX = "capsubj_"
 SUBJECT_KEY_DIGEST_CHARS = 16
@@ -230,6 +235,10 @@ DIGEST_DIMENSIONS = (
     "risk_hash",
     "schema_hash",
 )
+#: v2 adds the tool's published definition, under the lock diff's part names.
+#: They are null together when the evidence states no definition.
+DEFINITION_DIGEST_DIMENSIONS = ("annotations_hash", "description_hash", "output_schema_hash")
+DIGEST_DIMENSIONS_V2 = tuple(sorted(DIGEST_DIMENSIONS + DEFINITION_DIGEST_DIMENSIONS))
 
 
 def dotted(record: dict[str, Any], path: str) -> Any:
@@ -772,6 +781,47 @@ _DIGESTS = _object(
     {name: lambda v, p: _matches(v, p, DIGEST_TOKEN_RE) for name in DIGEST_DIMENSIONS}
 )
 
+
+def _digests_v2(value: Any, path: str) -> None:
+    _object(
+        {
+            name: (
+                _nullable(lambda v, p: _matches(v, p, DIGEST_TOKEN_RE))
+                if name in DEFINITION_DIGEST_DIMENSIONS
+                else (lambda v, p: _matches(v, p, DIGEST_TOKEN_RE))
+            )
+            for name in DIGEST_DIMENSIONS_V2
+        }
+    )(value, path)
+    stated = [value.get(name) is not None for name in DEFINITION_DIGEST_DIMENSIONS]
+    if any(stated) and not all(stated):
+        raise Invalid(
+            "S2",
+            path,
+            "states part of a definition: description_hash, output_schema_hash "
+            "and annotations_hash are null together",
+        )
+
+
+def _record(digests: Callable[[Any, str], None]) -> Callable[[Any, str], None]:
+    return _object(
+        {
+            "capability_id": lambda v, p: _matches(v, p, CAPABILITY_ID_RE),
+            "operation": _text,
+            "subject_kind": lambda v, p: _enum(v, p, SUBJECT_KINDS),
+            "resource": _array(_text, unique=True),
+            "scope": _array(_text, unique=True),
+            "effect": _EFFECT_FACTS,
+            "authority": _AUTHORITY_FACTS,
+            "controls": _CONTROL_FACTS,
+            "permission": _PERMISSION_FACTS,
+            "evidence": _EVIDENCE_REF,
+            "risk_tags": _array(_text, unique=True),
+            "digests": digests,
+        }
+    )
+
+
 _RECORD = _object(
     {
         "capability_id": lambda v, p: _matches(v, p, CAPABILITY_ID_RE),
@@ -800,28 +850,36 @@ _CHANGE_FACT = _object(
     }
 )
 
-_TRANSITION_ENTRY = _object(
-    {
-        "transition": lambda v, p: _enum(v, p, RECORD_TRANSITIONS),
-        "changed_dimensions": _array(
-            lambda v, p: _enum(v, p, DIGEST_DIMENSIONS), unique=True
-        ),
-        "semantic_direction": lambda v, p: _enum(v, p, SEMANTIC_DIRECTIONS),
-        "semantic_changes": _array(_CHANGE_FACT, unique=True),
-        "before": _nullable(_RECORD),
-        "after": _nullable(_RECORD),
-    }
-)
+def _transition_entry(
+    record: Callable[[Any, str], None], dimensions: tuple[str, ...]
+) -> Callable[[Any, str], None]:
+    return _object(
+        {
+            "transition": lambda v, p: _enum(v, p, RECORD_TRANSITIONS),
+            "changed_dimensions": _array(lambda v, p: _enum(v, p, dimensions), unique=True),
+            "semantic_direction": lambda v, p: _enum(v, p, SEMANTIC_DIRECTIONS),
+            "semantic_changes": _array(_CHANGE_FACT, unique=True),
+            "before": _nullable(record),
+            "after": _nullable(record),
+        }
+    )
 
-_DELTA_SUBJECT = _object(
-    {
-        "subject": _SUBJECT_REF,
-        "present_in_base": _flag,
-        "present_in_head": _flag,
-        "transition": lambda v, p: _enum(v, p, SUBJECT_TRANSITIONS),
-        "changes": _array(_TRANSITION_ENTRY, minimum=1, unique=True),
-    }
-)
+
+def _delta_subject(entry: Callable[[Any, str], None]) -> Callable[[Any, str], None]:
+    return _object(
+        {
+            "subject": _SUBJECT_REF,
+            "present_in_base": _flag,
+            "present_in_head": _flag,
+            "transition": lambda v, p: _enum(v, p, SUBJECT_TRANSITIONS),
+            "changes": _array(entry, minimum=1, unique=True),
+        }
+    )
+
+
+_TRANSITION_ENTRY = _transition_entry(_RECORD, DIGEST_DIMENSIONS)
+_DELTA_SUBJECT = _delta_subject(_TRANSITION_ENTRY)
+_DELTA_SUBJECT_V2 = _delta_subject(_transition_entry(_record(_digests_v2), DIGEST_DIMENSIONS_V2))
 
 _COVERAGE_SIDE = _object(
     {
@@ -842,75 +900,117 @@ _STATE_REF = _object(
     }
 )
 
-_STATEMENT = _object(
-    {
-        "_type": lambda v, p: _enum(v, p, (IN_TOTO_STATEMENT_TYPE,)),
-        "predicateType": lambda v, p: _enum(v, p, (PREDICATE_TYPE,)),
-        "subject": _array(
-            _object(
+def _statement(
+    predicate_type: str,
+    predicate_version: str,
+    payload_version: str,
+    delta_subject: Callable[[Any, str], None],
+) -> Callable[[Any, str], None]:
+        return _object(
+        {
+            "_type": lambda v, p: _enum(v, p, (IN_TOTO_STATEMENT_TYPE,)),
+            "predicateType": lambda v, p: _enum(v, p, (predicate_type,)),
+            "subject": _array(
+                _object(
+                    {
+                        "name": _text,
+                        # in-toto types a DigestSet `map<string, string>`, so an
+                        # algorithm the producer did not compute is absent rather
+                        # than null. `gitCommit` is therefore the one optional key
+                        # in this whole document, and it is optional because the
+                        # type belongs to in-toto and not to this format.
+                        "digest": lambda v, p: _digest_set(v, p),
+                    }
+                ),
+                minimum=1,
+            ),
+            "predicate": _object(
                 {
-                    "name": _text,
-                    # in-toto types a DigestSet `map<string, string>`, so an
-                    # algorithm the producer did not compute is absent rather
-                    # than null. `gitCommit` is therefore the one optional key
-                    # in this whole document, and it is optional because the
-                    # type belongs to in-toto and not to this format.
-                    "digest": lambda v, p: _digest_set(v, p),
+                    "predicate_schema_version": lambda v, p: _enum(
+                        v, p, (predicate_version,)
+                    ),
+                    "capability_payload_schema_version": lambda v, p: _enum(
+                        v, p, (payload_version,)
+                    ),
+                    "verification": _object(
+                        {
+                            "status": lambda v, p: _enum(v, p, ("bound", "unbound")),
+                            "input_set_id": _nullable(_content_id),
+                            "subject_id": _nullable(_content_id),
+                        }
+                    ),
+                    "delta": _object(
+                        {
+                            "capability_payload_schema_version": lambda v, p: _enum(
+                                v, p, (payload_version,)
+                            ),
+                            "capability_standard_version": _text,
+                            "view": lambda v, p: _enum(v, p, ("delta",)),
+                            "base": _STATE_REF,
+                            "head": _STATE_REF,
+                            "analysis_coverage": _object(
+                                {
+                                    "base": _COVERAGE_SIDE,
+                                    "head": _COVERAGE_SIDE,
+                                    "status": lambda v, p: _enum(v, p, ANALYSIS_STATUSES),
+                                    "newly_outside_analysis": _array(_SUBJECT_REF, unique=True),
+                                    "no_longer_outside_analysis": _array(
+                                        _SUBJECT_REF, unique=True
+                                    ),
+                                }
+                            ),
+                            "summary": _object(
+                                {
+                                    "subjects": _count,
+                                    "added_subjects": _count,
+                                    "removed_subjects": _count,
+                                    "modified_subjects": _count,
+                                    "capability_changes": _count,
+                                }
+                            ),
+                            "subjects": _array(delta_subject, unique=True),
+                        }
+                    ),
                 }
             ),
-            minimum=1,
+        }
+    )
+
+
+#: predicateType -> (predicate schema version, payload schema version, the
+#: statement's structure). Everything that differs between the two published
+#: versions; every derived rule below is shared.
+PROFILES: dict[str, tuple[str, str, Callable[[Any, str], None]]] = {
+    PREDICATE_TYPE: (
+        PREDICATE_SCHEMA_VERSION,
+        PAYLOAD_SCHEMA_VERSION,
+        _statement(PREDICATE_TYPE, PREDICATE_SCHEMA_VERSION, PAYLOAD_SCHEMA_VERSION, _DELTA_SUBJECT),
+    ),
+    PREDICATE_TYPE_V2: (
+        PREDICATE_SCHEMA_VERSION_V2,
+        PAYLOAD_SCHEMA_VERSION_V2,
+        _statement(
+            PREDICATE_TYPE_V2,
+            PREDICATE_SCHEMA_VERSION_V2,
+            PAYLOAD_SCHEMA_VERSION_V2,
+            _DELTA_SUBJECT_V2,
         ),
-        "predicate": _object(
-            {
-                "predicate_schema_version": lambda v, p: _enum(
-                    v, p, (PREDICATE_SCHEMA_VERSION,)
-                ),
-                "capability_payload_schema_version": lambda v, p: _enum(
-                    v, p, (PAYLOAD_SCHEMA_VERSION,)
-                ),
-                "verification": _object(
-                    {
-                        "status": lambda v, p: _enum(v, p, ("bound", "unbound")),
-                        "input_set_id": _nullable(_content_id),
-                        "subject_id": _nullable(_content_id),
-                    }
-                ),
-                "delta": _object(
-                    {
-                        "capability_payload_schema_version": lambda v, p: _enum(
-                            v, p, (PAYLOAD_SCHEMA_VERSION,)
-                        ),
-                        "capability_standard_version": _text,
-                        "view": lambda v, p: _enum(v, p, ("delta",)),
-                        "base": _STATE_REF,
-                        "head": _STATE_REF,
-                        "analysis_coverage": _object(
-                            {
-                                "base": _COVERAGE_SIDE,
-                                "head": _COVERAGE_SIDE,
-                                "status": lambda v, p: _enum(v, p, ANALYSIS_STATUSES),
-                                "newly_outside_analysis": _array(_SUBJECT_REF, unique=True),
-                                "no_longer_outside_analysis": _array(
-                                    _SUBJECT_REF, unique=True
-                                ),
-                            }
-                        ),
-                        "summary": _object(
-                            {
-                                "subjects": _count,
-                                "added_subjects": _count,
-                                "removed_subjects": _count,
-                                "modified_subjects": _count,
-                                "capability_changes": _count,
-                            }
-                        ),
-                        "subjects": _array(_DELTA_SUBJECT, unique=True),
-                    }
-                ),
-            }
-        ),
-    }
-)
+    ),
+}
+_STATEMENT = PROFILES[PREDICATE_TYPE][2]
+
+
+def _profile(document: Any) -> tuple[str, str, Callable[[Any, str], None]]:
+    """The version a document declares, or v1's when it declares neither.
+
+    An unknown ``predicateType`` is checked against v1's structure, which
+    rejects it by name, rather than against nothing.
+    """
+
+    declared = document.get("predicateType") if isinstance(document, dict) else None
+    if isinstance(declared, str) and declared in PROFILES:
+        return PROFILES[declared]
+    return PROFILES[PREDICATE_TYPE]
 
 
 def _digest_set(value: Any, path: str) -> None:
@@ -942,7 +1042,7 @@ def validate_structure(document: Any, problems: Problems) -> bool:
     """
 
     try:
-        _STATEMENT(document, "$")
+        _profile(document)[2](document, "$")
     except Invalid as invalid:
         problems.add(invalid.rule, f"{invalid.path} {invalid.message}")
         return False
@@ -1088,8 +1188,10 @@ def verify(document: Any) -> Problems:
 
     if statement.get("_type") != IN_TOTO_STATEMENT_TYPE:
         problems.add("E1", f"_type must be {IN_TOTO_STATEMENT_TYPE!r}")
-    if statement.get("predicateType") != PREDICATE_TYPE:
-        problems.add("E2", f"predicateType must be {PREDICATE_TYPE!r}")
+    declared_type = statement.get("predicateType")
+    if not isinstance(declared_type, str) or declared_type not in PROFILES:
+        problems.add("E2", f"predicateType must be one of {sorted(PROFILES)!r}")
+    predicate_version, payload_version, _structure = _profile(statement)
 
     subjects = _require_list(statement.get("subject"), "subject", problems, "E3")
     subject_tree: str | None = None
@@ -1112,10 +1214,10 @@ def verify(document: Any) -> Problems:
             problems.add("E3", f"subject[0].digest.gitCommit {commit!r} is not a git object id")
 
     predicate = _require_mapping(statement.get("predicate"), "predicate", problems, "E4")
-    if predicate.get("predicate_schema_version") != PREDICATE_SCHEMA_VERSION:
-        problems.add("E4", f"predicate_schema_version must be {PREDICATE_SCHEMA_VERSION!r}")
-    if predicate.get("capability_payload_schema_version") != PAYLOAD_SCHEMA_VERSION:
-        problems.add("E4", f"capability_payload_schema_version must be {PAYLOAD_SCHEMA_VERSION!r}")
+    if predicate.get("predicate_schema_version") != predicate_version:
+        problems.add("E4", f"predicate_schema_version must be {predicate_version!r}")
+    if predicate.get("capability_payload_schema_version") != payload_version:
+        problems.add("E4", f"capability_payload_schema_version must be {payload_version!r}")
 
     verification = _require_mapping(
         predicate.get("verification"), "predicate.verification", problems, "E9"
@@ -1139,7 +1241,7 @@ def verify(document: Any) -> Problems:
     delta = _require_mapping(predicate.get("delta"), "predicate.delta", problems, "E5")
     if delta.get("view") != "delta":
         problems.add("E5", f"predicate.delta.view must be 'delta', got {delta.get('view')!r}")
-    if delta.get("capability_payload_schema_version") != PAYLOAD_SCHEMA_VERSION:
+    if delta.get("capability_payload_schema_version") != payload_version:
         problems.add("E4", "predicate.delta declares a different payload schema version")
 
     base_ref_block = _require_mapping(delta.get("base"), "delta.base", problems, "E6")
@@ -1326,10 +1428,15 @@ def _verify_change_entry(
     if not isinstance(before, dict) or not isinstance(after, dict):
         problems.add("P5", f"{label}.transition {transition!r} needs both records")
         return
+    # Every digest the records publish: the structure check fixed that set per
+    # version (v2 adds the definition digests), so this is v1's eight or v2's
+    # eleven without naming either.
+    before_digests = before.get("digests") or {}
+    after_digests = after.get("digests") or {}
     derived_dimensions = [
         name
-        for name in DIGEST_DIMENSIONS
-        if (before.get("digests") or {}).get(name) != (after.get("digests") or {}).get(name)
+        for name in sorted(set(before_digests) | set(after_digests))
+        if before_digests.get(name) != after_digests.get(name)
     ]
     if not derived_dimensions:
         problems.add("P5", f"{label} carries two identical records; that is not a delta row")
@@ -1528,6 +1635,7 @@ def _verify_refs(
 
 
 ATTESTATION_FILENAME = "capability-delta-attestation.json"
+ATTESTATION_FILENAME_V2 = "capability-delta-attestation.v2.json"
 
 
 def verify_receipt_binding(
@@ -1600,7 +1708,8 @@ def verify_receipt_binding(
         )
         return
     if not any(
-        str(entry.get("path", "")).rsplit("/", 1)[-1] == ATTESTATION_FILENAME
+        str(entry.get("path", "")).rsplit("/", 1)[-1]
+        in {ATTESTATION_FILENAME, ATTESTATION_FILENAME_V2}
         for _name, entry in matches
     ):
         bound = sorted(str(entry.get("path")) for _name, entry in matches)
