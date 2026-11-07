@@ -440,7 +440,8 @@
   "tests/test_step_summary_isolation.py": 3.9,
   "tests/test_host_grants_yaml_timestamps.py": 2.1,
   "tests/test_dependency_floors.py": 0.1,
-  "tests/test_capability_definition.py": 0.2
+  "tests/test_capability_definition.py": 0.2,
+  "tests/test_capability_payload_v2.py": 4.7
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -604,6 +605,17 @@
    },
    "case_count": 19,
    "command": "python -m pytest tests/test_capability_definition.py --junitxml=capability-definition.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "6294400944c5 with issue #1117 increment",
+   "report_sha256": "99ec27d512fb1f762b692cb3add46ff5a96325756d2aac0d2ce5542f11619a3e",
+   "files": {
+    "tests/test_capability_payload_v2.py": 4.7
+   },
+   "case_count": 16,
+   "command": "python -m pytest tests/test_capability_payload_v2.py --junitxml=capability-payload-v2.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

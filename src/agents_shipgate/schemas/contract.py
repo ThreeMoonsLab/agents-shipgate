@@ -30,9 +30,18 @@ from agents_shipgate.schemas.capability_attestation import (
     CAPABILITY_DELTA_ATTESTATION_SCHEMA_VERSION,
     CAPABILITY_DELTA_PREDICATE_TYPE,
 )
+from agents_shipgate.schemas.capability_attestation_v2 import (
+    CAPABILITY_DELTA_ATTESTATION_V2_SCHEMA_PATH,
+    CAPABILITY_DELTA_ATTESTATION_V2_SCHEMA_VERSION,
+    CAPABILITY_DELTA_PREDICATE_TYPE_V2,
+)
 from agents_shipgate.schemas.capability_payload import (
     CAPABILITY_PAYLOAD_SCHEMA_PATH,
     CAPABILITY_PAYLOAD_SCHEMA_VERSION,
+)
+from agents_shipgate.schemas.capability_payload_v2 import (
+    CAPABILITY_PAYLOAD_V2_SCHEMA_PATH,
+    CAPABILITY_PAYLOAD_V2_SCHEMA_VERSION,
 )
 from agents_shipgate.schemas.codex_boundary_result import (
     CODEX_BOUNDARY_RESULT_SCHEMA_VERSION,
@@ -275,6 +284,13 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # byte-identical, so ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21: a
 # reader that does not know ``planning_only`` cannot mistake it for
 # ``complete``, and it authorizes nothing either way.
+#
+# v42 also publishes ``shipgate.capability_payload/v2`` and the
+# ``capability-delta/v2`` predicate (#1117): v1 plus each tool's
+# definition digests, so a rewritten tool description is a delta row. ``verify``
+# writes ``capability-delta-attestation.v2.json`` beside the unchanged v1 file,
+# and the contract names the v2 versions, schema paths, predicate type and
+# artifact in six fields beside v1's. Additive; nothing v1 names moves.
 CONTRACT_VERSION: Literal["42"] = "42"
 MINIMUM_CONTROL_CONTRACT_VERSION: Literal["21"] = "21"
 GATING_SIGNAL: Literal["release_decision.decision"] = "release_decision.decision"
@@ -567,6 +583,9 @@ ARTIFACTS: dict[str, str] = {
     "capability_delta_attestation": (
         "agents-shipgate-reports/capability-delta-attestation.json"
     ),
+    "capability_delta_attestation_v2": (
+        "agents-shipgate-reports/capability-delta-attestation.v2.json"
+    ),
     "org_evidence_bundle": "agents-shipgate-reports/org-evidence-bundle.json",
     "host_grants": "agents-shipgate-reports/host-grants.json",
     "org_status": "agents-shipgate-reports/org-status.json",
@@ -690,6 +709,12 @@ class ContractPayload(BaseModel):
     capability_delta_attestation_schema_path: str
     capability_delta_predicate_type: str
     capability_delta_attestation_artifact: str
+    capability_payload_v2_schema_version: str
+    capability_payload_v2_schema_path: str
+    capability_delta_attestation_v2_schema_version: str
+    capability_delta_attestation_v2_schema_path: str
+    capability_delta_predicate_type_v2: str
+    capability_delta_attestation_v2_artifact: str
     preflight_schema_version: str
     capability_standard_version: str
     governance_benchmark_catalog_schema_version: str
@@ -792,6 +817,18 @@ def build_contract_payload() -> ContractPayload:
         capability_delta_predicate_type=CAPABILITY_DELTA_PREDICATE_TYPE,
         capability_delta_attestation_artifact=ARTIFACTS[
             "capability_delta_attestation"
+        ],
+        capability_payload_v2_schema_version=CAPABILITY_PAYLOAD_V2_SCHEMA_VERSION,
+        capability_payload_v2_schema_path=CAPABILITY_PAYLOAD_V2_SCHEMA_PATH,
+        capability_delta_attestation_v2_schema_version=(
+            CAPABILITY_DELTA_ATTESTATION_V2_SCHEMA_VERSION
+        ),
+        capability_delta_attestation_v2_schema_path=(
+            CAPABILITY_DELTA_ATTESTATION_V2_SCHEMA_PATH
+        ),
+        capability_delta_predicate_type_v2=CAPABILITY_DELTA_PREDICATE_TYPE_V2,
+        capability_delta_attestation_v2_artifact=ARTIFACTS[
+            "capability_delta_attestation_v2"
         ],
         preflight_schema_version=PREFLIGHT_SCHEMA_VERSION,
         capability_standard_version=CAPABILITY_STANDARD_VERSION,

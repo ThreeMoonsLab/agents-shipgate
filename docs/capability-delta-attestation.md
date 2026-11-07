@@ -1,4 +1,4 @@
-# The Capability Delta Attestation · `shipgate.capability_delta_attestation/v1`
+# The Capability Delta Attestation · `shipgate.capability_delta_attestation/v1` and `/v2`
 
 **What can this agent do after the change — as a fact you can verify without
 running Agents Shipgate.**
@@ -19,6 +19,20 @@ has to configure.
 | Worked example | [`examples/capability-delta-attestation.v1.example.json`](examples/capability-delta-attestation.v1.example.json) |
 | Reference verifier | [`tools/verify-capability-delta.py`](../tools/verify-capability-delta.py) |
 | Written by | `agents-shipgate verify`, at `agents-shipgate-reports/capability-delta-attestation.json` |
+
+**v2, written beside it.** `verify` also writes
+`agents-shipgate-reports/capability-delta-attestation.v2.json`: the same
+envelope, every rule on this page included, with predicate type
+`https://threemoonslab.com/agents-shipgate/capability-delta/v2`, predicate body
+`shipgate.capability_delta_attestation/v2`, and the
+[`shipgate.capability_payload/v2`](capability-payload.md#version-2-tool-definitions)
+delta, whose records also publish each tool's definition digests. A tool whose
+description, output schema or annotations were rewritten is a row in the v2
+file and not in the v1 file. Schema
+[`capability-delta-attestation-schema.v2.json`](capability-delta-attestation-schema.v2.json),
+example [`examples/capability-delta-attestation.v2.example.json`](examples/capability-delta-attestation.v2.example.json).
+The reference verifier reads both, choosing by `predicateType`; pass the matching
+`--schema` for stage one.
 
 ---
 
@@ -379,7 +393,9 @@ for. A closed schema cannot also be additive, so:
   guess.
 - **`v1` stays published** after `v2` lands, and stays readable for at least
   one minor cycle — the deprecation rule in [`../STABILITY.md`](../STABILITY.md)
-  applied to a whole version, because a whole version is the unit here.
+  applied to a whole version, because a whole version is the unit here. `v2`
+  has landed: `verify` writes both files, so a consumer pinned to `v1` keeps
+  its file and one that needs definition changes reads the `v2` file.
 - **The predicate type is the wire identity.** Switch on `predicateType` and
   nothing else. `predicate_schema_version` restates it inside the predicate so
   a body separated from its statement still says what it is.

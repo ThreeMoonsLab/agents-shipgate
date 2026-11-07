@@ -25,6 +25,7 @@ VERIFIER_ROUTE_ARTIFACT_NAMES = (
     # produced it, so one left beside a later run's receipt would offer a
     # chain into a verification that is no longer current.
     "capability-delta-attestation.json",
+    "capability-delta-attestation.v2.json",
 )
 
 # Every name a Shipgate run writes directly into a reports directory, whichever

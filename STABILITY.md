@@ -403,9 +403,23 @@ direction. `CapabilityHashName`, the fact `hashes`, the semantic and evidence
 set hashes, the report and verifier schemas are unchanged. The frozen
 `shipgate.capability_payload/v1` and `capability-delta/v1` attestation are
 unchanged in shape; they stamp `capability_standard_version: "0.6"` and do not
-carry definitions, so a definition-only change is visible in the lock diff and
-not in the attestation until a payload version that carries `definition` is
-published.
+carry definitions.
+
+**Payload and attestation v2.** `shipgate.capability_payload/v2` and
+`shipgate.capability_delta_attestation/v2` (predicate type
+`https://threemoonslab.com/agents-shipgate/capability-delta/v2`) publish the
+definition: every record's `digests` gains `description_hash`,
+`output_schema_hash` and `annotations_hash` (`null` together when no definition
+is stated), `changed_dimensions` may name them, and they are inside
+`capability_set_digest`. A definition-only change is a `changed` row with
+direction `unknown`. Everything else is `v1`'s. `verify` writes
+`capability-delta-attestation.v2.json` beside the unchanged `v1` file, as the
+payload's evolution policy prescribes, and `contract --json` and
+`.well-known/agents-shipgate.json` name the v2 versions, schema paths,
+predicate type and artifact in six new fields beside v1's. The authorization
+closure accepts the new artifact; `tools/verify-capability-delta.py` (1.1.0)
+verifies both versions, choosing by `predicateType`. A consumer pinned to `v1`
+changes nothing; one that needs definition changes reads the `v2` file.
 
 ---
 

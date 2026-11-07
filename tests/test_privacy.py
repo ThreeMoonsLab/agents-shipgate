@@ -1102,7 +1102,9 @@ def test_verify_publishes_no_planted_secret_in_any_rendered_artifact(tmp_path):
     # unredacted for every secret shape, the pre-#1026 ones included (tool
     # names, ``controls.evidence_owner``, ``semantic_changes``), pending #1079;
     # it is not the report, packet, PR comment or control output this change
-    # redacts.
+    # redacts. The v2 delta attestation is that family too: it publishes v1's
+    # fields plus three definition digests, so it may carry what v1 carries
+    # and nothing more, which the last assertion holds it to.
     unredacted = {
         "verification-input.diff",
         "capabilities.lock.json",
@@ -1110,10 +1112,19 @@ def test_verify_publishes_no_planted_secret_in_any_rendered_artifact(tmp_path):
         "capability-lock-diff.json",
         "capability-lock-diff.md",
         "capability-delta-attestation.json",
+        "capability-delta-attestation.v2.json",
     }
     rendered = [path for path in written if path.name not in unredacted]
     assert len(rendered) >= 10
     _assert_no_secret_in(rendered, secrets)
+
+    def exposed(name: str) -> set[str]:
+        text = (reports / name).read_text(encoding="utf-8", errors="replace")
+        return {label for label, value in secrets.items() if value in text}
+
+    assert exposed("capability-delta-attestation.v2.json") <= exposed(
+        "capability-delta-attestation.json"
+    )
     report_json = json.loads((reports / "report.json").read_text(encoding="utf-8"))
     assert {"SHIP-DOC-SECRET-IN-DESCRIPTION", "SHIP-DOC-INJECTION-RISK"} <= {
         finding["check_id"] for finding in report_json["findings"]
