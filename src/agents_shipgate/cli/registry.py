@@ -36,8 +36,9 @@ from pydantic import ValidationError
 from agents_shipgate.core.control_evidence import (
     ControlMapError,
     control_evidence,
+    extract_bytes,
     extract_ref,
-    load_control_map,
+    read_control_map,
     render_control_evidence_markdown,
 )
 from agents_shipgate.core.drift_observation import (
@@ -51,6 +52,7 @@ from agents_shipgate.core.drift_observation import (
 from agents_shipgate.schemas.control_evidence import (
     CONTROL_EVIDENCE_FILENAME,
     CONTROL_EVIDENCE_MARKDOWN_FILENAME,
+    CONTROL_MAP_COPY_FILENAME,
     LEDGER_EXTRACT_FILENAME,
 )
 from agents_shipgate.schemas.registry import (
@@ -815,8 +817,9 @@ def registry_report(
         None,
         "--out",
         help=(
-            "With --control-map: write control-evidence.json, control-evidence.md "
-            "and ledger-extract.jsonl (the cited ledger lines) to this directory."
+            "With --control-map: write control-evidence.json, control-evidence.md, "
+            "ledger-extract.jsonl (the cited ledger lines) and control-map.yaml "
+            "(the map read) to this directory."
         ),
     ),
 ) -> None:
@@ -933,20 +936,23 @@ def _control_map_command(
         typer.echo(f"--out {out} exists and is not a directory.", err=True)
         raise typer.Exit(2)
     try:
-        loaded_map, map_sha256 = load_control_map(control_map)
+        loaded_map, map_bytes = read_control_map(control_map)
     except ControlMapError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(2) from exc
+    map_sha256 = hashlib.sha256(map_bytes).hexdigest()
     loaded = _load_registry(registry)
     # Spelled out rather than rendered from how this process was started, so
-    # two runs of one review print the same command on any machine.
+    # two runs of one review print the same command on any machine. With
+    # --out it names the map and extract written there, so it runs from that
+    # directory alone, wherever the map was read from.
     recompute = shlex.join(
         [
             "agents-shipgate",
             "registry",
             "report",
             "--control-map",
-            str(control_map),
+            CONTROL_MAP_COPY_FILENAME if out is not None else str(control_map),
             "--registry",
             LEDGER_EXTRACT_FILENAME if out is not None else str(registry),
             "--since",
@@ -985,14 +991,16 @@ def _control_map_command(
             update={"extract": extract_ref(LEDGER_EXTRACT_FILENAME, extract_lines)}
         )
         out.mkdir(parents=True, exist_ok=True)
-        (out / LEDGER_EXTRACT_FILENAME).write_text(
-            "".join(f"{line}\n" for line in extract_lines), encoding="utf-8"
+        # Bytes, not text: a text-mode write turns each \n into \r\n on
+        # Windows, and the extract and map would no longer hash to what the
+        # view says they do.
+        (out / LEDGER_EXTRACT_FILENAME).write_bytes(extract_bytes(extract_lines))
+        (out / CONTROL_MAP_COPY_FILENAME).write_bytes(map_bytes)
+        (out / CONTROL_EVIDENCE_FILENAME).write_bytes(
+            (view.model_dump_json(indent=2) + "\n").encode("utf-8")
         )
-        (out / CONTROL_EVIDENCE_FILENAME).write_text(
-            view.model_dump_json(indent=2) + "\n", encoding="utf-8"
-        )
-        (out / CONTROL_EVIDENCE_MARKDOWN_FILENAME).write_text(
-            render_control_evidence_markdown(view), encoding="utf-8"
+        (out / CONTROL_EVIDENCE_MARKDOWN_FILENAME).write_bytes(
+            render_control_evidence_markdown(view).encode("utf-8")
         )
     if json_output:
         typer.echo(view.model_dump_json(indent=2))
@@ -1009,8 +1017,8 @@ def _control_map_command(
         typer.echo(f"- {control.id} {control.title}: {label}, {control.gap_count} gap(s)")
     if out is not None:
         typer.echo(
-            f"Wrote {CONTROL_EVIDENCE_FILENAME}, {CONTROL_EVIDENCE_MARKDOWN_FILENAME} "
-            f"and {LEDGER_EXTRACT_FILENAME} to {out}"
+            f"Wrote {CONTROL_EVIDENCE_FILENAME}, {CONTROL_EVIDENCE_MARKDOWN_FILENAME}, "
+            f"{LEDGER_EXTRACT_FILENAME} and {CONTROL_MAP_COPY_FILENAME} to {out}"
         )
     if loaded.skipped:
         typer.echo(f"Skipped {len(loaded.skipped)} malformed registry row(s).", err=True)

@@ -559,9 +559,13 @@ checked against the ledger it came from.
   and gap rules that apply; `docs/control-maps/aiuc-1.yaml` is the first, for
   AIUC-1 B006 and E004 as the April 2026 evidence list numbers them.
 - `--out` writes `control-evidence.json` (`control_evidence_schema_version:
-  "0.1"`, `docs/control-evidence-schema.v0.1.json`), `control-evidence.md` and
-  `ledger-extract.jsonl`, the cited ledger lines byte for byte; the view's
-  `recompute` command over the extract gives the same `controls` block.
+  "0.1"`, `docs/control-evidence-schema.v0.1.json`), `control-evidence.md`,
+  `ledger-extract.jsonl`, the cited ledger lines byte for byte, and
+  `control-map.yaml`, the map's bytes unchanged; the view's `recompute`
+  command, run from that directory, reads those two and gives the same
+  `controls` block. Every file is written as exact UTF-8 bytes with `\n` line
+  ends on every platform, so the extract and the map hash to the
+  `extract.sha256` and `map.sha256` the view names.
 - Gap rules, a closed set: `no_rows_in_window`, `observation_interval`,
   `observation_incomparable`, `inventory_issues`,
   `capability_comparison_absent`, `definition_digests_absent`,

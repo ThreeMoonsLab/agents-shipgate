@@ -8,9 +8,11 @@ writes the extract that recomputes it. It never says a control is met.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shlex
+import shutil
 from pathlib import Path
 
 import jsonschema
@@ -60,9 +62,17 @@ CAPABILITY_DIFF = {
     "head": {"definition_set_hash": "2" * 16},
     "summary": {"unchanged": 4},
 }
+#: A capability diff that found a tool definition moved.
+CAPABILITY_DRIFT = {
+    **CAPABILITY_DIFF,
+    "summary": {"unchanged": 3, "definition_changed": 1},
+    "definition_changed": [{"id": "cap_refund_customer"}],
+}
 
 
-def _observation(payload: dict, when: str, *, repo: str = "acme/agent", capability: bool = False):
+def _observation(
+    payload: dict, when: str, *, repo: str = "acme/agent", capability: bool | dict = False
+):
     from agents_shipgate.core.drift_observation import drift_observation
 
     row = _observation_row(payload, when=when, repo=repo)
@@ -70,11 +80,43 @@ def _observation(payload: dict, when: str, *, repo: str = "acme/agent", capabili
         observation = drift_observation(
             payload,
             source_sha256="0" * 64,
-            capability_diff=CAPABILITY_DIFF,
+            capability_diff=CAPABILITY_DIFF if capability is True else capability,
             capability_diff_sha256="1" * 64,
         )
         row = row.model_copy(update={"observation": observation})
     return row
+
+
+def _approval(status: str) -> dict:
+    """An approval block ``attest --reviews`` could have written."""
+
+    if status == "not_supplied":
+        return {"status": "not_supplied"}
+    head = "b" * 40
+    approvers = {
+        "approved": [("reviewer-a", head)],
+        "approved_stale": [("reviewer-a", "c" * 40)],
+    }.get(status, [])
+    return {
+        "status": status,
+        "source": "github_pull_request_reviews",
+        "source_sha256": "5" * 64,
+        "pr_number": "42",
+        "pr_author": "author-dev",
+        "head_sha": head,
+        "approvers": [
+            {
+                "login": login,
+                "review_id": index,
+                "submitted_at": "2026-11-01T10:00:00Z",
+                "commit_id": commit,
+                "on_head": commit == head,
+            }
+            for index, (login, commit) in enumerate(approvers, start=1)
+        ],
+        "changes_requested_by": ["reviewer-b"] if status == "changes_requested" else [],
+        "ignored_approvals": [],
+    }
 
 
 def _attestation_row(
@@ -93,7 +135,7 @@ def _attestation_row(
         "semantic_capability_set_hash": "4" * 16,
     }
     if approval is not None:
-        attestation["approval"] = {"status": approval}
+        attestation["approval"] = _approval(approval)
     return _row_from_attestation(attestation, repo=repo, source_attestation_sha256=run * 64)
 
 
@@ -221,6 +263,40 @@ def test_counts_and_gaps_on_a_mixed_ledger(tmp_path: Path) -> None:
     assert _control(view, "B006.1")["gap_count"] == 4
 
 
+@pytest.mark.parametrize(
+    ("capability", "issues"),
+    [
+        (CAPABILITY_DRIFT, [{"host": "claude-code", "blocking": True}]),
+        (CAPABILITY_DRIFT, []),
+        (False, []),
+    ],
+    ids=["capability-drift", "capability-drift-no-inventory-issues", "no-inventory-issues"],
+)
+def test_an_incomparable_host_comparison_is_a_gap_whatever_else_the_run_found(
+    tmp_path: Path, capability, issues: list
+) -> None:
+    """A run whose capability diff found drift has status ``drift``, and an
+    old or unsupported host baseline reports no inventory issue. Neither makes
+    the host comparison that never happened stop being a gap."""
+
+    payload = {
+        **CLEAN,
+        "comparison_status": "incomparable",
+        "has_drift": None,
+        "incomparable_reasons": ["baseline_schema_unsupported"],
+        "issues": issues,
+    }
+    row = _observation(payload, "2026-11-02T06:00:00Z", capability=capability)
+    ledger = _write(tmp_path / "registry.jsonl", [row])
+
+    (hosts,) = _control(_view(ledger), "B006.1")["evidence"]
+
+    status = "drift" if capability else "incomparable"
+    assert hosts["counts"] == {"clean": 0, "drift": 0, "incomparable": 0, status: 1}
+    assert _gap(hosts, "observation_incomparable")["row_ids"] == [row.row_id]
+    assert _gap(hosts, "inventory_issues")["status"] == ("found" if issues else "none")
+
+
 def test_a_ledger_with_no_observations_prints_the_gap(tmp_path: Path) -> None:
     ledger = _write(
         tmp_path / "registry.jsonl",
@@ -307,12 +383,79 @@ def test_the_extract_recomputes_the_view(
     assert view["extract"]["row_count"] == len(extract.splitlines()) == view["cited_row_count"] + 1
     assert json.loads((out / "control-evidence.json").read_text(encoding="utf-8")) == view
 
+    assert (out / "control-map.yaml").read_bytes() == AIUC_MAP.read_bytes()
+
     monkeypatch.chdir(out)
     command = shlex.split(view["recompute"])
-    assert command[:4] == ["agents-shipgate", "registry", "report", "--control-map"]
+    assert command[:5] == [
+        "agents-shipgate", "registry", "report", "--control-map", "control-map.yaml",
+    ]
     again = runner.invoke(app, command[1:])
     assert again.exit_code == 0, again.output
     assert json.loads(again.output)["controls"] == view["controls"]
+
+
+def test_the_command_recomputes_from_the_out_directory_with_a_relative_map(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The documented form: a map path relative to the caller, then the
+    printed command run inside --out, where that relative path names nothing."""
+
+    ledger = _mixed_ledger(tmp_path)
+    work = tmp_path / "work"
+    (work / "docs/control-maps").mkdir(parents=True)
+    shutil.copyfile(AIUC_MAP, work / "docs/control-maps/aiuc-1.yaml")
+    monkeypatch.chdir(work)
+    first = runner.invoke(
+        app,
+        [
+            "registry", "report", "--control-map", "docs/control-maps/aiuc-1.yaml",
+            "--registry", str(ledger), *WINDOW, "--expected-interval-days", "2",
+            "--out", "evidence", "--json",
+        ],
+    )
+    assert first.exit_code == 0, first.output
+    view = json.loads(first.output)
+    assert view["map"]["path"] == "docs/control-maps/aiuc-1.yaml"
+
+    monkeypatch.chdir(work / "evidence")
+    assert not Path("docs/control-maps/aiuc-1.yaml").exists()
+    again = runner.invoke(app, shlex.split(view["recompute"])[1:])
+
+    assert again.exit_code == 0, again.output
+    recomputed = json.loads(again.output)
+    assert recomputed["controls"] == view["controls"]
+    assert recomputed["map"]["sha256"] == view["map"]["sha256"]
+
+
+def test_the_files_hash_to_their_references_under_windows_text_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows' default text mode writes each \\n as \\r\\n. Simulated here:
+    the extract and the map must still hash to what the view names."""
+
+    ledger = _mixed_ledger(tmp_path)
+    out = tmp_path / "evidence"
+    write_text = Path.write_text
+
+    def windows_write_text(self, data, encoding=None, errors=None, newline=None):
+        return write_text(
+            self, data, encoding=encoding, errors=errors,
+            newline="\r\n" if newline is None else newline,
+        )
+
+    monkeypatch.setattr(Path, "write_text", windows_write_text)
+    result = _report(ledger, "--expected-interval-days", "2", "--out", str(out), "--json")
+    assert result.exit_code == 0, result.output
+    view = json.loads(result.output)
+
+    extract = (out / "ledger-extract.jsonl").read_bytes()
+    assert hashlib.sha256(extract).hexdigest() == view["extract"]["sha256"]
+    copied_map = (out / "control-map.yaml").read_bytes()
+    assert hashlib.sha256(copied_map).hexdigest() == view["map"]["sha256"]
+    for name in ("control-evidence.json", "control-evidence.md", "ledger-extract.jsonl"):
+        assert b"\r\n" not in (out / name).read_bytes(), name
+    assert json.loads((out / "control-evidence.json").read_bytes()) == view
 
 
 def test_two_runs_write_the_same_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -331,6 +474,7 @@ def test_two_runs_write_the_same_bytes(tmp_path: Path, monkeypatch: pytest.Monke
                     "control-evidence.json",
                     "control-evidence.md",
                     "ledger-extract.jsonl",
+                    "control-map.yaml",
                 )
             }
         )

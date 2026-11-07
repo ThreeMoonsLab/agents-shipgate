@@ -20,13 +20,18 @@ agents-shipgate registry report \
   --out control-evidence/
 ```
 
-`--out` writes three files:
+`--out` writes four files:
 
 | File | What it holds |
 | --- | --- |
-| `control-evidence.json` | The view ([schema](control-evidence-schema.v0.1.json)): per item, the cited row ids, counts and gaps; the map's path and sha256; the chain head of each repository in the ledger read; the recompute command. |
+| `control-evidence.json` | The view ([schema](control-evidence-schema.v0.1.json)): per item, the cited row ids, counts and gaps; the map's path and sha256; the extract's sha256; the chain head of each repository in the ledger read; the recompute command. |
 | `control-evidence.md` | The same view for a reader. |
 | `ledger-extract.jsonl` | The cited ledger lines, byte for byte as the ledger stores them, plus, for a repository the window holds no observation of, its last observation outside the window, so a recompute still considers it. |
+| `control-map.yaml` | The map the view was made with, its bytes unchanged, so it hashes to the view's `map.sha256`. |
+
+The files are written as exact UTF-8 bytes with `\n` line ends on every
+platform, Windows included, so `ledger-extract.jsonl` and `control-map.yaml`
+hash to the `extract.sha256` and `map.sha256` the view names.
 
 Without `--out`, `--json` prints the view and the default prints one line per
 item. The command reads only the files it names and exits `0` whatever it
@@ -68,7 +73,7 @@ nothing, or `not_checked` when it cannot be applied.
 | --- | --- | --- |
 | `no_rows_in_window` | either kind | the window holds no row of the cited kind |
 | `observation_interval` | observations | a repository went longer than `--expected-interval-days` without an observation, as [`registry report --drift`](post-approval-monitoring.md#reading-the-record) computes it; `not_checked` without the flag |
-| `observation_incomparable` | observations | a comparison could not be made |
+| `observation_incomparable` | observations | the host comparison could not be made, also when the same run's capability diff found drift |
 | `inventory_issues` | observations | the audit reported sources it could not read |
 | `capability_comparison_absent` | observations | the run recorded no capability diff |
 | `definition_digests_absent` | attestations | the bound capability lock carries no `definition_set_hash` (exported before capability standard 0.6) |
@@ -80,9 +85,10 @@ no window.
 
 ## Recomputing it
 
-`control-evidence.json` carries the command. From the directory holding the
-extract it reads `ledger-extract.jsonl`, and its `controls` block equals the
-view's. That establishes the view summarizes those rows. That the rows are the
+`control-evidence.json` carries the command. With `--out` it names the two
+files written there, `control-map.yaml` and `ledger-extract.jsonl`, so run it
+from that directory, wherever the map was read from; its `controls` block
+equals the view's. That establishes the view summarizes those rows. That the rows are the
 ledger's is a second check: every extract line is a line of the ledger, and
 `agents-shipgate registry verify` checks the full ledger's hash chain, whose
 heads at the time of the view are listed in `chain_heads`. Keep the ledger

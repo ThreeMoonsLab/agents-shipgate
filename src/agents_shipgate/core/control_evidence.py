@@ -40,6 +40,7 @@ from pydantic import ValidationError
 from agents_shipgate.core.drift_observation import drift_report, event_moment
 from agents_shipgate.schemas.control_evidence import (
     CONTROL_EVIDENCE_SCHEMA_VERSION,
+    CONTROL_MAP_COPY_FILENAME,
     ControlEvidenceChainHeadV1,
     ControlEvidenceControlV1,
     ControlEvidenceExtractRefV1,
@@ -68,6 +69,17 @@ class ControlMapError(ValueError):
 def load_control_map(path: Path) -> tuple[ControlMapV1, str]:
     """The map and the sha256 of its bytes."""
 
+    control_map, raw = read_control_map(path)
+    return control_map, hashlib.sha256(raw).hexdigest()
+
+
+def read_control_map(path: Path) -> tuple[ControlMapV1, bytes]:
+    """The map and the bytes it was read from, read once.
+
+    ``registry report --control-map --out`` ships those bytes beside the
+    extract, so the map an assessor recomputes with is the one that was hashed.
+    """
+
     try:
         raw = path.read_bytes()
     except OSError as exc:
@@ -79,7 +91,7 @@ def load_control_map(path: Path) -> tuple[ControlMapV1, str]:
     if not isinstance(data, dict):
         raise ControlMapError(f"control map {path} must be a YAML mapping")
     try:
-        return ControlMapV1.model_validate(data), hashlib.sha256(raw).hexdigest()
+        return ControlMapV1.model_validate(data), raw
     except ValidationError as exc:
         first = exc.errors()[0]
         where = ".".join(str(part) for part in first.get("loc", ()))
@@ -194,13 +206,22 @@ def control_evidence(
     return view, [lines[index] for index in sorted(cited | anchors)]
 
 
+def extract_bytes(extract_lines: Sequence[str]) -> bytes:
+    """The extract file, exactly: UTF-8, each line ended by ``\\n``.
+
+    Written as these bytes and hashed as these bytes, so no platform's text
+    mode (CRLF on Windows) can make the file disagree with its reference.
+    """
+
+    return "".join(f"{line}\n" for line in extract_lines).encode("utf-8")
+
+
 def extract_ref(path_label: str, extract_lines: Sequence[str]) -> ControlEvidenceExtractRefV1:
     """The reference ``control-evidence.json`` keeps to the extract it ships with."""
 
-    body = "".join(f"{line}\n" for line in extract_lines)
     return ControlEvidenceExtractRefV1(
         path=path_label,
-        sha256=hashlib.sha256(body.encode("utf-8")).hexdigest(),
+        sha256=hashlib.sha256(extract_bytes(extract_lines)).hexdigest(),
         row_count=len(extract_lines),
     )
 
@@ -334,7 +355,10 @@ def _interval_anchors(
 def _matches(rule: str, row: RegistryRowV1) -> bool:
     observation = row.observation
     if rule == "observation_incomparable":
-        return observation is not None and observation.status == "incomparable"
+        # The host comparison itself, not the row's status: a run whose
+        # capability diff found drift has status ``drift`` even when its host
+        # comparison could not be made, and that comparison is still missing.
+        return observation is not None and observation.host.comparison_status != "comparable"
     if rule == "inventory_issues":
         return observation is not None and observation.host.issue_count > 0
     if rule == "capability_comparison_absent":
@@ -400,8 +424,9 @@ def render_control_evidence_markdown(view: ControlEvidenceV1) -> str:
             f"for byte (sha256 `{view.extract.sha256[:12]}`): the "
             f"{view.cited_row_count} this view cites and "
             f"{len(view.anchor_row_ids)} observation(s) outside the window that keep "
-            "a repository with no run in it in the interval check. Run, from this "
-            "directory:"
+            "a repository with no run in it in the interval check. "
+            f"`{CONTROL_MAP_COPY_FILENAME}` is the map, byte for byte (sha256 "
+            f"`{view.map.sha256[:12]}`). Run, from this directory:"
         )
     else:
         lines.append("Run:")
@@ -447,7 +472,9 @@ __all__ = [
     "STATEMENT",
     "ControlMapError",
     "control_evidence",
+    "extract_bytes",
     "extract_ref",
     "load_control_map",
+    "read_control_map",
     "render_control_evidence_markdown",
 ]

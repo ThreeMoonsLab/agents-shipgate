@@ -30,6 +30,9 @@ CONTROL_EVIDENCE_SCHEMA_VERSION = "0.1"
 CONTROL_EVIDENCE_FILENAME = "control-evidence.json"
 CONTROL_EVIDENCE_MARKDOWN_FILENAME = "control-evidence.md"
 LEDGER_EXTRACT_FILENAME = "ledger-extract.jsonl"
+#: The map ``--out`` ships beside the extract, its bytes unchanged, so the
+#: recompute command runs from that directory alone.
+CONTROL_MAP_COPY_FILENAME = "control-map.yaml"
 
 #: The gap rules the engine implements. Closed: a map names rules, it does not
 #: define them, so two maps that name one rule mean one computation.
@@ -230,6 +233,7 @@ __all__ = [
     "CONTROL_EVIDENCE_MARKDOWN_FILENAME",
     "CONTROL_EVIDENCE_SCHEMA_VERSION",
     "CONTROL_GAP_RULES",
+    "CONTROL_MAP_COPY_FILENAME",
     "CONTROL_MAP_SCHEMA_VERSION",
     "GAP_RULE_ROW_KIND",
     "LEDGER_EXTRACT_FILENAME",
