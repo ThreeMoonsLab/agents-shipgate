@@ -884,8 +884,8 @@ def test_report_needs_exactly_one_kind_and_drift_flags_need_drift(tmp_path: Path
     )
 
     assert neither.exit_code == both.exit_code == misplaced.exit_code == 2
-    assert "pass --bypass or --drift" in neither.output
-    assert "exactly one of --bypass or --drift" in both.output
+    assert "pass --bypass, --drift or --control-map" in neither.output
+    assert "exactly one of --bypass, --drift or --control-map" in both.output
     assert "--since only apply to --drift" in misplaced.output
 
 

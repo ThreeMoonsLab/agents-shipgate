@@ -443,7 +443,8 @@
   "tests/test_capability_definition.py": 0.2,
   "tests/test_capability_payload_v2.py": 4.7,
   "tests/test_attest_approval.py": 0.2,
-  "tests/test_registry_drift_observation.py": 1.4
+  "tests/test_registry_drift_observation.py": 1.4,
+  "tests/test_control_evidence.py": 0.2
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -640,6 +641,17 @@
    },
    "case_count": 44,
    "command": "python -m pytest tests/test_registry_drift_observation.py --junitxml=registry-drift-observation.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "8a0bef1eefbe with issue #1121 increment",
+   "report_sha256": "8d528e37777465ae624911571bce2396051dc7629f57a628a1dd94c7f5fc02ac",
+   "files": {
+    "tests/test_control_evidence.py": 0.2
+   },
+   "case_count": 21,
+   "command": "python -m pytest tests/test_control_evidence.py --junitxml=control-evidence.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

@@ -468,6 +468,12 @@ def _first_error(exc: ValueError) -> str:
     return str(exc)
 
 
+def event_moment(value: str | None) -> datetime | None:
+    """A row's ``event_time`` as a UTC instant, or ``None`` when it cannot be read."""
+
+    return _event_moment(value)
+
+
 def _event_moment(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -494,5 +500,6 @@ __all__ = [
     "drift_observation",
     "drift_report",
     "drift_report_needs_review",
+    "event_moment",
     "parse_event_time",
 ]
