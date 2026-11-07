@@ -137,8 +137,10 @@ permissions:
   contents: read
   pull-requests: read   # the reviews API only
 
-# … after the steps that install agents-shipgate (a release with --reviews)
-# and run verify into agents-shipgate-reports/ …
+# … after the steps that check out the pull request's head commit
+# (ref: ${{ github.event.pull_request.head.sha }}), install agents-shipgate
+# (a release with --reviews) and verify that commit into
+# agents-shipgate-reports/ (--head ${{ github.event.pull_request.head.sha }}) …
       - name: Fetch the pull request's reviews
         env:
           GH_TOKEN: ${{ github.token }}
@@ -177,12 +179,24 @@ What the block establishes:
 - `--reviews` needs `--ci-context github-actions` and an event payload with a
   pull request (`pull_request` or `pull_request_review`): the number, its
   author and its head commit come from the event.
+- `head_sha` is the commit the verify run evaluated, read from the plan its
+  `verification-receipt.json` binds, and the reviews are evaluated against
+  it. It must be the pull request's head: verify that commit, as above. A
+  run of the default `pull_request` checkout evaluates GitHub's synthetic
+  merge commit instead, and is refused (exit `3`), as are artifacts from
+  another revision, a `--head-sha` naming another commit, a run over
+  uncommitted working-tree changes, and a `verifier.json` with no receipt
+  beside it. An approval of one commit is never recorded against another.
 
 The approval is evidence. It never changes `verdict`, `release_decision`,
 the exit code or the bypass report. `registry ingest` copies it into the row
 (`approval_status`, `approval`), and `registry summary` counts rows by
 `approval_status`. Rows from earlier attestations carry `null` there, and their
-row ids and chain hashes are unchanged.
+row ids and chain hashes are unchanged. Ingest validates the block as
+`attest` writes it and refuses (exit `3`) one whose `status` its own rows do
+not support. A ledger row whose block does not validate, or whose
+`approval_status` is not the block's `status`, is skipped by every registry
+reader and reported by `registry verify`.
 
 Append attestations to a local JSONL ledger:
 

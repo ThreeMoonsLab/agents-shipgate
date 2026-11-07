@@ -62,8 +62,11 @@ def _row_from_attestation(
     verdict = attestation.get("verdict") or {}
     capability = attestation.get("capability") or {}
     human_ack = attestation.get("human_ack") or {}
+    # Copied as attested; RegistryRowV1 validates it as the attestation model
+    # does, so a block the attestation could not carry is refused, not dropped.
     approval = attestation.get("approval")
-    approval = approval if isinstance(approval, dict) else {}
+    if approval == {}:
+        approval = None
     org = attestation.get("org") or {}
     human_ack_required = human_ack.get("required")
     human_ack_satisfied = human_ack.get("satisfied")
@@ -113,8 +116,10 @@ def _row_from_attestation(
         ),
         "human_ack_outstanding": [str(item) for item in human_ack.get("outstanding") or []],
         "human_ack": human_ack,
-        "approval_status": approval.get("status") if approval else None,
-        "approval": approval or None,
+        "approval_status": (
+            approval.get("status", "not_supplied") if isinstance(approval, dict) else None
+        ),
+        "approval": approval,
         "policy_snapshot_sha256": attestation.get("policy_snapshot_sha256"),
         "artifact_sha256": attestation.get("artifact_sha256"),
         "capability_lock": attestation.get("capability_lock") or {},
@@ -296,14 +301,26 @@ def registry_ingest(
         status = "exists"
         row = prior
     else:
-        row = _row_from_attestation(
-            data,
-            repo=repo,
-            source_attestation_sha256=source_attestation_sha256,
-            previous_row=_last_row_for_repo(
-                existing, repo or (data.get("org") or {}).get("repo") or ""
-            ),
-        )
+        try:
+            row = _row_from_attestation(
+                data,
+                repo=repo,
+                source_attestation_sha256=source_attestation_sha256,
+                previous_row=_last_row_for_repo(
+                    existing, repo or (data.get("org") or {}).get("repo") or ""
+                ),
+            )
+        except ValidationError as exc:
+            first = exc.errors()[0]
+            where = ".".join(str(part) for part in first.get("loc", ()))
+            reason = str(first.get("msg", "")).removeprefix("Value error, ")
+            typer.echo(
+                f"{attestation} cannot be recorded: "
+                + (f"{where}: " if where else "")
+                + reason,
+                err=True,
+            )
+            raise typer.Exit(3) from exc
         status = "ingested"
         registry.parent.mkdir(parents=True, exist_ok=True)
         with registry.open("a", encoding="utf-8") as handle:

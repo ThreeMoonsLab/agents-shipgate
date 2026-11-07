@@ -2,15 +2,18 @@
 
 The workflow fetches ``GET /repos/{owner}/{repo}/pulls/{number}/reviews`` into
 a file outside the repository; ``attest --reviews`` evaluates it against the
-event's pull request and head commit. The engine never calls the API, never
-reads a reviews file the change could have written, and the approval never
-changes the verdict.
+event's pull request and the commit the verify run evaluated, which must be
+the pull request's head. The engine never calls the API, never reads a
+reviews file the change could have written, and the approval never changes
+the verdict.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import jsonschema
@@ -24,6 +27,7 @@ from agents_shipgate.schemas.attestation import (
     ATTESTATION_SCHEMA_VERSION,
     AttestationApprovalV1,
 )
+from agents_shipgate.schemas.registry import REGISTRY_LATE_OPTIONAL_FIELDS
 from tests.test_attest import _report_payload, _verifier_payload
 
 runner = CliRunner()
@@ -33,6 +37,7 @@ SCHEMA = json.loads(
         encoding="utf-8"
     )
 )
+SAMPLE = REPO_ROOT / "samples" / "support_refund_agent"
 REPO = "acme/support-agent"
 PR = "42"
 AUTHOR = "author-dev"
@@ -269,6 +274,51 @@ def test_not_supplied_carries_no_evidence() -> None:
 # --- attest --reviews --------------------------------------------------------
 
 
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-c", "user.email=t@example.com", "-c", "user.name=t", *args],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _verify(repo: Path, out: Path, *head: str) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "verify", "--workspace", str(repo), "--config", str(repo / "shipgate.yaml"),
+            "--ci-mode", "advisory", *head, "--json", "--out", str(out),
+        ],
+    )
+    assert (out / "verification-receipt.json").is_file(), result.output
+
+
+@pytest.fixture(scope="module")
+def verified(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, str]:
+    """A real verify run of one commit (``--head <sha>``), receipt included."""
+
+    root = tmp_path_factory.mktemp("approval-verified")
+    repo = root / "repo"
+    shutil.copytree(SAMPLE, repo)
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "init")
+    head = _git(repo, "rev-parse", "HEAD")
+    out = root / "verify-out"
+    _verify(repo, out, "--head", head)
+    return out, head
+
+
+def _reports(verified: tuple[Path, str], directory: Path) -> Path:
+    """A private copy of the verify output, as the workflow's --from names it."""
+
+    out, _ = verified
+    shutil.copytree(out, directory)
+    return directory / "verifier.json"
+
+
 def _github_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, pr: dict | None) -> None:
     event = tmp_path / "event.json"
     event.write_text(json.dumps({} if pr is None else {"pull_request": pr}), encoding="utf-8")
@@ -281,21 +331,29 @@ def _github_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, pr: dict | N
     monkeypatch.delenv("GITHUB_WORKSPACE", raising=False)
 
 
-def _pull_request() -> dict:
+def _pull_request(head: str = HEAD) -> dict:
     return {
         "number": int(PR),
         "user": {"login": AUTHOR},
         "html_url": f"https://github.com/{REPO}/pull/{PR}",
         "base": {"sha": "a" * 40},
-        "head": {"sha": HEAD, "ref": "feature/x"},
+        "head": {"sha": head, "ref": "feature/x"},
     }
 
 
 def _write_reports(directory: Path) -> Path:
+    """A verifier written before receipts: no plan names a verified commit."""
+
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "verifier.json").write_text(json.dumps(_verifier_payload()), encoding="utf-8")
     (directory / "report.json").write_text(json.dumps(_report_payload()), encoding="utf-8")
     return directory / "verifier.json"
+
+
+def _reviews_file(path: Path, reviews: list[dict]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(reviews), encoding="utf-8")
+    return path
 
 
 def _attest(*args: str):
@@ -303,15 +361,17 @@ def _attest(*args: str):
 
 
 def test_attest_records_the_approval_and_leaves_the_verdict_alone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verified: tuple[Path, str]
 ) -> None:
-    _github_env(monkeypatch, tmp_path, pr=_pull_request())
-    verifier = _write_reports(tmp_path / "reports")
-    reviews = tmp_path / "runner-temp" / "reviews.json"
-    reviews.parent.mkdir()
-    reviews.write_text(
-        json.dumps([_review(7, "reviewer-a", "APPROVED"), _review(8, AUTHOR, "APPROVED")]),
-        encoding="utf-8",
+    _, head = verified
+    _github_env(monkeypatch, tmp_path, pr=_pull_request(head))
+    verifier = _reports(verified, tmp_path / "reports")
+    reviews = _reviews_file(
+        tmp_path / "runner-temp" / "reviews.json",
+        [
+            _review(7, "reviewer-a", "APPROVED", commit=head),
+            _review(8, AUTHOR, "APPROVED", commit=head),
+        ],
     )
     without = _attest("--from", str(verifier), "--ci-context", "github-actions")
 
@@ -329,8 +389,9 @@ def test_attest_records_the_approval_and_leaves_the_verdict_alone(
     assert (approval["pr_number"], approval["pr_author"], approval["head_sha"]) == (
         PR,
         AUTHOR,
-        HEAD,
+        head,
     )
+    assert payload["head_sha"] == head
     assert [a["login"] for a in approval["approvers"]] == ["reviewer-a"]
     assert approval["ignored_approvals"] == [
         {"login": AUTHOR, "review_id": 8, "reason": "pr_author"}
@@ -340,6 +401,93 @@ def test_attest_records_the_approval_and_leaves_the_verdict_alone(
     assert {k: v for k, v in payload.items() if k != "approval"} == {
         k: v for k, v in baseline.items() if k != "approval"
     }
+
+
+def test_reviews_of_a_head_other_than_the_verified_commit_are_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verified: tuple[Path, str]
+) -> None:
+    """Verify ran at commit A; the event and every review name commit B.
+
+    The pull request's head is B (a synthetic merge was verified, or the
+    artifacts are another revision's), so an approval of B is not an approval
+    of what this attestation verified.
+    """
+
+    _, verified_head = verified
+    other = "e" * 40
+    _github_env(monkeypatch, tmp_path, pr=_pull_request(other))
+    verifier = _reports(verified, tmp_path / "reports")
+    reviews = _reviews_file(
+        tmp_path / "runner-temp" / "reviews.json",
+        [_review(7, "reviewer-a", "APPROVED", commit=other)],
+    )
+
+    result = _attest(
+        "--from", str(verifier), "--ci-context", "github-actions", "--reviews", str(reviews)
+    )
+
+    assert result.exit_code == 3
+    assert f"verify evaluated commit {verified_head}" in result.output
+    assert f"the pull request's head is {other}" in result.output
+    assert '"approval"' not in result.output
+
+
+def test_a_declared_head_other_than_the_verified_commit_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verified: tuple[Path, str]
+) -> None:
+    _, head = verified
+    _github_env(monkeypatch, tmp_path, pr=_pull_request(head))
+    verifier = _reports(verified, tmp_path / "reports")
+    reviews = _reviews_file(tmp_path / "rt" / "reviews.json", [])
+
+    result = _attest(
+        "--from", str(verifier), "--ci-context", "github-actions",
+        "--head-sha", "e" * 40, "--reviews", str(reviews),
+    )
+
+    assert result.exit_code == 3
+    assert "is not the commit verify evaluated" in result.output
+
+
+def test_reviews_need_the_receipt_that_names_the_verified_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _github_env(monkeypatch, tmp_path, pr=_pull_request())
+    verifier = _write_reports(tmp_path / "reports")
+    reviews = _reviews_file(tmp_path / "rt" / "reviews.json", [_review(1, "reviewer-a", "APPROVED")])
+
+    result = _attest(
+        "--from", str(verifier), "--ci-context", "github-actions", "--reviews", str(reviews)
+    )
+
+    assert result.exit_code == 3
+    assert "needs the verification receipt" in result.output
+
+
+def test_a_verify_run_over_uncommitted_changes_carries_no_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    shutil.copytree(SAMPLE, repo)
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "init")
+    head = _git(repo, "rev-parse", "HEAD")
+    (repo / "NOTES.md").write_text("not committed\n", encoding="utf-8")
+    out = tmp_path / "verify-out"
+    _verify(repo, out)
+    _github_env(monkeypatch, tmp_path, pr=_pull_request(head))
+    reviews = _reviews_file(
+        tmp_path / "rt" / "reviews.json", [_review(1, "reviewer-a", "APPROVED", commit=head)]
+    )
+
+    result = _attest(
+        "--from", str(out / "verifier.json"), "--ci-context", "github-actions",
+        "--reviews", str(reviews),
+    )
+
+    assert result.exit_code == 3
+    assert "uncommitted working-tree changes" in result.output
 
 
 def test_an_attestation_without_reviews_says_not_supplied(tmp_path: Path) -> None:
@@ -364,14 +512,14 @@ def test_an_attestation_without_reviews_says_not_supplied(tmp_path: Path) -> Non
 
 
 def test_a_reviews_file_inside_the_repository_is_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verified: tuple[Path, str]
 ) -> None:
-    _github_env(monkeypatch, tmp_path, pr=_pull_request())
+    _, head = verified
+    _github_env(monkeypatch, tmp_path, pr=_pull_request(head))
     repo = tmp_path / "checkout"
     (repo / ".git").mkdir(parents=True)
-    verifier = _write_reports(repo / "agents-shipgate-reports")
-    reviews = repo / "reviews.json"
-    reviews.write_text(json.dumps([_review(1, "reviewer-a", "APPROVED")]), encoding="utf-8")
+    verifier = _reports(verified, repo / "agents-shipgate-reports")
+    reviews = _reviews_file(repo / "reviews.json", [_review(1, "reviewer-a", "APPROVED", commit=head)])
 
     result = _attest(
         "--from", str(verifier), "--ci-context", "github-actions", "--reviews", str(reviews)
@@ -382,14 +530,16 @@ def test_a_reviews_file_inside_the_repository_is_refused(
 
 
 def test_a_link_inside_the_repository_is_refused_even_to_an_outside_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verified: tuple[Path, str]
 ) -> None:
-    _github_env(monkeypatch, tmp_path, pr=_pull_request())
+    _, head = verified
+    _github_env(monkeypatch, tmp_path, pr=_pull_request(head))
     repo = tmp_path / "checkout"
     (repo / ".git").mkdir(parents=True)
-    verifier = _write_reports(repo / "agents-shipgate-reports")
-    outside = tmp_path / "outside.json"
-    outside.write_text(json.dumps([_review(1, "reviewer-a", "APPROVED")]), encoding="utf-8")
+    verifier = _reports(verified, repo / "agents-shipgate-reports")
+    outside = _reviews_file(
+        tmp_path / "outside.json", [_review(1, "reviewer-a", "APPROVED", commit=head)]
+    )
     link = repo / "reviews.json"
     link.symlink_to(outside)
 
@@ -402,14 +552,13 @@ def test_a_link_inside_the_repository_is_refused_even_to_an_outside_file(
 
 
 def test_a_reviews_file_inside_github_workspace_is_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verified: tuple[Path, str]
 ) -> None:
-    _github_env(monkeypatch, tmp_path, pr=_pull_request())
+    _, head = verified
+    _github_env(monkeypatch, tmp_path, pr=_pull_request(head))
     workspace = tmp_path / "workspace"
-    verifier = _write_reports(tmp_path / "reports")
-    reviews = workspace / "reviews.json"
-    reviews.parent.mkdir()
-    reviews.write_text(json.dumps([]), encoding="utf-8")
+    verifier = _reports(verified, tmp_path / "reports")
+    reviews = _reviews_file(workspace / "reviews.json", [])
     monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
 
     result = _attest(
@@ -417,33 +566,36 @@ def test_a_reviews_file_inside_github_workspace_is_refused(
     )
 
     assert result.exit_code == 3
+    assert "inside the repository" in result.output
 
 
 @pytest.mark.parametrize(
     ("ci_context", "pr", "contents", "expected"),
     [
-        (None, _pull_request(), "[]", "--ci-context github-actions"),
+        (None, "head", "[]", "--ci-context github-actions"),
         ("github-actions", None, "[]", "pull_request.number"),
-        (
-            "github-actions",
-            {k: v for k, v in _pull_request().items() if k != "user"},
-            "[]",
-            "pull_request.user.login",
-        ),
-        ("github-actions", _pull_request(), "{not json", "not valid JSON"),
-        ("github-actions", _pull_request(), '{"reviews": []}', "JSON array"),
+        ("github-actions", "no-user", "[]", "pull_request.user.login"),
+        ("github-actions", "head", "{not json", "not valid JSON"),
+        ("github-actions", "head", '{"reviews": []}', "JSON array"),
     ],
 )
 def test_attest_refuses_reviews_it_cannot_evaluate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    verified: tuple[Path, str],
     ci_context: str | None,
-    pr: dict | None,
+    pr: str | None,
     contents: str,
     expected: str,
 ) -> None:
-    _github_env(monkeypatch, tmp_path, pr=pr)
-    verifier = _write_reports(tmp_path / "reports")
+    _, head = verified
+    event = None
+    if pr is not None:
+        event = _pull_request(head)
+        if pr == "no-user":
+            del event["user"]
+    _github_env(monkeypatch, tmp_path, pr=event)
+    verifier = _reports(verified, tmp_path / "reports")
     reviews = tmp_path / "reviews.json"
     reviews.write_text(contents, encoding="utf-8")
     args = ["--from", str(verifier), "--reviews", str(reviews)]
@@ -466,13 +618,15 @@ def _ingest(attestation: Path, ledger: Path):
     )
 
 
-def test_ingest_copies_the_approval_and_summary_counts_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _github_env(monkeypatch, tmp_path, pr=_pull_request())
-    verifier = _write_reports(tmp_path / "reports")
-    reviews = tmp_path / "reviews.json"
-    reviews.write_text(json.dumps([_review(1, "reviewer-a", "APPROVED")]), encoding="utf-8")
+def _approved_attestation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verified: tuple[Path, str]
+) -> Path:
+    _, head = verified
+    _github_env(monkeypatch, tmp_path, pr=_pull_request(head))
+    verifier = _reports(verified, tmp_path / "reports")
+    reviews = _reviews_file(
+        tmp_path / "rt" / "reviews.json", [_review(1, "reviewer-a", "APPROVED", commit=head)]
+    )
     attestation = tmp_path / "attestation.json"
     result = runner.invoke(
         app,
@@ -482,6 +636,13 @@ def test_ingest_copies_the_approval_and_summary_counts_it(
         ],
     )
     assert result.exit_code == 0, result.output
+    return attestation
+
+
+def test_ingest_copies_the_approval_and_summary_counts_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verified: tuple[Path, str]
+) -> None:
+    attestation = _approved_attestation(tmp_path, monkeypatch, verified)
     ledger = tmp_path / "registry.jsonl"
 
     assert _ingest(attestation, ledger).exit_code == 0
@@ -493,6 +654,100 @@ def test_ingest_copies_the_approval_and_summary_counts_it(
     assert json.loads(summary.output)["by_approval_status"] == {"approved": 1}
     verify = runner.invoke(app, ["registry", "verify", "--registry", str(ledger), "--json"])
     assert json.loads(verify.output)["ok"] is True
+
+
+def _recomputed_row_id(row: dict) -> str:
+    """The id ``registry ingest`` would give this row, computed without the
+    row model (which refuses a row like this one)."""
+
+    payload = {
+        key: value
+        for key, value in row.items()
+        if key != "row_id" and not (key in REGISTRY_LATE_OPTIONAL_FIELDS and value is None)
+    }
+    return "att_" + hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+
+
+def _unsupported(approval: dict) -> dict:
+    return {**approval, "approvers": []}
+
+
+def _no_head(approval: dict) -> dict:
+    return {**approval, "head_sha": None}
+
+
+def _not_an_object(approval: dict) -> str:
+    return "approved"
+
+
+@pytest.mark.parametrize(
+    ("tamper", "message"),
+    [
+        (_unsupported, "does not match its rows"),
+        (_no_head, "names its source"),
+        (_not_an_object, "valid dictionary"),
+    ],
+)
+def test_ingest_refuses_an_approval_the_attestation_could_not_carry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    verified: tuple[Path, str],
+    tamper,
+    message: str,
+) -> None:
+    attestation = _approved_attestation(tmp_path, monkeypatch, verified)
+    payload = json.loads(attestation.read_text(encoding="utf-8"))
+    payload["approval"] = tamper(payload["approval"])
+    attestation.write_text(json.dumps(payload), encoding="utf-8")
+    ledger = tmp_path / "registry.jsonl"
+
+    result = _ingest(attestation, ledger)
+
+    assert result.exit_code == 3
+    assert "cannot be recorded" in result.output and message in result.output
+    assert not ledger.exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("approval", "unsupported", "does not match its rows"),
+        ("approval_status", "changes_requested", "is not the approval block's status"),
+        ("approval", None, "has no approval block"),
+    ],
+)
+def test_a_ledger_row_whose_approval_does_not_hold_is_not_counted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    verified: tuple[Path, str],
+    field: str,
+    value,
+    message: str,
+) -> None:
+    """A row edited in the ledger is skipped by every reader and fails verify,
+    even with its row id recomputed to match the edit."""
+
+    attestation = _approved_attestation(tmp_path, monkeypatch, verified)
+    ledger = tmp_path / "registry.jsonl"
+    assert _ingest(attestation, ledger).exit_code == 0
+    row = json.loads(ledger.read_text(encoding="utf-8"))
+    row[field] = _unsupported(row["approval"]) if value == "unsupported" else value
+    row["row_id"] = _recomputed_row_id(row)
+    ledger.write_text(json.dumps(row, sort_keys=True) + "\n", encoding="utf-8")
+
+    verify = json.loads(
+        runner.invoke(app, ["registry", "verify", "--registry", str(ledger), "--json"]).output
+    )
+    summary = json.loads(
+        runner.invoke(app, ["registry", "summary", "--registry", str(ledger), "--json"]).output
+    )
+
+    assert verify["ok"] is False
+    assert verify["skipped_count"] == 1
+    assert message in verify["skipped_rows"][0]["reason"]
+    assert summary["count"] == 0 and summary["by_approval_status"] == {}
 
 
 def _old_row_id(row: dict) -> str:

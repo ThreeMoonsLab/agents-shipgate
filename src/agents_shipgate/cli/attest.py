@@ -33,13 +33,17 @@ from agents_shipgate.core.pr_approval import (
     ReviewsError,
     evaluate_pull_request_reviews,
 )
-from agents_shipgate.core.verification_identity import validate_receipt_artifacts
+from agents_shipgate.core.verification_identity import (
+    sha256_bytes,
+    validate_receipt_artifacts,
+)
 from agents_shipgate.schemas.attestation import (
     ATTESTATION_SCHEMA_VERSION,
     ReleaseAttestationV1,
 )
 from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.verification_identity import (
+    VerificationPlan,
     VerificationReceipt,
     requires_verification_receipt,
 )
@@ -129,8 +133,9 @@ def _attest_command(
         help=(
             "JSON array from GitHub's pull request reviews API "
             "(GET /repos/{owner}/{repo}/pulls/{number}/reviews), fetched by the "
-            "workflow. Records who approved the attested head in `approval`. "
-            "Requires --ci-context github-actions on a pull request event. The "
+            "workflow. Records who approved the commit verify evaluated, which "
+            "must be the pull request's head, in `approval`. Requires "
+            "--ci-context github-actions on a pull request event. The "
             "file must be outside the repository (for example under "
             "$RUNNER_TEMP), so the change under review cannot supply it."
         ),
@@ -197,6 +202,7 @@ def _attest_command(
             source=source,
             ci_context=ci_context,
             head_sha=run_context.get("head_sha"),
+            receipt=receipt,
         )
         if reviews is not None
         else None
@@ -232,6 +238,7 @@ def _approval_from_reviews(
     source: Path,
     ci_context: str | None,
     head_sha: str | None,
+    receipt: VerificationReceipt | None,
 ) -> dict[str, Any]:
     """Evaluate the workflow-supplied reviews file, or exit 3 naming why not.
 
@@ -239,6 +246,12 @@ def _approval_from_reviews(
     from a file the workflow wrote outside the repository, about the pull
     request the event payload names. A file inside the repository could be
     written by the change it would approve, so it is refused.
+
+    What the approval is of comes from the verify run: the reviews are
+    evaluated against the commit the receipt's plan says was verified, and
+    only when that commit is the pull request's head. A synthetic merge
+    commit, another revision's artifacts, or uncommitted changes on top of
+    the head would otherwise carry an approval of content nobody reviewed.
     """
 
     if ci_context != "github-actions":
@@ -268,9 +281,19 @@ def _approval_from_reviews(
             "--reviews needs a pull request event; the workflow context lacks "
             + ", ".join(missing)
         )
-    attested_head = head_sha or event_head
-    if attested_head is None:  # pragma: no cover - event_head is set above
-        raise _reviews_failure("--reviews needs the attested head commit")
+    assert event_head is not None
+    verified_head = _verified_head_commit(receipt, root=source.parent)
+    if event_head.lower() != verified_head:
+        raise _reviews_failure(
+            f"verify evaluated commit {verified_head}, but the pull request's head is "
+            f"{event_head}; the reviews approve the head, so verify that commit",
+            why=_VERIFY_THE_HEAD,
+        )
+    if head_sha is not None and head_sha.lower() != verified_head:
+        raise _reviews_failure(
+            f"--head-sha {head_sha} is not the commit verify evaluated ({verified_head})",
+            why=_VERIFY_THE_HEAD,
+        )
     inside = _inside_repository(reviews, source=source)
     if inside is not None:
         raise _reviews_failure(
@@ -297,11 +320,63 @@ def _approval_from_reviews(
             repository=repository,
             pr_number=pr_number,
             pr_author=pr_author,
-            head_sha=attested_head,
+            head_sha=verified_head,
         )
     except ReviewsError as exc:
         raise _reviews_failure(f"{reviews}: {exc}") from exc
     return _approval_block(evaluation, source_sha256=hashlib.sha256(raw).hexdigest())
+
+
+_VERIFY_THE_HEAD = (
+    "Check out the pull request's head commit and verify it "
+    "(--head ${{ github.event.pull_request.head.sha }}), from a clean checkout, "
+    "into the directory --from names; then rerun attest --reviews."
+)
+
+
+def _verified_head_commit(receipt: VerificationReceipt | None, *, root: Path) -> str:
+    """The commit the receipt-bound verify run evaluated, or exit 3 naming why
+    no review can be recorded against it.
+
+    ``load_verified_receipt`` has validated the receipt's closure, its plan
+    included. The plan is read again here only from bytes that hash to what
+    the receipt binds, so it is the plan that was validated.
+    """
+
+    if receipt is None:
+        raise _reviews_failure(
+            "--reviews needs the verification receipt of the verify run beside "
+            "verifier.json: only its plan says which commit was verified",
+            why=_VERIFY_THE_HEAD,
+        )
+    ref = receipt.artifact_manifest.artifacts.get("verification_plan_json")
+    if ref is None:  # pragma: no cover - validate_receipt_artifacts requires it
+        raise _reviews_failure("the verification receipt binds no verification plan")
+    path = Path(ref.path)
+    try:
+        raw = (path if path.is_absolute() else root / path).read_bytes()
+    except OSError as exc:
+        raise _reviews_failure(f"the verification plan could not be read: {exc}") from exc
+    if sha256_bytes(raw) != ref.sha256:
+        raise _reviews_failure("the verification plan changed after its receipt was validated")
+    plan = VerificationPlan.model_validate_json(raw)
+    if plan.subject.subject_id != receipt.subject_id:  # pragma: no cover - validated
+        raise _reviews_failure("the verification plan is not the receipt's")
+    git = plan.subject.git
+    if git.worktree_overlay_sha256 is not None or plan.inputs.options.get(
+        "worktree_overlay_paths"
+    ):
+        raise _reviews_failure(
+            "verify evaluated uncommitted working-tree changes on top of "
+            f"{git.head_commit_sha}; a review approves a commit, not a working tree",
+            why=_VERIFY_THE_HEAD,
+        )
+    if git.head_commit_sha is None:
+        raise _reviews_failure(
+            "the verify run names no head commit, so no review can be bound to it",
+            why=_VERIFY_THE_HEAD,
+        )
+    return git.head_commit_sha
 
 
 def _approval_block(evaluation: ApprovalEvaluation, *, source_sha256: str) -> dict[str, Any]:
@@ -370,7 +445,7 @@ def _enclosing_git_root(start: Path) -> Path | None:
     return None
 
 
-def _reviews_failure(detail: str) -> typer.Exit:
+def _reviews_failure(detail: str, *, why: str | None = None) -> typer.Exit:
     message = f"Reviews error: {detail}"
     typer.echo(message, err=True)
     emit_agent_mode_error_action(
@@ -379,7 +454,8 @@ def _reviews_failure(detail: str) -> typer.Exit:
         exit_code=3,
         action=NextAction(
             kind="review",
-            why=(
+            why=why
+            or (
                 "Fetch the pull request's reviews in the workflow into a file "
                 "outside the repository and pass it with --reviews on a pull "
                 "request event, or attest without --reviews."
