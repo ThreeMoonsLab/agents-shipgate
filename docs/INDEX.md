@@ -40,7 +40,7 @@ remain separate, pending work.
 - [`product-hardening-gap-closure.md`](product-hardening-gap-closure.md) — closure map for the root dogfood gate, governance case catalog, policy-pack tests, trace contract, and runtime-inventory boundary
 - [`agent-workflow-evidence.md`](agent-workflow-evidence.md) — local Agent Workflow Evidence and AgentTraceEvent contract for replayable verifier scenarios
 - [`capability-standard.md`](capability-standard.md) — stable static capability lock/diff standard for external integrations and research
-- [`capability-payload.md`](capability-payload.md) — the frozen `shipgate.capability_payload/v1` payload shared by the exported capability delta and the committed capability state; one payload, two views, one subject per row
+- [`capability-payload.md`](capability-payload.md) — the frozen `shipgate.capability_payload/v1` payload shared by the exported capability delta and the committed capability state, and `v2`, which adds each tool's definition digests; one payload, two views, one subject per row
 - [`capability-delta-attestation.md`](capability-delta-attestation.md) — the capability delta published as a standalone in-toto attestation any consumer can verify without running Agents Shipgate; predicate type, subject binding, and the reference verifier
 - [`passed-verdict-contract.md`](passed-verdict-contract.md) — evidence-backed static meaning of `passed`, semantic gap routing, and 0.15 migration
 - [`governance-benchmark.md`](governance-benchmark.md) — stable research benchmark for evaluating agent governance behavior
@@ -147,10 +147,14 @@ remain separate, pending work.
 - [`registry-schema.v0.2.json`](registry-schema.v0.2.json) — frozen v0.2 registry reference
 - [`capability-payload-schema.v1.json`](capability-payload-schema.v1.json) — frozen JSON Schema for `shipgate.capability_payload/v1`; the shared payload of the exported delta and the committed state, non-gating
 - [`capability-delta-attestation-schema.v1.json`](capability-delta-attestation-schema.v1.json) — frozen JSON Schema for the in-toto statement `verify` writes as `capability-delta-attestation.json`, non-gating
-- [`capability-lock-schema.v0.8.json`](capability-lock-schema.v0.8.json) — current JSON Schema for `capabilities.lock.json`; carries typed semantic evidence and remains non-gating
+- [`capability-payload-schema.v2.json`](capability-payload-schema.v2.json) — JSON Schema for `shipgate.capability_payload/v2`: v1 plus each tool's definition digests (description, output schema, annotations), non-gating
+- [`capability-delta-attestation-schema.v2.json`](capability-delta-attestation-schema.v2.json) — JSON Schema for the v2 statement `verify` writes beside v1 as `capability-delta-attestation.v2.json`, non-gating
+- [`capability-lock-schema.v0.9.json`](capability-lock-schema.v0.9.json) — current JSON Schema for `capabilities.lock.json`; carries typed semantic evidence and tool-definition digests, and remains non-gating
+- [`capability-lock-schema.v0.8.json`](capability-lock-schema.v0.8.json) — frozen v0.8 reference; a v0.8 lock still loads, and is re-exported before it is compared
 - [`capability-lock-schema.v0.7.json`](capability-lock-schema.v0.7.json) — frozen v0.7 reference
 - [`capability-lock-schema.v0.6.json`](capability-lock-schema.v0.6.json) — frozen v0.6 reference; a v0.6 lock still loads and is advanced on read
-- [`capability-lock-diff-schema.v0.9.json`](capability-lock-diff-schema.v0.9.json) — current JSON Schema for semantic capability-lock diff artifacts; remains non-gating
+- [`capability-lock-diff-schema.v0.10.json`](capability-lock-diff-schema.v0.10.json) — current JSON Schema for semantic capability-lock diff artifacts, with `definition_changed` rows; remains non-gating
+- [`capability-lock-diff-schema.v0.9.json`](capability-lock-diff-schema.v0.9.json) — frozen v0.9 reference
 - [`capability-lock-diff-schema.v0.8.json`](capability-lock-diff-schema.v0.8.json) — frozen v0.8 reference
 - [`capability-lock-diff-schema.v0.7.json`](capability-lock-diff-schema.v0.7.json) — frozen v0.7 reference
 - [`capability-lock-schema.v0.5.json`](capability-lock-schema.v0.5.json) — frozen v0.5 binding-hash reference
@@ -212,6 +216,7 @@ remain separate, pending work.
 - [`examples/capability-payload.v1.state.example.json`](examples/capability-payload.v1.state.example.json) — worked `view: state` capability payload, generated from `samples/ai_generated_refund_pr`
 - [`examples/capability-payload.v1.delta.example.json`](examples/capability-payload.v1.delta.example.json) — worked `view: delta` capability payload for the same sample's one-added-tool PR
 - [`examples/capability-delta-attestation.v1.example.json`](examples/capability-delta-attestation.v1.example.json) — the same delta wrapped as an in-toto statement; the file `tools/verify-capability-delta.py` is demonstrated against
+- [`examples/capability-payload.v2.state.example.json`](examples/capability-payload.v2.state.example.json), [`examples/capability-payload.v2.delta.example.json`](examples/capability-payload.v2.delta.example.json) and [`examples/capability-delta-attestation.v2.example.json`](examples/capability-delta-attestation.v2.example.json) — the same three, in v2
 - [`examples/capability-lock.v0.5.example.json`](examples/capability-lock.v0.5.example.json) — current deterministic capability lock example
 - [`examples/capability-lock-diff.v0.6.example.json`](examples/capability-lock-diff.v0.6.example.json) — current semantic capability-lock diff example
 - [`../samples/`](../samples/) — runnable fixtures

@@ -12,6 +12,7 @@ from agents_shipgate.core.tool_identity import ToolSelectorIndex
 from agents_shipgate.schemas.capabilities import (
     CapabilityAuthority,
     CapabilityControls,
+    CapabilityDefinition,
     CapabilityEffect,
     CapabilityEvidence,
     CapabilityEvidenceProvenanceKind,
@@ -94,6 +95,23 @@ def capability_fact_from_action(
         semantic_assessment=semantic_evidence,
         risk_tags=tuple(sorted(set(action.risk_tags))),
         hashes=hashes,
+        definition=capability_definition(tool) if tool is not None else None,
+    )
+
+
+def capability_definition(tool: Tool) -> CapabilityDefinition:
+    """Digest the definition ``tool`` publishes to the model.
+
+    The description is stripped at both ends, so re-wrapping a docstring or a
+    trailing newline in a tools file does not read as a new definition; any
+    other edit to its text does. Annotations are the map as read, after the
+    MCP reader has removed reserved binding keys.
+    """
+
+    return CapabilityDefinition(
+        description_hash=_capability_stable_hash((tool.description or "").strip()),
+        output_schema_hash=_capability_stable_hash(tool.output_schema),
+        annotations_hash=_capability_stable_hash(tool.annotations),
     )
 
 

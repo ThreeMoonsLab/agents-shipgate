@@ -579,6 +579,7 @@ def _artifact_summary_lines(verifier: VerifierArtifact) -> list[str]:
         "capability_lock_diff_json",
         "capability_lock_diff_markdown",
         "capability_delta_attestation_json",
+        "capability_delta_attestation_v2_json",
     ):
         value = verifier.artifacts.get(key)
         if value:

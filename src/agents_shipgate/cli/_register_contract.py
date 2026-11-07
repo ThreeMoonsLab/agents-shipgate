@@ -45,6 +45,10 @@ def register(app: typer.Typer) -> None:
         typer.echo(
             f"Capability delta predicate type: {payload.capability_delta_predicate_type}"
         )
+        typer.echo(
+            "Capability delta predicate type (v2): "
+            f"{payload.capability_delta_predicate_type_v2}"
+        )
         typer.echo(f"Preflight schema version: {payload.preflight_schema_version}")
         typer.echo(f"Capability standard version: {payload.capability_standard_version}")
         typer.echo(

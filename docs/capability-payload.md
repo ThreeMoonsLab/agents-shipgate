@@ -1,4 +1,4 @@
-# The Capability Payload · `shipgate.capability_payload/v1`
+# The Capability Payload · `shipgate.capability_payload/v1` and `/v2`
 
 **One payload. Two views. Frozen before either surface ships.**
 
@@ -53,6 +53,47 @@ They show `analysis_coverage.status: "not_requested"` because the projection was
 called without one — see [the coverage
 section](#the-subjects-outside-the-analysed-surface) for why that is not a claim
 that nothing was left out.
+
+| | |
+|---|---|
+| Next version | `shipgate.capability_payload/v2` — [below](#version-2-tool-definitions) |
+| JSON Schema | [`capability-payload-schema.v2.json`](capability-payload-schema.v2.json) |
+| Worked examples | [`examples/capability-payload.v2.state.example.json`](examples/capability-payload.v2.state.example.json), [`examples/capability-payload.v2.delta.example.json`](examples/capability-payload.v2.delta.example.json) |
+| Python models | `agents_shipgate.schemas.capability_payload_v2` |
+| The projection | the same functions, with `version=2` |
+
+## Version 2: tool definitions
+
+`v1` publishes eight digests per capability record. None of them covers what an
+MCP client hands the model about a tool: its description, output schema and
+annotations. A change that rewrites only those, the shape of a tool-poisoning
+change, is therefore not a `v1` delta row. Capability standard `0.6` records
+the three in the capability lock; `v2` publishes them.
+
+`v2` is `v1` with exactly these differences:
+
+- **Three more digests on every record.** `digests` carries
+  `description_hash`, `output_schema_hash` and `annotations_hash`, the same
+  digests the capability lock records, named after the lock diff's `parts`.
+  They are `null` together when the evidence states no definition (a fact built
+  without its tool record); a record that states one and not the others is
+  rejected.
+- **`changed_dimensions` may name them.** A capability whose definition moved
+  and nothing else did is a `changed` row with `changed_dimensions` naming the
+  moved digests, `semantic_direction: "unknown"` and no `semantic_changes`: the
+  payload can see that the text moved, not which way the capability did. That
+  is the rule `v1` already states for a change that moves only an opaque digest.
+- **They are inside `capability_set_digest`.** The definition is not
+  provenance, so it stays in the semantic projection and two states that differ
+  only in a tool's description do not share a ref.
+- **The version strings.** `capability_payload_schema_version` is
+  `shipgate.capability_payload/v2`; `capability_standard_version` is unchanged.
+
+Every other model, rule, canonicalization and digest recipe on this page is
+`v1`'s; the `v2` models subclass the `v1` ones rather than copying them, so the
+two cannot drift on what they share. Stage two is the same list, run over
+eleven digests instead of eight. A `v1` parser rejects a `v2` payload, and the
+reverse, because both are closed.
 
 ## Shape
 
@@ -422,6 +463,7 @@ From the capability fact:
 |---|---|
 | `evidence.source_location` | A rendering of `source_path` plus `source_start_line`. Publishing both would put two spellings of one value on the wire. |
 | `semantic_assessment` | The derivation, not the fact. Its conclusions are published as `effect`, `authority` and `permission`; the claim/issue tree underneath is the extractor's working, and freezing it here would freeze internals this schema has to be able to change. |
+| `definition` | `v1` only. Added to the fact after `v1` froze (capability standard `0.6`): digests of the tool's description, output schema and annotations. `v1` is closed, so [`v2`](#version-2-tool-definitions) publishes them; a definition-only change is not visible in a `v1` delta and is a row in a `v2` one. |
 
 From the permission lattice
 (`core.capability_lattice.CapabilityPermissionProfile`), whose semantic half the
@@ -474,7 +516,9 @@ The rules, then:
   deprecation rule in [`../STABILITY.md`](../STABILITY.md) applied to a whole
   version rather than to a field, because a whole version is the unit here.
 - **Producers may emit more than one version.** Since versions do not widen, the
-  migration path is to publish both for a cycle, not to bend `v1`.
+  migration path is to publish both for a cycle, not to bend `v1`. `verify`
+  does exactly that for `v2`: it writes the `v1` and `v2` delta attestations
+  side by side.
 - **`capability_standard_version` is separate and moves on its own.** It names
   the capability-fact standard that produced the rows. A consumer that only
   reads published fields does not need to branch on it; a consumer comparing two
@@ -495,7 +539,8 @@ shape:
 
 - **The delta attestation** (#470, shipped) wraps `view: "delta"` as its
   predicate payload — predicate type
-  `https://threemoonslab.com/agents-shipgate/capability-delta/v1`, specified in
+  `https://threemoonslab.com/agents-shipgate/capability-delta/v1` for `v1` and
+  `…/capability-delta/v2` for `v2`, specified in
   [`capability-delta-attestation.md`](capability-delta-attestation.md). The
   attested subject and signing are that surface; the bytes inside are this one.
 - **#474, the committed state** writes `view: "state"`. The file's location,

@@ -58,10 +58,10 @@ Writes / verifies:
                                 (from HostGrantsBaselineArtifactV9)
 - docs/host-grants-drift-schema.v0.9.json
                                 (from HostGrantsDriftArtifactV9)
-- docs/capability-lock-schema.v0.8.json
+- docs/capability-lock-schema.v0.9.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockFileArtifactV1)
-- docs/capability-lock-diff-schema.v0.9.json
+- docs/capability-lock-diff-schema.v0.10.json
                                 (from agents_shipgate.schemas.capabilities.
                                  CapabilityLockDiffArtifactV1)
 - docs/capability-payload-schema.v1.json
@@ -75,6 +75,15 @@ Writes / verifies:
 - docs/capability-delta-attestation-schema.v1.json
                                 (from agents_shipgate.schemas.capability_attestation.
                                  CapabilityDeltaAttestationV1)
+- docs/capability-payload-schema.v2.json
+                                (from agents_shipgate.schemas.capability_payload_v2.
+                                 CapabilityPayloadV2)
+- docs/examples/capability-payload.v2.state.example.json
+- docs/examples/capability-payload.v2.delta.example.json
+- docs/capability-delta-attestation-schema.v2.json
+                                (from agents_shipgate.schemas.capability_attestation_v2.
+                                 CapabilityDeltaAttestationV2)
+- docs/examples/capability-delta-attestation.v2.example.json
 - docs/examples/capability-delta-attestation.v1.example.json
                                 (the same fixture, wrapped as an in-toto
                                  statement; needs a `git` binary for the
@@ -2186,6 +2195,11 @@ _CAPABILITY_OPTIONAL_PROPERTIES: dict[str, frozenset[str]] = {
 }
 
 
+#: Scratch state for :func:`_postprocess_capability_payload`: which v1 names it
+#: aliased to a v2 definition while it ran.
+_ALIASED_PAYLOAD_DEFS: dict[str, bool] = {}
+
+
 def _postprocess_capability_payload(schema: dict[str, Any]) -> None:
     """Push every constraint JSON Schema *can* express into the published file.
 
@@ -2199,6 +2213,21 @@ def _postprocess_capability_payload(schema: dict[str, Any]) -> None:
     """
 
     defs = schema["$defs"]
+    # One post-processor for both payload versions. v2 subclasses the v1 models
+    # it widens, so their definitions are named ``…V2``; every model v2 shares
+    # with v1 keeps its name.
+    for widened in (
+        "CapabilityRecordTransitionEntry",
+        "CapabilityDeltaSubject",
+        "CapabilityRecord",
+        "CapabilityStateSubject",
+    ):
+        if widened not in defs and f"{widened}V2" in defs:
+            defs[widened] = defs[f"{widened}V2"]
+            aliased = True
+        else:
+            aliased = False
+        _ALIASED_PAYLOAD_DEFS[widened] = aliased
 
     def not_null(field: str) -> dict[str, Any]:
         return {"properties": {field: {"not": {"type": "null"}}}}
@@ -2410,6 +2439,23 @@ def _postprocess_capability_payload(schema: dict[str, Any]) -> None:
         # published schemas cannot express different rules for the same object.
         if name in defs:
             defs[name]["properties"][field]["uniqueItems"] = True
+
+    # The aliases above point at the same dict as their ``…V2`` definition, so
+    # every rule written through the v1 name landed on the v2 definition. Drop
+    # the alias names again: the published v2 schema names only what it has.
+    for widened, aliased in _ALIASED_PAYLOAD_DEFS.items():
+        if aliased:
+            del defs[widened]
+    _ALIASED_PAYLOAD_DEFS.clear()
+
+    # v2: a record states its whole definition or none of it.
+    digests_v2 = defs.get("CapabilityDigestsV2")
+    if digests_v2 is not None:
+        parts = ("annotations_hash", "description_hash", "output_schema_hash")
+        digests_v2["anyOf"] = [
+            {"properties": {part: {"type": "string"} for part in parts}},
+            {"properties": {part: {"type": "null"} for part in parts}},
+        ]
 
     # Every object in the published schema requires every property it declares.
     # A field with a schema default drops out of `required`, and a wire format
@@ -2663,6 +2709,130 @@ def build_capability_delta_attestation_example() -> tuple[Path, str]:
         head_commit_sha=None,
     )
     target = DOCS / "examples" / "capability-delta-attestation.v1.example.json"
+    return target, _canonical_json(attestation_json(attestation))
+
+
+def build_capability_payload_v2_schema() -> tuple[Path, str]:
+    """Generate the v2 capability payload schema: v1 plus definition digests."""
+
+    from agents_shipgate.schemas.capability_payload_v2 import (
+        CAPABILITY_PAYLOAD_V2_SCHEMA_VERSION,
+        CapabilityPayloadV2,
+    )
+
+    schema = CapabilityPayloadV2.model_json_schema()
+    _postprocess_capability_payload(schema)
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/capability-payload-schema.v2.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Capability Payload v2"
+    schema["description"] = (
+        "Frozen JSON Schema for "
+        f"{CAPABILITY_PAYLOAD_V2_SCHEMA_VERSION} — shipgate.capability_payload/v1 "
+        "plus each tool's published definition: every record's digests carry "
+        "description_hash, output_schema_hash and annotations_hash (null "
+        "together when the evidence states no definition), and "
+        "changed_dimensions may name them. Generated from "
+        "agents_shipgate.schemas.capability_payload_v2.CapabilityPayloadV2. "
+        "VALIDATION IS TWO STAGES, exactly as for v1: this file is stage one, "
+        "and the recomputation rules in docs/capability-payload.md are stage "
+        "two. v1 stays published and frozen. It is non-gating and is not part "
+        "of report.json; release_decision.decision remains the only gate."
+    )
+    target = DOCS / "capability-payload-schema.v2.json"
+    return target, _canonical_json(schema)
+
+
+def build_capability_payload_v2_state_example() -> tuple[Path, str]:
+    """Generate the worked v2 state-view example from the shipped sample."""
+
+    from agents_shipgate.core.capability_payload import project_capability_state
+
+    base_facts, _ = _capability_payload_example_facts()
+    payload = project_capability_state(
+        base_facts, ref="samples/ai_generated_refund_pr", version=2
+    )
+    target = DOCS / "examples" / "capability-payload.v2.state.example.json"
+    return target, _canonical_json(payload.model_dump(mode="json"))
+
+
+def build_capability_payload_v2_delta_example() -> tuple[Path, str]:
+    """Generate the worked v2 delta-view example from the shipped sample."""
+
+    from agents_shipgate.core.capability_payload import project_capability_delta
+
+    base_facts, head_facts = _capability_payload_example_facts()
+    payload = project_capability_delta(
+        base_facts,
+        head_facts,
+        base_ref="samples/ai_generated_refund_pr",
+        head_ref="samples/ai_generated_refund_pr/_head",
+        version=2,
+    )
+    target = DOCS / "examples" / "capability-payload.v2.delta.example.json"
+    return target, _canonical_json(payload.model_dump(mode="json"))
+
+
+def build_capability_delta_attestation_v2_schema() -> tuple[Path, str]:
+    """Generate the v2 in-toto delta-attestation schema."""
+
+    from agents_shipgate.schemas.capability_attestation import GIT_OBJECT_PATTERN
+    from agents_shipgate.schemas.capability_attestation_v2 import (
+        CAPABILITY_DELTA_ATTESTATION_V2_SCHEMA_VERSION,
+        CAPABILITY_DELTA_PREDICATE_TYPE_V2,
+        CapabilityDeltaAttestationV2,
+    )
+
+    schema = CapabilityDeltaAttestationV2.model_json_schema()
+    _postprocess_capability_payload(schema)
+    digest = schema["$defs"]["CapabilityDeltaSubjectDigest"]["properties"]["gitCommit"]
+    digest.pop("anyOf", None)
+    digest.pop("default", None)
+    digest["type"] = "string"
+    digest["pattern"] = GIT_OBJECT_PATTERN
+    schema["$id"] = (
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/"
+        "main/docs/capability-delta-attestation-schema.v2.json"
+    )
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "Agents Shipgate Capability Delta Attestation v2"
+    schema["description"] = (
+        "Frozen JSON Schema for an in-toto Statement carrying "
+        f"{CAPABILITY_DELTA_ATTESTATION_V2_SCHEMA_VERSION}. predicateType is "
+        f"{CAPABILITY_DELTA_PREDICATE_TYPE_V2}, and `predicate.delta` is the "
+        "shipgate.capability_payload/v2 delta view, which publishes each tool's "
+        "definition digests. The envelope rules are v1's: the attested subject's "
+        "gitTree equals predicate.delta.head.ref, both refs are git object ids, "
+        "and the statement is emitted unsigned. VALIDATION IS TWO STAGES; see "
+        "docs/capability-payload.md. It is non-gating: "
+        "release_decision.decision remains the only release gate."
+    )
+    target = DOCS / "capability-delta-attestation-schema.v2.json"
+    return target, _canonical_json(schema)
+
+
+def build_capability_delta_attestation_v2_example() -> tuple[Path, str]:
+    """Generate the worked v2 attestation from the shipped sample."""
+
+    from agents_shipgate.core.capability_attestation import (
+        project_capability_delta_attestation,
+    )
+    from agents_shipgate.schemas.capability_attestation import attestation_json
+
+    base_facts, head_facts = _capability_payload_example_facts()
+    base_tree, head_tree = _capability_payload_example_trees()
+    attestation = project_capability_delta_attestation(
+        base_facts,
+        head_facts,
+        subject_name="samples/ai_generated_refund_pr",
+        base_tree_sha=base_tree,
+        head_tree_sha=head_tree,
+        head_commit_sha=None,
+        version=2,
+    )
+    target = DOCS / "examples" / "capability-delta-attestation.v2.example.json"
     return target, _canonical_json(attestation_json(attestation))
 
 
@@ -3342,6 +3512,14 @@ BUILDERS: tuple[tuple[str, Callable[[], tuple[Path, str]]], ...] = (
     (
         "capability_delta_attestation_example",
         build_capability_delta_attestation_example,
+    ),
+    ("capability_payload_v2", build_capability_payload_v2_schema),
+    ("capability_payload_v2_state_example", build_capability_payload_v2_state_example),
+    ("capability_payload_v2_delta_example", build_capability_payload_v2_delta_example),
+    ("capability_delta_attestation_v2", build_capability_delta_attestation_v2_schema),
+    (
+        "capability_delta_attestation_v2_example",
+        build_capability_delta_attestation_v2_example,
     ),
     ("attestation", build_attestation_schema),
     ("org_governance", build_org_governance_schema),

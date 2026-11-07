@@ -31,6 +31,7 @@ from dataclasses import dataclass
 
 from agents_shipgate.core.capability_payload import (
     CapabilityPayloadError,
+    CapabilityPayloadVersion,
     project_capability_delta,
 )
 from agents_shipgate.core.surface_exclusions import provider_token
@@ -45,6 +46,12 @@ from agents_shipgate.schemas.capability_attestation import (
     CapabilityDeltaSubjectDigest,
     CapabilityDeltaVerificationRef,
 )
+from agents_shipgate.schemas.capability_attestation_v2 import (
+    CAPABILITY_DELTA_ATTESTATION_V2_SCHEMA_VERSION,
+    CAPABILITY_DELTA_PREDICATE_TYPE_V2,
+    CapabilityDeltaAttestationV2,
+    CapabilityDeltaPredicateV2,
+)
 from agents_shipgate.schemas.capability_payload import (
     CAPABILITY_PAYLOAD_SCHEMA_VERSION,
     CapabilityAnalysisCoverage,
@@ -52,6 +59,25 @@ from agents_shipgate.schemas.capability_payload import (
     subject_key,
     subject_sort_key,
 )
+from agents_shipgate.schemas.capability_payload_v2 import CAPABILITY_PAYLOAD_V2_SCHEMA_VERSION
+
+#: Everything that differs between the two published attestation versions.
+_ENVELOPE = {
+    1: (
+        CapabilityDeltaAttestationV1,
+        CapabilityDeltaPredicateV1,
+        CAPABILITY_DELTA_PREDICATE_TYPE,
+        CAPABILITY_DELTA_ATTESTATION_SCHEMA_VERSION,
+        CAPABILITY_PAYLOAD_SCHEMA_VERSION,
+    ),
+    2: (
+        CapabilityDeltaAttestationV2,
+        CapabilityDeltaPredicateV2,
+        CAPABILITY_DELTA_PREDICATE_TYPE_V2,
+        CAPABILITY_DELTA_ATTESTATION_V2_SCHEMA_VERSION,
+        CAPABILITY_PAYLOAD_V2_SCHEMA_VERSION,
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -157,15 +183,20 @@ def project_capability_delta_attestation(
     base_analysis_coverage: CapabilityAnalysisCoverage | None = None,
     head_analysis_coverage: CapabilityAnalysisCoverage | None = None,
     verification: CapabilityDeltaVerificationRef | None = None,
+    version: CapabilityPayloadVersion = 1,
 ) -> CapabilityDeltaAttestationV1:
     """Wrap one projected delta as an in-toto statement about the reviewed tree.
 
     The delta is not recomputed here: this calls the same
     :func:`project_capability_delta` the reviewer surfaces call, and supplies
     the two tree ids as the payload's ``ref`` labels so the subject and the
-    payload name the same two states.
+    payload name the same two states. ``version=2`` wraps the v2 delta, which
+    publishes each tool's definition digests, in the v2 predicate.
     """
 
+    statement, predicate, predicate_type, predicate_version, payload_version = _ENVELOPE[
+        version
+    ]
     delta = project_capability_delta(
         base_facts,
         head_facts,
@@ -173,8 +204,9 @@ def project_capability_delta_attestation(
         head_ref=head_tree_sha,
         base_analysis_coverage=base_analysis_coverage,
         head_analysis_coverage=head_analysis_coverage,
+        version=version,
     )
-    return CapabilityDeltaAttestationV1(
+    return statement(
         _type=IN_TOTO_STATEMENT_TYPE,
         subject=(
             CapabilityDeltaAttestationSubject(
@@ -185,10 +217,10 @@ def project_capability_delta_attestation(
                 ),
             ),
         ),
-        predicateType=CAPABILITY_DELTA_PREDICATE_TYPE,
-        predicate=CapabilityDeltaPredicateV1(
-            predicate_schema_version=CAPABILITY_DELTA_ATTESTATION_SCHEMA_VERSION,
-            capability_payload_schema_version=CAPABILITY_PAYLOAD_SCHEMA_VERSION,
+        predicateType=predicate_type,
+        predicate=predicate(
+            predicate_schema_version=predicate_version,
+            capability_payload_schema_version=payload_version,
             delta=delta,
             verification=verification or CapabilityDeltaVerificationRef.unbound(),
         ),

@@ -457,6 +457,12 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         capability_delta_attestation_artifact=(
             "agents-shipgate-reports/capability-delta-attestation.json"
         ),
+        capability_payload_v2_schema_version="shipgate.capability_payload/v2",
+        capability_payload_v2_schema_path="docs/capability-payload-schema.v2.json",
+        capability_delta_attestation_v2_schema_version="shipgate.capability_delta_attestation/v2",
+        capability_delta_attestation_v2_schema_path="docs/capability-delta-attestation-schema.v2.json",
+        capability_delta_predicate_type_v2="https://threemoonslab.com/agents-shipgate/capability-delta/v2",
+        capability_delta_attestation_v2_artifact="agents-shipgate-reports/capability-delta-attestation.v2.json",
         preflight_schema_version="0.2",
         capability_standard_version="0.3",
         governance_benchmark_catalog_schema_version="0.2",
@@ -564,6 +570,12 @@ def test_representative_schema_payloads_keep_wire_fields() -> None:
         "capability_delta_attestation_artifact": (
             "agents-shipgate-reports/capability-delta-attestation.json"
         ),
+        "capability_payload_v2_schema_version": "shipgate.capability_payload/v2",
+        "capability_payload_v2_schema_path": "docs/capability-payload-schema.v2.json",
+        "capability_delta_attestation_v2_schema_version": "shipgate.capability_delta_attestation/v2",
+        "capability_delta_attestation_v2_schema_path": "docs/capability-delta-attestation-schema.v2.json",
+        "capability_delta_predicate_type_v2": "https://threemoonslab.com/agents-shipgate/capability-delta/v2",
+        "capability_delta_attestation_v2_artifact": "agents-shipgate-reports/capability-delta-attestation.v2.json",
         "preflight_schema_version": "0.2",
         "capability_standard_version": "0.3",
         "governance_benchmark_catalog_schema_version": "0.2",

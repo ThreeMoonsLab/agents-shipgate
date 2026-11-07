@@ -38,6 +38,9 @@ from agents_shipgate.core.verification_identity import (
 from agents_shipgate.schemas.capability_attestation import (
     CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY,
 )
+from agents_shipgate.schemas.capability_attestation_v2 import (
+    CAPABILITY_DELTA_ATTESTATION_V2_ARTIFACT_KEY,
+)
 from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.human_authorization import (
     AuthorizationEvaluationV1,
@@ -62,6 +65,7 @@ _AUTHORIZATION_RECEIPT_ARTIFACTS = frozenset(
         "agent_handoff_json",
         "base_capability_lock_json",
         CAPABILITY_DELTA_ATTESTATION_ARTIFACT_KEY,
+        CAPABILITY_DELTA_ATTESTATION_V2_ARTIFACT_KEY,
         "capability_lock_diff_json",
         "capability_lock_diff_markdown",
         "capability_lock_json",

@@ -14,9 +14,17 @@ from agents_shipgate.schemas.common import Confidence
 from agents_shipgate.schemas.semantic import ToolSemanticEvidence
 from agents_shipgate.schemas.surfaces import ActionEffect
 
-CAPABILITY_LOCK_SCHEMA_VERSION = "0.8"
-CAPABILITY_LOCK_DIFF_SCHEMA_VERSION = "0.9"
-CAPABILITY_STANDARD_VERSION = "0.5"
+CAPABILITY_LOCK_SCHEMA_VERSION = "0.9"
+CAPABILITY_LOCK_DIFF_SCHEMA_VERSION = "0.10"
+CAPABILITY_STANDARD_VERSION = "0.6"
+#: The parts of a tool definition a client hands the model, beyond the input
+#: schema that ``schema_hash`` already covers. Ordered as reviewers read them.
+CapabilityDefinitionPart = Literal["description", "output_schema", "annotations"]
+CAPABILITY_DEFINITION_PARTS: tuple[CapabilityDefinitionPart, ...] = (
+    "description",
+    "output_schema",
+    "annotations",
+)
 CapabilityEvidenceProvenanceKind = Literal[
     "static_declaration",
     "ast_extraction",
@@ -118,6 +126,28 @@ class CapabilityHashes(BaseModel):
     evidence_hash: str
 
 
+class CapabilityDefinition(BaseModel):
+    """Digests of the tool definition a client publishes to the model.
+
+    Capability standard v0.6. ``hashes.schema_hash`` already covers the input
+    schema; these cover the rest of what an MCP ``tools/list`` entry (or an
+    OpenAPI operation, or a function docstring) hands the model: the
+    description, the output schema and the annotations. Only digests are
+    stored, never the text, so a lock never carries a tool's instructions.
+
+    Deliberately outside ``hashes``: ``CapabilityHashName`` is the closed
+    digest vocabulary of the frozen ``shipgate.capability_payload/v1`` and of
+    the report's ``capability_change.changed_hashes``, and neither can grow a
+    member without a new version of its own.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    description_hash: str
+    output_schema_hash: str
+    annotations_hash: str
+
+
 class CapabilityFactV1(BaseModel):
     """Durable capability fact used by stable capability locks."""
 
@@ -135,6 +165,10 @@ class CapabilityFactV1(BaseModel):
     semantic_assessment: ToolSemanticEvidence | None = None
     risk_tags: tuple[str, ...] = Field(default_factory=tuple)
     hashes: CapabilityHashes
+    # Capability standard v0.6: ``None`` when the fact was built without the
+    # tool record (public ``ActionFact`` data) or read from an older lock. A
+    # fact with no definition is never compared on its definition.
+    definition: CapabilityDefinition | None = None
 
     @model_validator(mode="after")
     def _semantic_projection_is_consistent(self) -> CapabilityFactV1:
@@ -206,12 +240,16 @@ class CapabilityLockHashes(BaseModel):
     semantic_capability_set_hash: str
     evidence_set_hash: str
     source_set_hash: str
+    # Capability standard v0.6: one digest over every fact's ``definition``,
+    # so a reviewed lock binds the tool definitions it was reviewed with.
+    # ``None`` only on a lock read from an older schema.
+    definition_set_hash: str | None = None
 
 
 class CapabilityLockFileV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    capability_lock_schema_version: Literal["0.8"] = CAPABILITY_LOCK_SCHEMA_VERSION
+    capability_lock_schema_version: Literal["0.9"] = CAPABILITY_LOCK_SCHEMA_VERSION
     experimental: Literal[False] = False
     cli_version: str
     source: CapabilityLockSource
@@ -233,6 +271,7 @@ class CapabilityLockRef(BaseModel):
     semantic_capability_set_hash: str
     evidence_set_hash: str
     source_set_hash: str
+    definition_set_hash: str | None = None
     capability_count: int
 
 
@@ -245,6 +284,43 @@ class CapabilityLockDiffSummary(BaseModel):
     changed: int = 0
     evidence_changed: int = 0
     unchanged: int = 0
+    # Independent of the buckets above: a fact whose semantics did not move
+    # is still ``unchanged`` there, and is counted here when the definition
+    # its tool publishes moved.
+    definition_changed: int = 0
+
+
+class CapabilityLockDefinitionChange(BaseModel):
+    """One capability whose published tool definition moved between locks.
+
+    Names which parts moved and their digests on each side, never the text.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    tool_name: str
+    provider: str
+    operation: str
+    parts: tuple[CapabilityDefinitionPart, ...]
+    before: CapabilityDefinition
+    after: CapabilityDefinition
+
+    @model_validator(mode="after")
+    def _parts_are_the_moved_digests(self) -> CapabilityLockDefinitionChange:
+        moved = tuple(
+            part
+            for part in CAPABILITY_DEFINITION_PARTS
+            if getattr(self.before, f"{part}_hash") != getattr(self.after, f"{part}_hash")
+        )
+        if not moved:
+            raise ValueError("a definition change must move at least one part")
+        if self.parts != moved:
+            raise ValueError(
+                "parts must list exactly the definition digests that differ, "
+                f"in {CAPABILITY_DEFINITION_PARTS} order"
+            )
+        return self
 
 
 class CapabilityLockChangedFact(BaseModel):
@@ -263,7 +339,7 @@ class CapabilityLockChangedFact(BaseModel):
 class CapabilityLockDiffV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    capability_lock_diff_schema_version: Literal["0.9"] = (
+    capability_lock_diff_schema_version: Literal["0.10"] = (
         CAPABILITY_LOCK_DIFF_SCHEMA_VERSION
     )
     experimental: Literal[False] = False
@@ -275,6 +351,15 @@ class CapabilityLockDiffV1(BaseModel):
     reidentified: list[CapabilityLockChangedFact] = Field(default_factory=list)
     changed: list[CapabilityLockChangedFact] = Field(default_factory=list)
     evidence_changed: list[CapabilityLockChangedFact] = Field(default_factory=list)
+    definition_changed: list[CapabilityLockDefinitionChange] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _definition_count_matches_rows(self) -> CapabilityLockDiffV1:
+        if self.summary.definition_changed != len(self.definition_changed):
+            raise ValueError(
+                "summary.definition_changed must equal the number of definition_changed rows"
+            )
+        return self
 
 
 class CapabilityLockArtifactV1(RootModel[CapabilityLockFileV1 | CapabilityLockDiffV1]):
@@ -290,11 +375,14 @@ class CapabilityLockDiffArtifactV1(RootModel[CapabilityLockDiffV1]):
 
 
 __all__ = [
+    "CAPABILITY_DEFINITION_PARTS",
     "CAPABILITY_LOCK_DIFF_SCHEMA_VERSION",
     "CAPABILITY_LOCK_SCHEMA_VERSION",
     "CAPABILITY_STANDARD_VERSION",
     "CapabilityAuthority",
     "CapabilityControls",
+    "CapabilityDefinition",
+    "CapabilityDefinitionPart",
     "CapabilityEffect",
     "CapabilityEvidence",
     "CapabilityEvidenceProvenanceKind",
@@ -304,6 +392,7 @@ __all__ = [
     "CapabilityIdentity",
     "CapabilityLockArtifactV1",
     "CapabilityLockChangedFact",
+    "CapabilityLockDefinitionChange",
     "CapabilityLockDiffArtifactV1",
     "CapabilityLockDiffSummary",
     "CapabilityLockDiffV1",

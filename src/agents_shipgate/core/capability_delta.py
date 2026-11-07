@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any
 
 from agents_shipgate.core.action_semantics import ACTION_EFFECT_RANK
 from agents_shipgate.schemas.capabilities import (
+    CAPABILITY_DEFINITION_PARTS,
+    CapabilityDefinitionPart,
     CapabilityFactV1,
     capability_fact_sort_key,
 )
@@ -74,6 +77,21 @@ class CapabilityDeltaRow:
 
 
 @dataclass(frozen=True)
+class CapabilityDefinitionDelta:
+    """A paired capability whose published tool definition moved.
+
+    Kept apart from the semantic rows on purpose: a definition change has no
+    proven direction, and ``CapabilityHashName`` (which those rows carry) is
+    the closed digest vocabulary of the frozen payload and the report.
+    """
+
+    id: str
+    before: CapabilityFactV1
+    after: CapabilityFactV1
+    parts: tuple[CapabilityDefinitionPart, ...]
+
+
+@dataclass(frozen=True)
 class CapabilitySetDiff:
     added: list[CapabilityFactContext]
     removed: list[CapabilityFactContext]
@@ -81,6 +99,11 @@ class CapabilitySetDiff:
     changed: list[CapabilityDeltaRow]
     evidence_changed: list[CapabilityDeltaRow]
     unchanged_count: int
+    # Capability standard v0.6. Orthogonal to the buckets above: a pair can be
+    # unchanged, changed or reidentified there and still appear here.
+    definition_changed: list[CapabilityDefinitionDelta] = dataclass_field(
+        default_factory=list
+    )
 
 
 def diff_capability_fact_sets(
@@ -101,11 +124,28 @@ def diff_capability_fact_sets(
     reidentified, added, removed = _reidentified_changes(raw_removed, raw_added)
     changed: list[CapabilityDeltaRow] = []
     evidence_changed: list[CapabilityDeltaRow] = []
+    definition_changed: list[CapabilityDefinitionDelta] = []
     unchanged_count = 0
+
+    for row in reidentified:
+        parts = changed_definition_parts(row.before, row.after)
+        if parts:
+            definition_changed.append(
+                CapabilityDefinitionDelta(
+                    id=row.id, before=row.before, after=row.after, parts=parts
+                )
+            )
 
     for capability_id in sorted(base_by_id.keys() & head_by_id.keys()):
         before = base_by_id[capability_id]
         after = head_by_id[capability_id]
+        parts = changed_definition_parts(before.fact, after.fact)
+        if parts:
+            definition_changed.append(
+                CapabilityDefinitionDelta(
+                    id=capability_id, before=before.fact, after=after.fact, parts=parts
+                )
+            )
         changed_hashes = changed_capability_hashes(before.fact, after.fact)
         if not changed_hashes:
             unchanged_count += 1
@@ -128,6 +168,35 @@ def diff_capability_fact_sets(
         changed=sorted(changed, key=capability_delta_row_sort_key),
         evidence_changed=sorted(evidence_changed, key=capability_delta_row_sort_key),
         unchanged_count=unchanged_count,
+        definition_changed=sorted(
+            definition_changed,
+            key=lambda delta: (
+                delta.after.identity.tool_name,
+                delta.after.identity.operation,
+                delta.id,
+            ),
+        ),
+    )
+
+
+def changed_definition_parts(
+    before: CapabilityFactV1,
+    after: CapabilityFactV1,
+) -> tuple[CapabilityDefinitionPart, ...]:
+    """The definition parts whose digests differ, in reading order.
+
+    Empty when either side carries no definition: a fact built without its
+    tool record, or read from a pre-v0.6 lock, has nothing to compare, and
+    reporting it as a change would invent one.
+    """
+
+    if before.definition is None or after.definition is None:
+        return ()
+    return tuple(
+        part
+        for part in CAPABILITY_DEFINITION_PARTS
+        if getattr(before.definition, f"{part}_hash")
+        != getattr(after.definition, f"{part}_hash")
     )
 
 
@@ -692,12 +761,14 @@ def _compact_source(fact: CapabilityFactV1) -> dict[str, Any]:
 __all__ = [
     "ALL_CAPABILITY_HASH_FIELDS",
     "SEMANTIC_CAPABILITY_HASH_FIELDS",
+    "CapabilityDefinitionDelta",
     "CapabilityDeltaRow",
     "CapabilityFactContext",
     "CapabilitySetDiff",
     "build_capability_delta_row",
     "capability_delta_row_sort_key",
     "changed_capability_hashes",
+    "changed_definition_parts",
     "classify_capability_delta",
     "diff_capability_fact_sets",
 ]
