@@ -384,6 +384,12 @@ unchanged. The contract now names the predicate type, both schema versions,
 both schema paths, and the artifact, so a consumer can discover the format
 without reading our source. Full specification:
 [`docs/capability-delta-attestation.md`](capability-delta-attestation.md).
+Beside it, `verify` writes `capability-delta-attestation.v2.json`: the same
+envelope with predicate type
+`https://threemoonslab.com/agents-shipgate/capability-delta/v2`, carrying
+`shipgate.capability_payload/v2`, whose records also publish each tool's
+definition digests. A tool whose description was rewritten is a row there and
+not in the v1 file, which stays frozen.
 
 Read it when you want *what the agent can do after this change* as a portable
 fact — a runtime gateway, a policy engine, a dashboard, another CI system.
@@ -824,10 +830,11 @@ Downstream repos generated with
 - Current preflight schema: `0.6` — [`docs/preflight-schema.v0.6.json`](preflight-schema.v0.6.json) (`0.5` and earlier stay frozen; `0.6` adds `planning_only` and denies every permission on every route)
 - Current downstream local agent contract schema: `10`
 - Current capability standard: `0.5` — [`docs/capability-standard.md`](capability-standard.md)
-- Current capability lock schema: `0.8` — [`docs/capability-lock-schema.v0.8.json`](capability-lock-schema.v0.8.json)
-- Current capability lock diff schema: `0.9` — [`docs/capability-lock-diff-schema.v0.9.json`](capability-lock-diff-schema.v0.9.json)
+- Current capability lock schema: `0.9` — [`docs/capability-lock-schema.v0.9.json`](capability-lock-schema.v0.9.json)
+- Current capability lock diff schema: `0.10` — [`docs/capability-lock-diff-schema.v0.10.json`](capability-lock-diff-schema.v0.10.json)
 - Current capability payload schema: `shipgate.capability_payload/v1` — [`docs/capability-payload-schema.v1.json`](capability-payload-schema.v1.json), specified in [`docs/capability-payload.md`](capability-payload.md)
 - Current capability delta attestation: `shipgate.capability_delta_attestation/v1`, predicate type `https://threemoonslab.com/agents-shipgate/capability-delta/v1` — [`docs/capability-delta-attestation-schema.v1.json`](capability-delta-attestation-schema.v1.json), specified in [`docs/capability-delta-attestation.md`](capability-delta-attestation.md)
+- Capability payload and delta attestation v2, emitted beside v1: `shipgate.capability_payload/v2` — [`docs/capability-payload-schema.v2.json`](capability-payload-schema.v2.json) — and `shipgate.capability_delta_attestation/v2`, predicate type `https://threemoonslab.com/agents-shipgate/capability-delta/v2` — [`docs/capability-delta-attestation-schema.v2.json`](capability-delta-attestation-schema.v2.json). v2 adds each tool's definition digests; v1 is unchanged.
 - Current attestation schema: `0.5` — [`docs/attestation-schema.v0.5.json`](attestation-schema.v0.5.json)
 - Current registry schema: `0.4` — [`docs/registry-schema.v0.4.json`](registry-schema.v0.4.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
@@ -1672,6 +1679,11 @@ The runtime contract also exposes stable non-gating integration fields:
 `capability_delta_attestation_schema_version`,
 `capability_delta_attestation_schema_path`,
 `capability_delta_predicate_type`, `capability_delta_attestation_artifact`,
+the same six for v2 (`capability_payload_v2_schema_version`,
+`capability_payload_v2_schema_path`,
+`capability_delta_attestation_v2_schema_version`,
+`capability_delta_attestation_v2_schema_path`,
+`capability_delta_predicate_type_v2`, `capability_delta_attestation_v2_artifact`),
 `capability_standard_version`,
 `governance_benchmark_catalog_schema_version`,
 `governance_benchmark_result_schema_version`, and

@@ -770,11 +770,23 @@ def changed_record_dimensions(
     before: CapabilityRecord,
     after: CapabilityRecord,
 ) -> tuple[CapabilityHashName, ...]:
-    """Which per-dimension digests differ between two published records."""
+    """Which per-dimension digests differ between two published records.
 
+    Read off the records' own digest model, in name order, so a later payload
+    version that publishes more digests (``capability_payload/v2``) compares
+    those too. For a ``v1`` record that is exactly
+    :data:`CAPABILITY_DIGEST_DIMENSIONS`.
+    """
+
+    if type(before.digests) is not type(after.digests):
+        raise ValueError(
+            "the two records publish different digest sets "
+            f"({type(before.digests).__name__} and {type(after.digests).__name__}) "
+            "and cannot be compared"
+        )
     return tuple(
-        name
-        for name in CAPABILITY_DIGEST_DIMENSIONS
+        name  # type: ignore[misc]
+        for name in sorted(type(before.digests).model_fields)
         if getattr(before.digests, name) != getattr(after.digests, name)
     )
 

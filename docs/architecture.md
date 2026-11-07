@@ -333,13 +333,14 @@ bounds parsed from factories are counted in `source.toolkit_bound_count`
 but are not yet emitted as capability facts, so widening a dynamic
 factory's authority bound is a known limitation until a later phase
 adds non-enumerable authority facts. The current schema is
-[`capability-lock-schema.v0.8.json`](capability-lock-schema.v0.8.json);
+[`capability-lock-schema.v0.9.json`](capability-lock-schema.v0.9.json);
 diff artifacts use
-[`capability-lock-diff-schema.v0.9.json`](capability-lock-diff-schema.v0.9.json).
+[`capability-lock-diff-schema.v0.10.json`](capability-lock-diff-schema.v0.10.json).
 Both carry `experimental: false`. Old experimental v0.1 lock inputs
 remain readable by `capability diff`, and so is a lock declaring any prior
-schema this runtime still normalizes; new exports use v0.8 and carry the
-normalized semantic assessment beside each capability fact.
+schema this runtime still normalizes; new exports use v0.9 and carry the
+normalized semantic assessment and the tool-definition digests beside each
+capability fact.
 Capability locks are not part of `report.json`, do not include runtime
 trace evidence, and do not gate. The committed lock is deterministic for
 the same manifest-relative inputs; `cli_version` is provenance and may
@@ -483,8 +484,9 @@ for the full contract. Five axes:
 1. **AST trust lint** ([`tests/test_adapter_static_only.py`](../tests/test_adapter_static_only.py))
    — every `.py` under `src/agents_shipgate/` is statically scanned
    for `exec`/`eval`/`__import__`/`compile`/subprocess/`importlib.*`
-   surfaces. Four first-party meta-CLI uses are pinned per call site
-   (line + `ast.unparse` snippet) in `ALLOWED_EXCEPTIONS`. Runs as a
+   surfaces. First-party meta-CLI uses are pinned per call site
+   (enclosing function, occurrence count, and `ast.unparse` snippet) in
+   `ALLOWED_EXCEPTIONS`. Runs as a
    dedicated CI step *before* the main test suite. Companion live-load
    tests in [`test_fixture_no_import.py`](../tests/test_fixture_no_import.py)
    verify `sys.modules` snapshots stay clean.
@@ -678,7 +680,9 @@ contract. Headlines:
   `packet_schema_version: "0.18"`; older schemas frozen.
 - **Exit codes**: `0` pass, `2` manifest config error, `3` input
   parse error, `4` other error, `6` baseline integrity failure (strict
-  `baseline verify` only), `20` strict-mode gate failure.
+  `baseline verify` only), `20` gate failure (a `fail_on` match in either
+  mode, or strict mode's own conditions; see
+  [STABILITY.md § Exit codes](../STABILITY.md#exit-codes)).
 - **Check IDs** never change in published versions; legacy aliases
   expand via `core/check_ids.py`.
 - **Gating signal** is `release_decision.decision`. Do not gate on

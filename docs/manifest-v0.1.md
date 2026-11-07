@@ -1389,9 +1389,12 @@ underlying semantic claim or make an uncertain action pass-eligible.
 
 ## CI Failure Policy
 
-`ci.mode: advisory` exits `0` by default. `ci.mode: strict` exits `20` on
-unsuppressed `critical` findings by default and on a semantic
-`insufficient_evidence` decision regardless of finding severity. Configuration,
+`ci.mode: advisory` exits `0` by default; with `ci.fail_on` set, it exits `20`
+when a release blocker or an active finding has a listed severity.
+`ci.mode: strict` exits `20` on unsuppressed `critical` findings by default and
+on a `blocked` or `insufficient_evidence` decision regardless of finding
+severity. The full rule is in
+[STABILITY.md § Exit codes](../STABILITY.md#exit-codes). Configuration,
 input parsing, and internal scanner errors use `2`, `3`, and `4`.
 
 Override the failing severities with `ci.fail_on`:

@@ -1066,10 +1066,33 @@ def test_every_lock_schema_of_the_current_standard_still_loads(tmp_path) -> None
         )
         loaded = load_capability_lock(path)
         assert loaded.capability_lock_schema_version == CAPABILITY_LOCK_SCHEMA_VERSION, version
-    assert checked > 1, (
-        "only the current schema describes this standard; the test cannot see "
-        "an orphaned prior version"
-    )
+    assert checked >= 1
+    # A capability-standard bump leaves exactly one schema describing the new
+    # standard, so the loop above cannot see an orphan by itself. The schema
+    # the bump froze is the one committed locks are written in, and it must
+    # still load: the mixed-standard refusal that names the re-export command
+    # reads the lock first, so a lock that does not load gets a schema error
+    # instead of the command (capability standard 0.6, lock 0.8 -> 0.9).
+    if checked == 1:
+
+        def _key(version: str) -> tuple[int, ...]:
+            return tuple(int(part) for part in version.split("."))
+
+        frozen = max(
+            (
+                version
+                for version in published
+                if _CAPABILITY_STANDARD_BY_LOCK_SCHEMA[version] != CAPABILITY_STANDARD_VERSION
+            ),
+            key=_key,
+        )
+        path = tmp_path / f"lock.v{frozen}.json"
+        path.write_text(
+            json.dumps({**payload, "capability_lock_schema_version": frozen}, indent=2),
+            encoding="utf-8",
+        )
+        loaded = load_capability_lock(path)
+        assert loaded.capability_lock_schema_version == CAPABILITY_LOCK_SCHEMA_VERSION, frozen
 
 
 def test_the_published_examples_are_artifacts_this_runtime_could_emit() -> None:
@@ -1119,4 +1142,4 @@ def test_the_published_examples_are_artifacts_this_runtime_could_emit() -> None:
     for side in (diff.base, diff.head):
         assert side.capability_lock_schema_version == CAPABILITY_LOCK_SCHEMA_VERSION
 
-    assert CAPABILITY_STANDARD_VERSION == "0.5"
+    assert CAPABILITY_STANDARD_VERSION == "0.6"

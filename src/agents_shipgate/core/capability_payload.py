@@ -19,15 +19,22 @@ prove a delta and a state describe the same commit.
 and ``UNPUBLISHED_FACT_FIELDS`` between them must cover every field of
 ``CapabilityFactV1``; ``tests/test_capability_payload.py`` enforces that, so a
 new internal field cannot reach either surface — or be silently dropped from
-both — without someone writing down which it is and why.
+both — without someone writing down which it is and why. ``*_V2`` are the same
+two maps for ``capability_payload/v2``, which publishes the fact's
+``definition``.
+
+**Two versions, one projection.** Every function takes ``version`` (``1`` by
+default). ``v1`` output is unchanged by the existence of ``v2``; ``v2`` is the
+same projection with each record's definition digests added, and with a
+``changed`` row for a capability whose definition moved and nothing else did.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Literal
 
 from agents_shipgate.core.capability_delta import (
-    CapabilityDeltaRow,
     CapabilityFactContext,
     diff_capability_fact_sets,
 )
@@ -65,6 +72,27 @@ from agents_shipgate.schemas.capability_payload import (
     subject_sort_key,
     subject_transition,
 )
+from agents_shipgate.schemas.capability_payload_v2 import (
+    CAPABILITY_PAYLOAD_V2_SCHEMA_VERSION,
+    CapabilityDeltaPayloadV2,
+    CapabilityDeltaSubjectV2,
+    CapabilityDigestsV2,
+    CapabilityRecordTransitionEntryV2,
+    CapabilityRecordV2,
+    CapabilityStatePayloadV2,
+    CapabilityStateSubjectV2,
+)
+
+#: Which published payload version a projection fills.
+CapabilityPayloadVersion = Literal[1, 2]
+
+_SCHEMA_VERSION = {1: CAPABILITY_PAYLOAD_SCHEMA_VERSION, 2: CAPABILITY_PAYLOAD_V2_SCHEMA_VERSION}
+_RECORD = {1: CapabilityRecord, 2: CapabilityRecordV2}
+_STATE_SUBJECT = {1: CapabilityStateSubject, 2: CapabilityStateSubjectV2}
+_TRANSITION_ENTRY = {1: CapabilityRecordTransitionEntry, 2: CapabilityRecordTransitionEntryV2}
+_DELTA_SUBJECT = {1: CapabilityDeltaSubject, 2: CapabilityDeltaSubjectV2}
+_STATE_PAYLOAD = {1: CapabilityStatePayloadV1, 2: CapabilityStatePayloadV2}
+_DELTA_PAYLOAD = {1: CapabilityDeltaPayloadV1, 2: CapabilityDeltaPayloadV2}
 
 
 class CapabilityPayloadError(ValueError):
@@ -149,6 +177,24 @@ UNPUBLISHED_FACT_FIELDS: dict[str, str] = {
         "the extractor's internal working, and freezing it here would freeze "
         "internals this schema has to be able to change."
     ),
+    "definition": (
+        "Added to the fact after v1 froze (capability standard v0.6): digests "
+        "of the tool's description, output schema and annotations. v1 is "
+        "closed, so they are published by capability_payload/v2 instead; a v1 "
+        "delta does not show a definition-only change, and a v2 delta does."
+    ),
+}
+
+#: ``capability_payload/v2`` publishes everything ``v1`` does plus the fact's
+#: definition digests, under the lock diff's part names.
+PUBLISHED_FACT_FIELDS_V2: dict[str, str] = {
+    **PUBLISHED_FACT_FIELDS,
+    "definition.description_hash": "capabilities[].digests.description_hash",
+    "definition.output_schema_hash": "capabilities[].digests.output_schema_hash",
+    "definition.annotations_hash": "capabilities[].digests.annotations_hash",
+}
+UNPUBLISHED_FACT_FIELDS_V2: dict[str, str] = {
+    path: reason for path, reason in UNPUBLISHED_FACT_FIELDS.items() if path != "definition"
 }
 
 #: Fields of the existing capability *lock file* — the state artifact this
@@ -196,10 +242,39 @@ def _coverage(
     return analysis_coverage
 
 
-def project_capability_record(fact: CapabilityFactV1) -> CapabilityRecord:
-    """Project one internal capability fact into its published record."""
+def project_capability_record(
+    fact: CapabilityFactV1,
+    *,
+    version: CapabilityPayloadVersion = 1,
+) -> CapabilityRecord:
+    """Project one internal capability fact into its published record.
 
-    return CapabilityRecord(
+    ``version=2`` adds the definition digests; the fact's ``definition`` is
+    ``None`` when it was built without its tool record, and all three are then
+    published as ``null``.
+    """
+
+    digests = dict(
+        identity_hash=fact.hashes.identity_hash,
+        binding_hash=fact.hashes.binding_hash,
+        effect_hash=fact.hashes.effect_hash,
+        authority_hash=fact.hashes.authority_hash,
+        control_hash=fact.hashes.control_hash,
+        schema_hash=fact.hashes.schema_hash,
+        risk_hash=fact.hashes.risk_hash,
+        evidence_hash=fact.hashes.evidence_hash,
+    )
+    if version == 2:
+        definition = fact.definition
+        published_digests: CapabilityDigests = CapabilityDigestsV2(
+            **digests,
+            description_hash=definition.description_hash if definition else None,
+            output_schema_hash=definition.output_schema_hash if definition else None,
+            annotations_hash=definition.annotations_hash if definition else None,
+        )
+    else:
+        published_digests = CapabilityDigests(**digests)
+    return _RECORD[version](
         capability_id=fact.id,
         operation=fact.identity.operation,
         subject_kind=fact.identity.subject_kind,
@@ -248,16 +323,7 @@ def project_capability_record(fact: CapabilityFactV1) -> CapabilityRecord:
             confidence=fact.evidence.confidence,
         ),
         risk_tags=fact.risk_tags,
-        digests=CapabilityDigests(
-            identity_hash=fact.hashes.identity_hash,
-            binding_hash=fact.hashes.binding_hash,
-            effect_hash=fact.hashes.effect_hash,
-            authority_hash=fact.hashes.authority_hash,
-            control_hash=fact.hashes.control_hash,
-            schema_hash=fact.hashes.schema_hash,
-            risk_hash=fact.hashes.risk_hash,
-            evidence_hash=fact.hashes.evidence_hash,
-        ),
+        digests=published_digests,
     )
 
 
@@ -266,6 +332,7 @@ def project_capability_state(
     *,
     ref: str | None = None,
     analysis_coverage: CapabilityAnalysisCoverage | None = None,
+    version: CapabilityPayloadVersion = 1,
 ) -> CapabilityStatePayloadV1:
     """Project a whole capability-fact set into the state view of the payload.
 
@@ -279,10 +346,10 @@ def project_capability_state(
     # than once; a list that answers differently on a later pass would produce a
     # payload whose rows and whose digests describe different revisions.
     snapshot = tuple(facts)
-    subjects = _state_subjects(snapshot)
+    subjects = _state_subjects(snapshot, version=version)
     coverage = _coverage(analysis_coverage)
-    return CapabilityStatePayloadV1(
-        capability_payload_schema_version=CAPABILITY_PAYLOAD_SCHEMA_VERSION,
+    return _STATE_PAYLOAD[version](
+        capability_payload_schema_version=_SCHEMA_VERSION[version],
         capability_standard_version=CAPABILITY_STANDARD_VERSION,
         view="state",
         analysis_coverage=coverage,
@@ -299,6 +366,7 @@ def project_capability_delta(
     head_ref: str | None = None,
     base_analysis_coverage: CapabilityAnalysisCoverage | None = None,
     head_analysis_coverage: CapabilityAnalysisCoverage | None = None,
+    version: CapabilityPayloadVersion = 1,
 ) -> CapabilityDeltaPayloadV1:
     """Project a base/head capability-fact pair into the delta view.
 
@@ -326,13 +394,39 @@ def project_capability_delta(
     diff = diff_capability_fact_sets(list(base_snapshot), list(head_snapshot))
     entries: list[tuple[CapabilitySubjectRef, CapabilityRecordTransitionEntry]] = []
     for context in diff.added:
-        entries.append(_membership_entry(context, transition="added"))
+        entries.append(_membership_entry(context, transition="added", version=version))
     for context in diff.removed:
-        entries.append(_membership_entry(context, transition="removed"))
+        entries.append(_membership_entry(context, transition="removed", version=version))
     for row in diff.reidentified:
-        entries.append(_paired_entry(row, transition="reidentified"))
+        entries.append(
+            _paired_entry(row.id, row.before, row.after, transition="reidentified", version=version)
+        )
+    paired_ids: set[str] = set()
     for row in (*diff.changed, *diff.evidence_changed):
-        entries.append(_paired_entry(row, transition="changed"))
+        paired_ids.add(row.id)
+        entries.append(
+            _paired_entry(row.id, row.before, row.after, transition="changed", version=version)
+        )
+    if version == 2:
+        # v2 publishes the definition, so a capability whose definition moved
+        # and nothing else did is a changed row here — and only here: the fact
+        # diff leaves it out of `changed`, because its eight v1 digests agree.
+        # Compared on the published records rather than on the diff's
+        # `definition_changed`, so a side that states a definition and one that
+        # does not still differ instead of passing as equal.
+        base_by_id = {fact.id: fact for fact in base_snapshot}
+        head_by_id = {fact.id: fact for fact in head_snapshot}
+        for capability_id in sorted(base_by_id.keys() & head_by_id.keys()):
+            if capability_id in paired_ids:
+                continue
+            before, after = base_by_id[capability_id], head_by_id[capability_id]
+            if changed_record_dimensions(
+                project_capability_record(before, version=2),
+                project_capability_record(after, version=2),
+            ):
+                entries.append(
+                    _paired_entry(capability_id, before, after, transition="changed", version=2)
+                )
 
     grouped: dict[str, list[CapabilityRecordTransitionEntry]] = {}
     for ref_model, entry in entries:
@@ -348,7 +442,7 @@ def project_capability_delta(
     subjects = tuple(
         sorted(
             (
-                CapabilityDeltaSubject(
+                _DELTA_SUBJECT[version](
                     subject=refs[key],
                     present_in_base=key in in_base,
                     present_in_head=key in in_head,
@@ -365,13 +459,17 @@ def project_capability_delta(
     )
     base_coverage = _coverage(base_analysis_coverage)
     head_coverage = _coverage(head_analysis_coverage)
-    return CapabilityDeltaPayloadV1(
-        capability_payload_schema_version=CAPABILITY_PAYLOAD_SCHEMA_VERSION,
+    return _DELTA_PAYLOAD[version](
+        capability_payload_schema_version=_SCHEMA_VERSION[version],
         capability_standard_version=CAPABILITY_STANDARD_VERSION,
         view="delta",
         analysis_coverage=CapabilityCoverageDelta.of(base_coverage, head_coverage),
-        base=state_ref(_state_subjects(base_snapshot), base_coverage, ref=base_ref),
-        head=state_ref(_state_subjects(head_snapshot), head_coverage, ref=head_ref),
+        base=state_ref(
+            _state_subjects(base_snapshot, version=version), base_coverage, ref=base_ref
+        ),
+        head=state_ref(
+            _state_subjects(head_snapshot, version=version), head_coverage, ref=head_ref
+        ),
         summary=delta_summary(subjects),
         subjects=subjects,
     )
@@ -405,17 +503,19 @@ def state_ref(
 
 def _state_subjects(
     facts: Sequence[CapabilityFactV1],
+    *,
+    version: CapabilityPayloadVersion = 1,
 ) -> tuple[CapabilityStateSubject, ...]:
     grouped: dict[str, list[CapabilityFactV1]] = {}
     for fact in facts:
         grouped.setdefault(_subject_ref(fact).key, []).append(fact)
     refs = _side_refs(facts)
     subjects = [
-        CapabilityStateSubject(
+        _STATE_SUBJECT[version](
             subject=refs[key],
             capabilities=tuple(
                 sorted(
-                    (project_capability_record(fact) for fact in group),
+                    (project_capability_record(fact, version=version) for fact in group),
                     key=capability_record_sort_key,
                 )
             ),
@@ -520,15 +620,16 @@ def _membership_entry(
     context: CapabilityFactContext,
     *,
     transition: CapabilityRecordTransition,
+    version: CapabilityPayloadVersion = 1,
 ) -> tuple[CapabilitySubjectRef, CapabilityRecordTransitionEntry]:
-    record = project_capability_record(context.fact)
+    record = project_capability_record(context.fact, version=version)
     ref_model = _subject_ref(context.fact)
     side = "after" if transition == "added" else "before"
     sides: dict[str, CapabilityRecord | None] = {"before": None, "after": None}
     sides[side] = record
     return (
         ref_model,
-        CapabilityRecordTransitionEntry(
+        _TRANSITION_ENTRY[version](
             transition=transition,
             changed_dimensions=(),
             semantic_direction=transition,
@@ -539,23 +640,26 @@ def _membership_entry(
 
 
 def _paired_entry(
-    row: CapabilityDeltaRow,
+    row_id: str,
+    before_fact: CapabilityFactV1,
+    after_fact: CapabilityFactV1,
     *,
     transition: CapabilityRecordTransition,
+    version: CapabilityPayloadVersion = 1,
 ) -> tuple[CapabilitySubjectRef, CapabilityRecordTransitionEntry]:
-    before_ref = _subject_ref(row.before)
-    after_ref = _subject_ref(row.after)
+    before_ref = _subject_ref(before_fact)
+    after_ref = _subject_ref(after_fact)
     if before_ref.key != after_ref.key:
         # The engine pairs only within one agent/tool/provider lineage, so this
         # is unreachable today. Fail closed rather than silently attributing a
         # paired change to one of two subjects: an attestation that names the
         # wrong subject is worse than one that refuses to be produced.
         raise CapabilityPayloadError(
-            f"capability delta row {row.id} pairs two subjects "
+            f"capability delta row {row_id} pairs two subjects "
             f"({before_ref.key} and {after_ref.key})"
         )
-    before_record = project_capability_record(row.before)
-    after_record = project_capability_record(row.after)
+    before_record = project_capability_record(before_fact, version=version)
+    after_record = project_capability_record(after_fact, version=version)
     # The engine's classification is over the *facts*; this payload publishes a
     # narrower set, so the direction and the explanations are derived from the
     # published records by the format itself. One implementation, and the parser
@@ -565,7 +669,7 @@ def _paired_entry(
         # The published ref for the row is chosen by `_delta_subject_refs`; this
         # call is the identity guard on the pairing, not a naming decision.
         _merge_subject_refs(before_ref, after_ref),
-        CapabilityRecordTransitionEntry(
+        _TRANSITION_ENTRY[version](
             transition=transition,
             changed_dimensions=changed_record_dimensions(before_record, after_record),
             semantic_direction=direction,
@@ -604,9 +708,12 @@ def _permission_facts(fact: CapabilityFactV1) -> CapabilityPermissionFacts:
 
 __all__ = [
     "PUBLISHED_FACT_FIELDS",
+    "PUBLISHED_FACT_FIELDS_V2",
     "UNPUBLISHED_FACT_FIELDS",
+    "UNPUBLISHED_FACT_FIELDS_V2",
     "UNPUBLISHED_LOCK_FIELDS",
     "CapabilityPayloadError",
+    "CapabilityPayloadVersion",
     "project_capability_delta",
     "project_capability_record",
     "project_capability_state",
