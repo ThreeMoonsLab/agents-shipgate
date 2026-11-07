@@ -212,7 +212,7 @@ def test_ingest_writes_v03_rows_and_uses_attestation_org_repo(tmp_path: Path) ->
 
     assert result.exit_code == 0, result.output
     row = json.loads(ledger.read_text(encoding="utf-8"))
-    assert row["registry_schema_version"] == "0.5"
+    assert row["registry_schema_version"] == "0.6"
     assert row["repo"] == "org/from-org"
     assert row["org_id"] == "acme"
     assert row["service"] == "support-agent"
@@ -245,7 +245,7 @@ def test_bypass_report_excludes_mergeable_and_acknowledged_rows(tmp_path: Path) 
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["registry_schema_version"] == "0.5"
+    assert payload["registry_schema_version"] == "0.6"
     assert payload["bypass_count"] == 1
     assert payload["rows"][0]["repo"] == "org/a"
     assert payload["rows"][0]["merge_verdict"] == "blocked"
@@ -334,7 +334,7 @@ def test_query_filters_org_fields_and_human_ack(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["registry_schema_version"] == "0.5"
+    assert payload["registry_schema_version"] == "0.6"
     assert payload["count"] == 1
     assert payload["rows"][0]["repo"] == "org/support"
 
@@ -357,7 +357,7 @@ def test_registry_summary_and_verify_hash_chain(tmp_path: Path) -> None:
     )
     assert summary.exit_code == 0, summary.output
     summary_payload = json.loads(summary.output)
-    assert summary_payload["registry_schema_version"] == "0.5"
+    assert summary_payload["registry_schema_version"] == "0.6"
     assert summary_payload["count"] == 2
     assert summary_payload["by_repo"] == {"org/support": 2}
     assert summary_payload["by_merge_verdict"] == {"blocked": 1, "mergeable": 1}
@@ -373,7 +373,7 @@ def test_registry_summary_and_verify_hash_chain(tmp_path: Path) -> None:
     )
     assert verify.exit_code == 0, verify.output
     verify_payload = json.loads(verify.output)
-    assert verify_payload["registry_schema_version"] == "0.5"
+    assert verify_payload["registry_schema_version"] == "0.6"
     assert verify_payload["ok"] is True
     assert verify_payload["issue_count"] == 0
 
