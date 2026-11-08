@@ -187,6 +187,13 @@ ledger under [`results/`](results/), and records
 release in `docs/changelog/<version>.md`. While the holdout has no pins, that
 line says so instead of a number.
 
+The [2026-11-08 development ledger](results/2026-11-08-04fc9ced.md)
+measures the 1.3.0 release build at `04fc9ced`: Q1 and Q2 are 0/49, down
+from 4/49 and 3/49, because no answer establishes a row. Every change
+appears only as a `not_established` candidate, and four members exceed
+the 900 s cap. Its 49 answers equal `main`'s at `952a74cfeb`; #1001 tracks
+the gates and #1046 the speed.
+
 The [2026-10-05 development ledger](results/2026-10-05-0e58e6ff.md)
 measures `main` at `0e58e6ff`: Q1 is 4/49 and Q2 is 3/49, each up by two
 against the prior ledger. The newly qualifying cases are MIS_TALENT#7 and
@@ -205,4 +212,4 @@ no pinned members or score in this measurement.
 | [`run.py`](run.py) | Clone, fetch and run one engine over a corpus. |
 | [`summarize.py`](summarize.py) | Count a run's statuses and rows, and join the hand scores that judged its answers. |
 | [`goldens.py`](goldens.py) | Render and check the reviewer-first text of six members from a run: [`goldens/<slug>.txt`](goldens/) and, beside each, the reduced answer `<slug>.input.json.gz` that `tests/test_application_summary.py` renders in CI. |
-| [`results/`](results/) | One ledger per measured build: `<date>-<build>.md` with the counts and a row per member, and `<date>-<build>.scores.json` with each member's levels, rationale and the `answer_id` they judged. |
+| [`results/`](results/) | One ledger per measured build: `<date>-<build>.md` with the counts and a row per member, and `<date>-<build>.scores.json` with each member's levels, rationale and the `answer_id` they judge (`null` for a member that has no answer this run: timed out, refused or unavailable)d. |
