@@ -29,6 +29,7 @@ def test_the_committed_declaration_records_the_advisory_1_0_decision() -> None:
         "1.0.0": "advisory",
         "1.1.0": "advisory",
         "1.2.0": "advisory",
+        "1.3.0": "advisory",
     }
 
 
