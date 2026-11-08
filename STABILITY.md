@@ -807,6 +807,69 @@ Update a vendored pack through a human-reviewed pull request.
 
 ---
 
+<a id="check-hook-declared-policy-packs-1128"></a>
+
+## Migration Note: Unreleased — check and the hook protect a declared policy pack (#1128)
+
+**What was wrong.** After #1075, only PR-time `verify` knew which files a
+manifest binds as policy packs. The local loop classified with the trust-root
+table alone. `shipgate check` answered `allow` for a change that edited nothing
+but a pack declared outside `policies/**`, such as
+`vendor/shipgate-policies/org-release.yaml`, while the same edit to
+`policies/org.yaml` got `require_review`. The Claude Code PreToolUse hook let a
+coding agent edit that pack without asking. And `verify`'s boundary assessment
+published `SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED` for the
+`policies/` file but not for the vendored one.
+
+**What changes.**
+
+- `check`, the CLI and the `shipgate.check` MCP tool, routes a changed file
+  that the base or head manifest declares in `checks.policy_packs` as it
+  routes `policies/**`: `BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED`,
+  `require_review`, `medium`. Paths resolve through
+  `core.trust_roots.manifest_policy_pack_paths`, the function `verify`'s
+  trust-root classification uses: lexically, against the manifest's
+  directory, in-repository only. A changed path matches as `verify` matches
+  its configured inputs, normalized and ignoring ASCII case. No structural
+  shortcut clears such a row.
+- The base's declarations come from the configured manifest exactly as
+  committed at the base ref (`--base`, or the base `check` detects), read as
+  `verify` reads its base manifest. So a change that drops a declaration and
+  edits the pack still needs a human. A provided `--diff`, and the MCP tool,
+  name no commit: the working tree's manifest alone declares packs there, and
+  no Git process runs.
+- `verify`'s boundary assessment receives the same packs. A vendored pack
+  edit now publishes the `host_boundary` finding beside
+  `SHIP-VERIFY-TRUST-ROOT-TOUCHED`, as a `policies/` edit already did.
+- The installed hook asks before an `Edit`, `Write` or `MultiEdit` of a pack
+  the configured manifest declares, in the working tree or at the configured
+  `--base`. The approval memory, the PostToolUse nudge and the Stop hook's
+  protected-path test include those packs too. The hook reads a manifest with
+  `agents-shipgate org policy-packs --json`, from a private copy of the bytes.
+  It does so only when the manifest can name a pack: it contains
+  `policy_packs`, or a backslash, which is how an escape could spell the key.
+  It reads each version once and keeps the answer in the hook state file
+  under `declared_policy_packs`. If the CLI cannot read a manifest that names
+  `policy_packs`, every file that manifest names is protected. A CLI that
+  does not start is asked again on the next event.
+
+**Evidence and fingerprints.** The row records `trust_root_class: policy` only
+where the trust-root table does not classify the path, as it records
+`manifest` for a custom-named manifest and `policy` for a custom `--policy`
+file. That keeps a gate-governing row out of the graded agent band. A
+`policies/**` row is byte-identical, with or without a declaration. A newly
+covered pack publishes a new row with a new fingerprint.
+
+**What does not change.** No schema, contract, rule ID, check ID, action,
+severity or `trust_root_class` value is added. `preflight` and
+`scan --changed-files` still classify with the trust-root table alone.
+
+**Who must act.** Re-run `agents-shipgate install-hooks --target claude-code
+--write` to update the hook script. A coding agent that edits a vendored pack
+now meets the same human stop locally that it met at the pull request.
+
+---
+
 <a id="host-commands-env-1027"></a>
 
 ## Migration Note: Unreleased — Claude Code commands and endpoint `env` entries are grants, and a settings change no row shows is not "no change" (host-grants `0.9`, #1027)
