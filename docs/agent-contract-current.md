@@ -1,6 +1,6 @@
 # Current Agent Contract
 
-Runtime contract v42, unreleased, stops an empty preflight plan from minting
+Runtime contract v42, new in 1.3.0, stops an empty preflight plan from minting
 authority (#610). Through preflight `0.5` a plan that named nothing to route
 returned the shared `complete` state, whose `permissions` grant `merge` and
 `report_complete`, with no verifier identity behind it. Preflight `0.6` has its
@@ -63,7 +63,7 @@ directory, still refuses its comparison. A `0.20` verifier claiming a partial
 comparison or a `scope` is refused. See
 [the migration note](../STABILITY.md#partial-host-comparison-808).
 
-Unreleased, still contract v42: a plain instruction document (`AGENTS.md`,
+New in 1.3.0, still contract v42: a plain instruction document (`AGENTS.md`,
 `AGENTS.override.md`, `CLAUDE.md`) that both sides read directly and that is
 refused only because it is past the 256 KiB instruction bound is withheld the
 same way (#973): the comparison is `partial`, and the document's own path is
@@ -813,7 +813,7 @@ Downstream repos generated with
 `.shipgate/agent-contract.json`.
 
 - Latest release: `v1.2.0`
-- In-tree runtime: `1.2.0` — see [pyproject.toml](../pyproject.toml)
+- In-tree runtime: `1.3.0` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `42` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
 - Current packet schema: `0.18` — [`docs/packet-schema.v0.18.json`](packet-schema.v0.18.json)
