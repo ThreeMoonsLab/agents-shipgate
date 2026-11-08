@@ -34,8 +34,8 @@ Proceed when `is_agent_project: true`, `suggested_sources` is non-empty,
 ## Parse outputs from JSON, not stdout
 
 Always read `agents-shipgate-reports/report.json` rather than scraping the
-markdown report. The current report schema is `docs/report-schema.v0.22.json`
-and emitted reports carry `report_schema_version: "0.22"`.
+markdown report. The current report schema is `docs/report-schema.v1.0.json`
+and emitted reports carry `report_schema_version: "1.0"`.
 
 For release gating, lead with `release_decision.decision`. It is baseline-aware
 and may be `"blocked"`, `"review_required"`, `"insufficient_evidence"`, or

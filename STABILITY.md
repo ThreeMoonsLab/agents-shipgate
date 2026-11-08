@@ -342,6 +342,13 @@ that cannot be expressed additively needs `2.0`. A deprecation cycle is counted
 in **shipped releases**, never in elapsed time on unreleased `main` — a
 deprecation nobody could install gave nobody the chance to migrate. Every
 published `docs/report-schema.v<version>.json` keeps its bytes forever.
+So does every other `docs/*-schema*.json` a release tag carries: each is
+pinned by sha256 in `scripts/published_schema_pins.json`, the generator refuses
+to rewrite one, and a change needs a successor schema version (#1044). A
+release bump no longer rewrites agent-handoff v9, agent-result v3 or
+agent-boundary-result v3: their schema default for `tool.version` stays
+`1.2.0`, the value v1.2.0 published (v1.0.0 and v1.1.0 each stamped its own
+version there), while the field itself still reports the running version.
 
 The freeze is conditional: it holds while no breaking change lands, and a
 breaking change restarts it and invalidates every qualification receipt
@@ -799,6 +806,61 @@ to relax `ci.mode` or `ci.fail_on` passes `--ci-mode` or `--fail-on`. In the
 Action, which always passes `--ci-mode`, a pull request that drops a severity
 from the base's `ci.fail_on` now fails the job while a finding of that
 severity is active; set the Action's `fail_on` input to override.
+
+---
+
+<a id="verify-manifest-bound-trust-roots-1075"></a>
+
+## Migration Note: Unreleased — the policy a manifest declares is a trust root wherever it lives (#1075)
+
+**What was wrong.** `SHIP-VERIFY-TRUST-ROOT-TOUCHED` classified a policy pack
+only by the `**/policies/**` glob, while `checks.policy_packs[].path` may name
+a file anywhere under the manifest's directory. A pull request that edited
+nothing but a pack declared elsewhere, such as the
+`vendor/shipgate-policies/org-release.yaml` that `docs/organization.md`
+recommends, raised no finding and could come back `mergeable`. #1024 had made a
+pack named with `--policy-pack` a trust root, but not one the manifest
+declares.
+
+**What changes.** The trust-root set `verify` classifies is broader.
+
+- Every in-repository path a manifest binds as the gate's policy is a touched
+  trust root when the change edits it: each `checks.policy_packs[].path`, with
+  `trust_root_class: policy`, and the audit log that vouches for an
+  in-repository `--baseline`, at `baseline.audit_log` or `baseline-audit.log`
+  beside the baseline, with `trust_root_class: shipgate_state` like the
+  baseline. The audit log is left out when `baseline.integrity_mode` is `off`,
+  because the scan does not read it then. For a path the trust-root table
+  does not already classify, `matched_glob` is the repository-relative path.
+- Paths resolve as the scan resolves them: a pack against the manifest's
+  directory, the audit log against the baseline's. A path outside the
+  repository is the operator's and is not classified.
+- The declarations come from the base manifest, read from the base commit
+  (the same read #1024 makes for the exit policy), and from the head manifest
+  the run loads. A change that removes a declaration and edits the file in the
+  same diff is judged against the base's declaration, so the file is still a
+  touched trust root beside the edited manifest. Without a base
+  (`--no-base`), or when the base holds no manifest this engine can read,
+  the head manifest's declarations apply alone.
+- A `--policy-pack`, `--baseline` or `--diff-from` named on the command line
+  keeps the class #1024 gives it.
+
+**Fingerprints.** A path the trust-root table already classifies keeps its
+class and glob, so its finding fingerprint does not move: a declared pack at
+`policies/org.yaml` is still reported under `**/policies/**`. A newly covered
+path publishes a finding with a new fingerprint; a baseline that should accept
+it reads it as new once.
+
+**What does not change.** No schema, contract, `base_status` value, check ID,
+severity or `trust_root_class` value is added. `scan` is unchanged, including
+`scan --changed-files`, whose verification context carries no configured
+inputs, so the sample goldens do not move. The governance benchmark is
+unchanged.
+
+**Who must act.** No configuration changes. A pull request that edits a
+declared pack outside `policies/**`, or the audit log of an in-repository
+baseline, now needs human review, as one that edits `policies/**` already did.
+Update a vendored pack through a human-reviewed pull request.
 
 ---
 
@@ -6050,7 +6112,10 @@ manifest's, and it alone sets the blocker severities and the verdict; with a
 base and without `--fail-on`, the base manifest's declared `ci.fail_on` also
 fails CI (exit `20`) for any active finding of those severities. An
 in-repository `--diff-from`, `--baseline` or `--policy-pack` file the change
-edits is reported by `SHIP-VERIFY-TRUST-ROOT-TOUCHED`.
+edits is reported by `SHIP-VERIFY-TRUST-ROOT-TOUCHED`, and so are a policy
+pack the base or head manifest declares and the audit log of an
+in-repository `--baseline`
+([migration note](#verify-manifest-bound-trust-roots-1075)).
 
 Before any trigger-skip can return success, non-preview `verify` also requires
 the resolved `--config` path to exist. A missing config is a configuration

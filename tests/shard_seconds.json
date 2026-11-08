@@ -435,11 +435,12 @@
   "tests/test_memory_bank_effects.py": 2.6,
   "tests/test_verification_receipt_consumers.py": 3.7,
   "tests/test_verify_base_and_gate_removal.py": 17.9,
-  "tests/test_verify_pr_controlled_inputs.py": 23.4,
+  "tests/test_verify_pr_controlled_inputs.py": 53.6,
   "tests/test_claude_command_settings.py": 21.0,
   "tests/test_step_summary_isolation.py": 3.9,
   "tests/test_host_grants_yaml_timestamps.py": 2.1,
   "tests/test_dependency_floors.py": 0.1,
+  "tests/test_published_schema_freeze.py": 17.1,
   "tests/test_capability_definition.py": 0.2,
   "tests/test_capability_payload_v2.py": 4.7,
   "tests/test_attest_approval.py": 0.2,
@@ -600,6 +601,17 @@
   },
   {
    "source": "junit",
+   "measured_at": "4809636c2d with issue #1044 published-schema freeze increment",
+   "report_sha256": "8e09f135dca74d3f9ffcab16012469d276cb39e9ce4366e538df5cbe6f2f125f",
+   "files": {
+    "tests/test_published_schema_freeze.py": 17.1
+   },
+   "case_count": 13,
+   "command": "python -m pytest tests/test_published_schema_freeze.py -n 4 --junitxml=freeze-timing.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
    "measured_at": "6294400944c5 with issue #1117 increment",
    "report_sha256": "87f762e39acde4f412473c8c1be81b8a3f172f8ef47e1967292e067e856e107c",
    "files": {
@@ -629,6 +641,17 @@
    },
    "case_count": 37,
    "command": "python -m pytest tests/test_attest_approval.py --junitxml=attest-approval.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "ea14fe22d9 with issue #1075 manifest-bound trust roots increment",
+   "report_sha256": "f5486d133ae94ed869954d701f4955f3c6dcd02ef111ca0eda191ed63e35ec5c",
+   "files": {
+    "tests/test_verify_pr_controlled_inputs.py": 53.6
+   },
+   "case_count": 37,
+   "command": "python -m pytest tests/test_verify_pr_controlled_inputs.py --junitxml=pr-controlled-inputs.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {

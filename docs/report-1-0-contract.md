@@ -52,10 +52,18 @@ receipt collected against the frozen schema — see
    consumer gates on, or changing what a value means is a major.
 3. **Every published schema URL keeps its bytes forever.** `docs/report-schema.v<version>.json`
    is immutable once committed; new content goes to a new version. This is
-   enforced by byte hash in `tests/test_effect_coverage.py`
-   (`_PUBLISHED_SCHEMA_SHA256`), because "committed equals generated" — which
-   is all `generate_schemas.py --check` proves — does not prove that a content
-   change moved the version.
+   enforced by byte hash, because "committed equals generated" does not prove
+   that a content change moved the version. Every `docs/*-schema*.json` a
+   release tag carries is pinned in `scripts/published_schema_pins.json`: the
+   set is derived from the tags, not from a hand list, and a published file
+   that is missing, unpinned or changed fails `generate_schemas.py --check` and
+   `tests/test_published_schema_freeze.py`. The generator refuses to rewrite
+   one and names the successor-version route instead (#1044). No schema
+   embeds the running package version any longer, so a release bump leaves
+   them all byte-identical: agent-handoff v9, agent-result v3 and
+   agent-boundary-result v3, which did, keep the `tool.version` default of
+   `1.2.0` that v1.2.0 published (v1.0.0 and v1.1.0 each stamped its own
+   version there).
 4. **A deprecation cycle is counted in shipped releases, never in elapsed
    time on unreleased `main`.** A surface deprecated in `1.n` may be removed no
    earlier than `2.0`, and only if `1.n` was actually published. Time a

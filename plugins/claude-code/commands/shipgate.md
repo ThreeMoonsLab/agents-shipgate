@@ -46,14 +46,22 @@ scanned. For committed PR/CI refs, make the base ref available first because
 
 Required behavior (do not skip):
 
-1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` for every CLI call so errors emit a `next_action` JSON line on stderr.
+1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` for every CLI call so the errors a
+   command handles itself emit a `next_action` JSON line on stderr. Usage
+   errors (an unknown option, a rejected option value) and some supporting
+   commands print prose only
+   ([#1040](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1040)),
+   and `verify` reports many failures in the `verifier.json` it prints; when
+   no JSON line appears, act on the message and the exit code.
 2. Run `agents-shipgate contract --json` when available and use it to verify the installed CLI's schema versions and gating signal.
 3. For verifier runs, read `agents-shipgate-reports/current-control.json` first,
    then validate the `agents-shipgate-reports/verification-receipt.json` it binds,
    then parse `agents-shipgate-reports/agent-handoff.json`,
    then `verifier.json`, `verify-run.json`, and
    `report.json.release_decision.decision` as the release gate.
-4. For check runs, parse stdout as `shipgate.agent_boundary_result/v1` and
+4. For check runs, parse stdout as `shipgate.agent_boundary_result/v3` (what
+   every 1.x release emits; `contract --json` names it as
+   `agent_boundary_result_schema_version`) and
    switch on `control.state`; follow `control.next_action`,
    `control.allowed_next_commands`, and `control.human_review`. Treat
    `decision` as diagnostic context only.

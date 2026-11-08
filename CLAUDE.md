@@ -25,11 +25,11 @@ For `scan`, parse `agents-shipgate-reports/report.json` directly — that's wher
 
 ## Slash command
 
-A `/shipgate` slash command is registered at [`.claude/commands/shipgate.md`](.claude/commands/shipgate.md). It runs the full bootstrap flow.
+A `/shipgate` slash command is registered at [`.claude/commands/shipgate.md`](.claude/commands/shipgate.md). It runs one of the prominent flows, not a bootstrap: `shipgate audit --host` when its arguments include `audit`, `shipgate check` when they include `check`, and `agents-shipgate verify` otherwise.
 
 ## Skills
 
-When invoking the CLI from a skill, set `AGENTS_SHIPGATE_AGENT_MODE=1` so errors include a structured `next_action` JSON line on stderr.
+When invoking the CLI from a skill, set `AGENTS_SHIPGATE_AGENT_MODE=1` so the errors a command handles itself add a structured `next_action` JSON line on stderr. Not every path does yet ([#1040](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1040)): Click/Typer usage errors and some supporting commands print prose only, and `verify` reports many failures in the `verifier.json` it prints. When no JSON line appears, act on the message and the exit code. [`AGENTS.md` § Agent mode](AGENTS.md#agent-mode) lists which commands emit it.
 
 ## Surface discipline
 
