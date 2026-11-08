@@ -2,7 +2,7 @@
 
 ## 1.3.0 - 2026-11-07
 
-An advisory-channel minor release. Most of it closes ways a change could pass
+An advisory-channel minor release. It closes several ways a change could pass
 review, or a secret could be published, unseen: `verify` reads an in-repository
 `--diff-from` and its exit policy from the base and stops when it has no base,
 a suppression no longer turns a blocked decision green, more secret shapes are
@@ -67,7 +67,7 @@ their published documents now declare a capability row closed (#1088).
 - Each baseline verifies against its own audit rows, the override tier gate reads the severity a finding was emitted at, and an optional policy pack's pin is fatal. (#1030)
 - `attest`, `org bundle` and the Action validate the verification receipt of current verify output. (#1022)
 - An attestation can record who approved the change: `attest --reviews <file>` reads the pull request reviews the workflow fetched and records an `approval` block, which never changes the verdict or an exit code. (#1118, #1124)
-- Control completion requires an explicitly evaluated subject: unreadable or irrelevant input and a detached `check` diff deny every permission. (#930)
+- Control completion requires an explicitly evaluated subject: unreadable or irrelevant MCP input and a detached `check` diff deny every permission. (#930)
 - An empty preflight plan no longer grants merge or completion. (#610)
 
 ### Host comparison
