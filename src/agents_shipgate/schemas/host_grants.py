@@ -1207,8 +1207,8 @@ class HostWorkflowGrantV9(HostWorkflowGrantV7):
 #: this entry reads, and ``unknown`` for an MCP configuration no declaration
 #: this entry reads selects while another host's plugin manifest sits beside
 #: it. ``unknown`` names no host: it says which host loads the servers is not
-#: established, so they are not Claude Code's by the file name. Extended in
-#: place: ``0.9`` has not shipped in a tagged release.
+#: established, so they are not Claude Code's by the file name. New in
+#: ``0.9``.
 HostNameV9 = Literal["codex", "claude-code", "cursor", "vscode", "github", "openshell", "unknown"]
 McpHostNameV9 = Literal["codex", "claude-code", "cursor", "vscode", "github", "unknown"]
 
@@ -1222,7 +1222,7 @@ class HostMcpLaunchSourceV9(HostMcpLaunchSourceV7):
     registry into its cache, and the declaration does not establish which. It
     is absent for every other source. ``pin`` keeps #825's meaning, a fact of
     the declaration. Display-only, like the rest of ``launch_source``.
-    Extended in place: ``0.9`` has not shipped in a tagged release.
+    New in ``0.9``.
     """
 
     resolution: Literal["local_project_or_registry"] | None = Field(
@@ -1240,8 +1240,7 @@ class HostMcpServerGrantV9(HostMcpServerGrantV7):
     #: that the redaction ``config_sha256``'s input applies or the label
     #: redaction would rewrite. An entry that is not such a name is not
     #: published. Display-only, left out of grant equality, the inventory
-    #: digests and saved baselines, like ``package``. Extended in place: ``0.9``
-    #: has not shipped in a tagged release.
+    #: digests and saved baselines, like ``package``. New in ``0.9``.
     env_var_names: list[str] = Field(default_factory=list)
 
 
@@ -1409,8 +1408,7 @@ class HostCommandSettingGrantV9(HostGrantBaseV2):
     (:class:`HostHookCommandV9`): the executable's name, a digest and a
     shape, never its text, and absent when the value holds no string command.
     Like a hook's handlers it is display-only: left out of grant equality,
-    the inventory digests and saved baselines. Extended in place: ``0.9`` has
-    not shipped in a tagged release.
+    the inventory digests and saved baselines. New in ``0.9``.
     """
 
     kind: Literal["command_setting"] = "command_setting"
@@ -1436,8 +1434,7 @@ class HostEnvGrantV9(HostGrantBaseV2):
     ``GIT_EXEC_PATH``, ``GIT_ASKPASS``, ``SSH_ASKPASS``). The value is never
     published: ``config_sha256`` is its digest as every grant's input holds
     it, with credential shapes and a URL's path withheld, so a value change is
-    a ``changed`` row. Extended in place: ``0.9`` has not shipped in a tagged
-    release.
+    a ``changed`` row. New in ``0.9``.
     """
 
     kind: Literal["env"] = "env"
@@ -1509,7 +1506,7 @@ class HostArtifactV9(HostArtifactV8):
     #: names the ones whose digest differs, so a change confined to them is
     #: never read as no change. Display-only: left out of artifact equality,
     #: the inventory digests and saved baselines, since ``redacted_sha256``
-    #: already moves whenever one does. Extended in place.
+    #: already moves whenever one does. New in ``0.9``.
     unmodelled_keys: list[HostUnmodelledKeyV9] | None = Field(
         default=None, exclude_if=lambda value: value is None,
     )

@@ -17,7 +17,7 @@ Two pieces of agent-facing surface ship with this repo. Drop them into your own 
 
 | Surface | What it does | Source path in this repo |
 |---|---|---|
-| `/shipgate` slash command | Bootstrap flow: install → `init --write` → fill placeholders → `scan` → report top findings | [`.claude/commands/shipgate.md`](../../.claude/commands/shipgate.md) |
+| `/shipgate` slash command | Runs one prominent flow: `shipgate audit --host` when the arguments include `audit`, `shipgate check` when they include `check`, and `agents-shipgate verify` otherwise. It does not install the CLI or write `shipgate.yaml`; the skill's bootstrap recipe does. | [`.claude/commands/shipgate.md`](../../.claude/commands/shipgate.md) |
 | `agents-shipgate` skill | Auto-discovered when the user mentions release readiness, scanning an agent, fixing a finding, adding Shipgate to CI, or `shipgate.yaml`. Routes to bundled recipes. | [`skills/agents-shipgate/SKILL.md`](../../skills/agents-shipgate/SKILL.md) |
 
 The skill is named `agents-shipgate`, not `shipgate`, on purpose: Claude Code lets a skill with the same name as a command preempt it, which would silently bypass the `/shipgate` slash command. Keeping the names distinct lets users invoke the slash command explicitly **and** lets the skill auto-trigger on relevant phrases.
@@ -115,12 +115,13 @@ with `--agent-instructions-kit <path>`.
 
 Open Claude Code in the project. Two checks:
 
-1. Type `/shipgate` and confirm the command shows up. It should run the bootstrap flow (slash command, NOT the skill).
+1. Type `/shipgate` and confirm the command shows up. It should run the verifier flow (slash command, NOT the skill); `/shipgate check` and `/shipgate audit` run the other two.
 2. In a fresh chat, ask "add Tool-Use Readiness checks for this agent" without saying the word "shipgate" — the `agents-shipgate` skill should auto-trigger.
 
-If `/shipgate` runs the bootstrap end-to-end, the first path is working. The
-first run installs `agents-shipgate` via `pipx`, generates `shipgate.yaml`, and
-produces `agents-shipgate-reports/report.json`.
+If `/shipgate` runs `agents-shipgate verify` and reports the merge verdict, the
+first path is working. The command does not install `agents-shipgate` or write
+`shipgate.yaml`; in a repository without them, run the skill's bootstrap recipe
+(`prompts/add-shipgate-to-repo.md`) first.
 
 For ongoing PRs, ask `/shipgate` to verify the PR. Claude Code should read
 `prompts/verify-agent-diff.md` and run the canonical PR gate:
@@ -142,10 +143,11 @@ It should then summarize `verifier.json.merge_verdict`,
 
 ## Verify an agent PR
 
-The bootstrap flow above wires Shipgate into a repo. On any PR that changes
-agent tools, MCP exports, OpenAPI specs, prompts, permissions, policies, CI
-gates, or `shipgate.yaml`, Claude Code should run the local control check before
-reporting the change as complete, then run `verify` for PR/reviewer evidence:
+The bootstrap recipe (`prompts/add-shipgate-to-repo.md`) wires Shipgate into a
+repo. On any PR that changes agent tools, MCP exports, OpenAPI specs, prompts,
+permissions, policies, CI gates, or `shipgate.yaml`, Claude Code should run the
+local control check before reporting the change as complete, then run `verify`
+for PR/reviewer evidence:
 
 ```bash
 shipgate check --agent claude-code --workspace . --format agent-boundary-json

@@ -1,6 +1,6 @@
-# Stability Contract · 1.2.0
+# Stability Contract · 1.3.0
 
-Unreleased #911: application comparison `0.4` adds optional `agent_settings`
+New in 1.3.0, #911: application comparison `0.4` adds optional `agent_settings`
 on a clone's binding side. Recognized source literals can change a row's
 compared declaration; they add no binding, release verdict or merge authority.
 Exact source-local SDK clones have their own bindings. Unknown receivers,
@@ -9,7 +9,7 @@ See [the application contract](docs/application-comparison.md).
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
-Unreleased, runtime contract v42: an empty preflight plan no longer mints
+New in 1.3.0, runtime contract v42: an empty preflight plan no longer mints
 authority (#610). Through preflight `0.5`, a plan that named nothing to route
 returned the shared `complete` state with every permission granted, `merge`
 and `report_complete` included, and no verifier identity behind it. Preflight
@@ -19,7 +19,7 @@ Preflight never returns `complete` or `review_publishable`. `0.5` stays frozen
 and readable. `minimum_control_contract_version` stays `21`. See
 [the migration note](#planning-only-preflight-610).
 
-Also unreleased, in runtime contract v42: `complete` requires an evaluated
+Also new in 1.3.0, in runtime contract v42: `complete` requires an evaluated
 subject (#930). A detached `check` input (`--diff`, stdin or MCP `diff_text`)
 now returns `human_review_required` for every diff, an empty one included,
 and `mcp audit` grants nothing when its input was empty, named no recognized
@@ -27,20 +27,20 @@ MCP source, or was unreadable or structurally incomplete, whatever its
 `decision` says. No published schema or control state changes. See
 [the migration note](#evaluated-subject-930).
 
-Also unreleased: a GitHub workflow row states the event context, each job's
+Also new in 1.3.0: a GitHub workflow row states the event context, each job's
 token scopes and a calling job's permission ceiling apart (#920, #921, #924).
 A read-only `pull_request_target` workflow reads `access: read` and is never
 said to grant write; a same-repository reusable workflow's own `permissions`
 are read, so a ceiling it withholds is not a widening; and re-pinning an
 inheriting call to another reference is a `changed` row. Host-grants `0.9`,
-unreleased, gains two optional members on a reusable call. No control state
+new in 1.3.0, gains two optional members on a reusable call. No control state
 or `check` decision changes. See
 [the migration note](#actions-token-scopes-921).
 
-Also unreleased: Claude Code settings that run a command (`statusLine`,
+Also new in 1.3.0: Claude Code settings that run a command (`statusLine`,
 `apiKeyHelper` and five more) and `env` entries that redirect requests or load
 code (`ANTHROPIC_BASE_URL`, `NODE_OPTIONS`, …) are host grants and rows
-(#1027). Host-grants `0.9`, unreleased, gains `command_setting` and `env`
+(#1027). Host-grants `0.9`, new in 1.3.0, gains `command_setting` and `env`
 grants and a display-only `unmodelled_keys` on settings artifacts; a settings
 file that changed with no row headlines `Changed, not compared` instead of
 `No static host-grant changes detected`. No `check` decision changes. See
@@ -342,6 +342,13 @@ that cannot be expressed additively needs `2.0`. A deprecation cycle is counted
 in **shipped releases**, never in elapsed time on unreleased `main` — a
 deprecation nobody could install gave nobody the chance to migrate. Every
 published `docs/report-schema.v<version>.json` keeps its bytes forever.
+So does every other `docs/*-schema*.json` a release tag carries: each is
+pinned by sha256 in `scripts/published_schema_pins.json`, the generator refuses
+to rewrite one, and a change needs a successor schema version (#1044). A
+release bump no longer rewrites agent-handoff v9, agent-result v3 or
+agent-boundary-result v3: their schema default for `tool.version` stays
+`1.2.0`, the value v1.2.0 published (v1.0.0 and v1.1.0 each stamped its own
+version there), while the field itself still reports the running version.
 
 The freeze is conditional: it holds while no breaking change lands, and a
 breaking change restarts it and invalidates every qualification receipt
@@ -358,7 +365,7 @@ the Action tag) for reproducible CI.
 
 <a id="capability-definitions"></a>
 
-## Migration Note: Unreleased — the capability lock records tool definitions (capability standard `0.6`, lock `0.9`, lock diff `0.10`, #1117)
+## Migration Note: 1.3.0 — the capability lock records tool definitions (capability standard `0.6`, lock `0.9`, lock diff `0.10`, #1117)
 
 **What was wrong.** A capability fact hashed a tool's input schema
 (`schema_hash`) but nothing else the client hands the model about the tool. A
@@ -425,7 +432,7 @@ changes nothing; one that needs definition changes reads the `v2` file.
 
 <a id="attestation-approval"></a>
 
-## Migration Note: Unreleased — an attestation can record who approved the change (attestation `0.6`, registry `0.5`, #1118)
+## Migration Note: 1.3.0 — an attestation can record who approved the change (attestation `0.6`, registry `0.5`, #1118)
 
 **What was wrong.** An attestation recorded who triggered the run
 (`org.actor`) and what the manifest declared (`human_ack`), but not who
@@ -583,7 +590,7 @@ checked against the ledger it came from.
 
 <a id="trust-config-1030"></a>
 
-## Migration Note: Unreleased — each baseline verifies against its own audit rows, the override tier gate reads emitted severity, and an optional pack's pin is fatal (#1030)
+## Migration Note: 1.3.0 — each baseline verifies against its own audit rows, the override tier gate reads emitted severity, and an optional pack's pin is fatal (#1030)
 
 **What was wrong.** Three trust-configuration checks compared against the
 wrong reference.
@@ -693,7 +700,7 @@ never drops below the defaults it used before.
 
 <a id="secret-observations-1026"></a>
 
-## Migration Note: Unreleased — secret and injection observations are published, and redaction rules `0.2` (#1026)
+## Migration Note: 1.3.0 — secret and injection observations are published, and redaction rules `0.2` (#1026)
 
 **What was wrong.** A live key or "ignore all previous instructions" in a tool
 description was detected by `SHIP-DOC-SECRET-IN-DESCRIPTION` or
@@ -776,7 +783,7 @@ and the capability delta attestation) stays unredacted, as before, pending
 
 <a id="verify-pr-controlled-inputs-1024"></a>
 
-## Migration Note: Unreleased — `verify` reads PR-controlled inputs from the base (#1024)
+## Migration Note: 1.3.0 — `verify` reads PR-controlled inputs from the base (#1024)
 
 **What was wrong.** Two inputs that decide a pull request's verdict or exit
 code were read from the pull request's own head. A `--diff-from` path inside
@@ -846,9 +853,64 @@ severity is active; set the Action's `fail_on` input to override.
 
 ---
 
+<a id="verify-manifest-bound-trust-roots-1075"></a>
+
+## Migration Note: 1.3.0 — the policy a manifest declares is a trust root wherever it lives (#1075)
+
+**What was wrong.** `SHIP-VERIFY-TRUST-ROOT-TOUCHED` classified a policy pack
+only by the `**/policies/**` glob, while `checks.policy_packs[].path` may name
+a file anywhere under the manifest's directory. A pull request that edited
+nothing but a pack declared elsewhere, such as the
+`vendor/shipgate-policies/org-release.yaml` that `docs/organization.md`
+recommends, raised no finding and could come back `mergeable`. #1024 had made a
+pack named with `--policy-pack` a trust root, but not one the manifest
+declares.
+
+**What changes.** The trust-root set `verify` classifies is broader.
+
+- Every in-repository path a manifest binds as the gate's policy is a touched
+  trust root when the change edits it: each `checks.policy_packs[].path`, with
+  `trust_root_class: policy`, and the audit log that vouches for an
+  in-repository `--baseline`, at `baseline.audit_log` or `baseline-audit.log`
+  beside the baseline, with `trust_root_class: shipgate_state` like the
+  baseline. The audit log is left out when `baseline.integrity_mode` is `off`,
+  because the scan does not read it then. For a path the trust-root table
+  does not already classify, `matched_glob` is the repository-relative path.
+- Paths resolve as the scan resolves them: a pack against the manifest's
+  directory, the audit log against the baseline's. A path outside the
+  repository is the operator's and is not classified.
+- The declarations come from the base manifest, read from the base commit
+  (the same read #1024 makes for the exit policy), and from the head manifest
+  the run loads. A change that removes a declaration and edits the file in the
+  same diff is judged against the base's declaration, so the file is still a
+  touched trust root beside the edited manifest. Without a base
+  (`--no-base`), or when the base holds no manifest this engine can read,
+  the head manifest's declarations apply alone.
+- A `--policy-pack`, `--baseline` or `--diff-from` named on the command line
+  keeps the class #1024 gives it.
+
+**Fingerprints.** A path the trust-root table already classifies keeps its
+class and glob, so its finding fingerprint does not move: a declared pack at
+`policies/org.yaml` is still reported under `**/policies/**`. A newly covered
+path publishes a finding with a new fingerprint; a baseline that should accept
+it reads it as new once.
+
+**What does not change.** No schema, contract, `base_status` value, check ID,
+severity or `trust_root_class` value is added. `scan` is unchanged, including
+`scan --changed-files`, whose verification context carries no configured
+inputs, so the sample goldens do not move. The governance benchmark is
+unchanged.
+
+**Who must act.** No configuration changes. A pull request that edits a
+declared pack outside `policies/**`, or the audit log of an in-repository
+baseline, now needs human review, as one that edits `policies/**` already did.
+Update a vendored pack through a human-reviewed pull request.
+
+---
+
 <a id="host-commands-env-1027"></a>
 
-## Migration Note: Unreleased — Claude Code commands and endpoint `env` entries are grants, and a settings change no row shows is not "no change" (host-grants `0.9`, #1027)
+## Migration Note: 1.3.0 — Claude Code commands and endpoint `env` entries are grants, and a settings change no row shows is not "no change" (host-grants `0.9`, #1027)
 
 **What was wrong.** Claude Code runs `statusLine.command` and `apiKeyHelper`
 as shell commands, and an `env` entry such as `ANTHROPIC_BASE_URL` or
@@ -916,7 +978,7 @@ before its comparison is complete.
 
 <a id="mcp-reader-conformance-1025"></a>
 
-## Migration Note: Unreleased — n8n's `include`, MCP secrets forwarded by name, and the host MCP files a `codex_config` source does not read (#1025)
+## Migration Note: 1.3.0 — n8n's `include`, MCP secrets forwarded by name, and the host MCP files a `codex_config` source does not read (#1025)
 
 **What was wrong.** Three readers did not match what the tools they read
 write. n8n's MCP Client Tool selects its tools with `include` (`all`,
@@ -971,7 +1033,7 @@ permission is added, and `minimum_control_contract_version` stays `21`.
 
 <a id="verify-base-unresolved-1023"></a>
 
-## Migration Note: Unreleased — `verify` stops without a base, and a deleted manifest is a removed gate (#1023)
+## Migration Note: 1.3.0 — `verify` stops without a base, and a deleted manifest is a removed gate (#1023)
 
 **What was wrong.** With neither `--base` nor `--no-base`, `verify` tried
 `origin/HEAD`, `origin/main` and `origin/master` only. Where none existed — a
@@ -1032,7 +1094,7 @@ needs a human to approve it.
 
 <a id="receipt-predicate-1022"></a>
 
-## Migration Note: Unreleased — `attest`, `org bundle` and the Action validate the verification receipt (#1022)
+## Migration Note: 1.3.0 — `attest`, `org bundle` and the Action validate the verification receipt (#1022)
 
 **What was wrong.** The three consumers of `verification-receipt.json` decided
 whether to validate it from a list of the versions current when receipts
@@ -1093,7 +1155,7 @@ predicate validates a receipt only when one is present.
 
 <a id="exec-trust-opt-in-1020"></a>
 
-## Migration Note: Unreleased — `bootstrap` children run with `-P`, and capability locks load plugins only on the opt-in (#1020)
+## Migration Note: 1.3.0 — `bootstrap` children run with `-P`, and capability locks load plugins only on the opt-in (#1020)
 
 **What was wrong.** `bootstrap` re-entered the CLI as
 `<sys.executable> -m agents_shipgate` with the workspace under review as the
@@ -1144,7 +1206,7 @@ is used as written; add `-P` to it.
 
 <a id="actions-token-scopes-921"></a>
 
-## Migration Note: Unreleased — GitHub Actions token scopes (host-grants `0.9`, #920, #921, #924)
+## Migration Note: 1.3.0 — GitHub Actions token scopes (host-grants `0.9`, #920, #921, #924)
 
 **What was wrong.** Published `1.2.0` fused three facts on a workflow row. A
 `pull_request_target` workflow whose jobs declare only `contents: read` and
@@ -1215,7 +1277,7 @@ See [`docs/host-boundary-support.md`](docs/host-boundary-support.md#workflow-tok
 
 <a id="mcp-row-wording-929-933"></a>
 
-## Migration Note: Unreleased — MCP rows bounded to the read declaration (host-grants `0.9`, #929, #933)
+## Migration Note: 1.3.0 — MCP rows bounded to the read declaration (host-grants `0.9`, #929, #933)
 
 **What was wrong.** Published `1.2.0` worded two MCP rows past what a static
 read establishes. A `.mcp.json` removed while the same server moved inline
@@ -1266,7 +1328,7 @@ CLI flag, control state or permission is added.
 
 <a id="hook-matcher-reach-940"></a>
 
-## Migration Note: Unreleased — a hook whose matchers match no tool name is not a widening (host-grants `0.9`, #940)
+## Migration Note: 1.3.0 — a hook whose matchers match no tool name is not a widening (host-grants `0.9`, #940)
 
 **What was wrong.** Published `1.2.0` counted every added Claude Code hook a
 settings file declares as a widening, whatever its matcher. A `PreToolUse`
@@ -1313,7 +1375,7 @@ state or permission is added. `minimum_control_contract_version` stays `21`.
 
 <a id="oversized-instruction-document-973"></a>
 
-## Migration Note: Unreleased — a long plain instruction document no longer hides the rest (#973)
+## Migration Note: 1.3.0 — a long plain instruction document no longer hides the rest (#973)
 
 **What was wrong.** saleor/storefront#1252 adds `.mcp.json` and
 `.cursor/mcp.json`, each launching `next-devtools-mcp@latest`, and
@@ -1380,7 +1442,7 @@ to mean a hook script should read `limit` (`unreadable` for a script,
 
 <a id="hook-command-shape-934"></a>
 
-## Migration Note: Unreleased — a hook row describes an inline command's structure, or says to open the config (host-grants `0.9`, #934)
+## Migration Note: 1.3.0 — a hook row describes an inline command's structure, or says to open the config (host-grants `0.9`, #934)
 
 **What was wrong.** Published `1.2.0` showed an inline hook command as the name
 of its first word and a digest. CirrusRedOrg/EntityFrameworkCore.Jet#303 changed
@@ -1444,7 +1506,7 @@ release changes. No check ID, CLI flag, control state or permission is added.
 
 <a id="hook-args-and-settings-972"></a>
 
-## Migration Note: Unreleased — a hook row names its `args` and settings (host-grants `0.9`, #972, #971)
+## Migration Note: 1.3.0 — a hook row names its `args` and settings (host-grants `0.9`, #972, #971)
 
 **What was wrong.** Published `1.2.0` read a Claude Code command hook's
 exec-form `args`, and its `async` or `asyncRewake` setting, only through
@@ -1497,7 +1559,7 @@ unknown`. A rotation the digest's input already redacts is still no row
 
 <a id="mcp-env-var-names-795"></a>
 
-## Migration Note: Unreleased — an MCP row names the `env_vars` that changed (host-grants `0.9`, #795)
+## Migration Note: 1.3.0 — an MCP row names the `env_vars` that changed (host-grants `0.9`, #795)
 
 **What was wrong.** An MCP server grant published the keys of its `env` map
 and of its `headers` map, and nothing for an `env_vars` list. Replaying
@@ -1549,7 +1611,7 @@ added. `minimum_control_contract_version` stays `21`.
 
 <a id="url-permission-rules-922"></a>
 
-## Migration Note: Unreleased — a URL in a permission rule keeps its rule (#922)
+## Migration Note: 1.3.0 — a URL in a permission rule keeps its rule (#922)
 
 **What was wrong.** The settings reader published a URL inside a Claude Code
 or Cursor permission rule as its scheme and host followed by
@@ -1587,7 +1649,7 @@ stays `21`.
 
 <a id="claude-permission-rule-model-918"></a>
 
-## Migration Note: Unreleased — the Claude Code permission-rule model (host-grants `0.9`, #918, #941, #969, #974, #938)
+## Migration Note: 1.3.0 — the Claude Code permission-rule model (host-grants `0.9`, #918, #941, #969, #974, #938)
 
 **What was wrong.** Published `1.2.0` compared Claude Code `allow`, `ask` and
 `deny` rules as set members. Respelling `Bash(git add:*)` as
@@ -1650,7 +1712,7 @@ readers. `minimum_control_contract_version` stays `21`.
 
 <a id="mcp-declaration-host-936"></a>
 
-## Migration Note: Unreleased — the host a `.mcp.json` belongs to (host-grants `0.9`, #936, #970)
+## Migration Note: 1.3.0 — the host a `.mcp.json` belongs to (host-grants `0.9`, #936, #970)
 
 **What was wrong.** The boundary registry finds `.mcp.json` by its file name
 at any depth, and published `1.2.0` made every one a Claude Code declaration
@@ -1710,7 +1772,7 @@ candidates still list a `.mcp.json` under `claude-code` from its file name.
 
 <a id="evaluated-subject-930"></a>
 
-## Migration Note: Unreleased — completion requires an evaluated subject (contract v42, #930)
+## Migration Note: 1.3.0 — completion requires an evaluated subject (contract v42, #930)
 
 **What was wrong.** A result that carried no obligation returned the shared
 `complete` state, whose permissions include `merge` and `report_complete`,
@@ -1755,7 +1817,7 @@ unconfigured repository too, still completes.
 
 <a id="planning-only-preflight-610"></a>
 
-## Migration Note: Unreleased — planning-only preflight (preflight `0.6`, contract v42, #610)
+## Migration Note: 1.3.0 — planning-only preflight (preflight `0.6`, contract v42, #610)
 
 **What was wrong.** Preflight answers a question about a change that has not
 been made yet, so it never has an evaluated change to stand behind. Yet a plan
@@ -6094,7 +6156,10 @@ manifest's, and it alone sets the blocker severities and the verdict; with a
 base and without `--fail-on`, the base manifest's declared `ci.fail_on` also
 fails CI (exit `20`) for any active finding of those severities. An
 in-repository `--diff-from`, `--baseline` or `--policy-pack` file the change
-edits is reported by `SHIP-VERIFY-TRUST-ROOT-TOUCHED`.
+edits is reported by `SHIP-VERIFY-TRUST-ROOT-TOUCHED`, and so are a policy
+pack the base or head manifest declares and the audit log of an
+in-repository `--baseline`
+([migration note](#verify-manifest-bound-trust-roots-1075)).
 
 Before any trigger-skip can return success, non-preview `verify` also requires
 the resolved `--config` path to exist. A missing config is a configuration

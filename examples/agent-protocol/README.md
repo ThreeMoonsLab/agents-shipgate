@@ -3,7 +3,7 @@
 These examples preserve the deprecated `shipgate check` /
 `shipgate.codex_boundary_result/v2` compatibility projection. New consumers
 should request `agent-boundary-json` and parse
-`shipgate.agent_boundary_result/v2`.
+`shipgate.agent_boundary_result/v3`.
 
 Run a fixture diff:
 

@@ -187,8 +187,15 @@ one read-only tool to two, and the new one carries a wildcard Stripe scope:
 +    "auth": { "type": "oauth2", "scopes": ["stripe:*"] } }
 ```
 
-The manifest still declares one scope, `support:kb:read`, and no approval
-policy. The diff looks fine to a human skimming it. Run the committed sample:
+The diff looks fine to a human skimming it. The sample's base manifest was
+written ahead of it: `permissions.scopes` grants only `support:kb:read` and there
+is no approval policy, but `agent_bindings` already binds
+`stripe.create_refund` to the agent, and `action_surface` already declares it
+`destructive`, tagged `financial_action`, with the `stripe:*` scope — a
+reviewed declaration that stays dormant until the export adds the tool. That
+binding is what lets the gate name blockers. Without it, the same diff returns
+`insufficient_evidence` and asks a human to declare the tool's binding in
+`shipgate.yaml#agent_bindings`. Run the committed sample:
 
 ```bash
 uvx agents-shipgate fixture run ai_generated_refund_pr
@@ -302,11 +309,12 @@ declared and statically discoverable surface says. See
 > in [ROADMAP.md](ROADMAP.md#publication-and-evidence) rather than relabeled as
 > passes. The real-history numbers that follow are older, measured on
 > 2026-07-08 on the released `v0.15.0` engine and not re-run since: on
-> the **19 unique labeled engine-engaged PRs** mined from **8 distinct** real
-> agent repos, the gate **never auto-passed an unsafe
-> change** (`must_block_caught` / `needs_human_caught` = 1.0). **But it routes
-> to review, it does not block:** real-history `blocked_recall` is still
-> **0.0** — both `must_block` PRs return `human_review_required` /
+> the **19 unique labeled engine-engaged PRs** mined from **5 distinct** real
+> agent repos (of the 8 the mining runs covered), the gate **never
+> auto-passed an unsafe change** (`must_block_caught` /
+> `needs_human_caught` = 1.0). **But it routes to review, it does not
+> block:** real-history `blocked_recall` is still **0.0** — both
+> `must_block` PRs return `human_review_required` /
 > `review_required`. That release also escalated 4 of 14 safe PRs to review
 > (`benign_escalation_rate` 0.286, largely a cold-start whole-repo-surface
 > artifact on large repos). Reliable blocked-recall and zero benign escalation
@@ -451,10 +459,14 @@ order, and what each artifact carries, is in
 Run `agents-shipgate contract --json` before relying on hard-coded schema or
 gating assumptions; the permission-scoped agent-control model requires
 `minimum_control_contract_version: "21"`. Every command has a `--json` form.
-Errors emit a structured `next_action` line on stderr when agent mode is active
-— set `AGENTS_SHIPGATE_AGENT_MODE=1`, or rely on auto-detection inside a coding
-agent harness (Claude Code exports `CLAUDECODE=1`, Cursor `CURSOR_TRACE_ID`).
-`AGENTS_SHIPGATE_AGENT_MODE=0` forces it off.
+When agent mode is active, the errors a command handles itself emit a
+structured `next_action` line on stderr — set `AGENTS_SHIPGATE_AGENT_MODE=1`,
+or rely on auto-detection inside a coding agent harness (Claude Code exports
+`CLAUDECODE=1`, Cursor `CURSOR_TRACE_ID`). `AGENTS_SHIPGATE_AGENT_MODE=0`
+forces it off. Not every path emits the line yet
+([#1040](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1040)): usage
+errors and some supporting commands print prose only; see
+[`AGENTS.md` § Agent mode](AGENTS.md#agent-mode).
 
 ## Exit codes
 

@@ -30,11 +30,31 @@ AgentResultPolicySource = Literal[
 ]
 
 
+#: The JSON-schema default of ``tool.version`` in the published
+#: ``docs/agent-result-schema.v3.json`` and
+#: ``docs/agent-boundary-result-schema.v3.json``, which both embed this model.
+#: The field's default used to be the running package version, so every
+#: release rewrote both files' bytes under unchanged schema versions (#1044).
+#: Those bytes are now frozen as published: the runtime default is still the
+#: running version, and only the schemas keep this constant. A successor schema
+#: version must emit no release-specific default. Give it a tool model without
+#: ``json_schema_extra`` rather than dropping it here, which would change the
+#: bytes of whichever v3 file is still generated from this model.
+_PUBLISHED_V3_TOOL_VERSION_DEFAULT = "1.2.0"
+
+
+def _running_version() -> str:
+    return __version__
+
+
 class AgentResultTool(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = "agents-shipgate"
-    version: str = __version__
+    version: str = Field(
+        default_factory=_running_version,
+        json_schema_extra={"default": _PUBLISHED_V3_TOOL_VERSION_DEFAULT},
+    )
 
 
 class AgentResultSubject(BaseModel):

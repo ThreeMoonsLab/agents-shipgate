@@ -52,6 +52,10 @@ checks:
 `policy_pack_unpinned`, and reports changed content as
 `policy_pack_pin_mismatch`. Normal `scan` still fails closed on a pin mismatch,
 for an `optional: true` pack too.
+A declared pack is a release trust root wherever it lives: `verify` reports a
+pull request that edits it with `SHIP-VERIFY-TRUST-ROOT-TOUCHED` (class
+`policy`), so a human reviews the change, including one that also removes the
+declaration.
 For a read-only policy-pack inventory, run:
 
 ```bash

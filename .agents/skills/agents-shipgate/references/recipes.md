@@ -26,8 +26,12 @@ pipx upgrade agents-shipgate
 ```
 
 Do not report the task complete until the CLI exists and reports runtime
-contract 21. Local boundary checks emit `shipgate.agent_boundary_result/v2`;
-legacy v1 fixtures are retained only for older protocol integrations.
+contract 21. Local boundary checks emit the schema that
+`contract --json` names as `agent_boundary_result_schema_version`: every 1.x
+release emits `shipgate.agent_boundary_result/v3`. A 0.16 pre-release can also
+report contract 21 and emits `/v2`, which carries the same `control`
+object without the comparison `rows`. Legacy v1 fixtures are retained only for
+older protocol integrations.
 
 ## Local Agent Check
 

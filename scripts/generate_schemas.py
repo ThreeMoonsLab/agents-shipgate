@@ -106,6 +106,16 @@ memory (running the same post-processing as ``write``) and compares it to the
 committed file. Drift exits non-zero with a unified diff preview, so a Pydantic
 model edit that forgets to regenerate fails CI fast with an actionable message.
 
+A ``docs/*-schema*.json`` file that a release tag carries is published and
+never rewritten (#1044; see "Published-schema freeze" below). When
+regenerating would change one, the generator writes nothing, exits 1, and says
+the change needs a successor schema version. ``--check`` also reports a
+published file that is missing, unpinned, or no longer matches its pin in
+``scripts/published_schema_pins.json``. ``--pin`` adds the pins a release is
+missing and never changes an existing one:
+
+    python scripts/generate_schemas.py --pin      # release preparation
+
 Tests should import ``build_*_schema`` directly — they return ``(Path, str)``
 tuples without touching disk, so unit tests stay subprocess-free.
 """
@@ -114,11 +124,15 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import fnmatch
+import hashlib
 import json
+import re
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, NamedTuple, get_args
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS = REPO_ROOT / "docs"
@@ -188,6 +202,320 @@ def _emit(target: Path, content: str, *, check_only: bool, drift: list[str]) -> 
     target.write_text(content, encoding="utf-8")
     print(f"Wrote {relative}")
     return True
+
+
+# --- Published-schema freeze (#1044) ----------------------------------------
+#
+# A docs/*-schema*.json file is published once a release tag carries it. Its
+# `$id` is a raw URL consumers fetch and pin by digest, so its bytes never
+# change again: new content goes to a successor schema version
+# (docs/report-1-0-contract.md, rule 3). "Committed equals generated", which is
+# all the drift check proves, cannot show that, so three things hold it:
+#
+# - PINS_PATH records the sha256 of every published file. A deliberate
+#   re-freeze edits a pin, where a reviewer sees it, and is recorded under
+#   `refrozen` when the bytes then differ from a release that shipped them.
+# - `freeze_violations()` derives the published set from the release tags
+#   rather than from a hand list, and reports a published file that is
+#   missing, has no pin, no longer matches its pin, or differs from what the
+#   newest release carrying it published. `--check` runs it, and so does
+#   tests/test_published_schema_freeze.py.
+# - `main()` refuses to rewrite a published or pinned file: when regenerating
+#   would change one, it writes nothing at all and exits 1.
+#
+# Release tags come from git. Where none can be read (a shallow clone, a
+# source archive) the generator falls back to the pin manifest for the
+# published set rather than failing closed. That loses nothing on a commit CI
+# passed: CI fetches tags and fails when a tag-published file has no pin, so
+# there the manifest names every published file. The two checks that need the
+# tags themselves (a missing pin, the newest release's bytes) are skipped with
+# a note; the freeze tests, which need them, fail instead.
+#
+# While the package version has no tag yet (release preparation: the version
+# is bumped, the tag not cut), every schema document on disk is about to be
+# published, so every one must be pinned before the tag exists. `--pin` adds
+# those pins.
+
+_PINS_SHOWN = "scripts/published_schema_pins.json"
+PINS_PATH = REPO_ROOT / _PINS_SHOWN
+SCHEMA_DOCUMENT_GLOB = "*-schema*.json"
+_RELEASE_TAG = re.compile(r"v\d+\.\d+\.\d+\S*")
+
+
+def is_schema_document(name: str) -> bool:
+    return fnmatch.fnmatchcase(name, SCHEMA_DOCUMENT_GLOB)
+
+
+class SchemaPins(NamedTuple):
+    #: basename -> sha256 of the bytes a published file keeps.
+    sha256: dict[str, str]
+    #: basename -> the release tag whose bytes the pinned bytes deliberately
+    #: differ from (an owner decision recorded in the manifest).
+    refrozen: dict[str, str]
+
+
+def load_schema_pins(path: Path | None = None) -> SchemaPins:
+    source = path or PINS_PATH
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    sha256 = payload["sha256"]
+    refrozen = {name: entry["differs_from_release"] for name, entry in payload["refrozen"].items()}
+    malformed = sorted(
+        name
+        for name, digest in sha256.items()
+        if not (is_schema_document(name) and re.fullmatch(r"[0-9a-f]{64}", str(digest)))
+    )
+    if malformed or not set(refrozen) <= set(sha256):
+        raise ValueError(
+            f"{source}: malformed pins {malformed}, or a re-frozen file without a pin "
+            f"{sorted(set(refrozen) - set(sha256))}"
+        )
+    return SchemaPins(sha256=dict(sha256), refrozen=refrozen)
+
+
+def _add_schema_pins(new: dict[str, str], path: Path | None = None) -> None:
+    target = path or PINS_PATH
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    overlap = sorted(set(new) & set(payload["sha256"]))
+    if overlap:
+        raise ValueError(f"--pin never changes an existing pin: {overlap}")
+    payload["sha256"] = dict(sorted({**payload["sha256"], **new}.items()))
+    target.write_text(_canonical_json(payload), encoding="utf-8")
+
+
+class ReleaseTags(NamedTuple):
+    #: Every release tag read, oldest first.
+    names: tuple[str, ...]
+    #: basename -> {tag: git blob id}, oldest tag first, for each
+    #: docs/*-schema*.json any release tag carries.
+    schema_blobs: dict[str, dict[str, str]]
+
+    def newest(self, name: str) -> tuple[str, str]:
+        tag, blob = list(self.schema_blobs[name].items())[-1]
+        return tag, blob
+
+    def pending(self, version: str) -> str | None:
+        """The tag ``version`` will be released under, while it does not exist."""
+
+        from packaging.version import Version
+
+        if any(Version(tag[1:]) == Version(version) for tag in self.names):
+            return None
+        return f"v{version}"
+
+
+def read_release_tags(repo_root: Path | None = None) -> ReleaseTags | None:
+    """The release tags of this checkout and the schema documents each carries.
+
+    None when no release tag can be read: no git, a directory that is not this
+    repository's own checkout, or a clone that fetched no tags.
+    """
+
+    from packaging.version import InvalidVersion, Version
+
+    root = (repo_root or REPO_ROOT).resolve()
+
+    def git(*args: str) -> str | None:
+        try:
+            completed = subprocess.run(
+                ["git", "-C", str(root), *args], capture_output=True, text=True, check=False
+            )
+        except OSError:
+            return None
+        return completed.stdout if completed.returncode == 0 else None
+
+    toplevel = git("rev-parse", "--show-toplevel")
+    if toplevel is None or Path(toplevel.strip()).resolve() != root:
+        return None
+    listing = git("tag", "--list", "v*")
+    if listing is None:
+        return None
+    versions: dict[str, Version] = {}
+    for tag in listing.split():
+        if not _RELEASE_TAG.fullmatch(tag):
+            continue
+        try:
+            versions[tag] = Version(tag[1:])
+        except InvalidVersion:
+            continue
+    if not versions:
+        return None
+    names = tuple(sorted(versions, key=versions.__getitem__))
+    schema_blobs: dict[str, dict[str, str]] = {}
+    for tag in names:
+        tree = git("ls-tree", tag, "--", "docs/")
+        if tree is None:
+            return None
+        for line in tree.splitlines():
+            meta, _, path = line.partition("\t")
+            _mode, kind, blob = meta.split()
+            name = path.removeprefix("docs/")
+            if kind == "blob" and "/" not in name and is_schema_document(name):
+                schema_blobs.setdefault(name, {})[tag] = blob
+    return ReleaseTags(names=names, schema_blobs=schema_blobs)
+
+
+def _git_blob_id(data: bytes, *, like: str) -> str:
+    """Git's object id for ``data`` as a blob, in the hash ``like`` uses."""
+
+    header = b"blob %d\0" % len(data)
+    digest = hashlib.sha256 if len(like) == 64 else hashlib.sha1
+    return digest(header + data).hexdigest()
+
+
+class FreezeViolation(NamedTuple):
+    #: missing | unpinned | changed | differs_from_release
+    kind: str
+    name: str
+    message: str
+
+
+_SUCCESSOR_ROUTE = (
+    "A published schema keeps its bytes forever (docs/report-1-0-contract.md, "
+    "rule 3): put the change in a successor schema version and leave this file "
+    "as it is."
+)
+
+
+def freeze_violations(
+    *,
+    docs: Path | None = None,
+    pins: SchemaPins | None = None,
+    tags: ReleaseTags | None,
+    version: str,
+) -> list[FreezeViolation]:
+    """Every way the published schema documents in ``docs`` break the freeze.
+
+    The published set is every file a release tag carries, every pinned file
+    and, while ``version`` has no tag yet, every schema document on disk. With
+    ``tags=None`` only the pins can be checked.
+    """
+
+    docs = docs or DOCS
+    pins = pins or load_schema_pins()
+    published: dict[str, str] = {name: "pinned" for name in pins.sha256}
+    pending = tags.pending(version) if tags is not None else None
+    if tags is not None:
+        for name in tags.schema_blobs:
+            published[name] = f"published at {tags.newest(name)[0]}"
+        if pending is not None:
+            for path in docs.glob(SCHEMA_DOCUMENT_GLOB):
+                published.setdefault(
+                    path.name,
+                    f"about to be published at {pending}: the package version "
+                    "has no release tag yet",
+                )
+    violations: list[FreezeViolation] = []
+    for name, where in sorted(published.items()):
+        path = docs / name
+        if not path.is_file():
+            violations.append(
+                FreezeViolation(
+                    "missing",
+                    name,
+                    f"docs/{name}: {where}, but missing. A published schema URL "
+                    "never goes away.",
+                )
+            )
+            continue
+        data = path.read_bytes()
+        pin = pins.sha256.get(name)
+        if pin is None:
+            violations.append(
+                FreezeViolation(
+                    "unpinned",
+                    name,
+                    f"docs/{name}: {where}, but has no pin in "
+                    f"{_PINS_SHOWN}. Add it with "
+                    "`python scripts/generate_schemas.py --pin`.",
+                )
+            )
+        elif hashlib.sha256(data).hexdigest() != pin:
+            violations.append(
+                FreezeViolation(
+                    "changed",
+                    name,
+                    f"docs/{name}: {where}, and its bytes no longer match its pin. "
+                    + _SUCCESSOR_ROUTE,
+                )
+            )
+        if tags is not None and name in tags.schema_blobs:
+            tag, blob = tags.newest(name)
+            if _git_blob_id(data, like=blob) != blob and pins.refrozen.get(name) != tag:
+                violations.append(
+                    FreezeViolation(
+                        "differs_from_release",
+                        name,
+                        f"docs/{name}: differs from the bytes {tag} published "
+                        f"(`git diff {tag} -- docs/{name}`). " + _SUCCESSOR_ROUTE
+                        + " Keeping these bytes instead is an owner decision, "
+                        "recorded under `refrozen` in the pin manifest.",
+                    )
+                )
+    return violations
+
+
+_RELEASE_TAGS_UNAVAILABLE = (
+    "note: no release tag can be read here (a shallow clone or a source "
+    "archive), so the published set is the pin manifest alone, "
+    f"{_PINS_SHOWN}. CI fetches tags and checks the "
+    "manifest names every file a release carries; `git fetch --tags` to check "
+    "it here.\n"
+)
+
+_PYDANTIC_HINT = (
+    "If no model changed, compare the installed pydantic with constraints/dev.txt: "
+    "the committed schemas are rendered by the locked pydantic, and another "
+    "version renders some of them differently (#1088)."
+)
+
+
+def _frozen_rewrites(
+    outputs: list[tuple[Path, str]], *, pins: SchemaPins, tags: ReleaseTags | None
+) -> dict[str, str]:
+    """Each published or pinned schema document regenerating would rewrite, and why.
+
+    The bytes a frozen file must keep are its pin, or its committed bytes while
+    it has none yet.
+    """
+
+    frozen = set(pins.sha256) | (set(tags.schema_blobs) if tags is not None else set())
+    refusals: dict[str, str] = {}
+    for target, content in outputs:
+        name = target.name
+        if name not in frozen or not is_schema_document(name):
+            continue
+        generated = content.encode("utf-8")
+        pin = pins.sha256.get(name)
+        if pin is not None:
+            if hashlib.sha256(generated).hexdigest() == pin:
+                continue
+            kept = target.read_text(encoding="utf-8") if target.is_file() else ""
+        elif target.is_file():
+            kept = target.read_text(encoding="utf-8")
+            if kept == content:
+                continue
+        else:
+            kept = ""
+        where = (
+            f"published at {tags.newest(name)[0]}"
+            if tags is not None and name in tags.schema_blobs
+            else f"pinned in {_PINS_SHOWN}"
+        )
+        diff_lines = list(
+            difflib.unified_diff(
+                kept.splitlines(keepends=True),
+                content.splitlines(keepends=True),
+                fromfile=f"docs/{name} (kept)",
+                tofile=f"docs/{name} (generated)",
+                n=2,
+            )
+        )
+        refusals[name] = (
+            f"docs/{name}: {where}; regenerating it would change its bytes. "
+            f"{_SUCCESSOR_ROUTE} {_PYDANTIC_HINT}\n"
+            + "".join(diff_lines[:_DIFF_PREVIEW_LINES])
+        )
+    return refusals
 
 
 def build_manifest_schema() -> tuple[Path, str]:
@@ -3276,24 +3604,86 @@ def main(argv: list[str] | None = None) -> int:
         prog="generate_schemas",
         description=(
             "Regenerate docs/*.json schemas (default) or verify they match the "
-            "current Pydantic models (--check)."
+            "current Pydantic models (--check). A published schema document is "
+            "never rewritten: a change to one needs a successor schema version."
         ),
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--check",
         action="store_true",
-        help="Verify committed schemas match the generators; exit 1 on drift.",
+        help=(
+            "Verify committed schemas match the generators and published ones "
+            "match their pins; exit 1 on drift."
+        ),
+    )
+    mode.add_argument(
+        "--pin",
+        action="store_true",
+        help=(
+            "Pin every published schema document that has no pin yet; while the "
+            "package version has no release tag, that is every schema document. "
+            "Never changes an existing pin. Needs release tags, and refuses while "
+            "anything drifts."
+        ),
     )
     args = parser.parse_args(argv)
 
-    DOCS.mkdir(parents=True, exist_ok=True)
-    (DOCS / "examples").mkdir(parents=True, exist_ok=True)
-    drift: list[str] = []
-    for _name, builder in BUILDERS:
-        target, content = builder()
-        _emit(target, content, check_only=args.check, drift=drift)
+    from agents_shipgate import __version__
 
-    if args.check and drift:
+    outputs = [builder() for _name, builder in BUILDERS]
+    pins = load_schema_pins()
+    tags = read_release_tags()
+    if tags is None:
+        sys.stderr.write(_RELEASE_TAGS_UNAVAILABLE)
+    refusals = _frozen_rewrites(outputs, pins=pins, tags=tags)
+
+    if not (args.check or args.pin):
+        if refusals:
+            sys.stderr.write("\n".join(refusals.values()))
+            sys.stderr.write(
+                f"\n\nRefused: regenerating would change {len(refusals)} published "
+                "schema file(s). Nothing was written.\n"
+            )
+            return 1
+        DOCS.mkdir(parents=True, exist_ok=True)
+        (DOCS / "examples").mkdir(parents=True, exist_ok=True)
+        for target, content in outputs:
+            _emit(target, content, check_only=False, drift=[])
+        return 0
+
+    drift: list[str] = []
+    for target, content in outputs:
+        if target.name not in refusals:
+            _emit(target, content, check_only=True, drift=drift)
+    violations = freeze_violations(pins=pins, tags=tags, version=__version__)
+    frozen = list(refusals.values()) + [
+        violation.message
+        for violation in violations
+        if not (args.pin and violation.kind == "unpinned")
+    ]
+
+    if args.pin:
+        if tags is None:
+            frozen.append("--pin needs the release tags: run `git fetch --tags`.")
+        if drift or frozen:
+            sys.stderr.write("\n".join(drift + frozen))
+            sys.stderr.write("\n\nNothing was pinned.\n")
+            return 1
+        new = {
+            violation.name: hashlib.sha256((DOCS / violation.name).read_bytes()).hexdigest()
+            for violation in violations
+            if violation.kind == "unpinned"
+        }
+        if not new:
+            print("Every published schema document is already pinned.")
+            return 0
+        _add_schema_pins(new)
+        for name in sorted(new):
+            print(f"Pinned docs/{name}")
+        return 0
+
+    if drift:
         sys.stderr.write("\n".join(drift))
         sys.stderr.write(
             "\n\nSchema drift detected in "
@@ -3301,8 +3691,13 @@ def main(argv: list[str] | None = None) -> int:
             "  python scripts/generate_schemas.py\n"
             "  git add docs/ && git commit\n"
         )
-        return 1
-    return 0
+    if frozen:
+        sys.stderr.write("\n" + "\n".join(frozen))
+        sys.stderr.write(
+            f"\n\n{len(frozen)} published schema problem(s). Regenerating does not "
+            "resolve these: a published file keeps its bytes.\n"
+        )
+    return 1 if drift or frozen else 0
 
 
 if __name__ == "__main__":
