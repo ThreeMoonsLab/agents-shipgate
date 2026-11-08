@@ -554,6 +554,16 @@ The shape that holds:
    rehearsal is green: `release-rehearsal.yml` for a qualified release; for an
    advisory one, Release Engine Smoke and then `release-advisory-rehearsal.yml`
    on the same commit.
+   The change that sets the version regenerates with
+   `python scripts/generate_schemas.py` and then runs
+   `python scripts/generate_schemas.py --pin`, which pins in
+   `scripts/published_schema_pins.json` every `docs/*-schema*.json` the tag
+   will publish. While the version has no tag,
+   `tests/test_published_schema_freeze.py` fails until every one is pinned, so
+   nothing reaches the tag unpinned. A version bump changes no schema document
+   (#1044). If the generator refuses because one would change, either a model
+   changed a published file, which needs a successor schema version, or the
+   installed pydantic is not the locked one.
 4. Push the tag: `git tag v0.16.0 && git push origin v0.16.0`.
 5. The `verify` job runs unattended.
 6. Approve the `pypi` environment gate on the `publish` job, using the readiness
