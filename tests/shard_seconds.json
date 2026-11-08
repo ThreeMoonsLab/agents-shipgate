@@ -440,6 +440,7 @@
   "tests/test_step_summary_isolation.py": 3.9,
   "tests/test_host_grants_yaml_timestamps.py": 2.1,
   "tests/test_dependency_floors.py": 0.1,
+  "tests/test_published_schema_freeze.py": 17.1,
   "tests/test_capability_definition.py": 0.2,
   "tests/test_capability_payload_v2.py": 4.7,
   "tests/test_attest_approval.py": 0.2
@@ -595,6 +596,17 @@
    },
    "case_count": 22,
    "command": "python -m pytest -m \"not slow\" tests/test_dependency_floors.py --junitxml=dependency-floors.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "4809636c2d with issue #1044 published-schema freeze increment",
+   "report_sha256": "8e09f135dca74d3f9ffcab16012469d276cb39e9ce4366e538df5cbe6f2f125f",
+   "files": {
+    "tests/test_published_schema_freeze.py": 17.1
+   },
+   "case_count": 13,
+   "command": "python -m pytest tests/test_published_schema_freeze.py -n 4 --junitxml=freeze-timing.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {

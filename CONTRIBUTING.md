@@ -338,6 +338,12 @@ CI runs `python scripts/generate_schemas.py --check` and fails fast
 with a unified diff if a committed schema drifts from the live model.
 The same drift is also caught by `tests/test_schema_roundtrip.py`, so
 your test suite will reject the change locally before CI does.
+A `docs/*-schema*.json` file that a release tag carries is published and
+keeps its bytes: it is pinned in `scripts/published_schema_pins.json`, and
+the generator writes nothing and exits 1 rather than change one. Put the
+change in a successor schema version instead (#1044). The schemas are
+rendered by the locked pydantic (`constraints/dev.txt`); another version can
+render a published file differently, and the generator refuses that too.
 After a report or contract change, run
 `python scripts/regenerate_goldens.py`, inspect the semantic diff, then run
 `python scripts/regenerate_goldens.py --check` and the affected behavioral

@@ -19,11 +19,29 @@ AgentHandoffOperation = Literal["verify_pr", "verify_local", "verify_preview"]
 RemediationPlanSafety = Literal["allowed", "forbidden", "patch"]
 
 
+#: The JSON-schema default of ``tool.version`` in the published
+#: ``docs/agent-handoff-schema.v9.json``. The field's default used to be the
+#: running package version, so every release rewrote the v9 file's bytes under
+#: an unchanged schema version (#1044). Those bytes are now frozen as published:
+#: the runtime default is still the running version, and only the schema keeps
+#: this constant. A successor schema version must emit no release-specific
+#: default: when v10 replaces v9 in the generator, drop ``json_schema_extra``
+#: below (v9 is then no longer regenerated, so its bytes cannot move).
+_PUBLISHED_V9_TOOL_VERSION_DEFAULT = "1.2.0"
+
+
+def _running_version() -> str:
+    return __version__
+
+
 class AgentHandoffTool(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = "agents-shipgate"
-    version: str = __version__
+    version: str = Field(
+        default_factory=_running_version,
+        json_schema_extra={"default": _PUBLISHED_V9_TOOL_VERSION_DEFAULT},
+    )
 
 
 class AgentHandoffSubject(BaseModel):
