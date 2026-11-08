@@ -15,6 +15,10 @@ pull request's own head:
   exit 0. The mode now resolves to the stricter of the base and head
   manifests, and the base's ``ci.fail_on`` is an exit-only floor: the verdict
   still follows the head's list.
+* #1075: a policy pack the manifest declares outside ``policies/**`` was not a
+  trust root, so a change that edited only the pack came back ``mergeable``.
+  Every path the base or head manifest binds as policy now is one, as is the
+  audit log that vouches for an in-repository ``--baseline``.
 """
 
 from __future__ import annotations
@@ -166,13 +170,13 @@ def _regenerate_reference(repo: Path, tmp_path: Path, name: str) -> bytes:
     return data
 
 
-def _verify(repo: Path, *args: str, out: Path):
+def _verify(repo: Path, *args: str, out: Path, config: str = "shipgate.yaml"):
     result = runner.invoke(
         app,
         [
             "verify",
             "--workspace", str(repo),
-            "--config", "shipgate.yaml",
+            "--config", config,
             "--out", str(out),
             "--format", "json",
             *args,
@@ -191,7 +195,14 @@ def _fail_policy(out: Path) -> dict:
 
 def _touched(out: Path) -> dict[str, str]:
     return {
-        finding["evidence"]["changed_file"]: finding["evidence"]["trust_root_class"]
+        changed: finding["evidence"]["trust_root_class"]
+        for changed, finding in _trust_root_findings(out).items()
+    }
+
+
+def _trust_root_findings(out: Path) -> dict[str, dict]:
+    return {
+        finding["evidence"]["changed_file"]: finding
         for finding in _report(out)["findings"]
         if finding["check_id"] == TRUST_ROOT_TOUCHED
     }
@@ -663,3 +674,288 @@ def test_ignoring_a_control_no_suppression_can_waive_still_fails_ci(tmp_path: Pa
     assert _fail_policy(out) == failing
     assert payload["release_decision"]["fail_policy"] == failing
     assert result.exit_code == 20, result.output
+
+
+# --- policy the manifest binds (#1075) -------------------------------------------
+
+#: The layout docs/organization.md recommends for a vendored organization pack.
+VENDORED_PACK = "vendor/shipgate-policies/org-release.yaml"
+
+
+def _write_pack(path: Path, *, version: str = "1") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'id: org-release\nname: Org release policy\nversion: "{version}"\nrules: []\n',
+        encoding="utf-8",
+    )
+
+
+def _declare(manifest: Path, block: str) -> None:
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8") + "\n" + block, encoding="utf-8"
+    )
+
+
+def _declare_packs(manifest: Path, *packs: str) -> None:
+    _declare(
+        manifest,
+        "checks:\n  policy_packs:\n" + "".join(f"    - path: {pack}\n" for pack in packs),
+    )
+
+
+def _declared_pack_repo(tmp_path: Path, pack: str) -> Path:
+    """A base whose manifest declares ``pack``, checked out on a ``pr`` branch."""
+
+    repo = _sample_repo(tmp_path)
+    _write_pack(repo / pack)
+    _declare_packs(repo / "shipgate.yaml", pack)
+    _commit(repo, "base declares an organization policy pack")
+    _git(repo, "checkout", "-q", "-b", "pr")
+    return repo
+
+
+def _assert_needs_a_human(payload: dict) -> None:
+    assert payload["merge_verdict"] == "human_review_required"
+    assert payload["can_merge_without_human"] is False
+    assert payload["control"]["permissions"]["merge"] is False
+    assert payload["capability_review"]["trust_root_touched"] is True
+
+
+@pytest.mark.parametrize("pack", [VENDORED_PACK, "rules/org.yaml"])
+def test_a_declared_pack_outside_policies_is_a_trust_root(
+    tmp_path: Path, pack: str
+) -> None:
+    """``**/policies/**`` cannot see a pack the manifest declares anywhere else.
+
+    The change edits nothing but the pack, which decides what the gate blocks.
+    It came back ``mergeable`` with no finding at all.
+    """
+
+    repo = _declared_pack_repo(tmp_path, pack)
+    _write_pack(repo / pack, version="2")
+    _commit(repo, "edit only the pack")
+    out = tmp_path / "out"
+
+    result, payload = _verify(repo, "--base", "main", "--head", "HEAD", out=out)
+
+    assert result.exit_code == 0, result.output
+    assert payload["changed_files"] == [pack]
+    assert _touched(out) == {pack: "policy"}
+    assert _trust_root_findings(out)[pack]["evidence"]["matched_glob"] == pack
+    _assert_needs_a_human(payload)
+
+
+@pytest.mark.parametrize(
+    "args", [("--base", "main"), ("--no-base",)], ids=["worktree", "no-base"]
+)
+def test_an_uncommitted_edit_to_a_declared_pack_is_a_trust_root(
+    tmp_path: Path, args: tuple[str, ...]
+) -> None:
+    """Without a base, the manifest this run loads still binds the pack."""
+
+    repo = _declared_pack_repo(tmp_path, VENDORED_PACK)
+    _write_pack(repo / VENDORED_PACK, version="2")
+    out = tmp_path / "out"
+
+    result, payload = _verify(repo, *args, out=out)
+
+    assert result.exit_code == 0, result.output
+    assert _touched(out) == {VENDORED_PACK: "policy"}
+    _assert_needs_a_human(payload)
+
+
+def test_removing_the_declaration_does_not_unprotect_the_pack(tmp_path: Path) -> None:
+    """The pack is judged against the base's declaration, not the change's.
+
+    The change drops the declaration and edits the pack in one diff. The head
+    manifest no longer names the file, but the base's does, so the pack is
+    still a ``policy`` trust root beside the edited manifest.
+    """
+
+    repo = _sample_repo(tmp_path)
+    undeclared = (repo / "shipgate.yaml").read_text(encoding="utf-8")
+    _write_pack(repo / VENDORED_PACK)
+    _declare_packs(repo / "shipgate.yaml", VENDORED_PACK)
+    _commit(repo, "base declares an organization policy pack")
+    _git(repo, "checkout", "-q", "-b", "pr")
+    (repo / "shipgate.yaml").write_text(undeclared, encoding="utf-8")
+    _write_pack(repo / VENDORED_PACK, version="2")
+    _commit(repo, "drop the declaration and edit the pack")
+    out = tmp_path / "out"
+
+    result, payload = _verify(repo, "--base", "main", "--head", "HEAD", out=out)
+
+    assert result.exit_code == 0, result.output
+    assert sorted(payload["changed_files"]) == ["shipgate.yaml", VENDORED_PACK]
+    assert _touched(out) == {"shipgate.yaml": "manifest", VENDORED_PACK: "policy"}
+    _assert_needs_a_human(payload)
+
+
+def test_a_scoped_manifest_binds_the_pack_beside_it(tmp_path: Path) -> None:
+    """A pack path resolves against the manifest's directory, as the scan does.
+
+    A same-named file at the repository root is not the pack this gate reads.
+    """
+
+    repo = tmp_path / "repo"
+    scope = repo / "services" / "mailer"
+    scope.mkdir(parents=True)
+    _git(repo, "init", "-q", "-b", "main")
+    for name in ("shipgate.yaml", "tools.json"):
+        (scope / name).write_text((SAMPLE / name).read_text(encoding="utf-8"), encoding="utf-8")
+    (repo / ".gitignore").write_text("agents-shipgate-reports/\n", encoding="utf-8")
+    _write_pack(scope / "rules" / "org.yaml")
+    _write_pack(repo / "rules" / "org.yaml")
+    _declare_packs(scope / "shipgate.yaml", "rules/org.yaml")
+    _commit(repo, "a scoped gate declares its own pack")
+    _git(repo, "checkout", "-q", "-b", "pr")
+    _write_pack(scope / "rules" / "org.yaml", version="2")
+    _write_pack(repo / "rules" / "org.yaml", version="2")
+    _commit(repo, "edit both packs")
+    out = tmp_path / "out"
+
+    result, payload = _verify(
+        repo, "--base", "main", "--head", "HEAD", out=out,
+        config="services/mailer/shipgate.yaml",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _touched(out) == {"services/mailer/rules/org.yaml": "policy"}
+    _assert_needs_a_human(payload)
+
+
+def test_a_declared_pack_under_policies_keeps_its_glob_and_fingerprint(
+    tmp_path: Path,
+) -> None:
+    """The glob table answers first, so declaring a pack moves no finding.
+
+    The same edit to ``policies/org.yaml`` is verified with and without the
+    declaration. Both runs report it under ``**/policies/**`` with one
+    fingerprint, which is what the trust root reported before #1075.
+    """
+
+    fingerprints: dict[bool, str] = {}
+    for declared in (False, True):
+        root = tmp_path / ("declared" if declared else "undeclared")
+        root.mkdir()
+        repo = _sample_repo(root)
+        _write_pack(repo / "policies" / "org.yaml")
+        if declared:
+            _declare_packs(repo / "shipgate.yaml", "policies/org.yaml")
+        _commit(repo, "base")
+        _git(repo, "checkout", "-q", "-b", "pr")
+        _write_pack(repo / "policies" / "org.yaml", version="2")
+        _commit(repo, "edit the pack")
+        out = root / "out"
+
+        result, _payload = _verify(repo, "--base", "main", "--head", "HEAD", out=out)
+
+        assert result.exit_code == 0, result.output
+        finding = _trust_root_findings(out)["policies/org.yaml"]
+        assert finding["evidence"]["trust_root_class"] == "policy"
+        assert finding["evidence"]["matched_glob"] == "**/policies/**"
+        fingerprints[declared] = finding["fingerprint"]
+    assert fingerprints[True] == fingerprints[False]
+
+
+@pytest.mark.parametrize(
+    ("block", "audit_log"),
+    [
+        ("", "ci/baseline-audit.log"),
+        ("baseline:\n  audit_log: logs/accepted-audit.log\n", "ci/logs/accepted-audit.log"),
+        ("baseline:\n  integrity_mode: \"off\"\n", None),
+    ],
+    ids=["beside-the-baseline", "declared", "integrity-off"],
+)
+def test_the_audit_log_of_an_in_repo_baseline_is_a_trust_root(
+    tmp_path: Path, block: str, audit_log: str | None
+) -> None:
+    """The log that vouches for accepted debt is part of that debt's state.
+
+    ``baseline.audit_log`` resolves against the ``--baseline`` file's
+    directory, beside it by default, and the scan reads it unless
+    ``baseline.integrity_mode`` is ``off``.
+    """
+
+    repo = _sample_repo(tmp_path)
+    baseline = repo / "ci" / "accepted.json"
+    baseline.parent.mkdir()
+    baseline.write_text(
+        BaselineFile(
+            created_at="2026-10-01T00:00:00Z", source_report_run_id="base-baseline"
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+    log = repo / (audit_log or "ci/baseline-audit.log")
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("{}\n", encoding="utf-8")
+    if block:
+        _declare(repo / "shipgate.yaml", block)
+    _commit(repo, "base with an in-repository baseline and its audit log")
+    _git(repo, "checkout", "-q", "-b", "pr")
+    log.write_text('{"edited": true}\n', encoding="utf-8")
+    _commit(repo, "edit only the audit log")
+    out = tmp_path / "out"
+
+    result, payload = _verify(
+        repo, "--base", "main", "--head", "HEAD", "--baseline", "ci/accepted.json",
+        out=out,
+    )
+
+    assert result.exit_code == 0, result.output
+    if audit_log is None:
+        assert _touched(out) == {}
+    else:
+        assert _touched(out) == {audit_log: "shipgate_state"}
+        assert payload["can_merge_without_human"] is False
+
+
+def test_manifest_bound_paths_resolve_as_the_scan_resolves_them(tmp_path: Path) -> None:
+    """Lexical resolution against the manifest's and the baseline's directories.
+
+    Command-line inputs come first and keep their class. ``..`` is collapsed,
+    a path that leaves the repository is the operator's, an empty path names
+    nothing, and a manifest that did not validate contributes nothing.
+    """
+
+    from agents_shipgate.cli.verify.orchestrator import _configured_input_trust_roots
+    from agents_shipgate.config.loader import load_manifest_text
+
+    git_root = tmp_path / "repo"
+    sample = (SAMPLE / "shipgate.yaml").read_text(encoding="utf-8")
+
+    def manifest(block: str):
+        return load_manifest_text(sample + "\n" + block)
+
+    base = manifest(
+        "checks:\n  policy_packs:\n"
+        "    - path: rules/../vendor/org.yaml\n"
+        "    - path: ../../../outside.yaml\n"
+        "    - path: ''\n"
+        "    - base-only.yaml\n"
+    )
+    head = manifest(
+        "checks:\n  policy_packs:\n"
+        f"    - path: {git_root / 'absolute' / 'inside.yaml'}\n"
+        "    - path: ../../ci/accepted.json\n"
+        "baseline:\n  audit_log: ../logs/audit.log\n"
+    )
+
+    roots = _configured_input_trust_roots(
+        git_root,
+        policy_packs=[git_root / "org" / "cli.yaml"],
+        baseline=git_root / "ci" / "accepted.json",
+        diff_from=None,
+        config_relative=Path("services/mailer/shipgate.yaml"),
+        manifests=(base, None, head),
+    )
+
+    assert roots == {
+        "org/cli.yaml": "policy",
+        "ci/accepted.json": "shipgate_state",
+        "services/mailer/vendor/org.yaml": "policy",
+        "services/mailer/base-only.yaml": "policy",
+        "ci/baseline-audit.log": "shipgate_state",
+        "absolute/inside.yaml": "policy",
+        "logs/audit.log": "shipgate_state",
+    }

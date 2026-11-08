@@ -41,7 +41,7 @@ their published documents now declare a capability row closed (#1088).
 
 - **The capability lock records each tool's definition**, so a rewritten MCP tool description, output schema or annotations is a reviewed change. (#1117)
 - **An attestation can record who approved the change**, from the pull request reviews the workflow supplies. (#1118)
-- **`verify` reads its exit policy and an in-repository `--diff-from` from the base**, stops when it has no base, and treats a deleted manifest as a removed gate. (#1023, #1024)
+- **`verify` reads its exit policy and an in-repository `--diff-from` from the base**, stops when it has no base, treats a deleted manifest as a removed gate, and counts every policy pack the manifest declares as a trust root. (#1023, #1024, #1075)
 - **More secrets stay out of published output**: four more secret shapes, two credential labels, header tokens and `curl -u` passwords are redacted, and a secret in a tool description is a finding. (#1026, #1082, #987)
 - **`bootstrap` no longer runs the adopted repository's code**, and plugins load only on the opt-in. (#1020)
 - **Host diff reads Claude Code permission rules the way Claude Code documents them**, and a setting that runs a command is a row. (#918, #1027)
@@ -63,6 +63,7 @@ their published documents now declare a capability row closed (#1088).
 
 - `verify` stops when it has no base, and a deleted manifest is a removed gate. (#1023)
 - `verify` reads an in-repository `--diff-from` and the exit policy from the base, not from the change under review. (#1024)
+- A policy pack the manifest declares is a trust root wherever it lives. (#1075, #1127)
 - `checks.ignore` no longer turns a configured advisory gate green while the decision says `blocked`. (#1029)
 - Each baseline verifies against its own audit rows, the override tier gate reads the severity a finding was emitted at, and an optional policy pack's pin is fatal. (#1030)
 - `attest`, `org bundle` and the Action validate the verification receipt of current verify output. (#1022)

@@ -435,7 +435,7 @@
   "tests/test_memory_bank_effects.py": 2.6,
   "tests/test_verification_receipt_consumers.py": 3.7,
   "tests/test_verify_base_and_gate_removal.py": 17.9,
-  "tests/test_verify_pr_controlled_inputs.py": 23.4,
+  "tests/test_verify_pr_controlled_inputs.py": 53.6,
   "tests/test_claude_command_settings.py": 21.0,
   "tests/test_step_summary_isolation.py": 3.9,
   "tests/test_host_grants_yaml_timestamps.py": 2.1,
@@ -640,6 +640,17 @@
    },
    "case_count": 37,
    "command": "python -m pytest tests/test_attest_approval.py --junitxml=attest-approval.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "ea14fe22d9 with issue #1075 manifest-bound trust roots increment",
+   "report_sha256": "f5486d133ae94ed869954d701f4955f3c6dcd02ef111ca0eda191ed63e35ec5c",
+   "files": {
+    "tests/test_verify_pr_controlled_inputs.py": 53.6
+   },
+   "case_count": 37,
+   "command": "python -m pytest tests/test_verify_pr_controlled_inputs.py --junitxml=pr-controlled-inputs.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

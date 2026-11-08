@@ -45,6 +45,7 @@ from agents_shipgate.cli.discovery.scope import (
 from agents_shipgate.cli.discovery.signals import weak_marker_evidence_dirs
 from agents_shipgate.cli.scan.human_order import override_human_manifest_committed
 from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.cli.scan.path_helpers import _resolve_audit_log_path
 from agents_shipgate.config.loader import load_manifest_text
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_handoff import build_agent_handoff
@@ -168,7 +169,7 @@ from agents_shipgate.schemas.human_authorization import (
     build_human_authorization_request,
 )
 from agents_shipgate.schemas.human_review_request import HUMAN_REVIEW_REQUEST_FILENAME
-from agents_shipgate.schemas.manifest import CiConfig
+from agents_shipgate.schemas.manifest import AgentsShipgateManifest, CiConfig
 from agents_shipgate.schemas.report import (
     ReadinessReport,
     ReleaseDecision,
@@ -567,12 +568,6 @@ def run_verify(
     # editing it is touching a trust root (#1024). One outside the repository
     # is the operator's own and is read where it is.
     diff_from_relative = _repository_relative_input(git_root, static_diff_from_path)
-    configured_input_roots = _configured_input_trust_roots(
-        git_root,
-        policy_packs=policy_pack_paths or [],
-        baseline=baseline_path,
-        diff_from=static_diff_from_path,
-    )
     _reject_output_input_overlap(
         git_root=git_root,
         out_dir=out_dir,
@@ -1314,13 +1309,23 @@ def run_verify(
     diff_from_at_base = diff_from_relative is not None and bool(base) and base_exists
     # Nor does the change under review set its own exit code: whatever the
     # command line leaves open is floored at what the base declares (#1024).
+    # The same read of the base manifest names the files it binds as policy,
+    # which stay trust roots even when the change un-declares them (#1075).
     base_ci: CiConfig | None = None
-    if base and base_exists and (ci_mode is None or fail_on is None):
-        base_ci, base_ci_note = _base_ci_policy(
+    base_manifest: AgentsShipgateManifest | None = None
+    if base and base_exists:
+        base_manifest, base_manifest_problem = _base_manifest(
             git_root=git_root, base=base, config_relative=config_relative
         )
-        if base_ci_note is not None:
-            base_notes.append(base_ci_note)
+        if ci_mode is None or fail_on is None:
+            base_ci, base_ci_note = _base_ci_policy(
+                base_manifest,
+                base_manifest_problem,
+                base=base,
+                config_relative=config_relative,
+            )
+            if base_ci_note is not None:
+                base_notes.append(base_ci_note)
     external_snapshot_paths = [
         path
         for path in [
@@ -1585,6 +1590,17 @@ def run_verify(
                     fail_on=fail_on,
                 )
                 base_notes.extend(ci_notes)
+                configured_input_roots = _configured_input_trust_roots(
+                    git_root,
+                    policy_packs=policy_pack_paths or [],
+                    baseline=baseline_path,
+                    diff_from=static_diff_from_path,
+                    config_relative=config_relative,
+                    manifests=(
+                        base_manifest,
+                        _manifest_from_text(scan_manifest_text, source=config_relative),
+                    ),
+                )
                 report, head_exit_code = run_scan(
                     config_path=head_config_path,
                     output_dir=out_dir,
@@ -2719,25 +2735,63 @@ def _configured_input_trust_roots(
     policy_packs: Sequence[Path],
     baseline: Path | None,
     diff_from: Path | None,
+    config_relative: Path,
+    manifests: Sequence[AgentsShipgateManifest | None],
 ) -> dict[str, str]:
     """The in-repository inputs this run was pointed at, by trust-root class.
 
     Like the configured manifest, whatever a run reads as its policy, its
     accepted debt or its comparison reference governs the gate wherever it
     lives, and a change that edits it touches a trust root (#1024). The table
-    of globs cannot know these paths: they exist only on the command line.
+    of globs cannot know these paths: they exist only on the command line or
+    in the manifest.
+
+    A manifest binds two of them (#1075). Each ``checks.policy_packs[].path``
+    is ``policy``, wherever it is: ``**/policies/**`` does not reach the
+    ``vendor/shipgate-policies/org-release.yaml`` that
+    ``docs/organization.md`` recommends. The audit log that vouches for the
+    ``--baseline``, at ``baseline.audit_log`` or beside the baseline, is
+    ``shipgate_state`` like the baseline, when ``baseline.integrity_mode``
+    has the scan read it. Both resolve as the scan resolves them.
+
+    ``manifests`` holds every manifest the change is judged against: the
+    base's, so a change that removes a declaration and edits the file in one
+    diff still touches a trust root, and the head's, which this run loads.
+    Command-line inputs come first, so a path keeps the class they give it.
     """
 
     roots: dict[str, str] = {}
+
+    def add(path: Path | None, trust_root_class: str) -> None:
+        relative = _repository_relative_input(git_root, path)
+        if relative is not None:
+            roots.setdefault(relative.as_posix(), trust_root_class)
+
     for path, trust_root_class in (
         *((pack, "policy") for pack in policy_packs),
         (baseline, "shipgate_state"),
         (diff_from, "shipgate_state"),
     ):
-        relative = _repository_relative_input(git_root, path)
-        if relative is not None:
-            roots.setdefault(relative.as_posix(), trust_root_class)
+        add(path, trust_root_class)
+    manifest_dir = git_root / config_relative.parent
+    for manifest in manifests:
+        if manifest is None:
+            continue
+        for pack in manifest.checks.policy_packs:
+            if pack.path.strip():
+                add(_lexical_path(manifest_dir / pack.path), "policy")
+        if baseline is not None and manifest.baseline.integrity_mode != "off":
+            add(
+                _lexical_path(_resolve_audit_log_path(manifest, baseline)),
+                "shipgate_state",
+            )
     return roots
+
+
+def _lexical_path(path: Path) -> Path:
+    """``path`` with ``.`` and ``..`` collapsed and no link followed."""
+
+    return Path(os.path.normpath(os.fspath(path)))
 
 
 _BASE_DIFF_REFERENCE_NAME = "diff-from-reference.json"
@@ -2783,17 +2837,17 @@ def _diff_reference_at_base(
     )
 
 
-def _base_ci_policy(
+def _base_manifest(
     *,
     git_root: Path,
     base: str,
     config_relative: Path,
-) -> tuple[CiConfig | None, str | None]:
-    """The ``ci`` block the base commit's manifest declares (#1024).
+) -> tuple[AgentsShipgateManifest | None, str | None]:
+    """The manifest the base commit holds, read once (#1024, #1075).
 
-    ``None`` with no note when the base has no manifest at all: the change
+    ``(None, None)`` when the base has no manifest at all: the change
     introduces the gate, and its own declaration is the only one there is.
-    ``None`` with a note when the base manifest cannot be read or validated.
+    ``(None, reason)`` when the base manifest cannot be read or validated.
     """
 
     found = regular_file_at_ref(
@@ -2801,22 +2855,56 @@ def _base_ci_policy(
     )
     if found.state == "absent":
         return None, None
-    reason = found.reason
+    reason = found.reason or "it could not be read"
     if found.state == "present":
         assert found.data is not None
         try:
             return (
-                load_manifest_text(
-                    found.data.decode("utf-8"), source=config_relative
-                ).ci,
+                load_manifest_text(found.data.decode("utf-8"), source=config_relative),
                 None,
             )
         except (AgentsShipgateError, UnicodeDecodeError, ValueError) as exc:
             reason = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+    return None, reason
+
+
+def _base_ci_policy(
+    manifest: AgentsShipgateManifest | None,
+    problem: str | None,
+    *,
+    base: str,
+    config_relative: Path,
+) -> tuple[CiConfig | None, str | None]:
+    """The ``ci`` block the base commit's manifest declares (#1024).
+
+    ``None`` with no note when the base has no manifest at all. ``None`` with
+    a note when :func:`_base_manifest` could not read or validate it.
+    """
+
+    if manifest is not None:
+        return manifest.ci, None
+    if problem is None:
+        return None, None
     return None, (
         f"The exit policy follows the change's {config_relative.as_posix()}: "
-        f"the copy at {base!r} could not be read ({reason})."
+        f"the copy at {base!r} could not be read ({problem})."
     )
+
+
+def _manifest_from_text(
+    text: str | None, *, source: Path
+) -> AgentsShipgateManifest | None:
+    """The head manifest this run scans, or ``None`` if it does not validate.
+
+    The head scan reports its own manifest error; nothing here adds one.
+    """
+
+    if text is None:
+        return None
+    try:
+        return load_manifest_text(text, source=source)
+    except (AgentsShipgateError, ValueError):
+        return None
 
 
 def _exit_policy_base_floor(
