@@ -184,6 +184,10 @@ it is, as is any path with `--no-base`. The `--baseline` file is read from the
 evaluated head. An in-repository `--diff-from`, `--baseline` or `--policy-pack`
 file that the change edits is reported by `SHIP-VERIFY-TRUST-ROOT-TOUCHED`
 (class `shipgate_state`, or `policy` for a pack), so a human reviews the edit.
+So is the audit log of an in-repository `--baseline` (`baseline.audit_log`, or
+`baseline-audit.log` beside the baseline; class `shipgate_state`) unless
+`baseline.integrity_mode` is `off`, and every policy pack the manifest declares
+(#1075).
 
 Finding delta buckets compare **identity**, not whether the PR caused a risk.
 `new_findings` means an identity was absent from the reference;
