@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.0 - 2026-11-07
+## 1.3.0 - 2026-11-08
 
 An advisory-channel minor release. It closes several ways a change could pass
 review, or a secret could be published, unseen: `verify` reads an in-repository

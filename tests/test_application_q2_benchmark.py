@@ -87,14 +87,21 @@ def test_every_ledger_says_what_its_scores_say(scores_path: Path) -> None:
     counts = {level: 0 for level in LEVELS}
     for member in members:
         score = scores[member["slug"]]
+        cells = rows[member["url"]]
         assert set(score) == {"answer_id", *LEVELS, "rationale"}, member["slug"]
-        assert re.fullmatch(r"sha256:[0-9a-f]{64}", score["answer_id"]), member["slug"]
+        if score["answer_id"] is None:
+            # A member that timed out, was refused or was unavailable has no
+            # answer, never an earlier build's (README § What a run is), so its
+            # score names none, and with no answer it never meets Q1.
+            assert cells[1] in {"`timeout`", "`refused`", "`unavailable`"}, member["slug"]
+            assert not score["q1"], member["slug"]
+        else:
+            assert re.fullmatch(r"sha256:[0-9a-f]{64}", score["answer_id"]), member["slug"]
         assert all(isinstance(score[level], bool) for level in LEVELS), member["slug"]
         assert score["rationale"].strip() and "|" not in score["rationale"], member["slug"]
         # Q2 is Q1 and more; Q1 is only scored on a relevant pull request.
         assert not score["q2"] or score["q1"], member["slug"]
         assert not score["q1"] or score["q0"], member["slug"]
-        cells = rows[member["url"]]
         assert [cells[8], cells[9], cells[10]] == [mark[score[level]] for level in LEVELS], member["slug"]
         assert cells[11] == score["rationale"], member["slug"]
         if score["q1"]:
