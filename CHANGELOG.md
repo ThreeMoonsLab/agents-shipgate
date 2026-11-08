@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changes
+
+- Move the published-release pins, examples and adoption prompts to `v1.3.0` (contract 42) now that it is published, re-capture the README and quickstart `diff` answers and the refund fixture excerpts from the published `1.3.0`, and re-measure the pilot ledger's Route H dry run on it. No schema or contract change. (#778)
+
 ## 1.3.0 - 2026-11-08
 
 An advisory-channel minor release. It closes several ways a change could pass

@@ -63,21 +63,58 @@ allow list from `Bash(npm test)` / `Read(src/**)` to `Bash(*)` / `Read(**)` /
 `WebFetch(*)` and adds a remote MCP server `payments-remote`. That is the
 capability-change class this pilot exists to observe.
 
-**Published build measured: `1.2.0`.** Preview measured:
-`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.3.0`, runtime contract 42: only this label moved with the
-1.3.0 version bump, and the source-tree cells below were not re-measured for it.
-The released and source-tree columns were both rerun on 2026-10-01, after
-`v1.2.0` was published, each on its own fresh fixture: the released column from
-`pip install agents-shipgate==1.2.0` in a clean virtualenv outside any checkout
+**Published build measured: `1.3.0`.** Preview measured:
+`0.16.0+preview.20260903.gb61aca7`. Source tree: `1.3.0`, runtime contract 42.
+The released and source-tree columns were both rerun on 2026-11-08, after
+`v1.3.0` was published, each on its own fresh fixture: the released column from
+`pip install agents-shipgate==1.3.0` in a clean virtualenv outside any checkout
 (the wheel PyPI serves, sha256
-`26ee2a309c7229b90773f0e12cf0d7d4a9e5c247ed1c4bd5f219ac4d1b16dff7`), the
+`40d7cc2bd869c1a180f77ab60ce1e820d01ff0d84a572ad135a25fbe1ad92e43`), the
 source-tree column through `./shipgate`. The preview column retains its
 2026-09-05 measurement and was not relabeled as a new run. The baseline was
 recorded on the fixture base, to a file outside the repository, before the
 permission change, so it was not itself under review.
 
 The two returned identical cells, version numbers included — runtime contract
-41 and host-grant inventory schema 0.7: `check` blocking with four violations
+42 and host-grant inventory schema 0.9: `check` blocking with four violations
+and visible coverage, the host-only `init` handoff with no manifest or workflow
+written, manifest-free `verify` exiting 0 with six advisory rows, drift naming
+six signals, and `diff` against the fixture base exiting 0 with
+`comparison_status: comparable` and six rows, four of them widening, read as 4
+changes. Every output was identical apart from the workspace path, the
+fixture's commit ids, the launcher name in printed commands, the boundary
+result's `audit_id`, `init --json`'s input id, and the boundary result's policy
+records. A source checkout has no packaged `_meta/policies`, so `./shipgate`
+evaluates the in-code default policies (`codex-boundary-default`,
+`host-boundary-default`) where the wheel loads the packaged
+`policies/*.shipgate.yaml` (`codex-boundary`, `host-boundary`): their ids and
+snapshot digests differ, and so does one rule's recommendation text. The
+`v1.2.0` wheel and source tree differ the same way; no cell does.
+
+The previous release, `v1.2.0`, was rerun the same way on 2026-11-08, from
+`pip install agents-shipgate==1.2.0` in its own clean virtualenv. It returned
+the same cells: the same six `diff` rows, four widening, read as 4 changes, and
+the same six drift signals, at runtime contract 41 and inventory schema 0.7.
+Its `diff` text is identical apart from the version on the `Compared:` line.
+Wheel against wheel, the JSON differs in schema versions (host-grant
+inventory, baseline and drift 0.7 against 0.9, beside the others `contract
+--json` names), in `init --json`'s contract version and input id, in the
+`env_var_names` list each drift grant now carries, in the boundary result's
+`host_coverage`, which adds the OpenShell adapter as `not_applicable`, and in
+`verify`'s `forbidden_file_edits`, which adds the OpenShell policy file
+(`.shipgate/openshell.json`). On this fixture `1.3.0` changes no cell.
+
+The paragraphs below record the earlier runs, on 2026-10-01 and 2026-10-02,
+while `1.2.0` was the newest release.
+
+The released and source-tree columns were both rerun on 2026-10-01, after
+`v1.2.0` was published, each on its own fresh fixture: the released column from
+`pip install agents-shipgate==1.2.0` in a clean virtualenv outside any checkout
+(the wheel PyPI serves, sha256
+`26ee2a309c7229b90773f0e12cf0d7d4a9e5c247ed1c4bd5f219ac4d1b16dff7`), the
+source-tree column through `./shipgate`. The two returned identical cells,
+version numbers included — runtime contract 41 and host-grant inventory schema
+0.7: `check` blocking with four violations
 and visible coverage, the host-only `init` handoff with no manifest or workflow
 written, manifest-free `verify` exiting 0 with six advisory rows, drift naming
 six expansion signals, and `diff` against the fixture base exiting 0 with
@@ -181,10 +218,10 @@ with 0 violations and no coverage surface; `init --write --ci` pinned
 `@v0.15.0`; `init` then `verify` exited 3; baseline/drift named all four
 expansion signals. It shipped as a qualified release.
 
-| | Released `v1.2.0` (`pip install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
+| | Released `v1.3.0` (`pip install`) | Preview `0.16.0+preview.20260903` (`gh release download`) | Source tree |
 | --- | --- | --- | --- |
-| Runtime contract | 41 | 29 | 42 |
-| Host-grant inventory schema | 0.7 | 0.2 | 0.7 |
+| Runtime contract | 42 | 29 | 42 |
+| Host-grant inventory schema | 0.9 | 0.2 | 0.9 |
 | `check` on the fixture | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** | `block` / `critical`, **4 violations** |
 | Coverage limit visible (`host_coverage`, `excluded_scopes`) | yes | yes | yes |
 | `init --write --ci` Action pin | not applicable — host audit handoff, no workflow written | `@v0.16.0+preview.20260903.gb61aca7` — **no such tag** (the release tag is `preview-`-prefixed) | not applicable — host audit handoff, no workflow written |
@@ -193,14 +230,14 @@ expansion signals. It shipped as a qualified release.
 | `diff` against the fixture base (Git-backed Route H) | exit 0, `comparable`, 6 rows, 4 widening, read as 4 changes | not measured | exit 0, `comparable`, the same 6 rows and 4 changes |
 | Qualification | **none** — advisory channel, no qualification claim | **none** — no adjudicated corpus, nothing signed | not a distributed build |
 
-Every rerun on 2026-09-22, 2026-09-23 and 2026-10-01 reproduced four boundary violations (`block` /
+Every rerun on 2026-09-22, 2026-09-23, 2026-10-01 and 2026-11-08 reproduced four boundary violations (`block` /
 `critical`) and visible coverage. `init --write --ci` writes no manifest or
 workflow and routes the host-only fixture to the read-only audit route. Manifest-free `verify` now succeeds as an advisory
 comparison: six rows name three added permissions, two removed narrower rules,
 and the added MCP server. It publishes no application release decision or merge
 authority. Baseline/drift
-reproduced all four expansion signals, beside `1.2.0`'s two `permission_widened`
-signals, with a canonical
+reproduced all four expansion signals, beside the two `permission_widened`
+signals `1.2.0` added, with a canonical
 non-symlink temporary path. The earlier run discovered the documented `/tmp/`
 recovery-path problem on macOS; #550 was subsequently fixed by #595. This run
 uses the canonical path and does not add a new recovery-path observation.
@@ -209,15 +246,16 @@ No reviewer, retention or qualification result is inferred from this rerun.
 Four things follow, and each one is a fact about a build rather than a
 judgement about a partner.
 
-1. **The published release shows the change.** `v1.2.0`, installed with
+1. **The published release shows the change.** `v1.3.0`, installed with
    `pip install agents-shipgate`, returns `block` / `critical` with four
    violations and carries the coverage surface, and manifest-free `verify`
    names six advisory rows, so it can deliver all four first-value
    recognitions. It is advisory and makes no qualification claim, which is a
    thing to say out loud to a partner rather than a footnote.
 2. **The previous releases show it too; an older one could not.**
-   `v1.1.0` returns the same cells and the same six rows, printing each
-   replaced allow rule as a separate addition and removal. `v1.0.0`, measured
+   `v1.2.0` returns the same cells and the same six rows, read as 4 changes.
+   `v1.1.0`, measured on 2026-10-01, returns the same cells and the same six
+   rows, printing each replaced allow rule as a separate addition and removal. `v1.0.0`, measured
    on 2026-09-22, also returns them, without the dispositions and the `review`
    and `coverage` blocks. `v0.15.0` returned
    `warn` / `none` with zero violations on a diff that grants `Bash(*)`, with
@@ -225,11 +263,11 @@ judgement about a partner.
    three of the four recognitions through the baseline/drift pair and cannot
    reach the fourth; `pipx upgrade agents-shipgate` closes that gap.
 3. **#506's repair has reached a downloadable build.** The published
-   `v1.2.0` writes no workflow for this host-only fixture, and where it does
+   `v1.3.0` writes no workflow for this host-only fixture, and where it does
    generate CI it pins the source commit it was released from — on
-   2026-10-01, `init --write --ci` on a copy of `samples/openapi_only_agent`
-   wrote `@7fc61ef43d8ec5c906bc690765f4a1297dff4fda` with
-   `shipgate_version: "1.2.0"`. The preview wheel cut on 2026-09-03 still
+   2026-11-08, `init --write --ci` on a copy of `samples/openapi_only_agent`
+   wrote `@f96f1e99396c1100ba3662336e4017f4fb351140` with
+   `shipgate_version: "1.3.0"`. The preview wheel cut on 2026-09-03 still
    writes `@v0.16.0+preview.20260903.gb61aca7`, which resolves to nothing; for
    this route the published release supersedes it.
 4. **The published release no longer dead-ends through manifest setup.**
@@ -319,17 +357,17 @@ request, and none opened a new issue. Status is as of 2026-09-05, after
 [#485](https://github.com/ThreeMoonsLab/agents-shipgate/issues/485) and
 [#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497) merged,
 rechecked on 2026-09-14 against the published `v1.0.0`, on 2026-09-22 against
-the published `v1.1.0`, and on 2026-10-01 against the published `v1.2.0`, which
-returned the same statuses.
+the published `v1.1.0`, on 2026-10-01 against the published `v1.2.0`, and on
+2026-11-08 against the published `v1.3.0`, which returned the same statuses.
 
 | Reproduced | Existing issue | Status |
 | --- | --- | --- |
 | `init --write --ci` pinned a workflow to a tag that does not exist | [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506) | **Fixed in `v1.0.0`** — generated CI pins the released source commit, and this host-only fixture writes no workflow. The 2026-09-03 preview predates the fix and still writes a ref that resolves to nothing |
 | The released build's `check` returns `warn` / `none` on a host-boundary change the tree blocks; released and in-tree evaluators disagree | [#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497) | **Resolved in `v1.0.0`** — the published `check` returns `block` / `critical` with 4 violations on this fixture, matching the tree |
 | The released build's `check --agent claude-code` reports "No **Codex** boundary rule fired" — the pre-multi-host evaluator | [#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497), [#506](https://github.com/ThreeMoonsLab/agents-shipgate/issues/506) | Superseded in `v1.0.0` by the multi-host evaluator, which blocks this fixture; only `v0.15.0` carries the old evaluator |
-| The released build's host inventory carries no coverage or excluded-scopes surface, so a reviewer cannot see what was not read | [#520](https://github.com/ThreeMoonsLab/agents-shipgate/issues/520) | Present since `v1.0.0` (inventory schema 0.5; 0.6 in `v1.1.0`; 0.7 in `v1.2.0`), and on the preview at 0.2; #520 stays open for its wider scope |
+| The released build's host inventory carries no coverage or excluded-scopes surface, so a reviewer cannot see what was not read | [#520](https://github.com/ThreeMoonsLab/agents-shipgate/issues/520) | Present since `v1.0.0` (inventory schema 0.5; 0.6 in `v1.1.0`; 0.7 in `v1.2.0`; 0.9 in `v1.3.0`), and on the preview at 0.2; #520 stays open for its wider scope |
 | A `review_required` result has no authenticated continuation | [#504](https://github.com/ThreeMoonsLab/agents-shipgate/issues/504) → [#337](https://github.com/ThreeMoonsLab/agents-shipgate/issues/337) | Open |
-| `init` then `verify` dead-ends on a repository with no tool surface | [#498](https://github.com/ThreeMoonsLab/agents-shipgate/issues/498) | `v1.0.0`, `v1.1.0` and `v1.2.0` route this host-only fixture to audit and manifest-free `verify` exits 0; the preview still dead-ends. #498 owns the manifest route — "do not make policy authoring a universal prerequisite" — and this runbook mitigates it meanwhile by routing those partners to Route H |
+| `init` then `verify` dead-ends on a repository with no tool surface | [#498](https://github.com/ThreeMoonsLab/agents-shipgate/issues/498) | `v1.0.0`, `v1.1.0`, `v1.2.0` and `v1.3.0` route this host-only fixture to audit and manifest-free `verify` exits 0; the preview still dead-ends. #498 owns the manifest route — "do not make policy authoring a universal prerequisite" — and this runbook mitigates it meanwhile by routing those partners to Route H |
 | The runbook required a manifest on a route that does not need one | [#498](https://github.com/ThreeMoonsLab/agents-shipgate/issues/498) | Fixed in this runbook |
 | The runbook required a contract floor no published build carries | [#497](https://github.com/ThreeMoonsLab/agents-shipgate/issues/497) | Fixed in this runbook and, independently, by #497's channel table |
 
@@ -404,6 +442,17 @@ It also adds `diff --application`, a route the runbook does not yet teach.
 Whether the channel line moves is the owner's question, not this ledger's.
 This checkpoint adds no observation, and no denominator moves.
 
+**Checkpoint — 2026-11-08.** This records facts; it does not change the
+decision above, whose text stays with its owner to confirm. `v1.3.0` is
+published on the advisory channel with no qualification claim, and `pipx
+install agents-shipgate` now installs it. It does not change what `diff`
+reports on this change class: the dry run above, re-dated against it before
+being cited here, returned the same six rows, read as 4 changes, and the same
+six drift signals. Its release notes say that `diff --application`, which the
+runbook does not yet teach, now establishes no row on the development corpus
+(#1001, #1046). Whether the channel line moves is the owner's question, not
+this ledger's. This checkpoint adds no observation, and no denominator moves.
+
 ## Standing decision — 2026-09-05: **narrow**
 
 Superseded for the advisory Route H experiment by the 2026-09-14 decision
@@ -469,9 +518,10 @@ Every denominator is still 0.
 - **The dry run is one synthetic fixture on one machine**, by a maintainer who
   knows the answers. It shows what a command emits; it cannot show what a
   stranger understands.
-- **Findings are build-dated.** They describe five builds as they stood on
-  2026-10-01 for the released `1.2.0`, the previous release `1.1.0` and this
-  source tree, 2026-09-22 for `1.0.0`, and 2026-09-05 for the preview
+- **Findings are build-dated.** They describe six builds as they stood on
+  2026-11-08 for the released `1.3.0`, the previous release `1.2.0` and this
+  source tree, 2026-10-01 for `1.1.0`, 2026-09-22 for `1.0.0`, and 2026-09-05
+  for the preview
   `0.16.0+preview.20260903.gb61aca7`. A release or a new
   preview invalidates the comparison, and the dry run must be re-run and
   re-dated before any row here is cited again. A standing guard fails the

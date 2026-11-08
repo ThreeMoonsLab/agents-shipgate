@@ -605,7 +605,11 @@ The shape that holds:
    `until <version> is published`, in docs and in `src/` comments that justify
    extending a contract in place — so search for it; at `1.2.0` it was in
    `docs/agent-contract-current.md`, `docs/application-comparison.md`, the
-   README and `schemas/contract.py`.
+   README and `schemas/contract.py`, and at `1.3.0` in `llms.txt`,
+   `docs/ai-search-summary.md`, a `STABILITY.md` migration note ("has not
+   shipped in a tagged release") and the quickstart's source-only Action route.
+   Search, too, for excerpts a page attributes to the previous release, such
+   as "The published `v<previous>` release renders this excerpt".
 
    The two constants govern ordinary/source/preview adoption: the `uses:`
    pin in the workflow it generates, the runner pins in the bundled adoption

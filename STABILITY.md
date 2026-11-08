@@ -824,8 +824,8 @@ routed the edit to review, so no gate was bypassed.
 
 **What changes.**
 
-- **Grants.** Host-grants `0.9`, extended in place (it has not shipped in a
-  tagged release), gains two grant kinds for Claude Code settings files:
+- **Grants.** Host-grants `0.9`, extended in place before it shipped in
+  1.3.0, gains two grant kinds for Claude Code settings files:
   `command_setting` (`statusLine`, `subagentStatusLine`, `fileSuggestion`,
   `apiKeyHelper`, `otelHeadersHelper`, `awsAuthRefresh`,
   `awsCredentialExport`; `execute`/`high`, with a display-only `command` as
