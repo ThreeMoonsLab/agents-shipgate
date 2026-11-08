@@ -1,0 +1,366 @@
+{
+  "corpus": "application-q2-development",
+  "build": "04fc9ced24b081c8ff885be92250c00450ad3d32",
+  "scored": "2026-11-08; no answer has an added, removed or changed row and four members have no answer, so the README's definitions settle Q1 and Q2 without a source reading; Q0 judgments are retained for the same frozen pins",
+  "corpus_sha256": "bd6ef857e6c05806d791045a6742eda8e60f87f84a303bb085e626feeddf3105",
+  "previous_ledger": "2026-10-05-0e58e6ff.scores.json",
+  "engine": {
+    "adapter_set_sha256": "sha256:51c0080dbca0912f38e54f043045fdb611304b6b5d796182841f0f1697b9c23f",
+    "dependency_set_sha256": "sha256:56f477cba2290b47faf0d913444119a443afa35fd088e0b3fb33a725619f7637",
+    "engine_distribution_sha256": "sha256:9942247d518ee64e635f84f85183c2f59968007b4b1d1198b3bbff53de3051e4",
+    "engine_requirement_id": "sha256:dd0f2c73f43fc3b58584ccdff918fd711bc969aad7a797f3d0482fde27059817",
+    "package": "agents-shipgate",
+    "platform": "darwin",
+    "plugin_set_sha256": "sha256:f3d0c2f88e3ed955d3e170eeccf9e834a303d2b471aa2a0c72b21828242f3fda",
+    "policy_catalog_sha256": "sha256:33a533db66caaa3859eea227f5ff02dab8d62026e93d03541faa3f2abb6c521b",
+    "python_implementation": "CPython",
+    "python_version": "3.12.13",
+    "version": "1.3.0"
+  },
+  "method": "Every answer of this run equals the 2026-11-08 measurement of main 952a74cfeb (49/49 answer ids; that run is the source of the regression figures in docs/changelog/1.3.0.md). No answer establishes a row, so no member can meet Q1. The three 2026-10-05 Q2 cases were re-read against their rows: each audited change is present only as a not_established candidate, which the README does not count as the change appearing. No holdout score is inferred: the holdout has no pinned members.",
+  "scores": {
+    "ITMO-NSS-team_FEDOT.MAS-30": {
+      "answer_id": "sha256:a0d65f6a8eb6d4f2a9cfb1707e21bbd96d8528b44edb28bf855c8cb58c9c3b66",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "ITMO-NSS-team_FEDOT.MAS-36": {
+      "answer_id": "sha256:cfbac66f802885b952db9c8a7baa3a62775d8e4088b214cf810c8234c988df38",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "ITMO-NSS-team_FEDOT.MAS-38": {
+      "answer_id": "sha256:0a0cca353fba19e75338939ee973c53f3386f262c9503b08f2e9180555f861a2",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "ITMO-NSS-team_FEDOT.MAS-42": {
+      "answer_id": "sha256:2c55e69bad2ca339c381e356de4c832a5817787044d453a9b4575a23b9ab1cb0",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "InseeFrLab_GRAAL-33": {
+      "answer_id": "sha256:7b1fed0115179a37cd92e586a2df2458a99c64894191857db87048d1bfa72ef1",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "JSebastianIEU_voice-freight-negotiator-10": {
+      "answer_id": "sha256:915edd4a41505a62dabd42a0a470a9c4b3e1d8529a282bbc366c49bd95875eb0",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: the agents are LiveKit Agents (`livekit.agents.Agent`), not the OpenAI Agents SDK or ADK."
+    },
+    "JinyanSu1_Agentic-AI-Scientist-2": {
+      "answer_id": "sha256:b97de0833fafb1b8a681c125c4dac30ebfae3834254ee945960b90d7b2cb9687",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 21 rows are all `not_established` candidates."
+    },
+    "Lling0000_OpenCMO-41": {
+      "answer_id": "sha256:404e56b62f6c71f5227d09b59560d9dc07f954b960282dcfdc475626f8dd96c8",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 47 rows are all `not_established` candidates."
+    },
+    "SponsioLabs_Sponsio-173": {
+      "answer_id": "sha256:d47a1c71b80564aa66564648daeff23d229ba1519eeae0e059020402402debf5",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: library code; the only `tools=` edits are usage examples in docstrings, and no application agent's wiring changes."
+    },
+    "Tiendat2703_MIS_TALENT-5": {
+      "answer_id": "sha256:e351e80ffabeb78611899816a6861a8166a0b6510bbd1550aef012890da17147",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 14 rows are all `not_established` candidates."
+    },
+    "Tiendat2703_MIS_TALENT-6": {
+      "answer_id": "sha256:b0ce90e00e34f77c4d73ea5dda5731101cae5c01a7c1fb6966b61a23e7ed3bb4",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 16 rows are all `not_established` candidates."
+    },
+    "Tiendat2703_MIS_TALENT-7": {
+      "answer_id": "sha256:21080e242fce7999f01108730cd7af4450c8ef8facb006c97f51cacaf20149ed",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1, so not Q2: the three audited changes (`load_and_validate` changed on `Finance_Agent` and `Finance_Agent_Preflight`, `load_service_catalog` added on `Finance_Agent_Preflight`) are present only as `not_established` candidates, withheld by computed access at `app/api.py:26` and `app/api.py:33`."
+    },
+    "Tiendat2703_MIS_TALENT-8": {
+      "answer_id": "sha256:ae679e3158050c01041800a0767ae9d8d06fe63933ca25d54477295f38306907",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 18 rows are all `not_established` candidates."
+    },
+    "VRSEN_agency-swarm-796": {
+      "answer_id": "sha256:589e5c9b6f27d3b885f5956116997efefcbeccd10b7184d135fd499fd7345831",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: agent-framework internals (an MCP client refactor), not an application agent's wiring."
+    },
+    "VRSEN_agency-swarm-804": {
+      "answer_id": "sha256:c3569307c211f8075a2be930a0d5315cd600e02f10ebc64a2a8ec2c3a73ae1f1",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: agent-framework internals (MCP tool discovery), not an application agent's wiring."
+    },
+    "VidulaWickramasinghe_O.R.I.O.N-126": {
+      "answer_id": null,
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this member has no answer: `diff --application` exceeded the 900 s cap."
+    },
+    "YaroslavMarkivskyi_internstore-migrate-4": {
+      "answer_id": "sha256:ca109d2cf79c022101c05af62b615306c76379c8621653b483365aa23d0c1f51",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: a hand-written ReAct loop (`ai_assistant.react_loop`); no OpenAI Agents SDK or ADK import in the changed code."
+    },
+    "ZeroRuntimeAI_zeroruntime-python-examples-1": {
+      "answer_id": "sha256:b4f6aa33bae6584a127d942eb97f97742773357d905f1bdf679598812f73cf7a",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: ZeroRuntime agents (`from zrt import Agent`), not the OpenAI Agents SDK or ADK."
+    },
+    "ZeroRuntimeAI_zeroruntime-python-examples-5": {
+      "answer_id": "sha256:ca0f8933003273c47dbd3dbc34c59c6ac6ec9cff0b850e9f8a2bd9baca7df41e",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: ZeroRuntime agents (`from zeroruntime import Agent`), not the OpenAI Agents SDK or ADK."
+    },
+    "alliance-genome_agr_ai_curation-842": {
+      "answer_id": null,
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this member has no answer: `diff --application` exceeded the 900 s cap."
+    },
+    "alliance-genome_agr_ai_curation-858": {
+      "answer_id": null,
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this member has no answer: `diff --application` exceeded the 900 s cap."
+    },
+    "alliance-genome_agr_ai_curation-860": {
+      "answer_id": null,
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this member has no answer: `diff --application` exceeded the 900 s cap."
+    },
+    "buriro-ezekia_cinescout-ai-9": {
+      "answer_id": "sha256:906e043d1b52f3675a2ff79342931be96b859df9a56f0c47c825e50aac891662",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 2 rows are all `not_established` candidates."
+    },
+    "carlosdaniel092015-crypto_pastoriza-66": {
+      "answer_id": "sha256:59aa0cd87490ba5caec76c731dffd3849a6e9e65c546016773edb87ce3877085",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "carlosdaniel092015-crypto_pastoriza-69": {
+      "answer_id": "sha256:9645a3fa9ad5062f0a2d112661769653165b0b42e1a6d321d439e3c7e5d536c8",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "carlospolop_chack-agent-25": {
+      "answer_id": "sha256:4d4751c7442aedeee9d7273653d841983f9878b0668c938f0dea69f04099e078",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 1 rows are all `not_established` candidates."
+    },
+    "cianfhoghlaim_tuatha-1": {
+      "answer_id": "sha256:5d6db8977a10cf8446b6d18faa27f87a1e576d9fbb877ea4b6d0456fa98f5a2d",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 88 rows are all `not_established` candidates."
+    },
+    "contributory_starchatter-telegram-4": {
+      "answer_id": "sha256:1716b3073ca24f8a775a9c45c0c221a534c59dde9c992f2e6cd4ab8c453539e3",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "cuppibla_adk_tutorial-7": {
+      "answer_id": "sha256:06ce92d10074fb36e1410f612133e7a73c68f34ff1d85a063fd08fbef17ba2fe",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: every changed line updates a model string (`gemini-2.5-flash` -> `gemini-flash-latest`); no agent's tools, handoffs or sub-agents change."
+    },
+    "cuppibla_adk_tutorial-9": {
+      "answer_id": "sha256:01248901669d491b0af2ed6e598a83f678f9b530c1795753dae753afe04763f7",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 5 rows are all `not_established` candidates."
+    },
+    "evvyraine_skye-next-17": {
+      "answer_id": "sha256:a4865a3c54a01fd598636b4a166d27ade0746ad0c8800c46cb98edcbee0a9e61",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "geroembser_livekit-agents-1": {
+      "answer_id": "sha256:7e7f12a1e97a80c2790a267a178b9e9e7b72d7ac22cc75d20b275f35902918ff",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: LiveKit Agents (`livekit.agents`), not the OpenAI Agents SDK or ADK."
+    },
+    "hamzafarooq_multi-agent-course-63": {
+      "answer_id": "sha256:6782d4b420d1ef7631c8defa160aa191e43a8876993563c91ba018f1d2537014",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: the course's own `agent.Agent` class; no OpenAI Agents SDK or ADK import in the changed code."
+    },
+    "hamzafarooq_multi-agent-course-64": {
+      "answer_id": "sha256:f9b0156259179cff011c0a03b851ab5a028a360ac4f48d7008eb83b3fc0547e1",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: the course's own `agent.Agent` class; no OpenAI Agents SDK or ADK import in the changed code."
+    },
+    "jpka_attest-3": {
+      "answer_id": "sha256:025314350922c31fd8a4aed35262e72aed23e63ac2d8cd1f7decd99d882dd0ea",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1, so not Q2: the two binding changes the 2026-10-05 audit confirmed (`recall_firm_memory` and `remember_firm_finding` added to the existing `attest_orchestrator`) are present only as `not_established` candidates, withheld because a framework constructor or namespace is used opaquely at `agents/attest_orchestrator/agent.py:35`."
+    },
+    "kkmiecik-coder_CRM-5": {
+      "answer_id": "sha256:c44768890ab12ab89c74cfd7e24f05443dae67591dd60adc390ff9d47ce5851a",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1, so not Q2: the four audited changes on the existing `Wycena` agent (`wyslij_obraz` added; `policz_wycene`, `policz_wysylke` and `znajdz_klienta` changed) are present only as `not_established` candidates, withheld because its builder may be reached through dynamic import machinery at `_smoke.py:5`."
+    },
+    "krevetka-is-afk_llm-agent-for-ai-studio-19": {
+      "answer_id": "sha256:571cce786af76c5d2d7b3f02ae047b223866245cf1349513d338ce7c8c90d796",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "krevetka-is-afk_llm-agent-for-ai-studio-20": {
+      "answer_id": "sha256:3f1437a134c2ea5e6089afec4be4e95c6b87222e068aec3e235d513253885833",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "krevetka-is-afk_llm-agent-for-ai-studio-23": {
+      "answer_id": "sha256:c977fae502e1eed6a083ecb7afd4f2e90c418ae1de4b86f9c14aadae17af42b2",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "liauto-siada_siada-cli-6": {
+      "answer_id": "sha256:1bfa1c72230cdf9b83af0a4dcb7e8e7e65ec5e688daa72a596336a0e1d5da7be",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 7 rows are all `not_established` candidates."
+    },
+    "lifenyan_agent-desk-8": {
+      "answer_id": "sha256:75dd9aaf4173f81b3dd8b29c3f9096d7334bb583b54b0ebb3bb4a2c344b955cb",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 3 rows are all `not_established` candidates."
+    },
+    "mezgoodle_Vesta-53": {
+      "answer_id": "sha256:bcbd50b4e5e346faa4407bcb972f9e35c0aefbb74fd896cfda87a1a3e569de42",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "mezgoodle_Vesta-58": {
+      "answer_id": "sha256:979fbf0faa4ee60f95483379c183c78423b8a20f509c747eb19ddff33dec62a5",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "mezgoodle_Vesta-70": {
+      "answer_id": "sha256:1785acf436288b53a698c1f0bccb60d6fbf13fde3189bcbdd4066bbeedcbab31",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row."
+    },
+    "mosnin_realestatecrm-612": {
+      "answer_id": "sha256:8401fffd899ff3ab20d9e5dd79d0753d6c563a9a41b702f3fd44f22590315514",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 43 rows are all `not_established` candidates."
+    },
+    "rustic-ai_rustic-ai-419": {
+      "answer_id": "sha256:9ef9b0b802efb1af648806feb690e629e09eea306c17b96d6aece0ab20ecba30",
+      "q0": false,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q0: rustic-ai guild agents (`rustic_ai.core.guild.agent.Agent`), not the OpenAI Agents SDK or ADK."
+    },
+    "surrealdb_agent-memory-openai-agents-sdk-1": {
+      "answer_id": "sha256:24ffc6e340a1ceceaa524f96b9c7ea5da16b8f48401f01d1464ade4daa655cb1",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 1 rows are all `not_established` candidates."
+    },
+    "xju2_hepagent-72": {
+      "answer_id": "sha256:375ac617a5dbdb3954f09fcf5b93c45f9e4b2ec65ad69d24c0b55bc5c7cfa339",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 41 rows are all `not_established` candidates."
+    },
+    "xju2_hepagent-74": {
+      "answer_id": "sha256:02600e93ca68f0143848d65710ee07fba24890de463b06e14217030e4409edf8",
+      "q0": true,
+      "q1": false,
+      "q2": false,
+      "rationale": "Not Q1: the frozen source judgment establishes a binding change, but this answer has no change row; its 42 rows are all `not_established` candidates."
+    }
+  }
+}

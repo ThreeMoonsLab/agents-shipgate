@@ -3,6 +3,7 @@
   "channels": {
     "1.0.0": "advisory",
     "1.1.0": "advisory",
-    "1.2.0": "advisory"
+    "1.2.0": "advisory",
+    "1.3.0": "advisory"
   }
 }

@@ -61,8 +61,8 @@ These fields are display evidence, excluded from saved baselines and grant
 comparison identity. Only the row's explanation changes: direction, widening,
 severity, check decisions and control permissions are unchanged. Diff,
 verifier host comparison and PR comments consume the same row. No check ID is
-introduced. The unreleased inventory schema `0.7` and runtime contract `41`
-are extended in place; released schemas remain unchanged.
+introduced. The inventory schema `0.7` and runtime contract `41` were
+extended in place before they shipped in 1.2.0; released schemas remain unchanged.
 
 Regression fixtures establish recognition and abstention within this grammar.
 They do not establish a public-PR yield or false-positive rate. The #830
