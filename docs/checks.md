@@ -1114,14 +1114,15 @@ a plain `scan` emits nothing. It is one ordinary `Finding` at `medium`
 severity routed through `release_decision` — never a second verdict.
 
 In `verify`, the files a run is configured to read as its gate are trust
-roots wherever they live, with `matched_glob` set to the configured path: the
-configured manifest, an in-repository `--diff-from`, `--baseline` or
-`--policy-pack` (#1024), every policy pack the base or head manifest declares
-in `checks.policy_packs` (class `policy`), and the audit log of an
+roots wherever they live. The configured manifest is one, under any name.
+So are an in-repository `--diff-from`, `--baseline` or `--policy-pack`
+(#1024), every policy pack the base or head manifest declares in
+`checks.policy_packs` (class `policy`), and the audit log of an
 in-repository `--baseline` (class `shipgate_state`, unless
-`baseline.integrity_mode` is `off`) (#1075). Reading the base's declarations
-means a change cannot remove a pack's declaration and edit the pack unseen. A
-path the globs above already classify keeps its class and glob.
+`baseline.integrity_mode` is `off`) (#1075). A pack, baseline, reference or
+audit log the list above already covers keeps the class and glob it gives;
+any other has `matched_glob` set to its path. Reading the base's declarations
+means a change cannot remove a pack's declaration and edit the pack unseen.
 
 A host settings change that can only take authority away does not fire
 (#661). That holds when `.claude/settings.json`, `.claude/settings.local.json`

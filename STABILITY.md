@@ -766,8 +766,8 @@ declares.
   in-repository `--baseline`, at `baseline.audit_log` or `baseline-audit.log`
   beside the baseline, with `trust_root_class: shipgate_state` like the
   baseline. The audit log is left out when `baseline.integrity_mode` is `off`,
-  because the scan does not read it then. `matched_glob` is the
-  repository-relative path.
+  because the scan does not read it then. For a path the trust-root table
+  does not already classify, `matched_glob` is the repository-relative path.
 - Paths resolve as the scan resolves them: a pack against the manifest's
   directory, the audit log against the baseline's. A path outside the
   repository is the operator's and is not classified.
@@ -776,7 +776,8 @@ declares.
   the run loads. A change that removes a declaration and edits the file in the
   same diff is judged against the base's declaration, so the file is still a
   touched trust root beside the edited manifest. Without a base
-  (`--no-base`), the head manifest's declarations apply.
+  (`--no-base`), or when the base holds no manifest this engine can read,
+  the head manifest's declarations apply alone.
 - A `--policy-pack`, `--baseline` or `--diff-from` named on the command line
   keeps the class #1024 gives it.
 
@@ -787,9 +788,10 @@ path publishes a finding with a new fingerprint; a baseline that should accept
 it reads it as new once.
 
 **What does not change.** No schema, contract, `base_status` value, check ID,
-severity or `trust_root_class` value is added. `scan` is unchanged: without a
-verification context the check emits nothing, so the sample goldens do not
-move. The governance benchmark is unchanged.
+severity or `trust_root_class` value is added. `scan` is unchanged, including
+`scan --changed-files`, whose verification context carries no configured
+inputs, so the sample goldens do not move. The governance benchmark is
+unchanged.
 
 **Who must act.** No configuration changes. A pull request that edits a
 declared pack outside `policies/**`, or the audit log of an in-repository
@@ -6046,9 +6048,10 @@ manifest's, and it alone sets the blocker severities and the verdict; with a
 base and without `--fail-on`, the base manifest's declared `ci.fail_on` also
 fails CI (exit `20`) for any active finding of those severities. An
 in-repository `--diff-from`, `--baseline` or `--policy-pack` file the change
-edits is reported by `SHIP-VERIFY-TRUST-ROOT-TOUCHED`, as is a policy pack
-the base or head manifest declares and the audit log of an in-repository
-`--baseline` ([migration note](#verify-manifest-bound-trust-roots-1075)).
+edits is reported by `SHIP-VERIFY-TRUST-ROOT-TOUCHED`, and so are a policy
+pack the base or head manifest declares and the audit log of an
+in-repository `--baseline`
+([migration note](#verify-manifest-bound-trust-roots-1075)).
 
 Before any trigger-skip can return success, non-preview `verify` also requires
 the resolved `--config` path to exist. A missing config is a configuration
