@@ -38,6 +38,7 @@ from agents_shipgate.core.boundary_registry import (
     is_claude_plugin_marketplace_path,
     is_claude_plugin_reference_path,
     is_explicit_boundary_file_path,
+    is_github_workflow_path,
     is_hook_declaration_file_name,
     is_plugin_manifest_path,
     plugin_manifest_root,
@@ -5781,9 +5782,13 @@ _WALK_SKIPPED_DIRECTORIES = frozenset({
 
 
 def _source_kind(path: str) -> str:
-    folded = path.casefold()
-    if folded.startswith(".github/workflows/"):
+    # Only a document GitHub runs is a workflow. Anything else the registry
+    # enumerates under `.github/workflows/` — an `AGENTS.md` or `CLAUDE.md` —
+    # is read as it would be in any other directory, never parsed as a
+    # workflow (#1110).
+    if is_github_workflow_path(path):
         return "workflow"
+    folded = path.casefold()
     if folded.endswith((".mcp.json", "/mcp.json")):
         return "mcp"
     if folded.endswith("hooks.json"):
@@ -5802,7 +5807,9 @@ def _source_kind(path: str) -> str:
 
 
 def _audit_hosts(adapter_id: str, path: str, hosts: tuple[str, ...]) -> tuple[str, ...]:
-    if path.casefold().startswith(".github/workflows/"):
+    # The same predicate as the kind, so a source is `github` exactly when
+    # it is read as a workflow (#1110).
+    if is_github_workflow_path(path):
         return ("github",)
     if adapter_id == "vscode_mcp":
         return ("vscode",)
