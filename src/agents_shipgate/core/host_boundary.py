@@ -73,6 +73,7 @@ from agents_shipgate.core.permission_lattice import (
     whole_tool_risk,
 )
 from agents_shipgate.core.trust_roots import read_absolute_identity_bound_text
+from agents_shipgate.core.wheel_layout import packaged_path
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultDiagnostic,
     AgentResultRiskLevel,
@@ -1314,12 +1315,9 @@ def _parser_error(kind: str, exc: Exception) -> dict[str, Any]:
 
 
 def _load_packaged_default_policy() -> dict[str, Any] | None:
-    candidate = (
-        Path(__file__).resolve().parents[1]
-        / "_meta"
-        / "policies"
-        / "host-boundary.shipgate.yaml"
-    )
+    # The wheel's packaged copy, or in a source checkout the repository file
+    # it is built from: `./shipgate` and the wheel evaluate one default.
+    candidate = packaged_path("_meta/policies/host-boundary.shipgate.yaml")
     try:
         if candidate.is_file():
             loaded = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}

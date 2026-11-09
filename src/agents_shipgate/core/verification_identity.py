@@ -22,6 +22,7 @@ from agents_shipgate import __version__
 from agents_shipgate.checks.registry import _plugins_enabled, check_catalog
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.static_inputs import active_static_input_snapshot
+from agents_shipgate.core.wheel_layout import WHEEL_LAYOUT, is_source_checkout
 from agents_shipgate.inputs.protocol import REGISTRY
 from agents_shipgate.schemas.manifest.declared_paths import (
     declared_manifest_input_paths,
@@ -1486,39 +1487,13 @@ def _engine_distribution_sha256() -> str:
     package_root = Path(__file__).resolve().parents[1]
     files: dict[str, str] = {}
     _add_distribution_tree(files, package_root, logical_root="")
-    if not (package_root / "_meta").is_dir():
+    if is_source_checkout(package_root):
         # A source checkout does not contain Hatch's force-included wheel
         # directories. Project the exact force-include mapping into the same
         # logical package paths so a checkout and its built wheel have one
         # engine-content identity.
         repository_root = package_root.parents[1]
-        mappings = (
-            ("samples", "_fixtures"),
-            ("AGENTS.md", "_meta/AGENTS.md"),
-            ("STABILITY.md", "_meta/STABILITY.md"),
-            ("docs/triggers.json", "_meta/triggers.json"),
-            (".claude/commands/shipgate.md", "_meta/claude-command/shipgate.md"),
-            ("docs/checks", "_meta/checks"),
-            (
-                "policies/codex-boundary.shipgate.yaml",
-                "_meta/policies/codex-boundary.shipgate.yaml",
-            ),
-            (
-                "policies/mcp-permissions.shipgate.yaml",
-                "_meta/policies/mcp-permissions.shipgate.yaml",
-            ),
-            (
-                "policies/host-boundary.shipgate.yaml",
-                "_meta/policies/host-boundary.shipgate.yaml",
-            ),
-            (
-                "policies/templates/agent-boundary-default.shipgate.yaml",
-                "_meta/policies/agent-boundary.shipgate.yaml",
-            ),
-            ("policies/templates", "_meta/policies/templates"),
-            ("adoption-kits", "_adoption_kits"),
-        )
-        for source, logical in mappings:
+        for source, logical in WHEEL_LAYOUT:
             candidate = repository_root / source
             if not candidate.exists():
                 raise ValueError(f"source distribution input is missing: {source}")
