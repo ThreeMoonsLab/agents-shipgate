@@ -865,7 +865,7 @@ class ImportResolver:
             stop = _Stop(UNREADABLE_MODULE, f"{ref} could not be read or parsed")
             self._modules[path] = stop
             raise stop from None
-        module = _module(path, ref, tree, text)
+        module = _module(path, ref, tree, text, parsed=True)
         self._modules[path] = module
         return module
 
@@ -1788,7 +1788,7 @@ class ImportResolver:
                     tree = None
                 if tree is not None:
                     # Named by its repository path: it lies outside the scope.
-                    module = _module(Path(path), path, tree, text)
+                    module = _module(Path(path), path, tree, text, parsed=True)
         self._layout_modules[path] = module
         return module
 
@@ -1959,7 +1959,7 @@ class ImportResolver:
             stop = _Stop(UNREADABLE_MODULE, f"{ref} could not be read or parsed")
             self._scanned[path] = stop
             raise stop from None
-        module = _module(path, ref, tree, text)
+        module = _module(path, ref, tree, text, parsed=True)
         self._scanned[path] = module
         return module
 
@@ -2506,7 +2506,8 @@ class _RepositoryConstructorResolver(ImportResolver):
         if original is None:
             reason = RESOLUTION_LIMIT if self._source._layout_budget_spent(self.ref(path)) else UNREADABLE_MODULE
             raise _Stop(reason, f"{self.ref(path)} could not be read for above-scope constructor ownership")
-        module = _module(path, original.ref, original.tree, original.text)
+        # ``_layout_module`` parsed this tree from this text.
+        module = _module(path, original.ref, original.tree, original.text, parsed=True)
         self._modules[path] = module
         self._constructor_structure_originals[path] = (module, original, original.tree)
         return module
@@ -3096,18 +3097,40 @@ def _line(node: ast.AST) -> int:
     return int(getattr(node, "lineno", 0) or 0)
 
 
-def _module(path: Path, ref: str, tree: ast.Module, text: str) -> PythonModule:
+#: ``_attribute_patches`` of a module parsed from exactly this source text, by
+#: the text's SHA-256 (#1046). It is syntax alone, and ``ast.parse`` makes the
+#: same tree from the same text, so the readers of one run (one per source,
+#: side and reach check, each parsing the modules it reads) compute it once
+#: per file version rather than once per reader. Each module gets its own copy.
+_SOURCE_PATCHES: dict[str, dict[str, int]] = {}
+#: Entries kept before the memo starts over: a cache, never evidence.
+_SOURCE_PATCHES_LIMIT = 8192
+
+
+def _module(path: Path, ref: str, tree: ast.Module, text: str, *, parsed: bool = False) -> PythonModule:
+    """``parsed``: the caller made ``tree`` as ``ast.parse(text)``, so the
+    syntax-only patch map may come from :data:`_SOURCE_PATCHES`."""
     bindings, star_import = _module_bindings(tree)
+    sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    patches = _SOURCE_PATCHES.get(sha256) if parsed else None
+    if patches is None:
+        patches = _attribute_patches(tree)
+        if parsed:
+            if len(_SOURCE_PATCHES) >= _SOURCE_PATCHES_LIMIT:
+                _SOURCE_PATCHES.clear()
+            _SOURCE_PATCHES[sha256] = dict(patches)
+    else:
+        patches = dict(patches)
     return PythonModule(
         path=path,
         ref=ref,
         tree=tree,
         text=text,
-        sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        sha256=sha256,
         package=path.name == "__init__.py",
         bindings=bindings,
         star_import=star_import,
-        attribute_patches=_attribute_patches(tree),
+        attribute_patches=patches,
     )
 
 

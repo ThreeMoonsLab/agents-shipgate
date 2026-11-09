@@ -406,3 +406,39 @@ def test_a_module_is_read_once_for_every_carrier_set(tmp_path, monkeypatch):
     # carrier set does, not once per carrier set.
     assert len(followed) == once
     assert len({id(node) for node in followed}) == once
+
+
+def test_a_file_version_patch_map_is_computed_once_for_every_reader(tmp_path, monkeypatch):
+    """Each reader parses the modules it reads; their syntax-only patch map is shared (#1046).
+
+    Every module still gets the map ``_attribute_patches`` gives its own tree,
+    in its order, as its own copy, and another version of the file is its own
+    computation.
+    """
+    text = "import sys\nimport pkg\nsys.modules['alias'] = pkg\npkg.lookup = None\n"
+    _write(tmp_path, {"app.py": text, "pkg/__init__.py": ""})
+    monkeypatch.setattr(imports, "_SOURCE_PATCHES", {})
+    computed: list[ast.Module] = []
+    original = imports._attribute_patches
+
+    def counted(tree, **kwargs):
+        if not kwargs:
+            computed.append(tree)
+        return original(tree, **kwargs)
+
+    monkeypatch.setattr(imports, "_attribute_patches", counted)
+    modules = [ImportResolver(tmp_path)._patch_scan(tmp_path / "app.py") for _ in range(3)]
+    modules.append(ImportResolver(tmp_path).module(tmp_path / "app.py"))
+    assert len(computed) == 1
+    expected = original(ast.parse(text))
+    assert "pkg.lookup" in expected and len(expected) > 1
+    for module in modules:
+        assert module.attribute_patches == expected
+        assert list(module.attribute_patches) == list(expected)
+    assert len({id(module.attribute_patches) for module in modules}) == len(modules)
+
+    (tmp_path / "app.py").write_text(text + "pkg.other = None\n")
+    changed = ImportResolver(tmp_path)._patch_scan(tmp_path / "app.py")
+    assert len(computed) == 2
+    assert changed.attribute_patches == original(ast.parse(text + "pkg.other = None\n"))
+    assert "pkg.other" in changed.attribute_patches
