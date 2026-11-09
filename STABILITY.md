@@ -363,6 +363,83 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="workflow-job-scoped-widening-1011"></a>
+
+## Migration Note: Unreleased — a workflow token widened outside every agent job is not counted as what the agent may do (#1011)
+
+**What was wrong.** A workflow whose agent job (`analyze`, running
+`anthropics/claude-code-action` with `contents: read` and `issues: read`)
+gained a sibling job that runs no agent (`publish`, `issues: write`,
+`run: echo …`) printed `1 change(s), 1 widening what the agent may do (⚠).`,
+and the Claude Code Stop hook listed the row under "These rows widen what the
+agent can do". The job cells and the #823 note were accurate, and the
+workflow's token declaration did widen, but the agent job's token was
+byte-for-byte unchanged, so the aggregate claim was stronger than the job-level
+facts it summarized.
+
+**What changes.**
+
+- **One predicate.** `workflow_widening_outside_agent_jobs`
+  (`core/host_grants.py`), read by the rows of `diff`, `verify` and `check`,
+  places a widened workflow change outside every agent job only when all of
+  these hold:
+  - both sides publish their job contexts (a legacy grant names its write
+    scopes and nothing about jobs);
+  - the change's only expansion signal is `workflow_write_*`: it gains no
+    `pull_request_target`, inherited secret or agent widening rule;
+  - no job may write every scope (`write-all`), and no step reference moved
+    between jobs;
+  - every gained write scope is in a job where this audit finds no agent
+    launch, read or unread, no reusable workflow call and no unreadable
+    steps, on either side; and
+  - every job where it finds one of those is on both sides, declares its
+    token explicitly, and kept the same declaration, effective write scopes
+    and reusable call.
+
+  Anything else keeps the change the agent's: a scope the agent job gains, or
+  inherits from the workflow's `permissions`; a job with an unread `run:` agent
+  step or a reusable call that gains one; an agent job on repository defaults,
+  or new in the change. A reusable call counts as a possible agent job even
+  when its callee was read, because the engine reads a callee's permissions,
+  not its steps. A workflow in which this audit finds none of those in any job
+  is placed the same way.
+- **The row.** Such a row's `why` names each job that gained scopes and which
+  (`publish gained the write scope issues, and this audit finds no agent
+  launch or reusable workflow call in that job`), names each job where it
+  finds one and that kept its token (`analyze (agent launch) kept its token`),
+  and holds the clause `widens a workflow job's token outside any agent job`,
+  before the #823 note. The clause is a whole `; ` clause of `why`, as
+  `authority direction is unknown` is (#820), and is
+  `capability_diff_rows.OUTSIDE_AGENT_JOBS`.
+- **`diff`'s summary.** Such a change is counted apart:
+  `1 change(s), 1 widening a workflow job's token outside any agent job (⚠).`,
+  and with both kinds `2 change(s), 1 widening what the agent may do, 1
+  widening a workflow job's token outside any agent job (⚠).` The two counts
+  add up to `review.summary.widenings`, which still counts every change that
+  `expands`.
+- **The Stop hook.** It still announces such rows, once, as widenings, under
+  their own heading: `These rows widen a workflow job's token outside any
+  agent job:`, after the widenings of what the agent can do and before the
+  rows of unknown direction. A hook script rendered by an earlier release
+  lists them with the agent's widenings until it is re-rendered.
+
+**What does not change.** The row's `direction` (`widened`), `expands`,
+severity and cells, the drift `expansion_signals`, `check`'s decision and
+violations, `verify`'s gates and control state, saved baselines and grant ids.
+No JSON field, schema or contract is added, and `review.summary` keeps its
+three numbers. The PR comment and the review question already said "declared
+capability change" and are unchanged. That this audit finds no agent launch in
+a job is not that no step of it starts an agent, and nothing here says what
+the job that gained the scope does with its token.
+
+**Who must act.** A script that read "widening what the agent may do" out of
+`diff`'s text should read `review.summary.widenings` and each change's
+`expands`, and the clause in `why` to tell the two kinds apart. Re-render an
+installed Stop hook with `agents-shipgate install-hooks --target claude-code
+--write` for its new heading.
+
+---
+
 <a id="capability-definitions"></a>
 
 ## Migration Note: 1.3.0 — the capability lock records tool definitions (capability standard `0.6`, lock `0.9`, lock diff `0.10`, #1117)

@@ -353,6 +353,13 @@ SURFACES: tuple[Surface, ...] = (
         # `expansion_signals` are built, and the row reads them back, so it
         # adds no claim; `tests/test_actions_token_scope.py` holds diff,
         # verify, check, the control envelope and drift to the same row.
+        # Placing a widened workflow change outside every agent job (#1011)
+        # is the engine's `workflow_widening_outside_agent_jobs`, computed
+        # beside those signals; the row's `why` clause and `diff`'s split
+        # count read it back and move no `expands`, direction, severity,
+        # signal or gate, so they add no claim;
+        # `tests/test_workflow_job_scoped_widening.py` holds diff, verify,
+        # check, drift and the Stop hook to the same row.
         # An MCP row's launch-source note (#825) renders the display-only
         # `launch_source` pin the engine published on the grant, left out of
         # grant equality, the inventory digests and saved baselines, so it
