@@ -137,6 +137,12 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
             method_lower = str(method).lower()
             if method_lower not in HTTP_METHODS:
                 continue
+            if method != method_lower:
+                pointer = f"{path_item.pointers[method]}/{json_pointer_escape(str(method))}"
+                raise InputParseError(
+                    f"OpenAPI operation key {method!r} at {pointer} in {source_path!r} "
+                    f"is noncanonical; use lowercase {method_lower!r}."
+                )
             if not isinstance(operation, dict):
                 raise InputParseError(
                     f"OpenAPI operation {method_lower.upper()} {api_path} must be an object"
