@@ -469,7 +469,13 @@ def test_control_an_ordinary_job_write_grant_still_widens():
     after = _workflow({"contents": "write"}, build=_step_job())
     row, = _rows({"ci.yml": before}, {"ci.yml": after})
     assert (row.direction, row.expands, row.severity) == ("widened", True, "high")
-    assert row.why == "grants write permissions to workflow jobs"
+    # No job of this workflow runs an agent, so the widening is placed outside
+    # any agent job (#1011); it still widens.
+    assert row.why == (
+        "grants write permissions to workflow jobs; build gained the write scope contents, and "
+        "this audit finds no agent launch or reusable workflow call in this workflow; "
+        "widens a workflow job's token outside any agent job"
+    )
     assert "build: contents: write" in row.after and "ceiling" not in row.after
 
 
