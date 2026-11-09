@@ -264,7 +264,7 @@ LOCAL = ".claude/settings.local.json"
             {SETTINGS: {"permissions": {}}, LOCAL: {"permissions": {"allow": ["Bash(git push *)"]}}},
             [
                 ("⚠ medium added claude-code .claude/settings.local.json", "allow: Bash(git push *)"),
-                (f"⚠ low removed {SUBJECT}", "deny: Bash(git push *) → gone"),
+                (f"⚠ medium removed {SUBJECT}", "deny: Bash(git push *) → gone"),
             ],
             id="another_source",
         ),
@@ -274,8 +274,8 @@ LOCAL = ".claude/settings.local.json"
             {SETTINGS: {"permissions": {"allow": ["Bash(git push *)"]}}},
             [
                 (f"⚠ medium added {SUBJECT}", "allow: Bash(git push *)"),
-                (f"⚠ low removed {SUBJECT}", "ask: Bash(git push *) → gone"),
-                (f"⚠ low removed {SUBJECT}", "deny: Bash(git push *) → gone"),
+                (f"⚠ medium removed {SUBJECT}", "ask: Bash(git push *) → gone"),
+                (f"⚠ medium removed {SUBJECT}", "deny: Bash(git push *) → gone"),
             ],
             id="removed_from_two",
         ),
@@ -286,7 +286,7 @@ LOCAL = ".claude/settings.local.json"
             [
                 (f"⚠ medium added {SUBJECT}", "allow: Bash(git push *)"),
                 (f"low added {SUBJECT}", "ask: Bash(git push *)"),
-                (f"⚠ low removed {SUBJECT}", "deny: Bash(git push *) → gone"),
+                (f"⚠ medium removed {SUBJECT}", "deny: Bash(git push *) → gone"),
             ],
             id="added_to_two",
         ),

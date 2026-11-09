@@ -234,7 +234,7 @@ Agent capability diff  origin/main (5d1b9e23) -> working tree
                   allow: Bash(npm test:*) → allow: Bash(npm *)
                   the new rule matches everything the old rule matched; runs without a prompt
 
-⚠ low     removed  claude-code .claude/settings.json
+⚠ medium  removed  claude-code .claude/settings.json
                   deny: Bash(rm -rf:*) → gone
                   removes a denial the agent was subject to
 
