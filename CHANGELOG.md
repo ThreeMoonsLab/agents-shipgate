@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Application comparison
+
+- **The caller census no longer counts a function's own import of another library as unresolved application code, and it says what it cannot establish instead of printing `None`.** `from agents import Runner` or `import uvicorn` inside a function made `Runner.run(...)` or `uvicorn.run(...)` an unresolved reference to any builder named `run`, which withheld constructor identity on all four MIS_TALENT development pull requests. The same imports at module level were already exempt: the census looked the name up at module level while the resolver had followed the function's own binding, and when a module-level library import shared the name it was consulted in place of that binding. The census now reads the binding the resolver followed, and exempts only one absolute import, inside a function, of a module that neither the read scope nor the repository provides. A second binding, a class-body import, `nonlocal` or `global`, a relative import, and a module the read scope or the repository holds remain limits. A reference that reaches a definition which code run first could reassign now names that code; about 1,350 census texts in the 1.3.0 corpus run ended in `: None`. (#1134)
+
 ### Packaging
 
 - **The release workflow's `finalize` waits for PyPI's index to list the upload instead of failing seconds after it.** Every release from 1.0.0 to 1.3.0 read `absent` 16–20 s after the upload and failed `Finalise release` while PyPI already held the verified wheel; each was finished by re-running the job by hand two to seven minutes later. The step now runs `pypi-state --require-published --absent-retry-seconds 300`: while the index reads `absent` it reads again, backing off from 10 s to a minute, for at most five minutes, and logs when the version appeared. Only `absent` is waited out. `published_divergent`, an unreachable index or a malformed answer still fails on the read that sees it, and `published_identical` is as strict as before. `stage` and `publish` do not wait, and the job's 15-minute timeout covers the wait with about 2.5x headroom. (#1132)
