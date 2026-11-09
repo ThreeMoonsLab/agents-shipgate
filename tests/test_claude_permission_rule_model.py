@@ -495,6 +495,25 @@ CASES: dict[str, Case] = {
         rows=[("added", "ask: Bash(npm *)", False), ("removed", "ask: Bash(npm publish *)", False)],
         changes=2, decision="allow", violations=[], signals=[],
     ),
+    # The holder is unchanged: only the head inventory knows it was there.
+    "1036_redundant_deny_removed": _one(
+        _settings(deny=["Bash(git *)", "Bash(git push *)"]),
+        _settings(deny=["Bash(git *)"]),
+        rows=[("removed", "deny: Bash(git push *)", False)],
+        changes=1, decision="allow", violations=[], signals=[],
+    ),
+    "1036_ask_under_an_unchanged_deny_removed": _one(
+        _settings(deny=["Bash(git *)"], ask=["Bash(git push *)"]),
+        _settings(deny=["Bash(git *)"]),
+        rows=[("removed", "ask: Bash(git push *)", False)],
+        changes=1, decision="allow", violations=[], signals=[],
+        why={
+            "Bash(git push *)": (
+                "removes this ask rule; deny: Bash(git *), which this source still declares, "
+                "matches everything it matched, so what needed confirmation is now denied"
+            ),
+        },
+    ),
     "1036_whole_tool_deny_over_a_path": _one(
         _settings(deny=["Read(./.env)"]),
         _settings(deny=["Read"]),
