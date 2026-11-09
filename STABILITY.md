@@ -365,7 +365,7 @@ the Action tag) for reproducible CI.
 
 <a id="checkout-packaged-default-policies"></a>
 
-## Migration Note: Unreleased — a source checkout evaluates the packaged default policies (#NNNN)
+## Migration Note: Unreleased — a source checkout evaluates the packaged default policies (#1133)
 
 **What was wrong.** A wheel carries the default boundary policies under
 `agents_shipgate/_meta/policies/`, copied from `policies/*.shipgate.yaml` by
