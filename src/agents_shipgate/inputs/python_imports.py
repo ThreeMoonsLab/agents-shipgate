@@ -78,13 +78,20 @@ MAX_PATCH_SCAN_MODULES = 1024
 _GENERATED_SUFFIXES = ("_pb2", "_pb2_grpc")
 _GENERATED_NAMES = frozenset({"_version"})
 #: What reading one module adds to an import-search closure, in reading order
-#: (:class:`_ImportSearchEdges`): the module imports ``sys``/``site``; a
-#: caveat (or None) for an import no file provides; a module file an import
-#: runs; the stop that ended reading the module.
+#: (:meth:`ImportResolver._read_import_search_edges`): the module imports
+#: ``sys``/``site``; a caveat (or None) for an import no file provides; a
+#: module file an import runs. Either reading can end in the stop it raised.
 _SEARCH_CARRIER = "carrier"
 _SEARCH_CAVEAT = "caveat"
 _SEARCH_IMPORT = "import"
 _SEARCH_STOP = "stop"
+#: What reading one module for its import-search refusal finds, in reading
+#: order (:meth:`ImportResolver._read_import_search_issue`): a refusal for any
+#: carrier set; a retained namespace, refused when a carrier is or is inside
+#: it; the module files an unread import runs, refused when one is a carrier.
+_ISSUE_FOUND = "found"
+_ISSUE_NAMESPACE = "namespace"
+_ISSUE_CARRIER_PATHS = "carrier_paths"
 
 
 @dataclass(frozen=True)
@@ -315,31 +322,34 @@ class _ConstructorSyntax:
     references: tuple[ast.Name | ast.Attribute, ...]
 
 
-class _ImportSearchEdges:
-    """One module's import-search edges for one read, read only as far as asked.
+class _LazyReading:
+    """One module's import-search reading for one read, read only as far as asked.
 
     Iterating replays the events already read without a lookup, then resumes
-    reading where the last iteration stopped. A closure that stops at its
-    module bound has therefore read exactly the statements it reached, and the
-    next closure that reaches the module reads on from there: every lookup is
-    made once, at the point the uncached reading made it first. A stop ends
-    the reading and is replayed where it was raised. Any other exception is
-    not a result: it marks the record ``broken`` and the module is read afresh.
+    reading where the last iteration stopped. A caller that stops early (a
+    closure at its module bound, a refusal for one carrier set) has therefore
+    made exactly the lookups it reached, and the next caller reads on from
+    there: every lookup is made once, at the point the uncached reading made
+    it first. A stop ends the reading and is replayed where it was raised.
+    Any other exception is not a result: it marks the record ``broken`` and the
+    module is read afresh. A record being read (``running``) is never re-entered.
     """
 
-    __slots__ = ("_reading", "broken", "events")
+    __slots__ = ("_reading", "broken", "events", "running")
 
-    def __init__(self, reading: Iterator[tuple[str, Any]]) -> None:
-        self.events: list[tuple[str, Any]] = []
-        self._reading: Iterator[tuple[str, Any]] | None = reading
+    def __init__(self, reading: Iterator[tuple[Any, ...]]) -> None:
+        self.events: list[tuple[Any, ...]] = []
+        self._reading: Iterator[tuple[Any, ...]] | None = reading
         self.broken = False
+        self.running = False
 
-    def __iter__(self) -> Iterator[tuple[str, Any]]:
+    def __iter__(self) -> Iterator[tuple[Any, ...]]:
         index = 0
         while True:
             if index == len(self.events):
                 if self._reading is None:
                     return
+                self.running = True
                 try:
                     event = next(self._reading)
                 except StopIteration:
@@ -351,6 +361,8 @@ class _ImportSearchEdges:
                 except BaseException:
                     self._reading, self.broken = None, True
                     raise
+                finally:
+                    self.running = False
                 self.events.append(event)
             yield self.events[index]
             index += 1
@@ -398,9 +410,11 @@ class ImportResolver:
     #: which keeps their identity alive; see :meth:`_import_search_limit`.
     _import_search_limits: dict[tuple[tuple[Path, ast.Module], ...], tuple[str, ...]] = field(default_factory=dict)
     _import_search_issues: dict[tuple[ast.Module, frozenset[Path]], str | None] = field(default_factory=dict)
-    #: What each module adds to an import-search closure, read once per read
-    #: (see :meth:`_import_search_edges`). The key holds the parsed tree.
-    _import_search_edge_reads: dict[tuple[Path, ast.Module], _ImportSearchEdges] = field(default_factory=dict)
+    #: What each module adds to an import-search closure, and what it finds
+    #: for its refusal, read once per read (see :meth:`_import_search_edges`
+    #: and :meth:`_import_search_issue_uncomputed`). The keys hold the trees.
+    _import_search_edge_reads: dict[tuple[Path, ast.Module], _LazyReading] = field(default_factory=dict)
+    _import_search_issue_reads: dict[ast.Module, _LazyReading] = field(default_factory=dict)
     _constructor_scopes: dict[ast.Module, ScopeIndex] = field(default_factory=dict)
     _constructor_syntax_trees: dict[ast.Module, _ConstructorSyntax] = field(default_factory=dict)
 
@@ -504,7 +518,7 @@ class ImportResolver:
                     propagation.append(importer)
         return modules, carriers, tuple(unread)
 
-    def _import_search_edges(self, path: Path, module: PythonModule) -> _ImportSearchEdges:
+    def _import_search_edges(self, path: Path, module: PythonModule) -> _LazyReading:
         """What one module adds to any import-search closure, read once per read.
 
         Every runner list builds its own closure, and the closures of one read
@@ -519,9 +533,9 @@ class ImportResolver:
         key = (path, module.tree)
         edges = self._import_search_edge_reads.get(key)
         if edges is None or edges.broken:
-            edges = self._import_search_edge_reads[key] = _ImportSearchEdges(
-                self._read_import_search_edges(module)
-            )
+            edges = self._import_search_edge_reads[key] = _LazyReading(self._read_import_search_edges(module))
+        elif edges.running:
+            return _LazyReading(self._read_import_search_edges(module))  # Never re-enter a reading.
         return edges
 
     def _read_import_search_edges(self, module: PythonModule) -> Iterator[tuple[str, Any]]:
@@ -576,6 +590,39 @@ class ImportResolver:
         return issue
 
     def _import_search_issue_uncomputed(self, module: PythonModule, carriers: set[Path]) -> str | None:
+        """One module's refusal for one carrier set, from its reading for this read.
+
+        What the module is read for (:meth:`_read_import_search_issue`) does not
+        depend on the carriers: they enter only at two checks, made here as the
+        reading reaches them. Different runner lists give one module different
+        carrier sets, so the reading is kept per tree (#1046) and read only as
+        far as a carrier set needs it. It is not kept, and every call reads
+        afresh, once any read bound has been reached; and it is dropped when it
+        ends in a bound refusal, so a later call meets that bound again.
+        """
+        spent = self._import_search_budget_spent()
+        kept = None if spent else self._import_search_issue_reads.get(module.tree)
+        if kept is not None and not kept.broken and not kept.running:
+            reading = kept
+        else:
+            reading = _LazyReading(self._read_import_search_issue(module))
+            if not spent and (kept is None or kept.broken):
+                self._import_search_issue_reads[module.tree] = reading
+        for event in reading:
+            kind, value = event[0], event[1]
+            if kind == _SEARCH_STOP:
+                raise value.with_traceback(None)
+            issue = event[2]
+            if (kind == _ISSUE_FOUND
+                    or kind == _ISSUE_NAMESPACE
+                    and (value in carriers or any(path.is_relative_to(value) for path in carriers))
+                    or kind == _ISSUE_CARRIER_PATHS and any(path in carriers for path in value)):
+                if "exceeds" in issue and self._import_search_issue_reads.get(module.tree) is reading:
+                    del self._import_search_issue_reads[module.tree]
+                return issue
+        return None
+
+    def _read_import_search_issue(self, module: PythonModule) -> Iterator[tuple[Any, ...]]:
         """Project actual maximal references without public resolution recursion."""
         from agents_shipgate.inputs.list_expressions import evaluation_site
         scopes = self._constructor_scope(module)
@@ -583,7 +630,8 @@ class ImportResolver:
         effects = _import_search_effects(module.tree, excluded=excluded, scopes=scopes)
         if effects:
             node = next(iter(effects))
-            return f"{module.ref}:{node.lineno} changes or retains {effects[node]}; import search identity is unread"
+            yield _ISSUE_FOUND, None, f"{module.ref}:{node.lineno} changes or retains {effects[node]}; import search identity is unread"
+            return
         projections: dict[ast.AST, str] = {}
         work = 0
         for node in ast.walk(module.tree):
@@ -602,14 +650,16 @@ class ImportResolver:
                 continue
             work += 1
             if work > MAX_STEPS * MAX_STEPS:
-                return f"{module.ref}:{node.lineno} exceeds the import-search reference bound"
+                yield _ISSUE_FOUND, None, f"{module.ref}:{node.lineno} exceeds the import-search reference bound"
+                return
             current, reference = module, node
             followed: set[tuple[ast.Module, ast.AST]] = set()
             outcome: dict[str, Any] = {}
             for _ in range(MAX_STEPS):
                 key = (current.tree, reference)
                 if key in followed:
-                    return f"{module.ref}:{node.lineno} has cyclic import-search carrier evidence"
+                    yield _ISSUE_FOUND, None, f"{module.ref}:{node.lineno} has cyclic import-search carrier evidence"
+                    return
                 followed.add(key)
                 outcome = self._constructor_reference(current, reference, self._constructor_scope(current))
                 value = outcome.get("value")
@@ -617,31 +667,32 @@ class ImportResolver:
                     break
                 owner = outcome.get("module")
                 if not isinstance(owner, PythonModule):
-                    return f"{module.ref}:{node.lineno} has unread import-search alias ownership"
+                    yield _ISSUE_FOUND, None, f"{module.ref}:{node.lineno} has unread import-search alias ownership"
+                    return
                 current, reference = owner, value
             else:
-                return f"{module.ref}:{node.lineno} exceeds the import-search alias bound"
+                yield _ISSUE_FOUND, None, f"{module.ref}:{node.lineno} exceeds the import-search alias bound"
+                return
             handle = outcome.get("import_search_handle")
             if isinstance(handle, str):
                 projections[node] = handle
                 continue
             namespace = outcome.get("retained_namespace")
             if isinstance(namespace, Path) and not isinstance(parent, ast.Expr):
-                if namespace in carriers or any(path.is_relative_to(namespace) for path in carriers):
-                    return f"{module.ref}:{node.lineno} retains an imported sys/site namespace; import search identity is unread"
+                yield (_ISSUE_NAMESPACE, namespace,
+                       f"{module.ref}:{node.lineno} retains an imported sys/site namespace; import search identity is unread")
             if outcome.get("constructor_unread") or not outcome:
                 for candidate in candidates:
                     statement = scopes.statement_of(candidate)
                     if not isinstance(candidate, ast.alias) or not isinstance(statement, ast.Import | ast.ImportFrom):
                         continue
                     paths, _ = self._imported_paths(module, statement)
-                    if any(path in carriers for path in paths):
-                        return f"{module.ref}:{node.lineno} has unread import-search carrier identity"
+                    yield (_ISSUE_CARRIER_PATHS, tuple(paths),
+                           f"{module.ref}:{node.lineno} has unread import-search carrier identity")
         effects = _import_search_effects(module.tree, excluded=excluded, projections=projections, scopes=scopes)
         if effects:
             node = next(iter(effects))
-            return f"{module.ref}:{node.lineno} changes or retains {effects[node]}; import search identity is unread"
-        return None
+            yield _ISSUE_FOUND, None, f"{module.ref}:{node.lineno} changes or retains {effects[node]}; import search identity is unread"
 
     def _import_search_limit(self, paths: list[Path]) -> tuple[str, ...]:
         """The import-search caveats for one runner list, computed once per read.

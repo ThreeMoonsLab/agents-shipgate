@@ -354,3 +354,55 @@ def test_a_closure_cut_short_reads_no_import_past_its_bound(tmp_path, monkeypatc
     assert asked == ["app.py:a", "app.py:b", "app.py:c", "app.py:d"]
     assert [item.ref for item in modules] == ["app.py", "a.py", "b.py", "c.py", "d.py"]
     assert not carriers and not unread
+
+
+#: One module that meets both carrier checks: a retained namespace (line 3)
+#: and an unread import (line 4).
+_CARRIER_CHECKS = {
+    "app.py": "import bridge\nimport other\nsaved = bridge\nvalue = other.missing\nopaque(saved, value)\n",
+    "bridge.py": "import holder\n",
+    "other.py": "x = 1\n",
+    "holder.py": "import sys\n",
+}
+
+
+def test_a_module_is_read_once_for_every_carrier_set(tmp_path, monkeypatch):
+    """Each runner list's carriers ask again; the module is read once and checked per set (#1046).
+
+    The reading is resumed only as far as each carrier set needs, and every
+    answer is the one a reader that never saw another carrier set gives.
+    """
+    _write(tmp_path, _CARRIER_CHECKS)
+    bridge, other, holder = (tmp_path / name for name in ("bridge.py", "other.py", "holder.py"))
+    carrier_sets = [{bridge}, {other}, set(), {bridge, other}, {holder}]
+
+    def answer(resolver, carriers):
+        return resolver._import_search_issue(resolver.module(tmp_path / "app.py"), carriers)
+
+    expected = [answer(ImportResolver(tmp_path), carriers) for carriers in carrier_sets]
+    assert expected == [
+        "app.py:3 retains an imported sys/site namespace; import search identity is unread",
+        "app.py:4 has unread import-search carrier identity",
+        None,
+        "app.py:3 retains an imported sys/site namespace; import search identity is unread",
+        None,
+    ]
+    followed: list[ast.AST] = []
+    original = ImportResolver._constructor_reference
+
+    def counted(self, module, node, scopes):
+        if module.ref == "app.py":
+            followed.append(node)
+        return original(self, module, node, scopes)
+
+    monkeypatch.setattr(ImportResolver, "_constructor_reference", counted)
+    assert answer(ImportResolver(tmp_path), set()) is None
+    once = len(followed)
+    followed.clear()
+
+    resolver = ImportResolver(tmp_path)
+    assert [answer(resolver, carriers) for carriers in carrier_sets] == expected
+    # Every reference of app.py is followed once, as reading it for the empty
+    # carrier set does, not once per carrier set.
+    assert len(followed) == once
+    assert len({id(node) for node in followed}) == once
