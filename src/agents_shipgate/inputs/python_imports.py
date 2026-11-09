@@ -77,6 +77,14 @@ MAX_PATCH_SCAN_MODULES = 1024
 #: ``*_pb2`` / ``*_pb2_grpc`` from a ``.proto``, setuptools-scm's ``_version``.
 _GENERATED_SUFFIXES = ("_pb2", "_pb2_grpc")
 _GENERATED_NAMES = frozenset({"_version"})
+#: What reading one module adds to an import-search closure, in reading order
+#: (:class:`_ImportSearchEdges`): the module imports ``sys``/``site``; a
+#: caveat (or None) for an import no file provides; a module file an import
+#: runs; the stop that ended reading the module.
+_SEARCH_CARRIER = "carrier"
+_SEARCH_CAVEAT = "caveat"
+_SEARCH_IMPORT = "import"
+_SEARCH_STOP = "stop"
 
 
 @dataclass(frozen=True)
@@ -307,6 +315,47 @@ class _ConstructorSyntax:
     references: tuple[ast.Name | ast.Attribute, ...]
 
 
+class _ImportSearchEdges:
+    """One module's import-search edges for one read, read only as far as asked.
+
+    Iterating replays the events already read without a lookup, then resumes
+    reading where the last iteration stopped. A closure that stops at its
+    module bound has therefore read exactly the statements it reached, and the
+    next closure that reaches the module reads on from there: every lookup is
+    made once, at the point the uncached reading made it first. A stop ends
+    the reading and is replayed where it was raised. Any other exception is
+    not a result: it marks the record ``broken`` and the module is read afresh.
+    """
+
+    __slots__ = ("_reading", "broken", "events")
+
+    def __init__(self, reading: Iterator[tuple[str, Any]]) -> None:
+        self.events: list[tuple[str, Any]] = []
+        self._reading: Iterator[tuple[str, Any]] | None = reading
+        self.broken = False
+
+    def __iter__(self) -> Iterator[tuple[str, Any]]:
+        index = 0
+        while True:
+            if index == len(self.events):
+                if self._reading is None:
+                    return
+                try:
+                    event = next(self._reading)
+                except StopIteration:
+                    self._reading = None
+                    return
+                except _Stop as stop:
+                    self._reading = None
+                    event = (_SEARCH_STOP, stop)
+                except BaseException:
+                    self._reading, self.broken = None, True
+                    raise
+                self.events.append(event)
+            yield self.events[index]
+            index += 1
+
+
 @dataclass
 class ImportResolver:
     """Resolves references inside one scope root. One instance per read."""
@@ -349,6 +398,9 @@ class ImportResolver:
     #: which keeps their identity alive; see :meth:`_import_search_limit`.
     _import_search_limits: dict[tuple[tuple[Path, ast.Module], ...], tuple[str, ...]] = field(default_factory=dict)
     _import_search_issues: dict[tuple[ast.Module, frozenset[Path]], str | None] = field(default_factory=dict)
+    #: What each module adds to an import-search closure, read once per read
+    #: (see :meth:`_import_search_edges`). The key holds the parsed tree.
+    _import_search_edge_reads: dict[tuple[Path, ast.Module], _ImportSearchEdges] = field(default_factory=dict)
     _constructor_scopes: dict[ast.Module, ScopeIndex] = field(default_factory=dict)
     _constructor_syntax_trees: dict[ast.Module, _ConstructorSyntax] = field(default_factory=dict)
 
@@ -405,7 +457,9 @@ class ImportResolver:
         """One bounded startup import graph, separate from patch-target rules.
 
         The carrier set is structural provenance, not a purity/owner verdict.
-        It is local to this invocation and never cached as a positive result.
+        It is local to this invocation and never cached as a positive result;
+        only each module's own edges are read once per read
+        (:meth:`_import_search_edges`).
         """
         from collections import deque
         modules: list[PythonModule] = []
@@ -430,31 +484,17 @@ class ImportResolver:
             path = pending.popleft()
             module = self._patch_scan(path)
             modules.append(module)
-            scopes = self._constructor_scope(module)
-            typing_only = _type_checking_only(module, self, scopes)
-            guarded = _import_guarded(module.tree)
-            for statement in ast.walk(module.tree):
-                if id(statement) in typing_only or not isinstance(statement, ast.Import | ast.ImportFrom):
-                    continue
-                for alias in statement.names:
-                    imported = _absolute_import_reference(alias, statement)
-                    if imported is not None and (imported in {"sys", "site"}
-                            or imported.startswith("site.")
-                            or imported.split('.', 1)[0] == "sys" and imported.split('.', 1)[-1] in {
-                                "path", "meta_path", "path_hooks", "path_importer_cache",
-                                "__dict__", "__class__", "__getattribute__", "__getattr__", "__setattr__",
-                            }):
-                        carriers.add(path)
-                imported_paths, missing = self._imported_paths(module, statement)
-                for stop, spelling, names in missing:
-                    caveat = self._unread_import(module, statement, stop, spelling, names,
-                                                 id(statement) in guarded)
-                    if caveat is not None and caveat not in unread:
-                        unread.append(caveat)
-                for target in imported_paths:
-                    for item in (target, *self._enclosing_packages(target)):
-                        reverse.setdefault(item, set()).add(path)
-                        enqueue(item)
+            for kind, value in self._import_search_edges(path, module):
+                if kind == _SEARCH_CARRIER:
+                    carriers.add(path)
+                elif kind == _SEARCH_CAVEAT:
+                    if value is not None and value not in unread:
+                        unread.append(value)
+                elif kind == _SEARCH_IMPORT:
+                    reverse.setdefault(value, set()).add(path)
+                    enqueue(value)
+                else:
+                    raise value.with_traceback(None)
         propagation = deque(sorted(carriers))
         while propagation:
             target = propagation.popleft()
@@ -463,6 +503,50 @@ class ImportResolver:
                     carriers.add(importer)
                     propagation.append(importer)
         return modules, carriers, tuple(unread)
+
+    def _import_search_edges(self, path: Path, module: PythonModule) -> _ImportSearchEdges:
+        """What one module adds to any import-search closure, read once per read.
+
+        Every runner list builds its own closure, and the closures of one read
+        share most of their modules (#1046). What a module adds does not depend
+        on which list asked: whether it imports ``sys``/``site``, the caveat for
+        each import no file in the scope provides, and the module files each
+        import runs. Those come from this reader's own structural lookups and
+        the module's parsed tree, so they are read once per ``(path, tree)``.
+        Only these per-module facts are kept: the closure, its carriers and
+        every verdict are still made per invocation.
+        """
+        key = (path, module.tree)
+        edges = self._import_search_edge_reads.get(key)
+        if edges is None or edges.broken:
+            edges = self._import_search_edge_reads[key] = _ImportSearchEdges(
+                self._read_import_search_edges(module)
+            )
+        return edges
+
+    def _read_import_search_edges(self, module: PythonModule) -> Iterator[tuple[str, Any]]:
+        """One module's import-search edges, in the order its statements are read."""
+        typing_only = _type_checking_only(module, self, self._constructor_scope(module))
+        guarded = _import_guarded(module.tree)
+        for statement in ast.walk(module.tree):
+            if id(statement) in typing_only or not isinstance(statement, ast.Import | ast.ImportFrom):
+                continue
+            for alias in statement.names:
+                imported = _absolute_import_reference(alias, statement)
+                if imported is not None and (imported in {"sys", "site"}
+                        or imported.startswith("site.")
+                        or imported.split('.', 1)[0] == "sys" and imported.split('.', 1)[-1] in {
+                            "path", "meta_path", "path_hooks", "path_importer_cache",
+                            "__dict__", "__class__", "__getattribute__", "__getattr__", "__setattr__",
+                        }):
+                    yield _SEARCH_CARRIER, None
+            imported_paths, missing = self._imported_paths(module, statement)
+            for stop, spelling, names in missing:
+                yield _SEARCH_CAVEAT, self._unread_import(module, statement, stop, spelling, names,
+                                                          id(statement) in guarded)
+            for target in imported_paths:
+                for item in (target, *self._enclosing_packages(target)):
+                    yield _SEARCH_IMPORT, item
 
     def _import_search_budget_spent(self) -> bool:
         """Whether any read bound has been reached, so a result may have been cut short."""
