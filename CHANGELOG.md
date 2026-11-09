@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Packaging
+
+- **The release workflow's `finalize` waits for PyPI's index to list the upload instead of failing seconds after it.** Every release from 1.0.0 to 1.3.0 read `absent` 16–20 s after the upload and failed `Finalise release` while PyPI already held the verified wheel; each was finished by re-running the job by hand two to seven minutes later. The step now runs `pypi-state --require-published --absent-retry-seconds 300`: while the index reads `absent` it reads again, backing off from 10 s to a minute, for at most five minutes, and logs when the version appeared. Only `absent` is waited out. `published_divergent`, an unreachable index or a malformed answer still fails on the read that sees it, and `published_identical` is as strict as before. `stage` and `publish` do not wait, and the job's 15-minute timeout covers the wait with about 2.5x headroom.
+
 ## 1.3.0 - 2026-11-08
 
 An advisory-channel minor release. It closes several ways a change could pass

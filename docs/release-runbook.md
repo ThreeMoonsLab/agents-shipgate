@@ -23,7 +23,7 @@ A release runs as five stages with an explicit, content-addressed handoff.
 | `verify` → `artifact` | `contents: read` | Requires a changelog section for the tag, builds from the tagged source, validates the signed qualification, binds wheel to source, produces the wheel-scoped SBOM, seals and uploads the candidate bundle |
 | `stage` | `contents: write`, `actions: read` | Re-peels the tag, requires a matching rehearsal, re-derives every digest, extracts the release notes, classifies the index, creates or repairs the **draft** release |
 | `publish` | `id-token: write`, `environment: pypi` | Signs and uploads to PyPI once |
-| `finalize` | `contents: write` | Attaches signatures, re-verifies the remote bytes, reapplies the notes and undrafts in one call |
+| `finalize` | `contents: write` | Confirms the index holds exactly the verified wheel, waiting up to five minutes for PyPI to list it, then attaches signatures, re-verifies the remote bytes, reapplies the notes and undrafts in one call |
 
 The sealing job installs no project code — only the hash-locked toolchain in
 `constraints/release-seal.txt` — and executes nothing from the wheel's runtime
@@ -454,6 +454,18 @@ release gate is the complete one. The sealer's checks, its outputs and every
 integrity property of the `tests` job are unchanged; the gate now additionally
 proves that every shard reported and that each tested the commit it is gating.
 
+`finalize` is bounded the same way. The whole job took 27 s in release run
+42527646429 (attempt 2). Its index read may wait 300 s for PyPI to list the
+upload (see [Recovery](#publication-succeeded-finalisation-failed)), and the
+read that starts at that bound can take its 30 s network timeout, so the
+slowest healthy run is about six minutes and the 15-minute timeout leaves
+roughly 2.5x. The wait, not the work, sets this budget. When a release shows
+the index taking longer, the step's log says when it listed the version
+("The index listed … on read N, at M s"); re-derive the wait from those
+readings, and raise `timeout-minutes` with it.
+`tests/test_release_pipeline.py` fails while the timeout does not cover the
+wait.
+
 ## Cadence
 
 **Approved 2026-09-02 for [#491](https://github.com/ThreeMoonsLab/agents-shipgate/issues/491).**
@@ -715,10 +727,37 @@ This is the case the ordering is designed for. PyPI holds the version and a
 **draft** GitHub Release holds the wheel, SBOM, signatures, qualification
 artifacts, provenance record, and candidate manifest.
 
-Re-run the workflow. It is idempotence-aware:
+**PyPI's index lag is absorbed, not recovered from.** The index lists an upload
+only after a delay. Every release from 1.0.0 to 1.3.0 failed here because its
+first read, 16–20 s after the upload, still found the version `absent`, and
+each was finished by re-running the failed job two to seven minutes later.
+`finalize` now runs `pypi-state --require-published --absent-retry-seconds 300`.
+While the index reads `absent`, it reads again, backing off from 10 s to a
+minute, for at most five minutes, and logs when the version appeared. Only
+`absent` is waited out: `published_divergent`, an unreachable index or a
+malformed answer fails on the read that sees it, and the wait ends in a pass
+only on `published_identical`, judged as strictly as below. A normal release
+needs no re-run.
+
+If the version is still `absent` after five minutes, the step fails with
+"still absent from the index". Before re-running, check the index from a
+checkout against the draft's wheel:
+
+```bash
+gh release download <tag> --pattern '*.whl' --dir draft-wheel
+python3 scripts/release_publication.py pypi-state --wheel draft-wheel/<wheel filename>
+```
+
+`published_identical` means the index has caught up: re-run the failed jobs
+with `gh run rerun <run-id> --failed`. `absent` means it has not; check again
+later rather than re-running into the same bound. `published_divergent` is not
+lag; see
+[the index holds different bytes](#the-index-holds-different-bytes-for-this-version).
+
+For any other failure, re-run the workflow. It is idempotence-aware:
 `scripts/release_publication.py pypi-state` classifies the index as
-`published_identical`, the upload step is skipped via its `if:` condition, and
-the run proceeds to asset validation and finalisation.
+`published_identical`, the upload step reclassifies it the same way and skips
+the upload, and the run proceeds to asset validation and finalisation.
 
 `published_identical` is deliberately strict — it requires the index to hold
 *exactly one* unyanked wheel with the expected filename and digest. A version

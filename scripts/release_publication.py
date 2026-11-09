@@ -54,6 +54,16 @@ sdist, a second wheel, a renamed file, or a yanked record is not the release
 this pipeline verified, and treating it as identical would skip the upload and
 finalise over it.
 
+``pypi-state --require-published`` asks finalisation's question instead: did
+the upload land as exactly this wheel? Only ``published_identical`` passes. The
+index lists an upload only after a lag: every release from 1.0.0 to 1.3.0 read
+``absent`` 16-20 s after its upload, so ``--absent-retry-seconds`` waits that
+out. While the state is ``absent`` the read is repeated, backing off from 10 s
+to at most a minute, until the budget is spent. Nothing else is waited out:
+``published_divergent``, an unreachable index or a malformed answer is final
+on the first read that sees it, and the answer that ends the wait is
+classified exactly as above, so waiting never widens what passes.
+
 Run from the repo root:
 
     python scripts/release_publication.py manifest --tag v0.16.0 \\
@@ -63,6 +73,9 @@ Run from the repo root:
         --manifest dist/candidate-manifest.json --expected-sha256 "$DIGEST"
     python scripts/release_publication.py pypi-state \\
         --wheel dist/agents_shipgate-0.16.0-py3-none-any.whl
+    python scripts/release_publication.py pypi-state \\
+        --wheel dist/agents_shipgate-0.16.0-py3-none-any.whl \\
+        --require-published --absent-retry-seconds 300
 """
 
 from __future__ import annotations
@@ -70,6 +83,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -92,6 +106,16 @@ else:  # ``python scripts/release_publication.py``
 
 DEFAULT_INDEX = "https://pypi.org/pypi"
 _NETWORK_TIMEOUT_SECONDS = 30
+
+#: How ``--absent-retry-seconds`` backs off between reads of an index that
+#: does not list the upload yet. Doubling from 10 s to a 60 s cap reads a
+#: 300 s budget eight times.
+ABSENT_RETRY_FIRST_DELAY_SECONDS = 10.0
+ABSENT_RETRY_MAX_DELAY_SECONDS = 60.0
+
+# Looked up on every call, so the tests can substitute a clock for waiting.
+_sleep = time.sleep
+_monotonic = time.monotonic
 
 QUALIFIED = "qualified"
 ADVISORY = "advisory"
@@ -389,12 +413,77 @@ def pypi_state(*, wheel_path: Path, index: str = DEFAULT_INDEX) -> dict[str, Any
     }
 
 
+def require_published(
+    *, wheel_path: Path, absent_retry_seconds: float, index: str = DEFAULT_INDEX
+) -> dict[str, Any]:
+    """Require this exact wheel on the index, waiting out a listing that lags.
+
+    For finalisation, after the upload. Every read is ``pypi_state``, so a
+    pass is its ``published_identical`` and nothing looser. Only ``absent`` is
+    read again, with backoff, until ``absent_retry_seconds`` have passed since
+    the first read; with ``0`` there is one read. ``published_divergent``, an
+    unreachable index or a malformed answer raises from the read that sees it,
+    so none of them waits.
+    """
+
+    if not 0 <= absent_retry_seconds < float("inf"):
+        raise ReleaseError(
+            "The absent retry budget must be a finite, non-negative number of seconds, "
+            f"not {absent_retry_seconds!r}."
+        )
+    started = _monotonic()
+    deadline = started + absent_retry_seconds
+    delay = ABSENT_RETRY_FIRST_DELAY_SECONDS
+    reads = 0
+    while True:
+        result = pypi_state(wheel_path=wheel_path, index=index)
+        reads += 1
+        now = _monotonic()
+        elapsed = f"{now - started:.0f} s"
+        subject = f"{result['distribution']} {result['version']}"
+        if result["state"] == "published_identical":
+            if reads > 1:
+                # Recorded in the log so the budget can be re-derived from
+                # measured lag rather than guessed.
+                sys.stderr.write(f"The index listed {subject} on read {reads}, at {elapsed}.\n")
+            return result
+        if result["state"] != "absent":
+            # ``pypi_state`` raises on ``published_divergent`` itself; this
+            # keeps any other state from being mistaken for one to wait on.
+            raise ReleaseError(f"Unexpected index state {result['state']!r} for {subject}.")
+        remaining = deadline - now
+        if remaining <= 0:
+            raise ReleaseError(
+                f"{subject} is still absent from the index after {elapsed} and {reads} "
+                f"read(s). Finalisation requires the single unyanked wheel {wheel_path.name} "
+                f"with digest {result['wheel_sha256']}. The index can lag an upload; see "
+                "docs/release-runbook.md § Recovery before re-running."
+            )
+        pause = min(delay, remaining)
+        sys.stderr.write(
+            f"{subject} is absent from the index on read {reads}, at {elapsed}; "
+            f"reading again in {pause:.0f} s.\n"
+        )
+        _sleep(pause)
+        delay = min(delay * 2, ABSENT_RETRY_MAX_DELAY_SECONDS)
+
+
 def _emit_github_output(values: dict[str, Any], output_path: str | None) -> None:
     if not output_path:
         return
     with Path(output_path).open("a", encoding="utf-8") as handle:
         for key, value in values.items():
             handle.write(f"{key}={value}\n")
+
+
+def _retry_seconds(value: str) -> int:
+    try:
+        seconds = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a whole number of seconds: {value!r}") from None
+    if seconds < 0:
+        raise argparse.ArgumentTypeError(f"must not be negative: {value!r}")
+    return seconds
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -469,12 +558,39 @@ def _parser() -> argparse.ArgumentParser:
     state.add_argument("--wheel", type=Path, required=True)
     state.add_argument("--index", default=DEFAULT_INDEX)
     state.add_argument("--github-output", help="append should_publish/state here")
+    state.add_argument(
+        "--require-published",
+        action="store_true",
+        help=(
+            "fail unless the index holds exactly this wheel (published_identical); "
+            "for finalisation, after the upload"
+        ),
+    )
+    state.add_argument(
+        "--absent-retry-seconds",
+        type=_retry_seconds,
+        metavar="SECONDS",
+        help=(
+            "with --require-published, read the index again while it is still absent, "
+            "backing off, for at most SECONDS; no other state is waited out"
+        ),
+    )
 
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if (
+        args.command == "pypi-state"
+        and args.absent_retry_seconds is not None
+        and not args.require_published
+    ):
+        # Waiting is only meaningful when `absent` is a failure. Where it is
+        # the answer that permits an upload (`stage`), a wait would only
+        # delay it.
+        parser.error("--absent-retry-seconds requires --require-published")
     try:
         if args.command == "manifest":
             manifest = build_manifest(
@@ -504,7 +620,14 @@ def main(argv: list[str] | None = None) -> int:
                 f"OK: all {len(manifest['assets'])} candidate assets match the verified digests.\n"
             )
         else:
-            result = pypi_state(wheel_path=args.wheel, index=args.index)
+            if args.require_published:
+                result = require_published(
+                    wheel_path=args.wheel,
+                    absent_retry_seconds=args.absent_retry_seconds or 0,
+                    index=args.index,
+                )
+            else:
+                result = pypi_state(wheel_path=args.wheel, index=args.index)
             _emit_github_output(
                 {
                     "state": result["state"],

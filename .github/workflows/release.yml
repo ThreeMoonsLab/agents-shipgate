@@ -605,6 +605,12 @@ jobs:
     # Nothing to finalise when the transaction already completed.
     if: ${{ !cancelled() && needs.candidate.result == 'success' && needs.stage.result == 'success' && needs.publish.result == 'success' && needs.stage.outputs.release_state != 'published' }}
     runs-on: ubuntu-latest
+    # Measured, not estimated. The whole job took 27 s (release run
+    # 42527646429, attempt 2). The index read may wait 300 s for PyPI to list
+    # the upload, and the read that starts at that bound can take its 30 s
+    # network timeout, so the slowest healthy run is about 6 minutes and 15
+    # leaves roughly 2.5x headroom. See docs/release-runbook.md § Re-deriving
+    # the timeout.
     timeout-minutes: 15
     # Repository write, and no `id-token`: a dependency compromised here cannot
     # reach PyPI.
@@ -686,11 +692,25 @@ jobs:
           path: signatures
 
       - name: Confirm the index holds the verified bytes
+        # PyPI's index lists an upload only after a lag. Every release from
+        # 1.0.0 to 1.3.0 read `absent` here 16-20 s after `publish` uploaded,
+        # failed, and read `published_identical` when the job was re-run by
+        # hand two to seven minutes later. So while the index still reads
+        # `absent`, the read is repeated with backoff for at most five
+        # minutes. Nothing else is waited out: `published_divergent`, an
+        # unreachable index or a malformed answer fails on the read that
+        # sees it, and the only pass is `published_identical`, classified as
+        # strictly as everywhere else. This job alone waits. In `stage`,
+        # `absent` is the answer that permits the upload, so a wait there
+        # would only delay it.
         env:
           WHEEL_FILENAME: ${{ needs.candidate.outputs.wheel_filename }}
         run: |
+          set -euo pipefail
           python tools/release_publication.py pypi-state \
-            --wheel "dist/${WHEEL_FILENAME}" | tee /dev/stderr | grep -q "published_identical"
+            --wheel "dist/${WHEEL_FILENAME}" \
+            --require-published \
+            --absent-retry-seconds 300
 
       - name: Require the release to still be a draft
         env:

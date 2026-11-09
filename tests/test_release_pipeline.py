@@ -42,7 +42,13 @@ from scripts.release_notes import (
     extract_release_notes,
     notes_digest,
 )
-from scripts.release_publication import build_manifest, pypi_state, verify_manifest
+from scripts.release_publication import (
+    build_manifest,
+    pypi_state,
+    require_published,
+    verify_manifest,
+)
+from scripts.release_publication import main as publication_main
 from scripts.release_sbom import dev_only_distributions, verify_release_sbom
 from scripts.update_locks import compile_command, prose_header
 from scripts.verify_dependency_lock import (
@@ -619,6 +625,36 @@ def test_index_state_is_reclassified_inside_the_publish_attempt() -> None:
     assert "not permission to upload" in upload["run"]
 
 
+def test_only_finalisation_waits_for_the_index_to_list_the_upload() -> None:
+    """PyPI lists an upload only after a lag, which failed `finalize` on every
+    release from 1.0.0 to 1.3.0. `finalize` waits it out; neither job that
+    decides whether to upload waits."""
+
+    release = _load_workflow("release.yml")
+    finalize = release["jobs"]["finalize"]
+    confirm = finalize["steps"][_step_index(finalize, "pypi-state")]["run"]
+
+    assert "tools/release_publication.py pypi-state" in confirm
+    assert "--require-published" in confirm
+    assert "--absent-retry-seconds 300" in confirm
+    # The exit code decides. A `| grep` without `pipefail` would pass on any
+    # stdout line naming the state, whatever the command returned.
+    assert "grep" not in confirm
+    assert "|" not in confirm
+    # Still before anything touches the draft.
+    assert _step_index(finalize, "pypi-state") < _step_index(finalize, "gh release upload")
+
+    stage = release["jobs"]["stage"]
+    classify = stage["steps"][_step_index(stage, "pypi-state")]["run"]
+    assert "--require-published" not in classify
+    assert "--absent-retry-seconds" not in classify
+    publish = _job_commands(release["jobs"]["publish"])
+    assert "sleep" not in publish
+    assert "--retry" not in publish
+    text = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    assert text.count("--absent-retry-seconds") == 1
+
+
 def test_release_assets_are_uploaded_from_an_explicit_allowlist() -> None:
     """`dist/*` would upload whatever happens to be in the directory."""
 
@@ -753,15 +789,19 @@ def _record(
     }
 
 
-def _patch_index(
-    monkeypatch: pytest.MonkeyPatch, records: list[dict[str, Any]], digest: str
-) -> None:
-    resolved = [
+def _resolve_placeholders(records: list[dict[str, Any]], digest: str) -> list[dict[str, Any]]:
+    return [
         {**item, "digests": {**item["digests"], "sha256": digest}}
         if item.get("digests", {}).get("sha256") == "PLACEHOLDER"
         else item
         for item in records
     ]
+
+
+def _patch_index(
+    monkeypatch: pytest.MonkeyPatch, records: list[dict[str, Any]], digest: str
+) -> None:
+    resolved = _resolve_placeholders(records, digest)
     monkeypatch.setattr(
         "scripts.release_publication._fetch_release_files", lambda *a, **k: resolved
     )
@@ -832,6 +872,192 @@ def test_an_unreachable_index_is_not_read_as_permission_to_upload(
 
     with pytest.raises(ReleaseError, match="Unable to query"):
         pypi_state(wheel_path=wheel)
+
+
+# --------------------------------------------------------------------------
+# Finalisation waits out PyPI's index lag, and nothing else
+# --------------------------------------------------------------------------
+
+
+class _Clock:
+    """Stands in for the wall clock, so no test of the index wait waits."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def _serve_index(
+    monkeypatch: pytest.MonkeyPatch,
+    answers: list[list[dict[str, Any]] | Exception],
+    digest: str,
+) -> tuple[_Clock, list[float]]:
+    """Answer each read with the next answer, repeating the last, on a fake clock.
+
+    Returns the clock and the time of every read, so a test can say when the
+    index was read as well as what it said.
+    """
+
+    clock = _Clock()
+    reads: list[float] = []
+
+    def _fetch(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
+        reads.append(clock.now)
+        answer = answers[min(len(reads), len(answers)) - 1]
+        if isinstance(answer, Exception):
+            raise answer
+        return _resolve_placeholders(answer, digest)
+
+    monkeypatch.setattr("scripts.release_publication._fetch_release_files", _fetch)
+    monkeypatch.setattr("scripts.release_publication._monotonic", clock.monotonic)
+    monkeypatch.setattr("scripts.release_publication._sleep", clock.sleep)
+    return clock, reads
+
+
+def test_finalisation_waits_out_an_index_that_has_not_listed_the_upload_yet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every release from 1.0.0 to 1.3.0 read `absent` 16-20 s after its
+    upload and failed finalisation, while PyPI already held the verified
+    bytes. Each needed a re-run by hand."""
+
+    wheel = _write_wheel(tmp_path / WHEEL_FILENAME)
+    clock, reads = _serve_index(monkeypatch, [[], [], [_record()]], _digest(wheel))
+
+    result = require_published(wheel_path=wheel, absent_retry_seconds=300)
+
+    assert result["state"] == "published_identical"
+    assert result["should_publish"] is False
+    assert reads == [0, 10, 30]
+    assert clock.sleeps == [10, 20]
+
+
+def test_an_index_still_absent_after_the_bound_fails_finalisation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wheel = _write_wheel(tmp_path / WHEEL_FILENAME)
+    clock, reads = _serve_index(monkeypatch, [[]], _digest(wheel))
+
+    with pytest.raises(ReleaseError, match="still absent from the index after 300 s"):
+        require_published(wheel_path=wheel, absent_retry_seconds=300)
+
+    # Backing off from 10 s to at most a minute, with the last read at the
+    # bound itself rather than a pause short of it.
+    assert reads == [0, 10, 30, 70, 130, 190, 250, 300]
+    assert clock.sleeps == [10, 20, 40, 60, 60, 60, 50]
+
+
+def test_with_no_wait_an_absent_index_fails_on_its_one_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    wheel = _write_wheel(tmp_path / WHEEL_FILENAME)
+    clock, reads = _serve_index(monkeypatch, [[]], _digest(wheel))
+
+    with pytest.raises(ReleaseError, match="still absent"):
+        require_published(wheel_path=wheel, absent_retry_seconds=0)
+
+    assert reads == [0]
+    assert clock.sleeps == []
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        pytest.param([_record(sha256="0" * 64)], id="published-divergent"),
+        pytest.param([_record(yanked=True)], id="yanked-record"),
+        pytest.param(
+            [_record(), _record(filename="agents_shipgate-9.9.9.tar.gz", packagetype="sdist")],
+            id="extra-file",
+        ),
+        pytest.param(
+            ReleaseError("Unable to query https://pypi.org/pypi: HTTP 503"), id="unreachable"
+        ),
+        pytest.param(
+            ReleaseError("Malformed index response for https://pypi.org/pypi"), id="malformed"
+        ),
+    ],
+)
+@pytest.mark.parametrize("absent_reads", [0, 2], ids=["on-the-first-read", "after-absent"])
+def test_only_absent_is_waited_out(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    answer: list[dict[str, Any]] | Exception,
+    absent_reads: int,
+) -> None:
+    """Anything but `absent` is final on the read that sees it. The index
+    would list the exact wheel on the next read; the wait must not get there,
+    because a release the index holds alongside other bytes, or an index that
+    did not answer, is not one that lag explains."""
+
+    wheel = _write_wheel(tmp_path / WHEEL_FILENAME)
+    clock, reads = _serve_index(
+        monkeypatch, [*[[]] * absent_reads, answer, [_record()]], _digest(wheel)
+    )
+
+    with pytest.raises(ReleaseError, match="not as the single|Unable to query|Malformed"):
+        require_published(wheel_path=wheel, absent_retry_seconds=300)
+
+    assert len(reads) == absent_reads + 1
+    assert len(clock.sleeps) == absent_reads
+
+
+def test_the_finalisation_command_exits_on_what_the_wait_concludes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The step trusts the exit code alone, so the exit code carries the wait."""
+
+    wheel = _write_wheel(tmp_path / WHEEL_FILENAME)
+    command = [
+        "pypi-state",
+        "--wheel",
+        str(wheel),
+        "--require-published",
+        "--absent-retry-seconds",
+        "300",
+    ]
+
+    _serve_index(monkeypatch, [[], [_record()]], _digest(wheel))
+    assert publication_main(command) == 0
+    assert "index state is published_identical" in capsys.readouterr().out
+
+    _, reads = _serve_index(monkeypatch, [[]], _digest(wheel))
+    assert publication_main(command) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "still absent from the index after 300 s" in captured.err
+    assert len(reads) == 8
+
+
+def test_staging_never_waits_and_the_wait_needs_a_required_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """In `stage`, `absent` is the answer that permits the upload, so a wait
+    there would only delay it. The flag is refused rather than ignored."""
+
+    wheel = _write_wheel(tmp_path / WHEEL_FILENAME)
+    clock, reads = _serve_index(monkeypatch, [[]], _digest(wheel))
+
+    assert publication_main(["pypi-state", "--wheel", str(wheel)]) == 0
+    assert "index state is absent; should_publish=True" in capsys.readouterr().out
+    assert reads == [0]
+
+    for flags in (
+        ["--absent-retry-seconds", "300"],
+        ["--require-published", "--absent-retry-seconds", "-1"],
+        ["--require-published", "--absent-retry-seconds", "5m"],
+    ):
+        with pytest.raises(SystemExit) as refused:
+            publication_main(["pypi-state", "--wheel", str(wheel), *flags])
+        assert refused.value.code == 2, flags
+    assert reads == [0]
+    assert clock.sleeps == []
 
 
 # --------------------------------------------------------------------------
@@ -1010,6 +1236,35 @@ def test_release_verification_timeout_is_documented_and_bounded() -> None:
     source = (WORKFLOWS / "release-verify.yml").read_text(encoding="utf-8")
     assert _load_workflow("release-verify.yml")["jobs"]["artifact"]["timeout-minutes"] == 15
     assert "Measured, not estimated" in source
+
+
+#: A whole healthy `finalize`, measured: release run 42527646429, attempt 2.
+FINALIZE_OBSERVED_SECONDS = 27
+
+
+def test_the_finalisation_timeout_covers_the_index_wait() -> None:
+    """A timeout that cut the wait short would turn index lag back into a
+    failed finalisation."""
+
+    from scripts.release_publication import _NETWORK_TIMEOUT_SECONDS
+
+    finalize = _load_workflow("release.yml")["jobs"]["finalize"]
+    confirm = finalize["steps"][_step_index(finalize, "pypi-state")]["run"]
+    [wait] = [int(seconds) for seconds in re.findall(r"--absent-retry-seconds (\d+)", confirm)]
+
+    # On the order of five minutes. 1.0.0 to 1.3.0 were each listed by the
+    # time a re-run made by hand read the index, two to seven minutes after
+    # the upload.
+    assert wait == 300
+    # The read that starts at the bound can take its whole network timeout.
+    slowest = FINALIZE_OBSERVED_SECONDS + wait + _NETWORK_TIMEOUT_SECONDS
+    # docs/release-runbook.md § Re-deriving the timeout: roughly 2.5x headroom.
+    assert finalize["timeout-minutes"] * 60 >= 2.5 * slowest
+    source = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    assert f"Measured, not estimated. The whole job took {FINALIZE_OBSERVED_SECONDS} s" in source
+    runbook = (REPO_ROOT / "docs/release-runbook.md").read_text(encoding="utf-8")
+    assert f"--absent-retry-seconds {wait}" in runbook
+    assert "PyPI's index lag is absorbed, not recovered from." in runbook
 
 
 def test_perf_marker_is_declared_so_the_exclusion_is_meaningful() -> None:
