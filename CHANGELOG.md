@@ -6,6 +6,10 @@
 
 - **The release workflow's `finalize` waits for PyPI's index to list the upload instead of failing seconds after it.** Every release from 1.0.0 to 1.3.0 read `absent` 16–20 s after the upload and failed `Finalise release` while PyPI already held the verified wheel; each was finished by re-running the job by hand two to seven minutes later. The step now runs `pypi-state --require-published --absent-retry-seconds 300`: while the index reads `absent` it reads again, backing off from 10 s to a minute, for at most five minutes, and logs when the version appeared. Only `absent` is waited out. `published_divergent`, an unreachable index or a malformed answer still fails on the read that sees it, and `published_identical` is as strict as before. `stage` and `publish` do not wait, and the job's 15-minute timeout covers the wait with about 2.5x headroom. (#1132)
 
+### Application comparison
+
+- **`diff --application` no longer re-reads the same modules for every import-search question, and gives the same answers.** #964's constructor-ownership checks build an import-search closure for each runner list a resolution checks (318 on `SponsioLabs/Sponsio#173`), and each closure re-walked every module it reached; each module was also re-read for every set of `sys`/`site` carriers, and every reader re-derived the patch map of each file it parsed. A reader now reads each module's import-search edges and its refusal once, as far as a question needs, and a run derives each file version's patch map once. On the development corpus, with the release build at load ~10 against this change at load 4–20: `SponsioLabs/Sponsio#173` 141 → 39 s, `Tiendat2703/MIS_TALENT#7` 168 → 64 s, `liauto-siada/siada-cli#6` 462 → 193 s, `Lling0000/OpenCMO#41` 757 → 372 s, and `VidulaWickramasinghe/O.R.I.O.N#126` and `alliance-genome/agr_ai_curation#842`, which exceeded the 900 s cap, finish in 435 s and 562 s. `agr_ai_curation#858` and `#860` remain near the cap; their time is now each reader parsing the import closure. (Refs #1046)
+
 ## 1.3.0 - 2026-11-08
 
 An advisory-channel minor release. It closes several ways a change could pass
