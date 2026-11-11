@@ -1,0 +1,96 @@
+# AIUC-1 control map for `agents-shipgate registry report --control-map`.
+#
+# Data, not code: each entry names an evidence item of the framework, says in
+# one line what the ledger rows show for it, and lists the gap rules the engine
+# applies. Activities the ledger cannot speak to are listed with no evidence,
+# so the extract prints them as not evidenced rather than leaving them out.
+#
+# This map states which rows bear on which item. Judging the rows against each
+# item is the assessor's decision.
+control_map_schema_version: "0.1"
+framework: AIUC-1
+framework_label: AIUC-1 evidence list, April 2026 edition
+source: https://www.aiuc-1-042026.com/evidence
+note: >-
+  Written against requirements B006 (Prevent unauthorized AI agent actions)
+  and E004 (Assign accountability) as that edition lists their evidence items.
+  Check the current edition before relying on the ids and titles.
+controls:
+  - id: B006.1
+    title: "Config: Agent service access restrictions"
+    status: mandatory
+    shows: >-
+      The MCP servers, permission rules, hooks and workflow token scopes the
+      repository grants its coding-agent hosts, compared on a schedule with the
+      acknowledged baseline (.agents-shipgate/host-grants.json, reviewed in a
+      pull request), which is the allowlist the comparison holds the repository
+      to. Each observation names, by id and kind, every grant added, removed or
+      changed since that baseline. Static declarations only; connections made
+      at runtime are not observed.
+    evidence:
+      - label: Scheduled comparisons of host grants with the acknowledged baseline
+        row_kind: drift_observation
+        gaps:
+          - no_rows_in_window
+          - observation_interval
+          - observation_incomparable
+          - inventory_issues
+
+  - id: B006.2
+    title: "Config: Agent security monitoring and alerting"
+    status: mandatory
+    shows: >-
+      Not evidenced by this ledger. This item asks for monitoring and alerting
+      on what agents do at runtime; the ledger records static comparisons of
+      what they are configured to be able to do.
+    evidence: []
+
+  - id: B006.3
+    title: "Config: Execution-level safeguards"
+    status: supplemental
+    shows: >-
+      Tool definition integrity. Each release attestation binds the reviewed
+      capability lock, whose definition_set_hash covers every tool's
+      description, output schema and annotations; each scheduled comparison
+      with a capability diff names the capabilities whose definition moved
+      since that lock. Sandboxing and pre-execution policy engines, the item's
+      other examples, are not evidenced by this ledger.
+    evidence:
+      - label: Release attestations binding the reviewed capability lock
+        row_kind: attestation
+        gaps:
+          - no_rows_in_window
+          - definition_digests_absent
+      - label: Scheduled comparisons of exported capabilities with the reviewed lock
+        row_kind: drift_observation
+        gaps:
+          - no_rows_in_window
+          - capability_comparison_absent
+          - observation_interval
+
+  - id: E004.1
+    title: "Documentation: Change approval policy and records"
+    status: mandatory
+    shows: >-
+      Approval records. Each release attestation carries the pull request's
+      reviews as GitHub recorded them, evaluated against the attested head
+      commit: approved, approved_stale, changes_requested, not_approved, or
+      not_supplied when the workflow did not pass them. Approvals by the author
+      or a bot never count. The policy that defines which changes need
+      approval is the team's own document and is not in the ledger.
+    evidence:
+      - label: Release attestations with the pull request's reviews
+        row_kind: attestation
+        gaps:
+          - no_rows_in_window
+          - approval_not_supplied
+          - approval_not_approved
+
+  - id: E004.2
+    title: "Config: Code signing implementation"
+    status: supplemental
+    shows: >-
+      Not evidenced by this ledger. Attestations and observations are emitted
+      unsigned; signing them, or the artifacts they describe, is the
+      transport's or the release pipeline's job.
+    evidence: []
