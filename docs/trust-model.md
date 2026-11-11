@@ -74,8 +74,8 @@ runner, which `install-hooks --target claude-code` writes into a repository.
 | `core/authorization_execution.py::_run_bounded_stdout_process` | `git pack-objects`, streamed into the isolated graph snapshot under output and time bounds. | `authorization execute` only |
 | `core/openshell_native.py::_execute` | The operator-pinned native containment prover, copied into a private directory and run with a minimal environment, bounded output and a bounded process-group lifetime. | `verify --openshell-proof-config` only |
 | `.claude/hooks/agents-shipgate.py::_unchanged_instruction_preview` | Shipgate's `preflight`, through `AGENTS_SHIPGATE_CLI` or else `agents-shipgate`. | Claude Code hook events, after `install-hooks` |
-| `.claude/hooks/agents-shipgate.py::_run` | Git, and Shipgate's `verify`, `diff` and `trigger` the same way. | Claude Code hook events, after `install-hooks` |
-| `.claude/hooks/agents-shipgate.py::_run_git_bounded` | Bounded Git reads. | Claude Code hook events, after `install-hooks` |
+| `.claude/hooks/agents-shipgate.py::_run` | Git, and Shipgate's `verify`, `diff`, `trigger` and `org policy-packs` the same way. `org policy-packs` reads a private copy of the configured manifest, from the working tree or `--base`, to learn which policy packs it declares, and runs only when that manifest can name one. | Claude Code hook events, after `install-hooks` |
+| `.claude/hooks/agents-shipgate.py::_run_git_bounded` | Bounded Git reads, among them the configured manifest as `--base` holds it. | Claude Code hook events, after `install-hooks` |
 
 `AGENTS_SHIPGATE_CLI` is used as written. If you set it to a `python -m`
 spelling, include `-P` (`python3 -P -m agents_shipgate`): the hooks run it from
