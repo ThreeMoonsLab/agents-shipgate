@@ -84,11 +84,11 @@ six signals, and `diff` against the fixture base exiting 0 with
 changes. Every output was identical apart from the workspace path, the
 fixture's commit ids, the launcher name in printed commands, the boundary
 result's `audit_id`, `init --json`'s input id, and the boundary result's policy
-records. A source checkout has no packaged `_meta/policies`, so `./shipgate`
-evaluates the in-code default policies (`codex-boundary-default`,
+records. On this run a source checkout had no packaged `_meta/policies`, so
+`./shipgate` evaluated the in-code default policies (`codex-boundary-default`,
 `host-boundary-default`) where the wheel loads the packaged
 `policies/*.shipgate.yaml` (`codex-boundary`, `host-boundary`): their ids and
-snapshot digests differ, and so does one rule's recommendation text. The
+snapshot digests differed, and so did one rule's recommendation text. The
 `v1.2.0` wheel and source tree differ the same way; no cell does.
 
 The previous release, `v1.2.0`, was rerun the same way on 2026-11-08, from
