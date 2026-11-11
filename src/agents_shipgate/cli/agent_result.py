@@ -11,6 +11,7 @@ from agents_shipgate.cli.verify.git import (
     BinaryCapabilityDiffError,
     carries_manifest_like_yaml,
     read_file_at_ref,
+    regular_file_at_ref,
     removes_a_yaml_file,
 )
 from agents_shipgate.cli.verify.host_comparison import enabled_plugin_hook_evidence
@@ -29,10 +30,11 @@ from agents_shipgate.core.boundary_diff import (
 )
 from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.core.codex_boundary import parse_unified_diff
-from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.core.trust_roots import (
     inspect_lexical_path_identity,
     is_configured_manifest,
+    manifest_policy_pack_paths,
     read_identity_bound_text,
     trust_root_class_for,
 )
@@ -350,6 +352,55 @@ def _assessment_for_diff(
         base_manifest_absent=base_manifest_absent,
         host_snapshot=host_snapshot,
         enabled_plugin_hooks=enabled_plugin_hooks,
+        manifest_policy_packs=_declared_policy_packs(
+            workspace=workspace,
+            config_path=config_path,
+            head_manifest=manifest,
+            # A provided diff names no commit, so only the tree it was given
+            # declares anything; the MCP tool never runs Git.
+            base=None if input_mode == "provided_diff" else base,
+        ),
+    )
+
+
+def _declared_policy_packs(
+    *,
+    workspace: Path,
+    config_path: Path,
+    head_manifest: AgentsShipgateManifest | None,
+    base: str | None,
+) -> tuple[str, ...]:
+    """The files the base or head manifest binds as policy packs (#1075).
+
+    ``verify`` judges a change against both: the base's declarations, so
+    dropping one and editing the pack in the same diff still reaches a human,
+    and the declarations of the manifest this run loads. Both resolve through
+    the one resolution ``verify`` uses. The base manifest is read as ``verify``
+    reads it, exactly as committed at ``base``; one that cannot be read or
+    validated declares nothing, there as here.
+    """
+
+    try:
+        config_relative = config_path.relative_to(workspace)
+    except ValueError:
+        return ()
+    manifests: list[AgentsShipgateManifest | None] = []
+    if base:
+        found = regular_file_at_ref(
+            workspace, base, config_relative, max_bytes=_MAX_MANIFEST_BYTES
+        )
+        if found.state == "present" and found.data is not None:
+            try:
+                manifests.append(
+                    load_manifest_text(
+                        found.data.decode("utf-8"), source=config_relative
+                    )
+                )
+            except (AgentsShipgateError, UnicodeDecodeError, ValueError):
+                pass
+    manifests.append(head_manifest)
+    return manifest_policy_pack_paths(
+        manifests, repository_root=workspace, config_relative=config_relative
     )
 
 
