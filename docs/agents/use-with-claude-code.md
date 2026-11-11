@@ -218,7 +218,14 @@ Three hooks are installed:
   happens instead of at PR time. The protected-surface list is rendered
   at install time from the same `TRUST_ROOT_SURFACES` table the
   `SHIP-VERIFY-*` checks classify against, so the in-session boundary
-  and the PR gate cannot drift. Set
+  and the PR gate cannot drift. A policy pack the configured manifest
+  declares (`checks.policy_packs`) is protected wherever it lives, as
+  the manifest declares it in the working tree and as the configured
+  `--base` holds it. So a pack stays protected after its declaration is
+  removed. The hook asks `agents-shipgate org policy-packs` to read the
+  manifest, only when it can name a pack, and once for each version.
+  If it cannot read a manifest that names packs, every file that
+  manifest names is protected. Set
   `AGENTS_SHIPGATE_PRETOOLUSE_DECISION=deny` for hard blocking, or
   `=allow` to disable the boundary without uninstalling. One decision
   covers the file for the rest of the session: once a human allows an

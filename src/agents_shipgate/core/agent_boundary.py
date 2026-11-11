@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Collection
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -74,6 +75,7 @@ from agents_shipgate.core.host_input_failure import safe_failure_text
 from agents_shipgate.core.mcp_host_selection import UNATTRIBUTED_MCP_HOST, is_mcp_config_path
 from agents_shipgate.core.trust_roots import (
     is_configured_manifest,
+    is_manifest_policy_pack,
     is_portable_repo_path,
     read_absolute_identity_bound_text,
     trust_root_class_for,
@@ -158,6 +160,7 @@ def evaluate_agent_boundary(
     verification_replayable: bool = False,
     base_manifest_absent: bool | None = None,
     enabled_plugin_hooks: EnabledPluginHookFiles | None = None,
+    manifest_policy_packs: Collection[str] = (),
 ) -> AgentBoundaryAssessment:
     """Assess one change against every registered boundary adapter.
 
@@ -165,6 +168,12 @@ def evaluate_agent_boundary(
     could read, the files that hold hooks of a plugin the repository's
     project settings enable (#809). ``None`` reads them from
     ``host_snapshot``, the workspace tree.
+
+    ``manifest_policy_packs`` names the repository-relative files the base
+    or head manifest binds as policy packs
+    (:func:`~agents_shipgate.core.trust_roots.manifest_policy_pack_paths`).
+    Like the configured manifest, each is a protected surface whatever it is
+    called, and no structural shortcut clears an edit to one.
     """
 
     # The command this assessment authorizes must evaluate the target that was
@@ -346,6 +355,7 @@ def evaluate_agent_boundary(
         and trust_root_class_for(path) in {"agent_instructions", "tool_surface_decl"}
         and not is_configured_manifest(config_path, path, workspace=workspace)
         and not _is_invocation_path(policy_path, path, workspace=workspace)
+        and not is_manifest_policy_pack(path, manifest_policy_packs)
     }
     host_violations, host_diagnostics = evaluate_host_boundary(
         workspace=workspace,
@@ -364,7 +374,8 @@ def evaluate_agent_boundary(
     openshell_safe = {path for path in openshell_safe
         if trust_root_class_for(path) is None and not is_agent_boundary_path(path)
         and not is_configured_manifest(config_path, path, workspace=workspace)
-        and not _is_invocation_path(policy_path, path, workspace=workspace)}
+        and not _is_invocation_path(policy_path, path, workspace=workspace)
+        and not is_manifest_policy_pack(path, manifest_policy_packs)}
     # A host settings change the permission lattice decides only narrows was
     # evaluated completely (#661): like an unchanged instruction structure, it
     # is not an unclassified protected change and needs no human.
@@ -376,6 +387,7 @@ def evaluate_agent_boundary(
         and not input_issues
         and not is_configured_manifest(config_path, item.path, workspace=workspace)
         and not _is_invocation_path(policy_path, item.path, workspace=workspace)
+        and not is_manifest_policy_pack(item.path, manifest_policy_packs)
     }
     diagnostics = _dedupe_diagnostics(
         [*legacy.diagnostics, *host_diagnostics, *policies.diagnostics]
@@ -408,6 +420,7 @@ def evaluate_agent_boundary(
         workspace=workspace,
         plugin_hook_paths=plugin_hook_paths,
         script_hosts=script_hosts,
+        manifest_policy_packs=manifest_policy_packs,
         evaluated_paths={
             *instruction_structure_unchanged,
             *host_settings_narrowed,
@@ -711,6 +724,9 @@ def assessment_for_scan_context(context) -> AgentBoundaryAssessment:
         # hook file the change deleted is routed here as it is there.
         input_issues=list(verification.enabled_plugin_hook_issues) or None,
         enabled_plugin_hooks=verification.enabled_plugin_hooks,
+        # The policy packs the base or head manifest declares, as `check`
+        # resolves them, so a vendored pack is routed here as it is there.
+        manifest_policy_packs=verification.manifest_policy_packs,
     )
     return context.agent_boundary
 
@@ -1276,14 +1292,20 @@ def _with_unclassified_protected_changes(
     workspace: Path | None = None,
     plugin_hook_paths: frozenset[str] = frozenset(),
     script_hosts: dict[str, list[str]] | None = None,
+    manifest_policy_packs: Collection[str] = (),
 ) -> list[AgentResultViolatedRule]:
     covered = {item.path for item in violations if item.path}
     additions: list[AgentResultViolatedRule] = []
     for path in changed_files:
         normalized = path.replace("\\", "/")
+        declared_pack = is_manifest_policy_pack(normalized, manifest_policy_packs)
         if (
             normalized in covered
-            or (normalized in evaluated_paths and normalized not in (script_hosts or {}))
+            or (
+                normalized in evaluated_paths
+                and normalized not in (script_hosts or {})
+                and not declared_pack
+            )
             or not (
                 is_agent_boundary_path(normalized)
                 or trust_root_class_for(normalized) is not None
@@ -1307,6 +1329,9 @@ def _with_unclassified_protected_changes(
                     normalized,
                     workspace=workspace,
                 )
+                # A policy pack the manifest declares outside ``policies/**``
+                # decides what the gate blocks, as one under it does (#1128).
+                or declared_pack
             )
         ):
             continue
@@ -1325,13 +1350,13 @@ def _with_unclassified_protected_changes(
         ) is None and is_configured_manifest(
             config_path, normalized, workspace=workspace
         )
-        configured_policy = (
-            trust_root_class_for(normalized) is None
-            and _is_invocation_path(
+        configured_policy = trust_root_class_for(normalized) is None and (
+            _is_invocation_path(
                 policy_path,
                 normalized,
                 workspace=workspace,
             )
+            or declared_pack
         )
         # Recorded only where no registry name or trust root explains the
         # route, as for a configured manifest, so every existing row keeps
