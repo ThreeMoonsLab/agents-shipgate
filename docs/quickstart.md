@@ -193,17 +193,12 @@ as data.
 
 ### 3. Read the answer
 
-**Released in `1.3.0`:** the answers below are from the published `1.3.0`,
-installed from PyPI into a clean virtualenv outside any checkout and run in a
-clone. The previous release, `1.2.0`, differs in two of them. Its note on the
-added MCP server in the change example reads `launch source is mutable`, where
-`1.3.0` says that the server's `npx` package spec has no exact version, and
-that the static read does not establish whether `npx` resolves a local project
-dependency or falls back to the registry or its cache, as
-[npm documents](https://docs.npmjs.com/cli/v11/commands/npm-exec#description)
-(#933); the note changes neither severity nor the widening count. And it opens
-its answer to the `env` value edit below with the no-change line, not
-`Changed, not compared` (#1027). On
+**Source-tree examples, not yet released:** the answers below are from this
+repository's source tree, run in a clone. The published `1.3.0` prints the
+same answers, except that it rates the removed `deny: Bash(rm -rf:*)` row of
+the change example `low`, the rating it gives every deny and ask grant. This
+tree rates a row that lifts a deny or ask rule by what the rule restricted,
+never below `medium` (#1036). On
 the remote's `main`, `.claude/settings.json` allows `Bash(npm test:*)` and denies `Bash(rm -rf:*)`,
 and `.mcp.json` configures one server, `docs`. The PR branch allows
 `Bash(npm *)`, drops the denial, and adds a `billing` server.
