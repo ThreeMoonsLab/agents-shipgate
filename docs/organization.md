@@ -55,7 +55,9 @@ for an `optional: true` pack too.
 A declared pack is a release trust root wherever it lives: `verify` reports a
 pull request that edits it with `SHIP-VERIFY-TRUST-ROOT-TOUCHED` (class
 `policy`), so a human reviews the change, including one that also removes the
-declaration.
+declaration. The local loop says the same before the pull request:
+`shipgate check` routes the edit to review, and the Claude Code hook from
+`install-hooks` asks before a coding agent edits the pack (#1128).
 For a read-only policy-pack inventory, run:
 
 ```bash

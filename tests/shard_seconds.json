@@ -444,6 +444,7 @@
   "tests/test_capability_definition.py": 0.2,
   "tests/test_capability_payload_v2.py": 4.7,
   "tests/test_attest_approval.py": 0.2,
+  "tests/test_declared_policy_pack_boundary.py": 44.3,
   "tests/test_registry_drift_observation.py": 1.4,
   "tests/test_control_evidence.py": 0.2
  },
@@ -653,6 +654,17 @@
    },
    "case_count": 37,
    "command": "python -m pytest tests/test_verify_pr_controlled_inputs.py --junitxml=pr-controlled-inputs.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "issue #1128 declared policy packs in check and the hook increment",
+   "report_sha256": "0effe57b79e60109061fdb5b0f6a1d2a07592744ab24a9973ecd7ffac3e9570a",
+   "files": {
+    "tests/test_declared_policy_pack_boundary.py": 44.3
+   },
+   "case_count": 22,
+   "command": "python -m pytest tests/test_declared_policy_pack_boundary.py --junitxml=declared-packs.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {

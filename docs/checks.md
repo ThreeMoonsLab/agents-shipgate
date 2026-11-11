@@ -647,6 +647,13 @@ the path is a gate-governing trust root (manifest, policy, CI gate, or
 `.agents-shipgate/` state), the coding agent may finish its turn with the
 obligation carried in `pending_review[]` rather than stopping.
 
+A policy pack the base or head manifest declares in `checks.policy_packs` is a
+policy surface wherever it lives, resolved as `verify` resolves it (#1128). A
+change to one fires this rule in `check` and in `verify`, as a change under
+`policies/**` does. Where the trust-root table does not classify the path, the
+row records `trust_root_class: policy`, as it records `manifest` for a
+custom-named manifest, so the row stays out of the graded band.
+
 ### SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED
 
 An adapter marked experimental observed a boundary change. Experimental
