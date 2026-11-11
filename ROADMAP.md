@@ -2,10 +2,11 @@
 
 > **Naming.** This project is **Agents Shipgate** (display name) / `agents-shipgate` (package, CLI, repo). See [`AGENTS.md` § Naming (canonical)](AGENTS.md#naming-canonical) for the full convention.
 
-**Latest release: `v1.2.0`**
+**Latest release: `v1.3.0`**
 ([release page](https://github.com/ThreeMoonsLab/agents-shipgate/releases/latest))
-— the release that adds application comparison (`diff --application`) on the
-**advisory** channel, with no qualification claim. This line is checked against the
+— a verification-hardening release on the **advisory** channel, with no
+qualification claim, whose notes state that `diff --application` regressed.
+This line is checked against the
 actual release tag by the `release-tag-consistency` job in
 [`ci.yml`](.github/workflows/ci.yml) on every push to `main`.
 
@@ -71,9 +72,10 @@ follows the [non-goals](#explicit-non-goals) and
 **Adoption > completeness.** `v1.0.0` is published on PyPI and GitHub from
 `bace7c1871834e0b3eb98e6f60c0627725c53a59`, and #777 moved the pins to it.
 `v1.1.0` followed on 2026-09-22 from
-`e3c6cb0c7657d9c53d4e29b2061d04dcf99a4e9b` and `v1.2.0` on 2026-10-01 from
-`7fc61ef43d8ec5c906bc690765f4a1297dff4fda`, both on the same channel; the
-current pins name `v1.2.0`. The `v1.0.0` [advisory statement](https://github.com/ThreeMoonsLab/agents-shipgate/releases/download/v1.0.0/advisory-statement.json)
+`e3c6cb0c7657d9c53d4e29b2061d04dcf99a4e9b`, `v1.2.0` on 2026-10-01 from
+`7fc61ef43d8ec5c906bc690765f4a1297dff4fda` and `v1.3.0` on 2026-11-08 from
+`f96f1e99396c1100ba3662336e4017f4fb351140`, all on the same channel; the
+current pins name `v1.3.0`. The `v1.0.0` [advisory statement](https://github.com/ThreeMoonsLab/agents-shipgate/releases/download/v1.0.0/advisory-statement.json)
 records advisory defaults, blocking opt-in and no qualification claim. That
 publication supersedes the pre-release sequencing in the historical record
 below; it does not satisfy the separate qualified-gate obligations in #572.

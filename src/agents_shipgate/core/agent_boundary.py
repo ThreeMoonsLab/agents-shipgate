@@ -1046,9 +1046,14 @@ def _load_policy_set(*, workspace: Path, explicit: Path | None) -> _PolicySet:
             "legacy_policy_compatibility",
         ]
     else:
-        # The code defaults and the packaged unified YAML are generated from
-        # the same rule union.  Loading each family through its established
-        # default keeps the frozen Codex-v2 compatibility projection stable.
+        # Each family loads its packaged default: the wheel's
+        # `_meta/policies/` copy, or in a source checkout the `policies/`
+        # file the wheel is built from, so `./shipgate` and the wheel report
+        # one policy set.  The packaged unified template names the union of
+        # the families' rules, and each in-code fallback states its packaged
+        # rules; tests/test_packaged_default_policies.py checks both.  Loading
+        # each family through its established default keeps the frozen
+        # Codex-v2 compatibility projection stable.
         codex_path = None
         host_path = LEGACY_HOST_POLICY_PATH
         codex_source = host_source = "packaged_default"

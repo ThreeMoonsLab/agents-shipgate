@@ -521,6 +521,69 @@ now meets the same human stop locally that it met at the pull request.
 
 ---
 
+<a id="checkout-packaged-default-policies"></a>
+
+## Migration Note: Unreleased — a source checkout evaluates the packaged default policies (#1133)
+
+**What was wrong.** A wheel carries the default boundary policies under
+`agents_shipgate/_meta/policies/`, copied from `policies/*.shipgate.yaml` by
+the force-include in `pyproject.toml`. A source checkout, an editable install
+and the `./shipgate` launcher have no `_meta/`, and their loaders fell back to
+the in-code rules there instead. On a workspace with no policy file they
+reported policies `codex-boundary-default` and `host-boundary-default` where
+the 1.1.0 through 1.3.0 wheels report `codex-boundary` and `host-boundary`.
+The boundary result's `policy_set_sha256` was `5ad04b64…` against the wheel's
+`480e1cec…`, and `mcp audit` reported policy version `builtin` against the
+wheel's `1`. The in-code `CODEX-POLICY-WEAKENED` recommendation also differed
+from the shipped one, as it had since #196. A comment said the two came from
+one rule union, but nothing generated or compared them.
+
+**What changes.**
+
+- A checkout loads the repository file each packaged policy is copied from.
+  The mapping is the force-include table `verification_identity` already
+  projected for engine identity, now kept once in
+  `agents_shipgate.core.wheel_layout` and checked against `pyproject.toml`.
+  An installed wheel reads only its own `_meta/` copy, as before, and falls
+  back to the in-code rules when that copy is missing.
+- The in-code `CODEX-POLICY-WEAKENED` recommendation now reads as the shipped
+  policy does: "Restore the stricter policy or get human approval before
+  weakening the local boundary gate." The in-code rules state every field of
+  each shipped rule, and `tests/test_packaged_default_policies.py` keeps them
+  so. The policy's own identity is the one documented difference: the in-code
+  rules keep the ids `codex-boundary-default` and `host-boundary-default`, and
+  `mcp audit` keeps version `builtin`, so a result still says when no policy
+  file was read.
+
+**What a wheel reports differently.** Its default output does not change. On
+a workspace with no policy file it reports `codex-boundary`, `host-boundary`
+and policy set `480e1cec…`, and the published 1.3.0 wheel reproduces the
+regenerated `tests/golden/codex_boundary_result/` files. A run that takes
+`CODEX-POLICY-WEAKENED` from the in-code rules reports the shipped
+recommendation instead of "Do not weaken Shipgate policy to pass the gate;
+restore the stricter policy or get human approval." That rule's text is part
+of the codex policy snapshot, so the codex `policies[].snapshot_sha256`,
+`policy_set_sha256` and `audit_id` of such a run move too. Two kinds of run do
+this:
+
+- An explicit `--policy` that is missing or invalid. The policy set moves from
+  `5ad04b64…` to `2b061ec2…`.
+- A policy file that does not state the rule's recommendation, such as a copy
+  of `policies/templates/agent-boundary-default.shipgate.yaml`, which names
+  rule ids only. In 1.3.0 such a workspace and one with no policy file
+  reported different text for the same rule.
+
+**What does not change.** No schema, contract version, control state,
+decision, risk level, policy id, rule id or check ID moves. The frozen
+`shipgate.codex_boundary_result/v2` projection keeps its shape.
+
+**Who must act.** No configuration changes. A consumer that stored an
+`audit_id` or `policy_set_sha256` from one of the runs above sees a new value
+for the same input once. A contributor's `./shipgate` and an editable install
+now report the policy digests a released wheel reports.
+
+---
+
 <a id="capability-definitions"></a>
 
 ## Migration Note: 1.3.0 — the capability lock records tool definitions (capability standard `0.6`, lock `0.9`, lock diff `0.10`, #1117)
@@ -982,8 +1045,8 @@ routed the edit to review, so no gate was bypassed.
 
 **What changes.**
 
-- **Grants.** Host-grants `0.9`, extended in place (it has not shipped in a
-  tagged release), gains two grant kinds for Claude Code settings files:
+- **Grants.** Host-grants `0.9`, extended in place before it shipped in
+  1.3.0, gains two grant kinds for Claude Code settings files:
   `command_setting` (`statusLine`, `subagentStatusLine`, `fileSuggestion`,
   `apiKeyHelper`, `otelHeadersHelper`, `awsAuthRefresh`,
   `awsCredentialExport`; `execute`/`high`, with a display-only `command` as

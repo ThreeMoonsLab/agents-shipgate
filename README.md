@@ -42,8 +42,8 @@ and source locations, in the package that holds the changed code's agents unless
 `--scope` names one. See [application comparison](docs/application-comparison.md)
 for scoped applications, moves, exact refs and coverage limits. Version availability
 is recorded in the [CHANGELOG entry](CHANGELOG.md#application-comparison-without-prior-setup):
-it is new in 1.2.0, the newest published release, so an older install needs
-`pipx upgrade agents-shipgate` first.
+it is new in 1.2.0, and the newest published release, 1.3.0, has it, so an
+install older than 1.2.0 needs `pipx upgrade agents-shipgate` first.
 
 ## What did this PR change?
 
@@ -65,13 +65,14 @@ entry per changed grant or replaced rule. If the PR targets another branch, pass
 `--base upstream/<pr-base>`. On a PR that widens a Claude Code allow rule,
 drops a denial and adds an MCP server:
 
-The example below is from this source tree, run in a clone, and is
-**not yet released**: the published `1.2.0` prints the same comparison, but its
-note on the added MCP server reads `launch source is mutable`. This tree states
-the declaration fact and the launch it leaves open apart (#933).
+**Released in `1.3.0`:** the example below is from the published `1.3.0`,
+installed from PyPI into a clean virtualenv outside any checkout and run in a
+clone. The previous release, `1.2.0`, prints the same comparison, but its note
+on the added MCP server reads `launch source is mutable`; `1.3.0` states the
+declaration fact and the launch it leaves open apart (#933).
 
 ```text
-Agent capability diff  origin/main (5d1b9e23) -> working tree
+Agent capability diff  origin/main (3db015cd) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
                   billing (command name npx; env keys BILLING_TOKEN)
@@ -94,8 +95,8 @@ What this run established:
   .mcp.json (claude-code): compared; 1 row
 
 Review question: Does the team intend these 3 declared capability changes (from 4 rows)?
-Compared: base 5d1b9e23 → working tree at HEAD 58d2ac0c, agents-shipgate 1.2.0.
-Reproduce in that working tree: agents-shipgate diff --base 5d1b9e236525699910f4d93e334d2f4425927062
+Compared: base 3db015cd → working tree at HEAD 39a8a7b1, agents-shipgate 1.3.0.
+Reproduce in that working tree: agents-shipgate diff --base 3db015cd96dea7244dedd56309174e2998f5090d
 Permission review guidance:
 Conditional review choices only; current control permissions still apply. A PR note grants no authority.
 - Change 2: .claude/settings.json
@@ -248,17 +249,17 @@ projection of it. Five-minute version:
 Host configuration alone needs none of this: [What did this PR
 change?](#what-did-this-pr-change) is the whole route. [Route
 H](docs/quickstart.md#route-h--no-manifest) adds a snapshot audit and an
-optional committed baseline for jobs that want them, and `v1.2.0`'s discovery
+optional committed baseline for jobs that want them, and `v1.3.0`'s discovery
 routes host-only repositories there through `host_boundary_candidates`.
 Filename detection never establishes verified permissions.
 
 ## What your PR sees
 
 The same run writes `pr-comment.md`, the comment the GitHub Action posts.
-This abridged excerpt is from the published `v1.2.0` release. The current
-source tree reports what a change added or changed but withholds what it
-removed or narrowed when agent binding coverage is incomplete, and names that
-limit; that coverage gap does not change the four blocking findings.
+This abridged excerpt is from the published `v1.3.0` release. It reports what
+a change added or changed but withholds what it removed or narrowed when agent
+binding coverage is incomplete, and names that limit; that coverage gap does
+not change the four blocking findings.
 
 Abridged from the released artifact:
 
@@ -269,7 +270,7 @@ Abridged from the released artifact:
 - Merge verdict: `blocked`
 - Can merge without human: `false`
 - Release gate: `blocked`
-- Capability delta (analysed surface): 2 subjects across 6 changes (+1 added, 2 modified, -0 removed)
+- Capability delta (analysed surface): 2 subjects across 6 changes (+1 added, 2 modified, -0 removed); newly outside the analysed surface: unknown (comparison unavailable)
 - Top capability changes by subject:
   - `stripe.create_refund`: added action — blocks release; added tool — blocks
     release; broadened action destructive — high-risk effect destructive added;
@@ -298,7 +299,7 @@ declared and statically discoverable surface says. See
 [Limitations](#limitations) and [ROADMAP.md](ROADMAP.md).
 
 > [!IMPORTANT]
-> **Status: `v1.2.0`, advisory.** The published release makes no qualification
+> **Status: `v1.3.0`, advisory.** The published release makes no qualification
 > claim. Its defaults are advisory, and blocking CI is a policy you opt into
 > explicitly. The decision engine is deterministic; the accuracy evidence is
 > small-n and incomplete, and the parts below their bars are stated here rather
@@ -336,7 +337,7 @@ no-op over one. Alternatives — `pip`, `uv`, and zero-install `uvx` — are in
 **not** need Python 3.12; the CLI installs separately.
 
 **Two lines, two promises.** The advisory line publishes rows a reviewer
-reads, and no authority to block anything by default; `v1.2.0` is an advisory
+reads, and no authority to block anything by default; `v1.3.0` is an advisory
 release. The gate line publishes blocking verdicts and keeps every
 qualification bar. Each `v*` version is declared on exactly one line in
 [`.github/release-channels.json`](.github/release-channels.json). Neither line
@@ -347,16 +348,16 @@ two months out of reach.
 
 | Line | Carries | Install | Promises | Cadence |
 | --- | --- | --- | --- | --- |
-| **Advisory** | `diff`, `check`, `audit --host`, drift, advisory PR comments | `pipx install agents-shipgate` (`v1.2.0`), or an unqualified preview pre-release | plain-language capability rows; **no blocking authority** unless you configure a blocking policy | 14 days |
-| **Qualified gate** | blocking verdicts backed by qualification evidence, receipts, attestations | a `v*` release declared on the qualified line; `v1.2.0` is not one | every bar in [`release-evidence-policy-decision.md`](docs/release-evidence-policy-decision.md) | on evidence only |
+| **Advisory** | `diff`, `check`, `audit --host`, drift, advisory PR comments | `pipx install agents-shipgate` (`v1.3.0`), or an unqualified preview pre-release | plain-language capability rows; **no blocking authority** unless you configure a blocking policy | 14 days |
+| **Qualified gate** | blocking verdicts backed by qualification evidence, receipts, attestations | a `v*` release declared on the qualified line; `v1.3.0` is not one | every bar in [`release-evidence-policy-decision.md`](docs/release-evidence-policy-decision.md) | on evidence only |
 
 **Read [which build you get](docs/quickstart.md#which-build-you-get) before you
-start.** The newest published release is `v1.2.0`, which implements runtime
-contract `41` — the agent control envelope, `current-control.json` and
+start.** The newest published release is `v1.3.0`, which implements runtime
+contract `42` — the agent control envelope, `current-control.json` and
 `--format agent-boundary-json` included — and is what `pipx install
 agents-shipgate` installs. It ships on the advisory channel and makes no
-qualification claim. The quickstart says what an older `v1.1.0`, `v1.0.0` or
-`v0.15.0` install lacks, and what the unqualified preview does and does not
+qualification claim. The quickstart says what an older `v1.2.0`, `v1.1.0`,
+`v1.0.0` or `v0.15.0` install lacks, and what the unqualified preview does and does not
 come with.
 
 ## Where to go next
