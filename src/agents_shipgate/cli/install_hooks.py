@@ -555,8 +555,16 @@ _UNPROMPTED_PERMISSION_MODES = frozenset({"bypasspermissions", "dontask"})
 
 # Rendered at install time from agents_shipgate.checks.verify
 # TRUST_ROOT_SURFACES — the same classification the PR-time verifier
-# uses. Each entry is [trust_root_class, glob_pattern].
+# uses. Each entry is [trust_root_class, glob_pattern]. The configured
+# manifest, and the policy packs it declares (_ConfiguredSurfaces), are
+# protected beside them.
 PROTECTED_SURFACES = __PROTECTED_SURFACES_JSON__
+
+# The manifest bytes the CLI reads (cli/agent_result.py), and how long the
+# hook waits for `agents-shipgate org policy-packs` to read one manifest.
+MANIFEST_READ_LIMIT_BYTES = 4 * 1024 * 1024
+POLICY_PACK_RESOLUTION_TIMEOUT_SECONDS = 4
+_MAX_REMEMBERED_MANIFESTS = 8
 
 # Rendered at install time from agents_shipgate.core.boundary_registry: the
 # host-configuration files and workflows `shipgate diff` compares (#661).
@@ -594,8 +602,9 @@ def _pretooluse(
     """Surface the authority boundary BEFORE a protected file is edited.
 
     When the agent is about to Edit/Write a trust-root surface (the
-    manifest, policies, Shipgate CI, agent instructions, MCP/host
-    config), route the call to the human for permission instead of
+    manifest, policies and the policy packs the manifest declares,
+    Shipgate CI, agent instructions, MCP/host config), route the call to
+    the human for permission instead of
     letting the edit land and tripping the PR gate later. Default
     decision is "ask" (the human approves in-session — the same
     authority semantics as merge_verdict=human_review_required); set
@@ -615,9 +624,10 @@ def _pretooluse(
         _approved_surfaces(root, session_id) if decision == "ask" else frozenset()
     )
     contained = _contained_repo_paths(payload, root)
+    surfaces = _ConfiguredSurfaces(root, args)
     matched: list[tuple[str, str, str]] = []
     for path in _changed_paths(payload, root):
-        hit = _protected_surface_for(path, configured_manifest=args.config)
+        hit = surfaces.surface_for(path)
         alias_kind = _unsafe_alias_kind(root, path)
         if hit is None and alias_kind is not None:
             hit = ("path_identity", alias_kind)
@@ -815,6 +825,188 @@ def _protected_surface_for(
     return None
 
 
+class _ConfiguredSurfaces:
+    """Every surface this hook protects for one event.
+
+    The table and the configured manifest, and the policy packs that
+    manifest declares (#1128). ``checks.policy_packs[].path`` may name any
+    file under the manifest's directory, so no glob above can know one, and
+    verify judges a change against the base's declarations and the head's:
+    a pack stays protected after the change un-declares it. Both manifests
+    are read once per event, and only when the table has no answer.
+    """
+
+    def __init__(self, root: Path, args: argparse.Namespace) -> None:
+        self._root = root
+        self._args = args
+        self._packs: tuple[frozenset[str], tuple[str, ...]] | None = None
+
+    def surface_for(self, path: str) -> tuple[str, str] | None:
+        hit = _protected_surface_for(path, configured_manifest=self._args.config)
+        if hit is not None:
+            return hit
+        if self._packs is None:
+            self._packs = _declared_policy_packs(self._root, self._args)
+        declared, unparsed = self._packs
+        normalized = path.replace("\\", "/")
+        source = f"checks.policy_packs in {self._args.config}"
+        if normalized.casefold() in declared:
+            return "policy", source
+        # A manifest that names policy packs and could not be parsed protects
+        # every file it names, rather than none of them.
+        name = normalized.rsplit("/", 1)[-1].casefold()
+        if name and any(name in text for text in unparsed):
+            return "policy", f"{source}, which could not be parsed"
+        return None
+
+
+def _declared_policy_packs(
+    root: Path, args: argparse.Namespace
+) -> tuple[frozenset[str], tuple[str, ...]]:
+    """The packs the manifest declares here and at ``--base``, casefolded.
+
+    Also the casefolded text of each manifest that names ``policy_packs``
+    but that `agents-shipgate org policy-packs` could not read. Only a
+    manifest that can spell the key is parsed at all: in YAML and JSON a key
+    is literal text unless an escape spells it, so a manifest without the
+    word and without a backslash declares no pack.
+    """
+
+    declared: set[str] = set()
+    unparsed: list[str] = []
+    for data in _manifest_versions(root, args):
+        text = data.decode("utf-8", errors="replace")
+        if "policy_packs" not in text and "\\" not in text and "\ufffd" not in text:
+            continue
+        packs = _policy_packs_of(root, args.config, data)
+        if packs is not None:
+            declared.update(pack.casefold() for pack in packs)
+        elif "policy_packs" in text:
+            unparsed.append(text.casefold())
+    return frozenset(declared), tuple(unparsed)
+
+
+def _manifest_versions(root: Path, args: argparse.Namespace) -> list[bytes]:
+    """The configured manifest in the working tree and as ``--base`` holds it."""
+
+    versions: list[bytes] = []
+    if not _safe_changed_path_transport(args.config):
+        return versions
+    here, _metadata = _read_untracked_file(
+        root, args.config, limit=MANIFEST_READ_LIMIT_BYTES
+    )
+    if here:
+        versions.append(here)
+    # One Git process: an edit to an ordinary file pays for this read too.
+    if args.base and _safe_ref_token(args.base):
+        at_base = _run_git_bounded(
+            root,
+            ["cat-file", "blob", f"{args.base}:./{args.config}"],
+            limit=MANIFEST_READ_LIMIT_BYTES,
+        )
+        if at_base and at_base not in versions:
+            versions.append(at_base)
+    return versions
+
+
+def _policy_packs_of(root: Path, config: str, data: bytes) -> list[str] | None:
+    """The packs one manifest version declares, read once per version.
+
+    The answer is kept in the hook state under a digest of the manifest's
+    path and bytes. ``None`` means the CLI answered but could not read the
+    manifest; a CLI that did not answer is asked again next time.
+    """
+
+    key = hashlib.sha256(config.encode("utf-8", "surrogateescape") + b"\0" + data).hexdigest()
+    state = _read_state(root)
+    remembered = state.get("declared_policy_packs")
+    entries = [
+        entry
+        for entry in (remembered if isinstance(remembered, list) else [])
+        if isinstance(entry, list) and len(entry) == 2 and isinstance(entry[0], str)
+        and (
+            entry[1] is None
+            or (isinstance(entry[1], list) and all(isinstance(item, str) for item in entry[1]))
+        )
+    ]
+    for entry_key, packs in entries:
+        if entry_key == key:
+            return packs
+    answered, packs = _org_policy_packs(root, config, data)
+    if not answered:
+        return None
+    entries = [entry for entry in entries if entry[0] != key]
+    entries = [*entries[-(_MAX_REMEMBERED_MANIFESTS - 1):], [key, packs]]
+    state["declared_policy_packs"] = entries
+    _write_state(root, state)
+    return packs
+
+
+def _org_policy_packs(
+    root: Path, config: str, data: bytes
+) -> tuple[bool, list[str] | None]:
+    """Ask `agents-shipgate org policy-packs` what one manifest version declares.
+
+    The bytes are parsed by the CLI from a private copy, so the answer is
+    about exactly the version that was read, and each declared path is
+    resolved as :func:`_resolve_policy_pack` resolves it.
+    """
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="agents-shipgate-hook-") as scratch:
+            manifest = Path(scratch) / "shipgate.yaml"
+            manifest.write_bytes(data)
+            completed = _run(
+                [
+                    *_cli(), "org", "policy-packs", "--workspace", scratch,
+                    "--config", str(manifest), "--json",
+                ],
+                cwd=root,
+                timeout=POLICY_PACK_RESOLUTION_TIMEOUT_SECONDS,
+            )
+    except OSError:
+        return False, None
+    if completed is None:
+        return False, None
+    try:
+        answer = json.loads(completed.stdout or "")
+    except ValueError:
+        return True, None
+    records = (
+        answer.get("policy_packs")
+        if completed.returncode == 0
+        and isinstance(answer, dict)
+        and answer.get("org_governance_schema_version") == "0.1"
+        else None
+    )
+    if not isinstance(records, list) or not all(
+        isinstance(record, dict) and isinstance(record.get("path"), str)
+        for record in records
+    ):
+        return True, None
+    resolved = (_resolve_policy_pack(root, config, record["path"]) for record in records)
+    return True, sorted({path for path in resolved if path})
+
+
+def _resolve_policy_pack(root: Path, config: str, declared: str) -> str | None:
+    """Mirror of agents_shipgate.core.trust_roots.manifest_policy_pack_paths.
+
+    Lexical, against the manifest's directory: ``.`` and ``..`` collapse, no
+    link is followed, a path outside the repository is the operator's, and an
+    empty one names nothing. Kept in step by
+    tests/test_declared_policy_pack_boundary.py.
+    """
+
+    if not declared.strip():
+        return None
+    lexical = Path(os.path.normpath(os.fspath(root / Path(config).parent / declared)))
+    try:
+        relative = lexical.relative_to(root)
+    except ValueError:
+        return None
+    return relative.as_posix() if relative.parts else None
+
+
 def _is_host_config_path(path: str) -> bool:
     normalized = path.replace("\\", "/").removeprefix("./")
     return any(
@@ -937,7 +1129,8 @@ def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> i
     paths = _changed_paths(payload, root)
     if not paths:
         return 0
-    _record_in_session_approvals(payload, root, args)
+    surfaces = _ConfiguredSurfaces(root, args)
+    _record_in_session_approvals(payload, root, args, surfaces=surfaces)
     # The Stop hook compares host configuration with the host readers, through
     # `diff` without a manifest and `verify` with one (#661). A nudge on every
     # edit would repeat itself without naming a row.
@@ -960,10 +1153,7 @@ def _trigger(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> i
         diff_text=diff_text,
         manifest_present=False,
     )
-    protected = any(
-        _protected_surface_for(path, configured_manifest=args.config) is not None
-        for path in paths
-    )
+    protected = any(surfaces.surface_for(path) is not None for path in paths)
     if result is None and not protected:
         return 0
     status = (
@@ -999,6 +1189,8 @@ def _record_in_session_approvals(
     payload: dict[str, Any],
     root: Path,
     args: argparse.Namespace,
+    *,
+    surfaces: _ConfiguredSurfaces | None = None,
 ) -> None:
     """Note protected files whose edit the human just allowed.
 
@@ -1023,10 +1215,11 @@ def _record_in_session_approvals(
     mode = mode.strip().lower()
     if not mode or mode in _UNPROMPTED_PERMISSION_MODES:
         return
+    surfaces = surfaces or _ConfiguredSurfaces(root, args)
     protected = [
         path
         for path in _contained_repo_paths(payload, root)
-        if (hit := _protected_surface_for(path, configured_manifest=args.config)) is not None
+        if (hit := surfaces.surface_for(path)) is not None
         and not _conditional_instruction_surface(hit)
     ]
     if protected:
@@ -1098,10 +1291,8 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
             diff_text=_diff_without_paths(snapshot["diff_text"], host_paths),
             manifest_present=False,
         )
-        protected = any(
-            _protected_surface_for(path, configured_manifest=args.config) is not None
-            for path in other_paths
-        )
+        surfaces = _ConfiguredSurfaces(root, args)
+        protected = any(surfaces.surface_for(path) is not None for path in other_paths)
         status = (
             _advisory_status(trigger, protected=protected)
             if protected or _trigger_wants_attention(trigger)
@@ -1127,10 +1318,8 @@ def _verify(payload: dict[str, Any], root: Path, args: argparse.Namespace) -> in
         diff_text=snapshot["diff_text"],
         manifest_present=False,
     )
-    protected = any(
-        _protected_surface_for(path, configured_manifest=args.config) is not None
-        for path in snapshot["paths"]
-    )
+    surfaces = _ConfiguredSurfaces(root, args)
+    protected = any(surfaces.surface_for(path) is not None for path in snapshot["paths"])
     if trigger is None and not protected:
         return _emit_context(
             "Stop",
@@ -2091,6 +2280,8 @@ def _untracked_content_for_paths(
 def _read_untracked_file(
     root: Path,
     path: str,
+    *,
+    limit: int = UNTRACKED_DIFF_CONTENT_LIMIT_BYTES,
 ) -> tuple[bytes | None, os.stat_result | None]:
     if not _safe_changed_path_transport(path):
         return None, None
@@ -2118,10 +2309,13 @@ def _read_untracked_file(
             opened = os.fstat(descriptor)
             if _file_metadata(opened) != _file_metadata(before):
                 return None, None
-            if opened.st_size > UNTRACKED_DIFF_CONTENT_LIMIT_BYTES:
-                raw = b""
-            else:
-                raw = os.read(descriptor, UNTRACKED_DIFF_CONTENT_LIMIT_BYTES + 1)
+            raw = b""
+            if opened.st_size <= limit:
+                # One read() may return less than a large file holds.
+                while chunk := os.read(descriptor, limit + 1 - len(raw)):
+                    raw += chunk
+                    if len(raw) > limit:
+                        break
             after = os.fstat(descriptor)
         finally:
             os.close(descriptor)
@@ -2131,7 +2325,7 @@ def _read_untracked_file(
     if (
         _file_metadata(opened) != _file_metadata(after)
         or _file_metadata(opened) != _file_metadata(current_metadata)
-        or len(raw) > UNTRACKED_DIFF_CONTENT_LIMIT_BYTES
+        or len(raw) > limit
     ):
         return None, None
     return raw, opened
