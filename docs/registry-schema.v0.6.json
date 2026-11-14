@@ -1,0 +1,1088 @@
+{
+  "$defs": {
+    "RegistryCapabilityComparisonV1": {
+      "additionalProperties": false,
+      "description": "What one ``capability diff`` between the reviewed lock and a fresh\nexport found: counts and capability ids, never the facts.",
+      "properties": {
+        "added_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Added Ids",
+          "type": "array"
+        },
+        "base": {
+          "$ref": "#/$defs/RegistryCapabilityLockIdentityV1"
+        },
+        "capability_lock_diff_schema_version": {
+          "title": "Capability Lock Diff Schema Version",
+          "type": "string"
+        },
+        "changed_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Ids",
+          "type": "array"
+        },
+        "definition_changed_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Definition Changed Ids",
+          "type": "array"
+        },
+        "has_drift": {
+          "title": "Has Drift",
+          "type": "boolean"
+        },
+        "head": {
+          "$ref": "#/$defs/RegistryCapabilityLockIdentityV1"
+        },
+        "reidentified_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reidentified Ids",
+          "type": "array"
+        },
+        "removed_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Removed Ids",
+          "type": "array"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "summary": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Summary",
+          "type": "object"
+        }
+      },
+      "required": [
+        "capability_lock_diff_schema_version",
+        "source_sha256",
+        "base",
+        "head",
+        "has_drift"
+      ],
+      "title": "RegistryCapabilityComparisonV1",
+      "type": "object"
+    },
+    "RegistryCapabilityLockIdentityV1": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Count"
+        },
+        "capability_lock_schema_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Lock Schema Version"
+        },
+        "definition_set_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Definition Set Hash"
+        },
+        "semantic_capability_set_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Semantic Capability Set Hash"
+        }
+      },
+      "title": "RegistryCapabilityLockIdentityV1",
+      "type": "object"
+    },
+    "RegistryDriftObservationV1": {
+      "additionalProperties": false,
+      "description": "One scheduled comparison of the repository with its approved state.\n\nEvidence that monitoring ran, what it compared against and what it found.\nIt never decides whether anything may merge or ship.",
+      "properties": {
+        "capability": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RegistryCapabilityComparisonV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "host": {
+          "$ref": "#/$defs/RegistryHostComparisonV1"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "clean",
+            "drift",
+            "incomparable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "trigger": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trigger"
+        }
+      },
+      "required": [
+        "status",
+        "source_sha256",
+        "host"
+      ],
+      "title": "RegistryDriftObservationV1",
+      "type": "object"
+    },
+    "RegistryHostArtifactChangeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "change": {
+          "enum": [
+            "added",
+            "removed",
+            "changed"
+          ],
+          "title": "Change",
+          "type": "string"
+        },
+        "host": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Host"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "change"
+      ],
+      "title": "RegistryHostArtifactChangeV1",
+      "type": "object"
+    },
+    "RegistryHostComparisonV1": {
+      "additionalProperties": false,
+      "description": "What one ``audit --host --drift`` comparison found, without values.",
+      "properties": {
+        "artifact_changes": {
+          "items": {
+            "$ref": "#/$defs/RegistryHostArtifactChangeV1"
+          },
+          "title": "Artifact Changes",
+          "type": "array"
+        },
+        "baseline_file": {
+          "title": "Baseline File",
+          "type": "string"
+        },
+        "baseline_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Sha256"
+        },
+        "comparison_status": {
+          "enum": [
+            "comparable",
+            "incomparable"
+          ],
+          "title": "Comparison Status",
+          "type": "string"
+        },
+        "coverage_changes": {
+          "items": {
+            "$ref": "#/$defs/RegistryHostCoverageChangeV1"
+          },
+          "title": "Coverage Changes",
+          "type": "array"
+        },
+        "current_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Sha256"
+        },
+        "expansion_signal_kinds": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Expansion Signal Kinds",
+          "type": "object"
+        },
+        "grant_changes": {
+          "items": {
+            "$ref": "#/$defs/RegistryHostGrantChangeV1"
+          },
+          "title": "Grant Changes",
+          "type": "array"
+        },
+        "has_drift": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Has Drift"
+        },
+        "host_grants_schema_version": {
+          "title": "Host Grants Schema Version",
+          "type": "string"
+        },
+        "incomparable_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Incomparable Reasons",
+          "type": "array"
+        },
+        "issue_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Issue Count",
+          "type": "integer"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scope"
+        }
+      },
+      "required": [
+        "host_grants_schema_version",
+        "baseline_file",
+        "comparison_status"
+      ],
+      "title": "RegistryHostComparisonV1",
+      "type": "object"
+    },
+    "RegistryHostCoverageChangeV1": {
+      "additionalProperties": false,
+      "properties": {
+        "change": {
+          "enum": [
+            "added",
+            "removed",
+            "changed"
+          ],
+          "title": "Change",
+          "type": "string"
+        },
+        "host": {
+          "title": "Host",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "change"
+      ],
+      "title": "RegistryHostCoverageChangeV1",
+      "type": "object"
+    },
+    "RegistryHostGrantChangeV1": {
+      "additionalProperties": false,
+      "description": "One typed host grant that moved, named by id and kind only.\n\nThe grant's values (a command, its arguments, an env value, a URL, a rule)\nstay in the audit payload; the row records which grant moved and how.",
+      "properties": {
+        "change": {
+          "enum": [
+            "added",
+            "removed",
+            "changed"
+          ],
+          "title": "Change",
+          "type": "string"
+        },
+        "grant_id": {
+          "title": "Grant Id",
+          "type": "string"
+        },
+        "host": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Host"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        }
+      },
+      "required": [
+        "grant_id",
+        "change"
+      ],
+      "title": "RegistryHostGrantChangeV1",
+      "type": "object"
+    },
+    "RegistryRowV1": {
+      "additionalProperties": true,
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor"
+        },
+        "approval": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approval"
+        },
+        "approval_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approval Status"
+        },
+        "artifact_set_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Set Id"
+        },
+        "artifact_sha256": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Artifact Sha256",
+          "type": "object"
+        },
+        "attestation_schema_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attestation Schema Version"
+        },
+        "base_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Ref"
+        },
+        "base_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Sha"
+        },
+        "base_tree_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Tree Sha"
+        },
+        "branch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Branch"
+        },
+        "can_merge_without_human": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Can Merge Without Human"
+        },
+        "capability_added": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Added"
+        },
+        "capability_change_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capability Change Ids",
+          "type": "array"
+        },
+        "capability_diff": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Diff"
+        },
+        "capability_lock": {
+          "additionalProperties": true,
+          "title": "Capability Lock",
+          "type": "object"
+        },
+        "capability_modified": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Modified"
+        },
+        "capability_removed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capability Removed"
+        },
+        "cli_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cli Version"
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision"
+        },
+        "decision_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Id"
+        },
+        "event_time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Event Time"
+        },
+        "head_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Ref"
+        },
+        "head_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Sha"
+        },
+        "head_tree_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Head Tree Sha"
+        },
+        "human_ack": {
+          "additionalProperties": true,
+          "title": "Human Ack",
+          "type": "object"
+        },
+        "human_ack_outstanding": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Human Ack Outstanding",
+          "type": "array"
+        },
+        "human_ack_required": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Human Ack Required"
+        },
+        "human_ack_satisfied": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Human Ack Satisfied"
+        },
+        "merge_sha": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Merge Sha"
+        },
+        "merge_verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Merge Verdict"
+        },
+        "observation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RegistryDriftObservationV1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "org_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Org Id"
+        },
+        "policy_packs": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Policy Packs",
+          "type": "array"
+        },
+        "policy_snapshot_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Snapshot Sha256"
+        },
+        "policy_weakened": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Weakened"
+        },
+        "pr_number": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pr Number"
+        },
+        "previous_row_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Previous Row Id"
+        },
+        "previous_row_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Previous Row Sha256"
+        },
+        "receipt_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Receipt Id"
+        },
+        "registry_schema_version": {
+          "default": "0.6",
+          "title": "Registry Schema Version",
+          "type": "string"
+        },
+        "repo": {
+          "default": "",
+          "title": "Repo",
+          "type": "string"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Id"
+        },
+        "row_id": {
+          "title": "Row Id",
+          "type": "string"
+        },
+        "row_kind": {
+          "default": "attestation",
+          "enum": [
+            "attestation",
+            "drift_observation"
+          ],
+          "title": "Row Kind",
+          "type": "string"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Service"
+        },
+        "source_attestation_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Attestation Sha256"
+        },
+        "source_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Url"
+        },
+        "source_verification_receipt_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Verification Receipt Sha256"
+        },
+        "source_verify_run_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Verify Run Sha256"
+        },
+        "tier": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tier"
+        },
+        "trust_root_touched": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trust Root Touched"
+        },
+        "workflow_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow Run Id"
+        }
+      },
+      "required": [
+        "row_id"
+      ],
+      "title": "RegistryRowV1",
+      "type": "object"
+    },
+    "RegistrySkippedRowV1": {
+      "additionalProperties": false,
+      "properties": {
+        "line": {
+          "minimum": 1,
+          "title": "Line",
+          "type": "integer"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "line",
+        "reason"
+      ],
+      "title": "RegistrySkippedRowV1",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/registry-schema.v0.6.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for agents-shipgate registry query --json. Rows are local, append-only projections of deterministic attestations. The registry does not produce release verdicts.",
+  "properties": {
+    "count": {
+      "title": "Count",
+      "type": "integer"
+    },
+    "registry": {
+      "title": "Registry",
+      "type": "string"
+    },
+    "registry_schema_version": {
+      "const": "0.6",
+      "default": "0.6",
+      "title": "Registry Schema Version",
+      "type": "string"
+    },
+    "rows": {
+      "items": {
+        "$ref": "#/$defs/RegistryRowV1"
+      },
+      "title": "Rows",
+      "type": "array"
+    },
+    "skipped_count": {
+      "default": 0,
+      "title": "Skipped Count",
+      "type": "integer"
+    },
+    "skipped_rows": {
+      "items": {
+        "$ref": "#/$defs/RegistrySkippedRowV1"
+      },
+      "title": "Skipped Rows",
+      "type": "array"
+    }
+  },
+  "required": [
+    "registry",
+    "count"
+  ],
+  "title": "Agents Shipgate Local Attestation Registry v0.6",
+  "type": "object"
+}

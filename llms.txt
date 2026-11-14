@@ -86,7 +86,7 @@
 - Capability delta attestation spec and schema: https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-delta-attestation.md and https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/capability-delta-attestation-schema.v1.json
 - Standalone capability-delta verifier (stdlib-only Python; validates an attestation and prints the delta without an agents-shipgate install): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/verify-capability-delta.py
 - Attestation schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/attestation-schema.v0.6.json
-- Registry schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/registry-schema.v0.5.json
+- Registry schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/registry-schema.v0.6.json
 - Org evidence bundle schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/org-evidence-bundle-schema.v2.json
 - Host-grants inventory schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-inventory-schema.v0.7.json
 - Host-grants baseline schema (current): https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/host-grants-baseline-schema.v0.7.json

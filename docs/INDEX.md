@@ -25,6 +25,7 @@ remain separate, pending work.
 - [`host-boundary-support.md`](host-boundary-support.md) — exact static Codex/Claude Code/Cursor/VS Code/GitHub support and scope matrix
 - [`mcp-server.md`](mcp-server.md) — optional local MCP server mode (`mcp-serve`): read-only `shipgate.check`, `shipgate.preflight`, `shipgate.explain`, and `shipgate.capabilities`
 - [`organization.md`](organization.md) — local-first organizational governance: policy-pack pins, exception hygiene, host-grant drift, attestations, and registry reporting
+- [`post-approval-monitoring.md`](post-approval-monitoring.md) — record each scheduled `audit --host --drift` and `capability diff` comparison as a ledger row, report drift and gaps with `registry report --drift`, and what one observation does not establish
 - [`category.md`](category.md) — what an "agent release gate" is, in product terms
 - [`glossary.md`](glossary.md) — category vocabulary
 - [`ai-search-summary.md`](ai-search-summary.md) — human-readable summary for AI search and coding agents
@@ -124,7 +125,8 @@ remain separate, pending work.
 - [`attestation-schema.v0.4.json`](attestation-schema.v0.4.json) — frozen v0.4 attestation reference
 - [`org-governance-schema.v0.1.json`](org-governance-schema.v0.1.json) — JSON Schema for `agents-shipgate org status --json`; local governance projection, not a release verdict
 - [`org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json) — JSON Schema for `agents-shipgate org bundle`; compact CI/ledger ingestion artifact over verifier/report/attestation/org/host-grant evidence, not a release verdict
-- [`registry-schema.v0.5.json`](registry-schema.v0.5.json) — JSON Schema for `agents-shipgate registry query --json`, `registry summary --json`, `registry verify --json`, and `registry report --bypass --json`; rows carry the attested `approval`
+- [`registry-schema.v0.6.json`](registry-schema.v0.6.json) — JSON Schema for `agents-shipgate registry query --json`, `registry summary --json`, `registry verify --json`, `registry report --bypass --json` and `registry report --drift --json`; rows carry `row_kind`, the attested `approval`, and a drift observation's `observation`
+- [`registry-schema.v0.5.json`](registry-schema.v0.5.json) — frozen v0.5 registry reference
 - [`registry-schema.v0.4.json`](registry-schema.v0.4.json) — frozen v0.4 registry reference
 - [`registry-schema.v0.3.json`](registry-schema.v0.3.json) — frozen v0.3 registry reference
 - [`host-grants-inventory-schema.v0.7.json`](host-grants-inventory-schema.v0.7.json) — current typed, redacted, scope-aware host inventory; records the in-tree links a read followed, each workflow step's action reference, and each agent launch and checkout ref a workflow declares, plus hook handlers and MCP package/argument digests

@@ -708,6 +708,63 @@ reviews.
 
 ---
 
+<a id="drift-observations"></a>
+
+## Migration Note: Unreleased — a scheduled drift comparison can be recorded in the ledger (registry `0.6`, #1119)
+
+**What was wrong.** `shipgate audit --host --drift` and `agents-shipgate
+capability diff` compare the repository with its acknowledged state, and the
+scheduled drift recipe runs the first, but each run's result lived only in its
+workflow log. There was no record that monitoring ran, what it compared
+against, or what it found.
+
+**What changes.**
+
+- `registry ingest` takes exactly one of `--attestation` or `--observation`.
+  `--observation <file>` reads the JSON `audit --host --drift --json` printed;
+  `--capability-diff <file>` adds the same run's `capability diff` JSON.
+  `--event-time` (ISO 8601 with an offset, stored in UTC) is required with
+  `--observation`; `--workflow-run-id`, `--head-sha` and `--ci-context
+  github-actions` name the run. These flags with `--attestation`, or neither
+  or both inputs, exit `2`; a file that is not a drift comparison, or a
+  capability diff whose summary disagrees with its rows, exits `3`.
+- Rows gain `row_kind` (`attestation` or `drift_observation`) and
+  `observation` (`status`, `source_sha256`, `trigger`, `host`, `capability`;
+  see `docs/post-approval-monitoring.md`). `status` is recomputed on read; a
+  row whose status its comparisons do not support is skipped as malformed.
+  An observation row's id starts with `obs_`. Observation rows chain with the
+  attestation rows of the same `repo`.
+- A row's id and the chain hash are taken without `row_kind` while it is
+  `attestation` and without `observation` while it is `null`, so a ledger
+  written by an earlier release verifies with the ids and chain it was
+  written with, and a row without `row_kind` reads as an attestation.
+- `registry report --drift` (with `--repo`, `--since`, `--until`,
+  `--expected-interval-days`, `--fail-on-drift`) emits a drift report:
+  `observation_count`, `clean_count`, `drift_count`, `incomparable_count`,
+  `host_drift_count`, `capability_drift_count`, `undated_count`, `gap_count`,
+  `gaps[]`, `repos[]` and `rows[]`. `--fail-on-drift` exits `20` on a run with
+  drift, a run that could not compare, or a gap. `registry report` needs
+  exactly one of `--bypass` or `--drift`, and the `--drift` flags exit `2`
+  with `--bypass`.
+- `registry report --bypass` and `registry summary`'s release counts read
+  attestation rows only. `registry summary` gains `by_row_kind` and
+  `by_observation_status`; its `count` is every row. `registry query` and
+  `summary` text say `row(s)` rather than `attestation row(s)`.
+
+**Who must act.** Nobody, to keep today's behaviour: a ledger with no
+observation rows reads, reports and verifies as before, and every count is
+unchanged. A consumer that validates registry output against
+`registry-schema.v0.5.json` moves to `registry-schema.v0.6.json`, and one that
+reads every row of `registry query` as an attestation filters on `row_kind`.
+To record observations, add the workflow in `docs/post-approval-monitoring.md`.
+
+**What does not change.** `audit --host --drift` and `capability diff` output
+and exit codes, the attestation, the bypass rule for attestation rows, and
+`release_decision.decision`. The engine reads no clock and calls no API; the
+workflow declares the time and moves the ledger.
+
+---
+
 <a id="trust-config-1030"></a>
 
 ## Migration Note: 1.3.0 — each baseline verifies against its own audit rows, the override tier gate reads emitted severity, and an optional pack's pin is fatal (#1030)
@@ -5267,9 +5324,9 @@ command-contract commitments yet. They remain consumers of `verify` artifacts;
 | `agents-shipgate org status` | `--config`/`-c`, `--workspace`, `--baseline`, `--host-baseline`, `--as-of`, `--json` |
 | `agents-shipgate org policy-packs` | `--config`/`-c`, `--workspace`, `--json` |
 | `agents-shipgate org bundle` | `--config`/`-c`, `--workspace`, `--from`, `--out`, `--attestation`, `--registry`, `--as-of`, `--json` |
-| `agents-shipgate registry ingest` | `--attestation`, `--registry`, `--repo`, `--json` |
+| `agents-shipgate registry ingest` | `--attestation`, `--observation`, `--capability-diff`, `--event-time`, `--workflow-run-id`, `--head-sha`, `--ci-context`, `--registry`, `--repo`, `--json` |
 | `agents-shipgate registry query` | `--registry`, `--repo`, `--org-id`, `--service`, `--tier`, `--actor`, `--verdict`, `--capability-id`, `--trust-root-touched`, `--policy-weakened`, `--human-ack-required`/`--human-ack-not-required`, `--human-ack-satisfied`/`--human-ack-not-satisfied`, `--json` |
-| `agents-shipgate registry report` | `--registry`, `--bypass`, `--json`, `--fail-on-bypass` |
+| `agents-shipgate registry report` | `--registry`, `--bypass`, `--drift`, `--repo`, `--since`, `--until`, `--expected-interval-days`, `--json`, `--fail-on-bypass`, `--fail-on-drift` |
 | `agents-shipgate registry summary` | `--registry`, `--json` |
 | `agents-shipgate registry verify` | `--registry`, `--json`, `--fail-on-issue` |
 | `shipgate audit --host` | `--workspace`, `--host`, `--json`, `--out`, `--save-baseline`, `--baseline-file`, `--drift`, `--fail-on-drift` |

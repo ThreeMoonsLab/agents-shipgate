@@ -445,7 +445,8 @@
   "tests/test_capability_payload_v2.py": 4.7,
   "tests/test_attest_approval.py": 0.2,
   "tests/test_declared_policy_pack_boundary.py": 44.3,
-  "tests/test_packaged_default_policies.py": 0.2
+  "tests/test_packaged_default_policies.py": 0.2,
+  "tests/test_registry_drift_observation.py": 1.4
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -675,6 +676,17 @@
    },
    "case_count": 9,
    "command": "python -m pytest tests/test_packaged_default_policies.py --junitxml=packaged-default-policies.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "89cb1374adb4 with issue #1119 increment",
+   "report_sha256": "bda8510f6fb95c499b0511917bcbe16d9a47f7842ba5abd851670dbfbdd477a3",
+   "files": {
+    "tests/test_registry_drift_observation.py": 1.4
+   },
+   "case_count": 44,
+   "command": "python -m pytest tests/test_registry_drift_observation.py --junitxml=registry-drift-observation.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]
