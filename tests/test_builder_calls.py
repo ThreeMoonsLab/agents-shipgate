@@ -452,6 +452,121 @@ def test_ambiguous_local_import_preserves_caller_and_names_limit(tmp_path, rebin
     assert any("unresolved reference at app.py:7" in limit for limit in census.limits)
 
 
+def _library_census(root: Path, files: dict[str, str], scope: str = "svc"):
+    """A ``run`` builder's census with the repository root pinned at ``root``."""
+    (root / ".git").mkdir()
+    for relative, source in files.items():
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text(source)
+    resolver = ImportResolver(root / scope)
+    module = _module(root / scope, "builders.py", "def run(tools):\n    return None\n", resolver)
+    return BuilderCalls(resolver).callers(module, module.tree.body[0])
+
+
+_RUN_CALLER = "from builders import run\nrun([read])\n"
+
+
+@pytest.mark.parametrize(
+    "other",
+    [
+        # A module-level import was already another library's (unchanged).
+        pytest.param("from agents import Runner\nRunner.run(agent)\n", id="module_sdk"),
+        # A function's own import: the binding the resolver itself followed.
+        pytest.param("def go():\n    from agents import Runner\n    return Runner.run(agent)\n", id="local_sdk"),
+        pytest.param(
+            "async def go():\n    try:\n        from agents import Runner\n        return await Runner.run(agent)\n"
+            "    except Exception:\n        return None\n",
+            id="local_sdk_in_try",
+        ),
+        pytest.param(
+            "def main():\n    import uvicorn\n    def serve():\n        uvicorn.run('app:app')\n    serve()\n",
+            id="local_module_read_by_closure",
+        ),
+        pytest.param("def main():\n    from uvicorn import run\n    run('app:app')\n", id="local_same_name"),
+        pytest.param(
+            "def main():\n    from google.adk.runners import Runner\n    return Runner.run(agent)\n", id="local_adk"
+        ),
+    ],
+)
+def test_another_librarys_run_is_not_an_unresolved_caller(tmp_path, other):
+    census = _library_census(tmp_path, {"svc/app.py": _RUN_CALLER, "svc/other.py": other})
+    assert census.limits == ()
+    assert [site.location for site in census.sites] == ["app.py:2"]
+
+
+@pytest.mark.parametrize(
+    "other,extra",
+    [
+        # The repository holds the module outside the read scope.
+        pytest.param(
+            "def main():\n    import uvicorn\n    uvicorn.run('app:app')\n", {"uvicorn.py": ""}, id="repository_module"
+        ),
+        pytest.param(
+            "def go():\n    from agents import Runner\n    return Runner.run(agent)\n", {"agents/__init__.py": ""},
+            id="repository_package",
+        ),
+        # A function-local import shadowing a module-level library import of
+        # the same name: the local import is what the reference reads.
+        pytest.param(
+            "from agents import Runner\ndef go():\n    from common.tools import Runner\n    return Runner.run(agent)\n",
+            {"common/__init__.py": "", "common/tools.py": "from svc import builders as Runner\n"},
+            id="local_shadows_module_library",
+        ),
+        # A second binding of the name in the function, conditional or not.
+        pytest.param(
+            "def go(flag):\n    from agents import Runner\n    if flag:\n        Runner = other\n    return Runner.run(agent)\n",
+            {}, id="rebound",
+        ),
+        pytest.param(
+            "def go(flag):\n    from agents import Runner\n    if flag:\n        from uvicorn import Runner\n"
+            "    return Runner.run(agent)\n",
+            {}, id="imported_twice",
+        ),
+        # A nested scope can rebind the function's name.
+        pytest.param(
+            "def go():\n    import uvicorn\n    def swap():\n        nonlocal uvicorn\n        import mytools as uvicorn\n"
+            "    swap()\n    uvicorn.run('app:app')\n",
+            {}, id="nonlocal",
+        ),
+        # A class body falls back to the module when its own binding has not run.
+        pytest.param("class Server:\n    import uvicorn\n    uvicorn.run('app:app')\n", {}, id="class_body"),
+        # A relative import is the application's own code.
+        pytest.param(
+            "def go():\n    from .vendor import uvicorn\n    uvicorn.run('app:app')\n", {"svc/__init__.py": ""},
+            id="relative",
+        ),
+        # The read scope provides the top-level module; the failure is deeper.
+        pytest.param(
+            "def go():\n    from helpers import Runner\n    return Runner.run(agent)\n",
+            {"svc/helpers.py": "from uvicorn import Runner\n"}, id="scope_module_imports_library",
+        ),
+    ],
+)
+def test_a_local_import_that_could_be_application_code_keeps_its_limit(tmp_path, other, extra):
+    census = _library_census(tmp_path, {"svc/app.py": _RUN_CALLER, "svc/other.py": other, **extra})
+    line = next(number for number, text in enumerate(other.splitlines(), 1) if ".run(" in text or "run('" in text)
+    assert any(f"has an unresolved reference at other.py:{line}: " in limit for limit in census.limits)
+
+
+def test_an_unresolved_reference_with_caveats_says_what_is_unknown(tmp_path):
+    census = _library_census(
+        tmp_path,
+        {
+            "svc/app.py": _RUN_CALLER,
+            "svc/other.py": "import common.patches\ndef run():\n    return None\nrun()\n",
+            "common/__init__.py": "",
+            "common/patches.py": "",
+        },
+    )
+    assert [site.location for site in census.sites] == ["app.py:2"]
+    assert census.limits == (
+        "'run' (builders.py:1) has an unresolved reference at other.py:4: 'run' reaches its "
+        "definition at other.py:2, but other.py:1 imports 'common.patches', which the repository "
+        "holds outside the read scope, which is not read and could reassign it",
+    )
+    assert not any(limit.endswith("None") for limit in census.limits)
+
+
 @pytest.mark.parametrize(
     "access", ["getattr(b, selected)([write])", "vars(b)[selected]([write])", "consume(b)"]
 )
