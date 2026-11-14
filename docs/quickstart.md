@@ -220,7 +220,8 @@ matcher, its timeout, and its command's executable name and digest, never the
 command's text.) A URL is printed only as its scheme
 and host with the path redacted; one the tool cannot reduce to that form, such
 as `${SLACK_MCP_BASE}/hooks/…`, reads `url not shown`. `⚠` marks an entry that
-widens what the agent may do:
+widens what the agent may do, or a workflow job's token outside any agent job,
+which the summary counts apart (#1011):
 
 ```text
 Agent capability diff  origin/main (3db015cd) -> working tree

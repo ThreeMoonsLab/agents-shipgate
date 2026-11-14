@@ -423,6 +423,7 @@
   "tests/test_workflow_agent_launches.py": 67.8,
   "tests/test_workflow_capability_diff.py": 1.7,
   "tests/test_workflow_evidence.py": 0.1,
+  "tests/test_workflow_job_scoped_widening.py": 15.1,
   "tests/test_workflow_label_redaction.py": 46.3,
   "tests/test_workflow_step_action_references.py": 38.9,
   "tests/test_workspace_input_guard.py": 0.3,
@@ -642,6 +643,17 @@
    },
    "case_count": 37,
    "command": "python -m pytest tests/test_attest_approval.py --junitxml=attest-approval.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "26bfa733b324 with issue #1011 workflow job-scoped widening increment",
+   "report_sha256": "02abdc987588809608ea8b1b742ba95a93ae93b6887191d699b62c97bb65feff",
+   "files": {
+    "tests/test_workflow_job_scoped_widening.py": 15.1
+   },
+   "case_count": 32,
+   "command": "python -m pytest tests/test_workflow_job_scoped_widening.py --junitxml=job-scoped-widening.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {

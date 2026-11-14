@@ -19,6 +19,7 @@ import re
 import stat
 import sys
 import tomllib
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -7835,40 +7836,198 @@ def host_grant_expansion_signals(
             label = after.get("setting") if kind == "command_setting" else after.get("name")
             signals.append(f"{kind}_{prefix}: {after['host']}:{after['source']}:{label}")
         elif kind == "workflow":
-            previous = before or {}
-            old_writes = set(previous.get("effective_write_scopes", previous.get("write_scopes", [])))
-            new_writes = set(after.get("effective_write_scopes", after.get("write_scopes", [])))
-            unknown_before = {
-                context["job"] for context in previous.get("permission_contexts", [])
-                if context["state"] != "explicit"
-            }
-            added_writes = {
-                entry for entry in new_writes - old_writes
-                if f"{entry.split(': ', 1)[0]}: write-all" not in old_writes
-                and entry.split(': ', 1)[0] not in unknown_before
-            }
-            # The privileged event and the token are separate facts (#920).
-            # Gaining `pull_request_target` widens the event context whatever
-            # the scopes; it widens the token only where a job may write: a
-            # write scope, or a job declaring none, which that event runs with
-            # a read/write token where a fork's `pull_request` would not.
-            privileged = bool(
-                after.get("pull_request_target") and not previous.get("pull_request_target")
-            )
-            may_write = bool(new_writes) or any(
-                context["state"] != "explicit" for context in after.get("permission_contexts", [])
-            )
-            if added_writes or (privileged and may_write):
-                signals.append(f"workflow_write_{prefix}: {after['source']}")
-            if privileged:
-                signals.append(f"workflow_pull_request_target_{prefix}: {after['source']}")
-            if inherited_recipients(after) - inherited_recipients(previous):
-                signals.append(f"workflow_secrets_inherited_{prefix}: {after['source']}")
-            # Only a documented rule gained by a job's agent launches widens
-            # (#823); every other agent-launch or checkout edit is a change.
-            if gained_agent_widenings(before, after):
-                signals.append(f"workflow_agent_widened_{prefix}: {after['source']}")
+            signals.extend(_workflow_expansion_signals(before, after))
     return sorted(set(signals))
+
+
+def _gained_workflow_writes(before: dict[str, Any] | None, after: dict[str, Any]) -> set[str]:
+    """The ``job: scope: write`` entries ``after`` holds that ``before`` did not.
+
+    A job whose token ``before`` did not establish (repository defaults or
+    unresolved permissions), or that already held ``write-all``, gains none.
+    """
+
+    previous = before or {}
+    old_writes = set(previous.get("effective_write_scopes", previous.get("write_scopes", [])))
+    new_writes = set(after.get("effective_write_scopes", after.get("write_scopes", [])))
+    unknown_before = {
+        context["job"] for context in previous.get("permission_contexts", [])
+        if context["state"] != "explicit"
+    }
+    return {
+        entry for entry in new_writes - old_writes
+        if f"{entry.split(': ', 1)[0]}: write-all" not in old_writes
+        and entry.split(': ', 1)[0] not in unknown_before
+    }
+
+
+def _workflow_expansion_signals(before: dict[str, Any] | None, after: dict[str, Any]) -> list[str]:
+    """The expansion signals of one workflow change, ``after`` its current grant."""
+
+    previous = before or {}
+    prefix = "added" if before is None else "changed"
+    signals: list[str] = []
+    new_writes = set(after.get("effective_write_scopes", after.get("write_scopes", [])))
+    # The privileged event and the token are separate facts (#920).
+    # Gaining `pull_request_target` widens the event context whatever
+    # the scopes; it widens the token only where a job may write: a
+    # write scope, or a job declaring none, which that event runs with
+    # a read/write token where a fork's `pull_request` would not.
+    privileged = bool(
+        after.get("pull_request_target") and not previous.get("pull_request_target")
+    )
+    may_write = bool(new_writes) or any(
+        context["state"] != "explicit" for context in after.get("permission_contexts", [])
+    )
+    if _gained_workflow_writes(before, after) or (privileged and may_write):
+        signals.append(f"workflow_write_{prefix}: {after['source']}")
+    if privileged:
+        signals.append(f"workflow_pull_request_target_{prefix}: {after['source']}")
+    if inherited_recipients(after) - inherited_recipients(previous):
+        signals.append(f"workflow_secrets_inherited_{prefix}: {after['source']}")
+    # Only a documented rule gained by a job's agent launches widens
+    # (#823); every other agent-launch or checkout edit is a change.
+    if gained_agent_widenings(before, after):
+        signals.append(f"workflow_agent_widened_{prefix}: {after['source']}")
+    return signals
+
+
+#: What makes a workflow job one an agent may run in, for #1011, as the row
+#: names it: the first of these the job holds on either side.
+_AGENT_JOB_KINDS = ("agent launch", "unread agent launch", "reusable workflow call", "unreadable steps")
+
+
+@dataclass(frozen=True)
+class WorkflowJobWidening:
+    """A workflow token widening that lies outside every job an agent may run in (#1011).
+
+    ``gained`` is each job that gained write scopes and those scopes, by
+    published label; ``agent_jobs`` is each job this audit finds an agent
+    launch, an unread agent launch, a reusable workflow call or unreadable
+    steps in, on either side, and the first of those it holds. Every one of
+    them kept its token. Neither says what the gaining job's steps do with
+    the token, and neither says no step of it starts an agent in a way this
+    audit does not read.
+    """
+
+    gained: tuple[tuple[str, tuple[str, ...]], ...]
+    agent_jobs: tuple[tuple[str, str], ...]
+
+
+def _possible_agent_jobs(*grants: dict[str, Any]) -> dict[str, str]:
+    """Each job of ``grants`` an agent may run in, and the first of :data:`_AGENT_JOB_KINDS` it holds."""
+
+    found: dict[str, str] = {}
+    for grant in grants:
+        for kind, jobs in zip(_AGENT_JOB_KINDS, (
+            (item["job"] for item in grant.get("agent_launches", [])),
+            (item["job"] for item in grant.get("unread_agent_runs", [])),
+            (call["job"] for call in grant.get("reusable_calls", [])),
+            (
+                item["job"] for item in grant.get("step_actions", [])
+                if item.get("unresolved_reason") in _UNREADABLE_STEP_REASONS
+            ),
+        ), strict=True):
+            for job in map(str, jobs):
+                if job not in found or _AGENT_JOB_KINDS.index(kind) < _AGENT_JOB_KINDS.index(found[job]):
+                    found[job] = kind
+    return found
+
+
+def _step_reference_moved(before: dict[str, Any], after: dict[str, Any]) -> bool:
+    """Whether a step reference left one job and the same reference arrived in another."""
+
+    old = Counter(step_action_key(item) for item in before.get("step_actions", []))
+    new = Counter(step_action_key(item) for item in after.get("step_actions", []))
+    gone, arrived = old - new, new - old
+    return any(
+        left[0] != right[0] and left[1:] == right[1:] for left in gone for right in arrived
+    )
+
+
+def workflow_widening_outside_agent_jobs(
+    before: dict[str, Any] | None, after: dict[str, Any] | None,
+) -> WorkflowJobWidening | None:
+    """Where a widened workflow token lies, when it is outside every agent job (#1011).
+
+    The one predicate the rows, `diff`'s summary and the Stop hook read: a
+    row's ``expands``, direction, severity, the drift signal and every gate
+    stay as :func:`host_grant_expansion_signals` decides them. Only which
+    widening a reader is told is the agent's moves.
+
+    Fails closed. ``None``, the change counted as the agent's, unless all of
+    these hold:
+
+    - both sides are workflow grants that publish their job contexts (a legacy
+      grant names its scopes and nothing about jobs);
+    - the only expansion signal of the change is ``workflow_write_*``, so it
+      gains no privileged event, inherited secret or agent widening rule, and
+      no step reference moved between jobs;
+    - no job may write every scope (``write-all``);
+    - every gained write scope is in a job this audit finds no agent launch
+      (read or unread), reusable workflow call or unreadable steps in, on
+      either side; and
+    - every job it finds one in is on both sides, with an explicit token
+      declaration, and kept its token: the same declaration, the same
+      effective write scopes and the same reusable call.
+
+    A workflow in which this audit finds none of those anywhere gives an
+    empty ``agent_jobs``. A job whose token the base did not establish gains
+    nothing here, as :func:`_gained_workflow_writes` has it.
+    """
+
+    if (
+        after is None or after.get("kind") != "workflow" or "permission_contexts" not in after
+        or (before is not None and (
+            before.get("kind") != "workflow" or "permission_contexts" not in before
+        ))
+    ):
+        return None
+    prefix = "added" if before is None else "changed"
+    if _workflow_expansion_signals(before, after) != [f"workflow_write_{prefix}: {after['source']}"]:
+        return None
+    previous = before or {}
+    if after.get("write_all") or previous.get("write_all"):
+        return None
+    if before is not None and _step_reference_moved(before, after):
+        return None
+    contexts = {str(context["job"]): context for context in after["permission_contexts"]}
+    gained: dict[str, list[str]] = {}
+    for entry in _gained_workflow_writes(before, after):
+        job, _, scope = entry.partition(": ")
+        if job not in contexts or not scope.endswith(": write"):
+            return None
+        gained.setdefault(job, []).append(scope.removesuffix(": write"))
+    if not gained:
+        return None
+    agent_jobs = _possible_agent_jobs(previous, after)
+    if gained.keys() & agent_jobs.keys():
+        return None
+    if agent_jobs and before is None:
+        return None
+    old_contexts = {str(context["job"]): context for context in previous.get("permission_contexts", [])}
+
+    def writes(grant: dict[str, Any], job: str) -> list[str]:
+        return sorted(
+            entry for entry in grant.get("effective_write_scopes", [])
+            if entry.partition(": ")[0] == job
+        )
+
+    def calls(grant: dict[str, Any], job: str) -> list[dict[str, Any]]:
+        return [call for call in grant.get("reusable_calls", []) if str(call["job"]) == job]
+
+    for job in agent_jobs:
+        old, new = old_contexts.get(job), contexts.get(job)
+        if (
+            old is None or new is None or old != new or new["state"] != "explicit"
+            or writes(previous, job) != writes(after, job)
+            or calls(previous, job) != calls(after, job)
+        ):
+            return None
+    return WorkflowJobWidening(
+        gained=tuple((job, tuple(sorted(scopes))) for job, scopes in sorted(gained.items())),
+        agent_jobs=tuple(sorted(agent_jobs.items())),
+    )
 
 
 #: One permission rule as a comparison identifies it: host, source, disposition, rule text.

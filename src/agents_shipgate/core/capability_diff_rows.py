@@ -41,6 +41,7 @@ from agents_shipgate.core.host_grants import (
     UNTRUSTED_INPUT_TRIGGERS,
     PermissionRuleAssessment,
     PermissionRuleReplacement,
+    WorkflowJobWidening,
     _permission_key,
     agent_launch_key,
     agent_rule_gains,
@@ -61,6 +62,7 @@ from agents_shipgate.core.host_grants import (
     reusable_call_target,
     secret_mapping_key,
     step_action_key,
+    workflow_widening_outside_agent_jobs,
 )
 from agents_shipgate.core.host_settings import (
     claude_env_rating,
@@ -600,6 +602,51 @@ RESPELLED = "respelled"
 #: orders. The row is named, never silent, and the Claude Code Stop hook,
 #: which renders this text at install time, announces it beside widenings.
 DIRECTION_UNKNOWN = "authority direction is unknown"
+#: The `; ` clause of a widened workflow row whose only widening is a job token
+#: outside every job this audit finds an agent in, or a reusable workflow
+#: call or unreadable steps in, while each of those kept its token (#1011):
+#: the engine's :func:`workflow_widening_outside_agent_jobs`. The row still
+#: `expands`, and every gate reads it as before. `diff`'s summary counts it
+#: apart from "widening what the agent may do" and the Claude Code Stop hook,
+#: which renders this text at install time, names it under its own heading.
+OUTSIDE_AGENT_JOBS = "widens a workflow job's token outside any agent job"
+
+
+def widens_outside_agent_jobs(expands: bool, why: str) -> bool:
+    """Whether a row or change widens only a workflow job's token outside any agent job (#1011).
+
+    Read from the published row, so a row read back from JSON answers as the
+    one built here: an expanding row whose `why` holds :data:`OUTSIDE_AGENT_JOBS`
+    as a whole `; ` clause.
+    """
+
+    return expands and OUTSIDE_AGENT_JOBS in why.split("; ")
+
+
+def _outside_agent_jobs_reasons(found: WorkflowJobWidening) -> list[str]:
+    """Which jobs gained which write scopes, and which agent jobs kept their tokens (#1011).
+
+    Facts the engine established, said as such: it says nothing of what the
+    gaining job's steps do with the token, and that this audit finds no agent
+    launch in a job is not that no step of it starts one.
+    """
+
+    # Worded as the #823 note words a job's scopes: `the write scope issues`.
+    gains = [
+        f"{job} gained the write {'scope' if len(scopes) == 1 else 'scopes'} {_joined_words(list(scopes))}"
+        for job, scopes in found.gained
+    ]
+    gained = gains[0] if len(gains) == 1 else f"{', '.join(gains[:-1])}, and {gains[-1]}"
+    where = (
+        "this workflow" if not found.agent_jobs
+        else ("that job" if len(gains) == 1 else "those jobs")
+    )
+    reasons = [f"{gained}, and this audit finds no agent launch or reusable workflow call in {where}"]
+    if found.agent_jobs:
+        kept = "its token" if len(found.agent_jobs) == 1 else "their tokens"
+        jobs = _joined_words([f"{job} ({kind})" for job, kind in found.agent_jobs])
+        reasons.append(f"{jobs} kept {kept}")
+    return [*reasons, OUTSIDE_AGENT_JOBS]
 
 
 #: Why a same-repository called workflow's own permissions were not read (#921).
@@ -889,13 +936,16 @@ def _why(
     new_secrets: list[SecretMapping] | None = None,
     agent_reasons: list[str] | None = None,
     call_changes: list[CallChange] | None = None,
+    outside_agent_jobs: WorkflowJobWidening | None = None,
 ) -> str:
     """Why a reviewer should care, in the reviewer's terms.
 
     Stated as what the grant *permits*, never as a prediction about what the
     agent will do with it — the engine reads configuration, not behaviour.
     A workflow that launches an agent ends with the job facts beside each
-    agent step (#823), read off ``grant``, the side the row describes.
+    agent step (#823), read off ``grant``, the side the row describes. A
+    widened workflow whose widening the engine placed outside every agent job
+    names where, before that note (#1011).
     """
 
     kind = str(grant.get("kind") or "")
@@ -982,6 +1032,8 @@ def _why(
                 "token permissions and adds no scope"
             )
         reasons.extend(agent_reasons or [])
+        if outside_agent_jobs is not None:
+            reasons.extend(_outside_agent_jobs_reasons(outside_agent_jobs))
         why = "; ".join(reasons) or "changes the workflow's own authority"
         # A removed workflow runs nothing any more, so it gets no note.
         note = None if direction == REMOVED else _agent_composition_note(grant)
@@ -2409,6 +2461,12 @@ def capability_diff_rows(
             gone_secrets=gone_secrets, new_secrets=new_secrets,
             agent_reasons=agent_reasons,
             call_changes=_reusable_call_changes(before_grant, after_grant),
+            # Only an expanding row is placed: the predicate moves no gate (#1011).
+            outside_agent_jobs=(
+                workflow_widening_outside_agent_jobs(before_grant, after_grant)
+                if expands and grant.get("kind") == "workflow"
+                else None
+            ),
         )
         kind = grant.get("kind")
         if kind == "openshell_policy":
