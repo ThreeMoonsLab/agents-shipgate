@@ -389,7 +389,12 @@ SURFACES: tuple[Surface, ...] = (
         # reader published (#922), a URL in it redacted there with its
         # delimiters, trailing wildcard and a digest kept, so it restates no
         # answer; `tests/test_permission_rule_url_redaction.py` holds every
-        # route to two rows for two rules that publish alike.
+        # route to two rows for two rules that publish alike. A removed deny
+        # or ask rule a rule of its source still holds, and the severity of a
+        # row that lifts one, are the same model's and the engine's
+        # `lifted_restriction_risk` (#1036), so they add no claim either;
+        # `tests/test_host_diff_permission_direction.py` holds the routes to
+        # one answer.
         {},
     ),
     Surface(

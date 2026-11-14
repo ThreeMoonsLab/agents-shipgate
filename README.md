@@ -65,11 +65,11 @@ entry per changed grant or replaced rule. If the PR targets another branch, pass
 `--base upstream/<pr-base>`. On a PR that widens a Claude Code allow rule,
 drops a denial and adds an MCP server:
 
-**Released in `1.3.0`:** the example below is from the published `1.3.0`,
-installed from PyPI into a clean virtualenv outside any checkout and run in a
-clone. The previous release, `1.2.0`, prints the same comparison, but its note
-on the added MCP server reads `launch source is mutable`; `1.3.0` states the
-declaration fact and the launch it leaves open apart (#933).
+The example below is from this source tree, run in a clone, and is
+**not yet released**: the published `1.3.0` prints the same comparison, but
+rates the removed `deny: Bash(rm -rf:*)` row `low`, the rating it gives every
+deny and ask grant. This tree rates a row that lifts a deny or ask rule by what
+the rule restricted, never below `medium` (#1036).
 
 ```text
 Agent capability diff  origin/main (3db015cd) -> working tree
@@ -82,7 +82,7 @@ Agent capability diff  origin/main (3db015cd) -> working tree
                   allow: Bash(npm test:*) → allow: Bash(npm *)
                   the new rule matches everything the old rule matched; runs without a prompt
 
-⚠ low     removed  claude-code .claude/settings.json
+⚠ medium  removed  claude-code .claude/settings.json
                   deny: Bash(rm -rf:*) → gone
                   removes a denial the agent was subject to
 

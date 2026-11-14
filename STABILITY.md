@@ -363,6 +363,101 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="held-restrictions-1036"></a>
+
+## Migration Note: Unreleased — a tightened deny or ask rule is not a widening, and a lifted denial is rated by what it restricted (#1036)
+
+**What was wrong.** A removed Claude Code `deny` or `ask` rule was kept only
+when Claude Code never consulted it, when it was a `!` carve-out, or when the
+source still declared it in another spelling. Replacing
+`deny: Bash(git push *)` with `deny: Bash(git *)`, or moving
+`Bash(git push *)` from `ask` to `deny`, denies at least as much, yet `diff`
+printed `low removed deny: Bash(git push *) → gone … 1 widening`, `verify`'s
+host comparison and drift named `deny_rule_removed`, and `check` returned
+`require_review`, with `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` for the
+deny. `WebFetch(domain:*)` was read as a scoped argument, so `WebFetch` →
+`WebFetch(domain:*)` was a `narrowed` change with no widening and `check`
+allowed it, although the `domain:` form also opens the sandbox to every host. Every deny and ask grant
+is rated `low`, and a row was rated by its grant, so a removed `deny: Bash(*)`
+printed `low` and sorted last. And every `additionalDirectories` row read
+`additional_path` before or after, in text and `--json`.
+
+**What changes.**
+
+- **Held restrictions.** One predicate in the rule model
+  (`restriction_holder`, `core/claude_permission_rules.py`), read by drift's
+  `expansion_signals`, the rows of `diff`, `verify` and `check`, and `check`'s
+  violations: a removed `deny` rule is held when a `deny` rule the same
+  settings source still declares matches everything it matched, and a removed
+  `ask` rule when a `deny` or `ask` rule of that source does. "Matches
+  everything" is the same text, the same documented spelling or a decided
+  lattice `subsumes(…) is True`; an undecided pair holds nothing, and neither
+  does a carve-out, a rule Claude Code never consults, a padded rule, another
+  tool's rule, or a rule a `!` rule of its own list could except paths from. A
+  held removal is a row with `expands: false` and the `why` `removes this deny
+  rule; deny: Bash(git *), which this source still declares, matches
+  everything it matched, so no denial is removed` (`… so what needed
+  confirmation is now denied` for an ask rule a deny rule holds; `check`'s
+  redacted rows name no rule). It earns no `deny_rule_removed` or
+  `ask_rule_removed` signal and no `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED`,
+  and a settings file whose change only does this is `host_settings_narrowed`,
+  whose message now ends `no deny or ask restriction is lifted`. A held rule
+  is not a lifted restriction an added allow rule of its tool could reach
+  past, so such an addition an allow rule of the base covers stays covered
+  (#941).
+- **Still lifted.** A deny rule replaced by an `ask` rule, a narrower deny, a
+  cover the lattice cannot decide (`Read(./secrets/**)` over
+  `Read(./secrets/a.txt)`), and a rule moved to another settings source. The
+  two project files are not read in the same sessions
+  (<https://code.claude.com/docs/en/settings>, read 2026-11-08): a cloud
+  session reads `.claude/settings.json` and not `.claude/settings.local.json`,
+  and a session started in a subdirectory reads the local file from the
+  repository root and the shared file from where it started. User and managed
+  settings are one machine's. A rule in another source therefore never holds
+  one, whatever its text.
+- **`WebFetch(domain:*)`.** The lattice reads it as the whole tool. Its allow
+  grant is `wildcard: true`, `execute`/`high` (it was `false` and `medium`),
+  its row reads `matches every target of this kind, without a prompt`, and
+  adding it raises the blocking `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`,
+  as adding a bare `WebFetch` does, where it raised `…-ALLOW-EXPANDED`. A bare
+  `WebFetch` and a `domain:` rule no longer cover each other, because only the
+  `domain:` form adds its domain to the sandbox's allowed or denied list. So
+  `WebFetch` → `WebFetch(domain:*)` is a widening and no longer `narrowed`, an
+  added `WebFetch(domain:example.com)` beside an allowed `WebFetch` is a
+  widening where it was covered, and `deny: WebFetch(domain:example.com)` →
+  `deny: WebFetch` lifts a denial. `domain:*` still covers every other
+  `domain:` rule; any other domain wildcard (`*.example.com`, or `example.*`,
+  which does not match `example.evil.com`) is undecided, where a trailing `*`
+  was read as a text prefix.
+- **Severity.** A row that lifts a restriction (a removed deny or ask rule
+  nothing holds, or a carve-out that now excepts paths from a rule the base
+  declared) has the `severity` an allow rule of the same text is rated at, a
+  carve-out the rating of the paths it excepts, and never below `medium`: a
+  removed `deny: Bash(*)` is `critical` and sorts first, `deny: WebFetch`
+  `high`, and `deny: Read(./.env)` and `ask: Bash(git push *)` `medium`. An
+  added restriction and a removal that lifts nothing keep the grant's `low`.
+  Severity orders rows and the review block; it moves no `expands`,
+  direction, signal or `check` decision.
+- **Additional directories.** An `additional_path` row's `before` or `after`
+  is the directory as the reader publishes it (`../shared`, `~/notes`,
+  `<external-path:…>`), and its `why` says the agent reads files there without
+  a prompt.
+
+**What does not change.** No schema version, field, CLI flag, check ID or
+contract version. Grant ids and `config_sha256` are unchanged, and so is every
+grant's `risk` except an allow `WebFetch(domain:*)`'s. A host-grants baseline
+saved by 1.3.0 loads and compares.
+
+**Who must act.** A saved baseline holding an allow `WebFetch(domain:*)` reads
+it as one `changed` row with no expansion signal on the first drift after
+upgrading, as #824's launcher re-rating did; re-save it with
+`audit --host --save-baseline`. A change that adds `WebFetch(domain:*)` now
+blocks in `check`. A consumer that sorts or filters host rows by `severity`
+sees lifted denials above `low`; one that matches `additional_path` in a row
+cell, or the old `host_settings_narrowed` message, reads the new text.
+
+---
+
 <a id="check-hook-declared-policy-packs-1128"></a>
 
 ## Migration Note: Unreleased — check and the hook protect a declared policy pack (#1128)

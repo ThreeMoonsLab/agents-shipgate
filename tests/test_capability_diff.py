@@ -409,7 +409,111 @@ def test_removing_a_restriction_preserves_the_engine_expansion(disposition: str)
     assert "removes a" in rows[0].why
 
 
-def test_hook_expansion_is_bound_by_host_and_source() -> None:
+@pytest.mark.parametrize(
+    ("disposition", "rule", "severity"),
+    [
+        # What the rule restricted, rated as an allow rule of the same text is.
+        ("deny", "Bash(*)", "critical"),
+        ("ask", "Bash", "critical"),
+        ("deny", "WebFetch", "high"),
+        ("deny", "Edit(src/**)", "medium"),
+        ("ask", "Bash(git push *)", "medium"),
+        # A denial someone wrote is never filed with the routine reads `low` rates.
+        ("deny", "Read(./.env)", "medium"),
+        ("deny", "Read", "medium"),
+    ],
+)
+def test_a_lifted_restriction_rates_by_what_it_restricted(
+    disposition: str, rule: str, severity: str
+) -> None:
+    """#1036: every deny or ask grant is `low`, so the row reads the rule instead."""
+
+    from agents_shipgate.core.host_grants import host_grant_expansion_signals
+
+    changes = [{"baseline": {"host": "claude-code", "source": ".claude/settings.json",
+                "kind": "permission_rule", "disposition": disposition,
+                "rule": rule, "risk": "low"}, "current": None}]
+    [row] = capability_diff_rows({"changes": changes, "expansion_signals": host_grant_expansion_signals(changes)})
+
+    assert (row.direction, row.expands, row.severity) == ("removed", True, severity)
+
+
+def test_a_restriction_that_lifts_nothing_keeps_its_own_rating() -> None:
+    """An added denial, and the removal of one Claude Code never consulted, stay `low`."""
+
+    from agents_shipgate.core.host_grants import host_grant_expansion_signals
+
+    grant = {"host": "claude-code", "source": ".claude/settings.json",
+             "kind": "permission_rule", "disposition": "deny", "risk": "low"}
+    changes = [
+        {"baseline": None, "current": {**grant, "rule": "Bash(*)"}},
+        {"baseline": {**grant, "rule": "Write(.env)"}, "current": None},
+    ]
+    rows = capability_diff_rows({"changes": changes, "expansion_signals": host_grant_expansion_signals(changes)})
+
+    assert sorted((row.direction, row.expands, row.severity) for row in rows) == [
+        ("added", False, "low"),
+        ("removed", False, "low"),
+    ]
+
+
+def test_a_carve_out_that_lifts_part_of_a_denial_rates_by_what_it_excepts() -> None:
+    from agents_shipgate.core.host_grants import host_grant_expansion_signals
+
+    grant = {"host": "claude-code", "source": ".claude/settings.json",
+             "kind": "permission_rule", "disposition": "deny", "risk": "low"}
+    kept = {**grant, "rule": "Edit(src/**)"}
+    carve_out = {**grant, "rule": "Edit(!**)", "carves_from": ["Edit(src/**)"]}
+    changes = [{"baseline": None, "current": carve_out}]
+    signals = host_grant_expansion_signals(changes, current_grants=[kept, carve_out])
+    [row] = capability_diff_rows(
+        {"changes": changes, "expansion_signals": signals}, current_grants=[kept, carve_out]
+    )
+
+    # It excepts every path from `Edit(src/**)`: rated as `Edit(**)` is.
+    assert (row.direction, row.expands, row.severity) == ("added", True, "high")
+
+
+def _settings_repository(tmp_path: Path, base: dict, head: dict) -> Path:
+    workspace = tmp_path / "dirs"
+    (workspace / ".claude").mkdir(parents=True)
+    (workspace / ".claude" / "settings.json").write_text(json.dumps(base), encoding="utf-8")
+    _git(workspace, "init", "-q", "-b", "main")
+    _git(workspace, "config", "user.email", "test@example.invalid")
+    _git(workspace, "config", "user.name", "Test")
+    _git(workspace, "add", "-A")
+    _git(workspace, "commit", "-qm", "base")
+    _git(workspace, "checkout", "-q", "-b", "change")
+    (workspace / ".claude" / "settings.json").write_text(json.dumps(head), encoding="utf-8")
+    _git(workspace, "commit", "-qam", "head")
+    return workspace
+
+
+@pytest.mark.parametrize("direction", ["added", "removed"])
+def test_an_additional_directory_row_names_the_directory(tmp_path: Path, direction: str) -> None:
+    """#1036: three directories used to render as three `additional_path` rows."""
+
+    with_dirs = {"permissions": {"additionalDirectories": ["../shared", "docs/../vendor", "~/notes"]}}
+    without = {"permissions": {}}
+    base, head = (without, with_dirs) if direction == "added" else (with_dirs, without)
+    repo = _settings_repository(tmp_path, base, head)
+
+    rows = [row for row in _rows(repo) if row["subject"] == "claude-code .claude/settings.json"]
+    cells = sorted(row["after" if direction == "added" else "before"] for row in rows)
+    assert cells == ["../shared", "vendor", "~/notes"]
+    assert {row["direction"] for row in rows} == {direction}
+    assert "additional_path" not in json.dumps(rows)
+    assert {row["why"] for row in rows} == {
+        "makes this directory a working directory: the agent reads files in it without a "
+        "prompt, and edits them as it edits the project's"
+        if direction == "added"
+        else "this directory is no longer a working directory of the agent"
+    }
+    text = _diff(repo).output
+    assert "additional_path" not in text
+    for cell in cells:
+        assert cell in text
+
     from agents_shipgate.core.host_grants import host_grant_expansion_signals
 
     changes = [{"baseline": None, "current": {"host": "claude-code", "source": ".claude/settings.json",
