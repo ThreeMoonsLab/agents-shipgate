@@ -423,6 +423,7 @@
   "tests/test_workflow_agent_launches.py": 67.8,
   "tests/test_workflow_capability_diff.py": 1.7,
   "tests/test_workflow_evidence.py": 0.1,
+  "tests/test_workflow_job_scoped_widening.py": 15.1,
   "tests/test_workflow_label_redaction.py": 46.3,
   "tests/test_workflow_step_action_references.py": 38.9,
   "tests/test_workspace_input_guard.py": 0.3,
@@ -444,7 +445,8 @@
   "tests/test_capability_definition.py": 0.2,
   "tests/test_capability_payload_v2.py": 4.7,
   "tests/test_attest_approval.py": 0.2,
-  "tests/test_declared_policy_pack_boundary.py": 44.3
+  "tests/test_declared_policy_pack_boundary.py": 44.3,
+  "tests/test_packaged_default_policies.py": 0.2
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -645,6 +647,17 @@
   },
   {
    "source": "junit",
+   "measured_at": "26bfa733b324 with issue #1011 workflow job-scoped widening increment",
+   "report_sha256": "02abdc987588809608ea8b1b742ba95a93ae93b6887191d699b62c97bb65feff",
+   "files": {
+    "tests/test_workflow_job_scoped_widening.py": 15.1
+   },
+   "case_count": 32,
+   "command": "python -m pytest tests/test_workflow_job_scoped_widening.py --junitxml=job-scoped-widening.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
    "measured_at": "ea14fe22d9 with issue #1075 manifest-bound trust roots increment",
    "report_sha256": "f5486d133ae94ed869954d701f4955f3c6dcd02ef111ca0eda191ed63e35ec5c",
    "files": {
@@ -663,6 +676,17 @@
    },
    "case_count": 22,
    "command": "python -m pytest tests/test_declared_policy_pack_boundary.py --junitxml=declared-packs.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "f96f1e9939 with the packaged-default-policies increment",
+   "report_sha256": "8ef16ce3d803d12b31e9f410e6bfa84faa3a89e1b17288c88731e58c12ad1914",
+   "files": {
+    "tests/test_packaged_default_policies.py": 0.2
+   },
+   "case_count": 9,
+   "command": "python -m pytest tests/test_packaged_default_policies.py --junitxml=packaged-default-policies.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

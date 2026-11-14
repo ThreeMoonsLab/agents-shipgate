@@ -486,6 +486,147 @@ def test_review_cases_agree_across_routes(
         )
 
 
+LOCAL = ".claude/settings.local.json"
+
+
+def _repository_files(tmp_path: Path, base: dict[str, dict | None], head: dict[str, dict | None]) -> Path:
+    """`_repository` for several settings files; `add -f`, since an ignore file may hide the local one."""
+
+    repo = tmp_path / "repo"
+    (repo / ".claude").mkdir(parents=True)
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / ".gitignore").write_text("agents-shipgate-reports/\n.agents-shipgate/\n", encoding="utf-8")
+    for files, message in ((base, "base"), (head, "head")):
+        if message == "head":
+            _invoke(["audit", "--host", "--workspace", str(repo), "--save-baseline", "--json"])
+            _git(repo, "checkout", "-q", "-b", "change")
+        for name, data in files.items():
+            if data is None:
+                (repo / name).unlink(missing_ok=True)
+            else:
+                (repo / name).write_text(json.dumps(data), encoding="utf-8")
+        _git(repo, "add", "-A")
+        present = [name for name, data in files.items() if data is not None]
+        if present:
+            _git(repo, "add", "-f", "--", *present)
+        _git(repo, "commit", "-q", "-m", message)
+    return repo
+
+
+#: #1036: the issue's three restriction edits. A wider deny and an ask rule
+#: turned into a deny restrict at least as much as before, so no route calls
+#: either a widening. A deny moved from `.claude/settings.json` to
+#: `.claude/settings.local.json` is not held everywhere it was: a cloud
+#: session reads the shared file and not the local one
+#: (https://code.claude.com/docs/en/settings, "Settings in cloud sessions"),
+#: so every route still calls it a lifted denial. (base, head, widenings,
+#: check decision)
+RESTRICTION_CASES = {
+    "wider_deny": (
+        {SETTINGS: {"permissions": {"deny": ["Bash(git push *)"]}}},
+        {SETTINGS: {"permissions": {"deny": ["Bash(git *)"]}}},
+        0,
+        "allow",
+    ),
+    "ask_to_deny": (
+        {SETTINGS: {"permissions": {"ask": ["Bash(git push *)"]}}},
+        {SETTINGS: {"permissions": {"deny": ["Bash(git push *)"]}}},
+        0,
+        "allow",
+    ),
+    "moved_to_another_source": (
+        {SETTINGS: {"permissions": {"deny": ["Bash(git push *)"]}}, LOCAL: None},
+        {SETTINGS: {"permissions": {}}, LOCAL: {"permissions": {"deny": ["Bash(git push *)"]}}},
+        1,
+        "require_review",
+    ),
+}
+
+
+@pytest.mark.parametrize("name", list(RESTRICTION_CASES))
+def test_restriction_edits_agree_across_routes(tmp_path: Path, name: str) -> None:
+    base, head, widenings, decision = RESTRICTION_CASES[name]
+    routes = _routes(_repository_files(tmp_path, base, head))
+
+    assert routes["diff"]["comparison_status"] == "comparable"
+    assert routes["diff"]["review"] == routes["verify"]["review"]
+    assert routes["diff"]["review"]["summary"]["widenings"] == widenings
+    assert sum(row["expands"] for row in routes["diff"]["rows"]) == widenings
+    assert _shape(routes["diff"]["rows"]) == _shape(routes["verify"]["rows"])
+    assert _shape(routes["diff"]["rows"]) == _shape(routes["check"]["rows"])
+    assert routes["check"]["decision"] == decision
+    assert ("SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED" in {
+        item["check_id"] for item in routes["check"]["violations"]
+    }) is bool(widenings)
+    assert routes["drift"]["comparison_status"] == "comparable"
+    assert routes["drift"]["expansion_signals"] == (
+        ["deny_rule_removed: claude-code:Bash(git push *)"] if widenings else []
+    )
+    assert routes["text"].count("⚠ ") == widenings, routes["text"]
+
+
+def test_a_lifted_denial_rates_by_what_it_restricted(tmp_path: Path) -> None:
+    """#1036, the issue's reproduction: the removed `deny Bash(*)` is the most
+    consequential change, so it is rated as `Bash(*)` is and read first."""
+
+    routes = _routes(
+        _repository(
+            tmp_path,
+            {"permissions": {"allow": ["Bash(npm *)"], "deny": ["Bash(*)"]}},
+            {"permissions": {"allow": ["Bash(npm *)", "Read(docs/*)", "WebFetch(domain:example.com)"]}},
+        )
+    )
+    rows = [(row["severity"], row["direction"], row["before"], row["after"]) for row in routes["diff"]["rows"]]
+
+    assert rows == [
+        ("critical", "removed", "Bash(*)", "—"),
+        ("medium", "added", "—", "WebFetch(domain:example.com)"),
+        ("low", "added", "—", "Read(docs/*)"),
+    ]
+    assert [(row["severity"], row["direction"]) for row in routes["verify"]["rows"]] == [
+        (severity, direction) for severity, direction, *_ in rows
+    ]
+    assert [(row["severity"], row["direction"]) for row in routes["check"]["rows"]] == [
+        (severity, direction) for severity, direction, *_ in rows
+    ]
+    text = routes["text"]
+    assert text.index("deny: Bash(*)") < text.index("WebFetch(domain:example.com)") < text.index("Read(docs/*)")
+
+
+def test_a_lifted_path_denial_is_not_filed_with_routine_reads(tmp_path: Path) -> None:
+    """Reading the workspace is `low`; a path someone denied is not routine."""
+
+    routes = _routes(
+        _repository(
+            tmp_path,
+            {"permissions": {"deny": ["Read(./.env)"]}},
+            {"permissions": {"allow": ["Read(docs/*)"]}},
+        )
+    )
+    rows = [(row["severity"], row["direction"], row["disposition"]) for row in routes["diff"]["rows"]]
+
+    assert rows == [("medium", "removed", "deny"), ("low", "added", "allow")]
+    text = routes["text"]
+    assert text.index("deny: Read(./.env)") < text.index("Read(docs/*)")
+
+
+def test_an_added_or_kept_restriction_stays_low(tmp_path: Path) -> None:
+    """Only a row that lifts a restriction is rated by what it restricted."""
+
+    routes = _routes(
+        _repository(
+            tmp_path,
+            {"permissions": {"deny": ["Bash(git push *)"]}},
+            {"permissions": {"deny": ["Bash(*)"]}},
+        )
+    )
+
+    assert sorted((row["direction"], row["severity"], row["expands"]) for row in routes["diff"]["rows"]) == [
+        ("added", "low", False),
+        ("removed", "low", False),
+    ]
+
+
 def test_ambiguous_arrivals_do_not_claim_permission_loss(tmp_path):
     routes = _routes(
         _repository(

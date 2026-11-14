@@ -1,6 +1,6 @@
 # Application comparison without prior setup
 
-**Availability:** new in 1.2.0, the newest published release; see the
+**Availability:** new in 1.2.0, and in the newest published release, 1.3.0; see the
 [CHANGELOG entry](../CHANGELOG.md#application-comparison-without-prior-setup).
 An older install has no `--application`: `pipx upgrade agents-shipgate`.
 

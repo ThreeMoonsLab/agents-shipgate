@@ -363,6 +363,178 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="held-restrictions-1036"></a>
+
+## Migration Note: Unreleased — a tightened deny or ask rule is not a widening, and a lifted denial is rated by what it restricted (#1036)
+
+**What was wrong.** A removed Claude Code `deny` or `ask` rule was kept only
+when Claude Code never consulted it, when it was a `!` carve-out, or when the
+source still declared it in another spelling. Replacing
+`deny: Bash(git push *)` with `deny: Bash(git *)`, or moving
+`Bash(git push *)` from `ask` to `deny`, denies at least as much, yet `diff`
+printed `low removed deny: Bash(git push *) → gone … 1 widening`, `verify`'s
+host comparison and drift named `deny_rule_removed`, and `check` returned
+`require_review`, with `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED` for the
+deny. `WebFetch(domain:*)` was read as a scoped argument, so `WebFetch` →
+`WebFetch(domain:*)` was a `narrowed` change with no widening and `check`
+allowed it, although the `domain:` form also opens the sandbox to every host. Every deny and ask grant
+is rated `low`, and a row was rated by its grant, so a removed `deny: Bash(*)`
+printed `low` and sorted last. And every `additionalDirectories` row read
+`additional_path` before or after, in text and `--json`.
+
+**What changes.**
+
+- **Held restrictions.** One predicate in the rule model
+  (`restriction_holder`, `core/claude_permission_rules.py`), read by drift's
+  `expansion_signals`, the rows of `diff`, `verify` and `check`, and `check`'s
+  violations: a removed `deny` rule is held when a `deny` rule the same
+  settings source still declares matches everything it matched, and a removed
+  `ask` rule when a `deny` or `ask` rule of that source does. "Matches
+  everything" is the same text, the same documented spelling or a decided
+  lattice `subsumes(…) is True`; an undecided pair holds nothing, and neither
+  does a carve-out, a rule Claude Code never consults, a padded rule, another
+  tool's rule, or a rule a `!` rule of its own list could except paths from. A
+  held removal is a row with `expands: false` and the `why` `removes this deny
+  rule; deny: Bash(git *), which this source still declares, matches
+  everything it matched, so no denial is removed` (`… so what needed
+  confirmation is now denied` for an ask rule a deny rule holds; `check`'s
+  redacted rows name no rule). It earns no `deny_rule_removed` or
+  `ask_rule_removed` signal and no `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED`,
+  and a settings file whose change only does this is `host_settings_narrowed`,
+  whose message now ends `no deny or ask restriction is lifted`. A held rule
+  is not a lifted restriction an added allow rule of its tool could reach
+  past, so such an addition an allow rule of the base covers stays covered
+  (#941).
+- **Still lifted.** A deny rule replaced by an `ask` rule, a narrower deny, a
+  cover the lattice cannot decide (`Read(./secrets/**)` over
+  `Read(./secrets/a.txt)`), and a rule moved to another settings source. The
+  two project files are not read in the same sessions
+  (<https://code.claude.com/docs/en/settings>, read 2026-11-08): a cloud
+  session reads `.claude/settings.json` and not `.claude/settings.local.json`,
+  and a session started in a subdirectory reads the local file from the
+  repository root and the shared file from where it started. User and managed
+  settings are one machine's. A rule in another source therefore never holds
+  one, whatever its text.
+- **`WebFetch(domain:*)`.** The lattice reads it as the whole tool. Its allow
+  grant is `wildcard: true`, `execute`/`high` (it was `false` and `medium`),
+  its row reads `matches every target of this kind, without a prompt`, and
+  adding it raises the blocking `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`,
+  as adding a bare `WebFetch` does, where it raised `…-ALLOW-EXPANDED`. A bare
+  `WebFetch` and a `domain:` rule no longer cover each other, because only the
+  `domain:` form adds its domain to the sandbox's allowed or denied list. So
+  `WebFetch` → `WebFetch(domain:*)` is a widening and no longer `narrowed`, an
+  added `WebFetch(domain:example.com)` beside an allowed `WebFetch` is a
+  widening where it was covered, and `deny: WebFetch(domain:example.com)` →
+  `deny: WebFetch` lifts a denial. `domain:*` still covers every other
+  `domain:` rule; any other domain wildcard (`*.example.com`, or `example.*`,
+  which does not match `example.evil.com`) is undecided, where a trailing `*`
+  was read as a text prefix.
+- **Severity.** A row that lifts a restriction (a removed deny or ask rule
+  nothing holds, or a carve-out that now excepts paths from a rule the base
+  declared) has the `severity` an allow rule of the same text is rated at, a
+  carve-out the rating of the paths it excepts, and never below `medium`: a
+  removed `deny: Bash(*)` is `critical` and sorts first, `deny: WebFetch`
+  `high`, and `deny: Read(./.env)` and `ask: Bash(git push *)` `medium`. An
+  added restriction and a removal that lifts nothing keep the grant's `low`.
+  Severity orders rows and the review block; it moves no `expands`,
+  direction, signal or `check` decision.
+- **Additional directories.** An `additional_path` row's `before` or `after`
+  is the directory as the reader publishes it (`../shared`, `~/notes`,
+  `<external-path:…>`), and its `why` says the agent reads files there without
+  a prompt.
+
+**What does not change.** No schema version, field, CLI flag, check ID or
+contract version. Grant ids and `config_sha256` are unchanged, and so is every
+grant's `risk` except an allow `WebFetch(domain:*)`'s. A host-grants baseline
+saved by 1.3.0 loads and compares.
+
+**Who must act.** A saved baseline holding an allow `WebFetch(domain:*)` reads
+it as one `changed` row with no expansion signal on the first drift after
+upgrading, as #824's launcher re-rating did; re-save it with
+`audit --host --save-baseline`. A change that adds `WebFetch(domain:*)` now
+blocks in `check`. A consumer that sorts or filters host rows by `severity`
+sees lifted denials above `low`; one that matches `additional_path` in a row
+cell, or the old `host_settings_narrowed` message, reads the new text.
+
+---
+
+<a id="workflow-job-scoped-widening-1011"></a>
+
+## Migration Note: Unreleased — a workflow token widened outside every agent job is not counted as what the agent may do (#1011)
+
+**What was wrong.** A workflow whose agent job (`analyze`, running
+`anthropics/claude-code-action` with `contents: read` and `issues: read`)
+gained a sibling job that runs no agent (`publish`, `issues: write`,
+`run: echo …`) printed `1 change(s), 1 widening what the agent may do (⚠).`,
+and the Claude Code Stop hook listed the row under "These rows widen what the
+agent can do". The job cells and the #823 note were accurate, and the
+workflow's token declaration did widen, but the agent job's token was
+byte-for-byte unchanged, so the aggregate claim was stronger than the job-level
+facts it summarized.
+
+**What changes.**
+
+- **One predicate.** `workflow_widening_outside_agent_jobs`
+  (`core/host_grants.py`), read by the rows of `diff`, `verify` and `check`,
+  places a widened workflow change outside every agent job only when all of
+  these hold:
+  - both sides publish their job contexts (a legacy grant names its write
+    scopes and nothing about jobs);
+  - the change's only expansion signal is `workflow_write_*`: it gains no
+    `pull_request_target`, inherited secret or agent widening rule;
+  - no job may write every scope (`write-all`), and no step reference moved
+    between jobs;
+  - every gained write scope is in a job where this audit finds no agent
+    launch, read or unread, no reusable workflow call and no unreadable
+    steps, on either side; and
+  - every job where it finds one of those is on both sides, declares its
+    token explicitly, and kept the same declaration, effective write scopes
+    and reusable call.
+
+  Anything else keeps the change the agent's: a scope the agent job gains, or
+  inherits from the workflow's `permissions`; a job with an unread `run:` agent
+  step or a reusable call that gains one; an agent job on repository defaults,
+  or new in the change. A reusable call counts as a possible agent job even
+  when its callee was read, because the engine reads a callee's permissions,
+  not its steps. A workflow in which this audit finds none of those in any job
+  is placed the same way.
+- **The row.** Such a row's `why` names each job that gained scopes and which
+  (`publish gained the write scope issues, and this audit finds no agent
+  launch or reusable workflow call in that job`), names each job where it
+  finds one and that kept its token (`analyze (agent launch) kept its token`),
+  and holds the clause `widens a workflow job's token outside any agent job`,
+  before the #823 note. The clause is a whole `; ` clause of `why`, as
+  `authority direction is unknown` is (#820), and is
+  `capability_diff_rows.OUTSIDE_AGENT_JOBS`.
+- **`diff`'s summary.** Such a change is counted apart:
+  `1 change(s), 1 widening a workflow job's token outside any agent job (⚠).`,
+  and with both kinds `2 change(s), 1 widening what the agent may do, 1
+  widening a workflow job's token outside any agent job (⚠).` The two counts
+  add up to `review.summary.widenings`, which still counts every change that
+  `expands`.
+- **The Stop hook.** It still announces such rows, once, as widenings, under
+  their own heading: `These rows widen a workflow job's token outside any
+  agent job:`, after the widenings of what the agent can do and before the
+  rows of unknown direction. A hook script rendered by an earlier release
+  lists them with the agent's widenings until it is re-rendered.
+
+**What does not change.** The row's `direction` (`widened`), `expands`,
+severity and cells, the drift `expansion_signals`, `check`'s decision and
+violations, `verify`'s gates and control state, saved baselines and grant ids.
+No JSON field, schema or contract is added, and `review.summary` keeps its
+three numbers. The PR comment and the review question already said "declared
+capability change" and are unchanged. That this audit finds no agent launch in
+a job is not that no step of it starts an agent, and nothing here says what
+the job that gained the scope does with its token.
+
+**Who must act.** A script that read "widening what the agent may do" out of
+`diff`'s text should read `review.summary.widenings` and each change's
+`expands`, and the clause in `why` to tell the two kinds apart. Re-render an
+installed Stop hook with `agents-shipgate install-hooks --target claude-code
+--write` for its new heading.
+
+---
+
 <a id="check-hook-declared-policy-packs-1128"></a>
 
 ## Migration Note: Unreleased — check and the hook protect a declared policy pack (#1128)
@@ -423,6 +595,69 @@ severity or `trust_root_class` value is added. `preflight` and
 **Who must act.** Re-run `agents-shipgate install-hooks --target claude-code
 --write` to update the hook script. A coding agent that edits a vendored pack
 now meets the same human stop locally that it met at the pull request.
+
+---
+
+<a id="checkout-packaged-default-policies"></a>
+
+## Migration Note: Unreleased — a source checkout evaluates the packaged default policies (#1133)
+
+**What was wrong.** A wheel carries the default boundary policies under
+`agents_shipgate/_meta/policies/`, copied from `policies/*.shipgate.yaml` by
+the force-include in `pyproject.toml`. A source checkout, an editable install
+and the `./shipgate` launcher have no `_meta/`, and their loaders fell back to
+the in-code rules there instead. On a workspace with no policy file they
+reported policies `codex-boundary-default` and `host-boundary-default` where
+the 1.1.0 through 1.3.0 wheels report `codex-boundary` and `host-boundary`.
+The boundary result's `policy_set_sha256` was `5ad04b64…` against the wheel's
+`480e1cec…`, and `mcp audit` reported policy version `builtin` against the
+wheel's `1`. The in-code `CODEX-POLICY-WEAKENED` recommendation also differed
+from the shipped one, as it had since #196. A comment said the two came from
+one rule union, but nothing generated or compared them.
+
+**What changes.**
+
+- A checkout loads the repository file each packaged policy is copied from.
+  The mapping is the force-include table `verification_identity` already
+  projected for engine identity, now kept once in
+  `agents_shipgate.core.wheel_layout` and checked against `pyproject.toml`.
+  An installed wheel reads only its own `_meta/` copy, as before, and falls
+  back to the in-code rules when that copy is missing.
+- The in-code `CODEX-POLICY-WEAKENED` recommendation now reads as the shipped
+  policy does: "Restore the stricter policy or get human approval before
+  weakening the local boundary gate." The in-code rules state every field of
+  each shipped rule, and `tests/test_packaged_default_policies.py` keeps them
+  so. The policy's own identity is the one documented difference: the in-code
+  rules keep the ids `codex-boundary-default` and `host-boundary-default`, and
+  `mcp audit` keeps version `builtin`, so a result still says when no policy
+  file was read.
+
+**What a wheel reports differently.** Its default output does not change. On
+a workspace with no policy file it reports `codex-boundary`, `host-boundary`
+and policy set `480e1cec…`, and the published 1.3.0 wheel reproduces the
+regenerated `tests/golden/codex_boundary_result/` files. A run that takes
+`CODEX-POLICY-WEAKENED` from the in-code rules reports the shipped
+recommendation instead of "Do not weaken Shipgate policy to pass the gate;
+restore the stricter policy or get human approval." That rule's text is part
+of the codex policy snapshot, so the codex `policies[].snapshot_sha256`,
+`policy_set_sha256` and `audit_id` of such a run move too. Two kinds of run do
+this:
+
+- An explicit `--policy` that is missing or invalid. The policy set moves from
+  `5ad04b64…` to `2b061ec2…`.
+- A policy file that does not state the rule's recommendation, such as a copy
+  of `policies/templates/agent-boundary-default.shipgate.yaml`, which names
+  rule ids only. In 1.3.0 such a workspace and one with no policy file
+  reported different text for the same rule.
+
+**What does not change.** No schema, contract version, control state,
+decision, risk level, policy id, rule id or check ID moves. The frozen
+`shipgate.codex_boundary_result/v2` projection keeps its shape.
+
+**Who must act.** No configuration changes. A consumer that stored an
+`audit_id` or `policy_set_sha256` from one of the runs above sees a new value
+for the same input once. A contributor's `./shipgate` and an editable install
+now report the policy digests a released wheel reports.
 
 ---
 
@@ -887,8 +1122,8 @@ routed the edit to review, so no gate was bypassed.
 
 **What changes.**
 
-- **Grants.** Host-grants `0.9`, extended in place (it has not shipped in a
-  tagged release), gains two grant kinds for Claude Code settings files:
+- **Grants.** Host-grants `0.9`, extended in place before it shipped in
+  1.3.0, gains two grant kinds for Claude Code settings files:
   `command_setting` (`statusLine`, `subagentStatusLine`, `fileSuggestion`,
   `apiKeyHelper`, `otelHeadersHelper`, `awsAuthRefresh`,
   `awsCredentialExport`; `execute`/`high`, with a display-only `command` as

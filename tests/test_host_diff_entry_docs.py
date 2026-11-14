@@ -365,7 +365,7 @@ _REFERENCE_VERSION = re.compile(r"^(?:Compared|Inputs): .*, agents-shipgate (\S+
 _ANSWER_PREFIXES = ("Agent capability diff", "Cannot compare against", "What this run established:")
 
 #: The release `_PUBLISHED_ANSWERS` was recorded from.
-_PUBLISHED_ANSWERS_VERSION = "1.2.0"
+_PUBLISHED_ANSWERS_VERSION = "1.3.0"
 #: What that release prints for each documented answer, as the sha256 of the
 #: answer after `_normalize` (`_answer_digest`). `no_compared_grant` is the
 #: `What this run established` block of the `env`-only edit, the part the
@@ -374,16 +374,19 @@ _PUBLISHED_ANSWERS_VERSION = "1.2.0"
 #: virtualenv outside any checkout, on the fixtures this module builds. Never
 #: recorded from this tree: until its next version bump it prints the published
 #: version on its reference lines, so a record taken from it would let a
-#: source-tree capture pass as published output. Only `change` moved from
-#: `1.1.0`'s record: `1.2.0` appends the conditional review guidance and the
-#: `launch source is mutable` note to it. The other four digests are the ones
-#: `1.1.0` printed, re-taken from `1.2.0` and unchanged.
+#: source-tree capture pass as published output. Two moved from `1.2.0`'s
+#: record: `change`, whose MCP note names the unpinned package spec and the
+#: launch resolution the read does not establish instead of `launch source is
+#: mutable` (#933), and `no_compared_grant`, whose line now says redacted values
+#: such as env values this entry does not model are not compared (#1083). The
+#: other three digests are the ones `1.2.0` printed, re-taken from `1.3.0` and
+#: unchanged.
 _PUBLISHED_ANSWERS = {
-    "change": "098d8e2700cc1a0ccdc96fa267cbd4897000efb3c3d72ffeb1e34c0351a19ebf",
+    "change": "0065edbfc257e1e3827d7894058fd6235cbb4c6fe869f39a38334f246478dfb5",
     "no_change": "4735bd240c7bdfbb46655f144d7fa0905d621de053564ab3d609972994df6d74",
     "not_compared": "73d814a7a17a6447006e7670f9a8030cfcd80ba599b0dbd3fc106367237337c1",
     "incomparable": "6be1e130dae73c6c8d51ec9d27623a98093d83270545929692c227b18c897883",
-    "no_compared_grant": "88531dd066be3ba7c91226acee3286c4a155b29e50a35e598063cae4efae272b",
+    "no_compared_grant": "42580d728960ba181e73d5fa9009c12a0c9c64f0e68e198c020a9ef6ecd0d7ff",
 }
 
 
@@ -539,6 +542,24 @@ note on the added MCP server. That note identifies its unversioned `npx` package
 and changes neither severity nor the widening count. The source tree still
 reports version `1.2.0`; its version string alone is not published-wheel
 provenance."""
+#: The labels the pages carried when `v1.3.0` was tagged: the change quote's
+#: MCP note was source-tree output, compared with `1.2.0`. `1.3.0` prints it,
+#: so at its step 8 both labels were stale the same way.
+_README_LABEL_AS_TAGGED_V130 = """\
+The example below is from this source tree, run in a clone, and is
+**not yet released**: the published `1.2.0` prints the same comparison, but its
+note on the added MCP server reads `launch source is mutable`. This tree states
+the declaration fact and the launch it leaves open apart (#933)."""
+_QUICKSTART_LABEL_AS_TAGGED_V130 = """\
+**Source-tree examples, not yet released:** the answers below are from this
+repository's source tree, run in a clone. The published `1.2.0` prints the
+same answers, except that its note on the added MCP server in the change
+example reads `launch source is mutable`. This tree says instead that the
+server's `npx` package spec has no exact version, and that the static read does
+not establish whether `npx` resolves a local project dependency or falls back
+to the registry or its cache, as
+[npm documents](https://docs.npmjs.com/cli/v11/commands/npm-exec#description)
+(#933). The note changes neither severity nor the widening count."""
 
 
 def test_the_published_quote_guard_catches_a_stale_capture() -> None:
@@ -585,12 +606,15 @@ def test_the_published_quote_guard_catches_a_stale_capture() -> None:
     # review, case a): they compare with a release that is no longer the
     # newest, and they call published output not yet released.
     # The labels `v1.2.0` was tagged with fail the same two ways one release
-    # later, naming `1.1.0`.
+    # later, naming `1.1.0`, and the labels `v1.3.0` was tagged with, naming
+    # `1.2.0`.
     for label, blocks, older in (
         (_README_LABEL_AS_TAGGED, readme, "1.0.0"),
         (_QUICKSTART_LABEL_AS_TAGGED, quickstart, "1.0.0"),
         (_README_LABEL_AS_TAGGED_V120, readme, "1.1.0"),
         (_QUICKSTART_LABEL_AS_TAGGED_V120, quickstart, "1.1.0"),
+        (_README_LABEL_AS_TAGGED_V130, readme, "1.2.0"),
+        (_QUICKSTART_LABEL_AS_TAGGED_V130, quickstart, "1.2.0"),
     ):
         problems = page(label, blocks)
         assert reports(problems, f"compares them with the published ['{older}']"), problems
