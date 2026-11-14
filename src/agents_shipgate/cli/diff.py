@@ -26,6 +26,7 @@ from agents_shipgate.core.agent_control_envelope import single_line_text
 from agents_shipgate.core.capability_diff_rows import (
     ABSENT,
     ReviewChange,
+    widens_outside_agent_jobs,
 )
 from agents_shipgate.core.host_grants import (
     HostStaticParseCache,
@@ -474,12 +475,20 @@ def run_capability_diff(
         typer.echo(line)
     typer.echo("")
     widened = sum(1 for change in changes if change.expands)
+    # A workflow token widened outside every agent job is still a widening,
+    # counted apart: it is not what the agent may do (#1011). The two counts
+    # add up to `review.summary.widenings`.
+    outside = sum(1 for change in changes if widens_outside_agent_jobs(change.expands, change.why))
+    widenings = [
+        *([f"{widened - outside} widening what the agent may do"] if widened - outside else []),
+        *([f"{outside} widening a workflow job's token outside any agent job"] if outside else []),
+    ]
     typer.echo(
         # The three numbers `--json`'s `review.summary` publishes: a linked
         # replacement or move is one change, and `rows` stays the row count.
         f"{len(changes)} change(s)"
         + (f" from {len(rows)} rows" if len(rows) != len(changes) else "")
-        + (f", {widened} widening what the agent may do (⚠)" if widened else "")
+        + (f", {', '.join(widenings)} (⚠)" if widenings else "")
         + "."
     )
     typer.echo(

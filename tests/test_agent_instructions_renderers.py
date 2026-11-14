@@ -52,13 +52,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BOUNDARY_RESULT_SCHEMA_TOKEN = re.compile(r"shipgate\.agent_boundary_result/v\d+")
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/SKILL.md": "38c6c4002dad4abbc27a237550c0840e4e0056b8a83a01d9598ebc163c87b759",
-    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "d9c1184c8c8f5c69550bee640653a30583fea5d6c5f1b6c09fd95213a656d211",
-    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "ff8794b6b6dfe34b43fed4f6cc7e5e0046f6581c4ec39e1dfa6f1c35d952e190",
-    ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "f51855fd93728585fe3a74adf0e7e19029b9cafbdb6377c390ee6d878df22de4",
+    ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "4003fee3f7034504a90e7fee571bd224fbcfe2ddb63e122f38ff40407d0616d5",
+    ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "c93c4e412b3d2d63f258df5d517e6ff0f5f64302f39ba70420ad927299e2beeb",
+    ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "ab4c162dd2543a66638145f437a5a74c9166253f5d7a310cc8293cb5ccb0c54c",
     ".claude/skills/agents-shipgate/prompts/explain-finding-to-user.md": "18031ed870b3c937a2996173820639ef441afe0a45e8171f16468826cd389829",
     ".claude/skills/agents-shipgate/prompts/fix-top-finding.md": "1956133a2d1003326e471f8ecab7b781e655dc9c33fbd2d1d681711f9ac0f08c",
     ".claude/skills/agents-shipgate/prompts/recommend-fixes.md": "162aa2fb96066535425d9cf86a247a6782b8ec7cc661a18b42dbedf394779475",
-    ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": "658098dc571594a37ff721d4873998d02d51fbe9ec94f3e37382617c077e717e",
+    ".claude/skills/agents-shipgate/prompts/stabilize-strict-mode.md": "e7267024201a073a7d0b8a7eecb9504fcbcc058883c92a4e4e2f2d9626b25391",
     ".claude/skills/agents-shipgate/prompts/triage-false-positive.md": "8cfbb0d4b6e2c36569d24260384d3a54165f966276112f4b143b4ac234b51ada",
     ".claude/skills/agents-shipgate/prompts/upgrade-shipgate-version.md": "992122338eba26ae5d8056b9658117d718a6b477b9928c2a438dd449b5effb68",
     ".claude/skills/agents-shipgate/prompts/verify-agent-diff.md": "1e0279c7b6beae88f468f478b4e3b7401d7cc53bead5c53b6edcc256f59e159c",
@@ -66,7 +66,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
     ".agents/skills/agents-shipgate/SKILL.md": "d34336c2052b7ced6f2124e11c3203c87008d511fd7a420f48da5ed520d874b9",
     ".agents/skills/agents-shipgate/agents/openai.yaml": "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef",
-    ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": "a33856e24e39a3eb9363eec448b72ac7530e8f169c2deb42075cf163f7233664",
+    ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": "2aad175ba6f9212136df084fbcc99a1c9c583429f916ad6a8ae53cd2289a60dc",
     ".agents/skills/agents-shipgate/references/recipes.md": "c4cfcf755f6953c822ab19f9dc7a0b98d2bb9eb137070876a21a10306cad8093",
     ".agents/skills/agents-shipgate/references/report-reading.md": "d9709d600fa6ed6c697202f731977e66c102a4757e29ab825fa89935abe8f72a",
 }

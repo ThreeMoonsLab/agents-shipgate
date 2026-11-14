@@ -40,12 +40,12 @@ jobs:
         with:
           fetch-depth: 0
       - id: agents-shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v1.2.0
+        uses: ThreeMoonsLab/agents-shipgate@v1.3.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
-          shipgate_version: '1.2.0'
+          shipgate_version: '1.3.0'
 ```
 
 To post PR comments, set:
@@ -222,10 +222,13 @@ Without a configured manifest, when every changed file is host configuration —
 `.claude/settings.json`, `.mcp.json`, `.cursor/mcp.json`, `.codex/config.toml`,
 `.vscode/mcp.json` or a GitHub workflow — the Stop hook runs
 `agents-shipgate diff` instead of advising you to initialize a manifest. It
-stays quiet when no row widens what the agent can do and none is of unknown
-direction. An edit the engine cannot order, such as a hook command or MCP
+stays quiet when no row widens and none is of unknown direction. An edit the engine cannot order, such as a hook command or MCP
 argument edit, or a setting no documented rule ranks, is not called a widening
-but is named under its own heading, never silently dropped (#820). A workflow step moved to
+but is named under its own heading, never silently dropped (#820). A workflow
+token widened only in jobs where the audit finds no agent launch, reusable
+workflow call or unreadable steps, while every job where it finds one kept its
+token, is still a widening, named under its own heading rather than as one of
+what the agent can do (#1011). A workflow step moved to
 a different action reference, such as a pinned SHA to `@main`, is a
 non-widening row, so the hook stays quiet about it; `diff` and the PR comment
 still show it. The same holds for an agent launch in a workflow whose settings
@@ -309,7 +312,7 @@ agents-shipgate:
   stage: test
   image: python:3.12
   script:
-    - python -P -m pip install --pre "agents-shipgate==1.2.0"
+    - python -P -m pip install --pre "agents-shipgate==1.3.0"
     - agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
   artifacts:
     when: always
@@ -341,7 +344,7 @@ jobs:
       - image: cimg/python:3.12
     steps:
       - checkout
-      - run: python -P -m pip install --pre "agents-shipgate==1.2.0"
+      - run: python -P -m pip install --pre "agents-shipgate==1.3.0"
       - run: agents-shipgate scan --config shipgate.yaml --ci-mode advisory --format markdown,json,sarif
       - store_artifacts:
           path: agents-shipgate-reports
@@ -404,7 +407,7 @@ Run Agents Shipgate locally on every commit that touches a tool-surface artifact
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/ThreeMoonsLab/agents-shipgate
-    rev: v1.2.0
+    rev: v1.3.0
     hooks:
       - id: agents-shipgate
 ```

@@ -13,7 +13,7 @@ import typer
 from agents_shipgate.checks.verify import TRUST_ROOT_SURFACES
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
-from agents_shipgate.core.capability_diff_rows import DIRECTION_UNKNOWN
+from agents_shipgate.core.capability_diff_rows import DIRECTION_UNKNOWN, OUTSIDE_AGENT_JOBS
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.trust_roots import inspect_lexical_path_identity
 
@@ -487,6 +487,7 @@ def _hook_script_text() -> str:
         _HOOK_SCRIPT_TEMPLATE.replace("__PROTECTED_SURFACES_JSON__", surfaces)
         .replace("__HOST_CONFIG_SURFACES_JSON__", host_config)
         .replace("__DIRECTION_UNKNOWN_JSON__", json.dumps(DIRECTION_UNKNOWN))
+        .replace("__OUTSIDE_AGENT_JOBS_JSON__", json.dumps(OUTSIDE_AGENT_JOBS))
     )
 
 
@@ -574,6 +575,11 @@ HOST_CONFIG_SURFACES = __HOST_CONFIG_SURFACES_JSON__
 # words a `diff` row's `why` ends with when the engine cannot establish which
 # way an edit that may widen authority went (#820).
 DIRECTION_UNKNOWN = __DIRECTION_UNKNOWN_JSON__
+
+# Rendered at install time from agents_shipgate.core.capability_diff_rows: the
+# `why` clause of a widened workflow row whose widening the engine placed in a
+# job token outside every agent job (#1011). Still a widening, named apart.
+OUTSIDE_AGENT_JOBS = __OUTSIDE_AGENT_JOBS_JSON__
 
 
 def main() -> int:
@@ -1436,7 +1442,8 @@ def _route_host_diff(
 
     Quiet for a covered comparison with no row marked `expands` and none whose
     direction the engine could not establish (#820). Rows that widen what the
-    agent can do, and apart from them rows of unknown direction, such as a
+    agent can do, apart from them rows that widen a workflow job's token outside
+    any agent job (#1011), and apart from both rows of unknown direction, such as a
     hook command or MCP argument edit, are named once: the announcement is bound to
     the change's snapshot signature, the base and the rows, so an unchanged
     repeat stays quiet and any change is announced again. An incomparable,
@@ -1482,6 +1489,10 @@ def _route_host_diff(
         )
     listed = [row for row in payload.get("rows") or [] if isinstance(row, dict)]
     rows = [row for row in listed if row.get("expands") is True]
+    # #1011: a workflow token widened outside every agent job is a widening,
+    # but not of what the agent can do. Matched as a whole clause, as #820's.
+    outside = [row for row in rows if OUTSIDE_AGENT_JOBS in str(row.get("why") or "").split("; ")]
+    agent = [row for row in rows if row not in outside]
     # #820: an edit the engine cannot order is not a widening, and not silent.
     # The marker is one `; ` clause of `why`; later notes (#825, #826) may
     # follow it, so it is matched as a clause, not as the ending.
@@ -1513,7 +1524,12 @@ def _route_host_diff(
     return _speak(
         collect,
         "Agents Shipgate compared the host configuration this change edits. "
-        + (f"These rows widen what the agent can do:\n{lines(rows)}" if rows else "")
+        + (f"These rows widen what the agent can do:\n{lines(agent)}" if agent else "")
+        + (
+            "These rows widen a workflow job's token outside any agent job:\n"
+            f"{lines(outside)}"
+            if outside else ""
+        )
         + (
             "These rows may change what the agent can do; their direction is "
             f"not established:\n{lines(unknown)}"
