@@ -1105,6 +1105,26 @@ def test_an_unavailable_third_party_builder_is_a_different_callable(tmp_path, fr
 
 
 @pytest.mark.parametrize("framework", ["sdk", "adk"])
+@pytest.mark.parametrize("rebound", [False, True])
+def test_a_function_local_third_party_builder_is_a_different_callable(tmp_path, framework, rebound):
+    files = _files(framework, "a = build([read])\n")
+    files["other.py"] = (
+        "def start(flag):\n    from external_library import build\n"
+        + ("    if flag:\n        build = runtime_builder()\n" if rebound else "")
+        + "    return build([other])\n"
+    )
+    _write(tmp_path, files)
+    observations, warnings = _read(tmp_path, framework)
+    assert observations
+    if rebound:
+        # A second binding in the function could be this builder.
+        assert warnings and all(not item.tools_complete for item in observations)
+    else:
+        assert warnings == []
+        assert all(item.tools_complete for item in observations)
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
 def test_condition_from_the_call_site_is_preserved(tmp_path, framework):
     _write(tmp_path, _files(framework, "a = build([read] + ([write] if wanted else []))\n"))
     observations, warnings = _read(tmp_path, framework)
