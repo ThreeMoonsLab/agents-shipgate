@@ -434,6 +434,16 @@ def _sanitize_for_output(
         ),
         operation_base=operation_base,
     )
+    public_source_omissions = [
+        sanitize_model(
+            omission,
+            SourceSurfaceOmission,
+            stats=privacy_stats,
+            path="source_omissions[]",
+        )
+        for loaded in inputs.loaded_sources
+        for omission in loaded.omissions
+    ]
     source_recovery_evidence = _sanitize_source_recovery_evidence(inputs.loaded_sources, privacy_stats)
     privacy_audit = build_privacy_audit(
         privacy_stats,
@@ -501,16 +511,7 @@ def _sanitize_for_output(
         privacy_audit=privacy_audit,
         heuristics_filter=decision.heuristics_filter,
         policy_evidence_gaps=public_policy_evidence_gaps,
-        source_omissions=[
-            sanitize_model(
-                omission,
-                SourceSurfaceOmission,
-                stats=privacy_stats,
-                path="source_omissions[]",
-            )
-            for loaded in inputs.loaded_sources
-            for omission in loaded.omissions
-        ],
+        source_omissions=public_source_omissions,
         source_recovery_evidence=source_recovery_evidence,
     )
 

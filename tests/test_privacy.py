@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -1129,3 +1130,496 @@ def test_verify_publishes_no_planted_secret_in_any_rendered_artifact(tmp_path):
     assert {"SHIP-DOC-SECRET-IN-DESCRIPTION", "SHIP-DOC-INJECTION-RISK"} <= {
         finding["check_id"] for finding in report_json["findings"]
     }
+
+
+def _duplicate_mcp_fixture(
+    project: Path,
+    *,
+    server_names: tuple[str, ...] = ("github",),
+    files: dict[str, dict[str, object]] | None = None,
+    with_baseline: bool = False,
+) -> Path:
+    """Create a project with duplicate disagreeing MCP server declarations."""
+    project.mkdir(parents=True, exist_ok=True)
+    if files is None:
+        files = {
+            "pkg_a/.mcp.json": {
+                name: {"command": "gh", "tools": {"search": {"description": "Read docs"}}}
+                for name in server_names
+            },
+            "pkg_b/.mcp.json": {
+                name: {"command": "curl", "tools": {"search": {"description": "Read docs"}}}
+                for name in server_names
+            },
+        }
+    for rel, payload in files.items():
+        path = project / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"mcpServers": payload}), encoding="utf-8")
+
+    manifest_path = project / "shipgate.yaml"
+    manifest_path.write_text(
+        "version: '0.1'\n"
+        "project: {name: omission-privacy-project}\n"
+        "agent: {name: omission-privacy-agent, declared_purpose: [read documentation]}\n"
+        "environment: {target: local}\n"
+        "tool_sources:\n"
+        "  - {id: codex, type: codex_config, path: .}\n"
+        "ci: {mode: advisory}\n",
+        encoding="utf-8",
+    )
+    if with_baseline:
+        baseline_dir = project / ".agents-shipgate"
+        baseline_dir.mkdir(exist_ok=True)
+        (baseline_dir / "baseline.json").write_text(
+            json.dumps(
+                {
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "source_report_run_id": "prior-run",
+                    "findings": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+    return manifest_path
+
+
+def _run_sanitized_outputs(
+    config_path: Path,
+    output_dir: Path,
+    *,
+    packet_enabled: bool = True,
+    baseline_path: Path | None = None,
+):
+    """Execute Phases 1-8 plus artifact writers without POSIX-only current-control binding."""
+    from agents_shipgate.ci.github_summary import write_github_step_summary
+    from agents_shipgate.cli.scan.decision import _run_checks_and_decide
+    from agents_shipgate.cli.scan.diffs import _load_diff_references
+    from agents_shipgate.cli.scan.final_report import _build_final_report
+    from agents_shipgate.cli.scan.human_order import human_artifact_context
+    from agents_shipgate.cli.scan.inputs import _load_inputs
+    from agents_shipgate.cli.scan.output_helpers import _write_packet, _write_reports
+    from agents_shipgate.cli.scan.output_planning import _plan_outputs
+    from agents_shipgate.cli.scan.prepare import _prepare_scan
+    from agents_shipgate.cli.scan.sanitization import _sanitize_for_output
+    from agents_shipgate.cli.scan.tools_agent import _build_tools_and_agent
+    from agents_shipgate.core.privacy import sanitize_packet
+    from agents_shipgate.packet.builder import build_packet
+
+    packet_formats = ["md", "json", "html"] if packet_enabled else []
+    resolved = _prepare_scan(
+        config_path=config_path,
+        ci_mode="advisory",
+        fail_on=None,
+        output_dir=output_dir,
+        formats=["markdown", "json", "sarif"],
+        packet_enabled=packet_enabled,
+        packet_formats=packet_formats,
+        baseline_mode="new-findings",
+        manifest_text=None,
+    )
+    inputs = _load_inputs(
+        manifest=resolved.manifest,
+        base_dir=resolved.base_dir,
+        config_path=config_path,
+        policy_pack_paths=None,
+        verbose=False,
+        plugins_enabled=False,
+    )
+    tools_and_agent = _build_tools_and_agent(manifest=resolved.manifest, inputs=inputs)
+    diffs = _load_diff_references(
+        baseline_path=baseline_path,
+        diff_from_path=None,
+        diff_from_display_path=None,
+        base_dir=resolved.base_dir,
+    )
+    decision = _run_checks_and_decide(
+        manifest=resolved.manifest,
+        manifest_positions=resolved.manifest_positions,
+        config_path=config_path,
+        tools_and_agent=tools_and_agent,
+        inputs=inputs,
+        diffs=diffs,
+        plugins_enabled=False,
+        suggest_patches=False,
+        no_heuristics=False,
+        verification_context=None,
+        declared_ci=resolved.declared_ci,
+    )
+    plan = _plan_outputs(manifest=resolved.manifest, base_dir=resolved.base_dir)
+    sanitized = _sanitize_for_output(
+        manifest=resolved.manifest,
+        config_path=config_path,
+        baseline_path=baseline_path,
+        inputs=inputs,
+        tools_and_agent=tools_and_agent,
+        diffs=diffs,
+        decision=decision,
+        plan=plan,
+        plugins_enabled=False,
+    )
+    report, payload = _build_final_report(
+        manifest=resolved.manifest,
+        sanitized=sanitized,
+        plan=plan,
+        config_path=config_path,
+        declared_ci=resolved.declared_ci,
+    )
+    public_report = ReadinessReport.model_validate(payload)
+    human_context = human_artifact_context(config_path, None)
+    _write_reports(
+        public_report,
+        plan.generated_paths,
+        resolved.manifest.output.formats,
+        sanitized_payload=payload,
+        human_context=human_context,
+    )
+    if packet_enabled and plan.packet_format_set:
+        assert report.release_decision is not None
+        packet = build_packet(
+            manifest=resolved.manifest,
+            agent=public_report.agent,
+            project=public_report.project,
+            environment=public_report.environment,
+            run_id=public_report.run_id,
+            tools=sanitized.tools,
+            findings=sanitized.findings,
+            release_decision=report.release_decision,
+            api_artifacts=sanitized.api_artifacts,
+            anthropic_artifacts=sanitized.anthropic_artifacts,
+            source_warnings=sanitized.source_warnings,
+            validation_artifacts=sanitized.validation_artifacts,
+            tool_surface_diff=public_report.tool_surface_diff,
+            action_surface_diff=public_report.action_surface_diff,
+            report_payload=payload,
+            capability_runtime_evidence=public_report.capability_runtime_evidence,
+            generated_at=None,
+            config_ref=config_path.resolve().name,
+        )
+        _write_packet(
+            sanitize_packet(packet),
+            plan.generated_paths,
+            plan.packet_format_set,
+            human_context=human_context,
+        )
+    write_github_step_summary(report, human_context=human_context)
+    return report, payload, plan
+
+
+def test_duplicate_mcp_omission_redactions_included_in_privacy_audit_and_outputs(
+    tmp_path, monkeypatch,
+):
+    secret_server = "ghp_" + "omissiontesttoken1234567890abcd"
+    project = tmp_path / "project"
+    reports = tmp_path / "reports"
+    summary_path = tmp_path / "github-summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_path))
+    config_path = _duplicate_mcp_fixture(project, server_names=(secret_server,))
+
+    report, payload, plan = _run_sanitized_outputs(config_path, reports, packet_enabled=True)
+
+    # Exact accounting:
+    # - 7 fields on the winning pkg_a tool referencing secret_server
+    # - 1 deduplicated source_warnings[][] entry
+    # - 3 source_omissions[].{subject,detail,warning} fields (excluded before fix)
+    assert report.privacy_audit is not None
+    assert report.privacy_audit.redacted_occurrence_count == 11
+    assert plan.privacy_stats.occurrence_count == 11
+
+    path_counts = {row.path: (row.count, set(row.kinds)) for row in report.privacy_audit.redacted_paths}
+    for path in (
+        "source_warnings[][]",
+        "source_omissions[].detail",
+        "source_omissions[].subject",
+        "source_omissions[].warning",
+    ):
+        assert path_counts.get(path) == (1, {"github_token"})
+    assert sum(count for p, (count, _) in path_counts.items() if p.startswith("tools[]")) == 7
+    assert sum(count for count, _ in path_counts.values()) == 11
+
+    assert report.reviewer_summary is not None
+    assert report.reviewer_summary.privacy_redactions == 11
+    assert payload["privacy_audit"]["redacted_occurrence_count"] == 11
+    assert payload["reviewer_summary"]["privacy_redactions"] == 11
+
+    (entry,) = [
+        row for row in report.surface_exclusions.entries if row.stage == "adapter_parse"
+    ]
+    assert entry.subject == "pkg_b/.mcp.json#/mcpServers/[REDACTED:github_token]"
+    assert entry.accounting == "evidence_gap"
+    assert report.release_decision is not None
+    assert report.release_decision.evidence_coverage.source_warning_count == 1
+
+    rendered_files = [
+        reports / "report.json",
+        reports / "report.md",
+        reports / "report.sarif",
+        reports / "packet.json",
+        reports / "packet.md",
+        reports / "packet.html",
+        summary_path,
+    ]
+    raw_sha = hashlib.sha256(secret_server.encode()).hexdigest()
+    for artifact in rendered_files:
+        content = artifact.read_text(encoding="utf-8")
+        assert secret_server not in content, f"{artifact.name} leaked raw secret"
+        assert raw_sha not in content, f"{artifact.name} leaked raw secret digest"
+    for row in report.privacy_audit.redacted_paths:
+        assert secret_server not in row.path
+        assert raw_sha not in row.path
+
+
+@pytest.mark.parametrize(
+    ("omission_kwargs", "expected_paths", "expected_count", "include_baseline"),
+    [
+        (
+            {
+                "subject": "pkg_b/.mcp.json#/mcpServers/" + "sk-" + "subjectsecret12345678",
+                "detail": "Clean omission detail naming pkg_a/.mcp.json.",
+                "warning": "Clean warning without secret",
+            },
+            {"source_omissions[].subject": (1, {"openai_api_key"})},
+            1,
+            False,
+        ),
+        (
+            {
+                "subject": "pkg_b/.mcp.json#/mcpServers/clean_server",
+                "detail": "Credential " + "sk-" + "detailsecret123456789" + " found in detail.",
+                "warning": "Clean warning without secret",
+            },
+            {"source_omissions[].detail": (1, {"openai_api_key"})},
+            1,
+            False,
+        ),
+        (
+            {
+                "subject": "pkg_b/.mcp.json#/mcpServers/clean_server",
+                "detail": "Clean omission detail.",
+                "warning": "Warning with " + "sk_live_" + "warningsecret12345678",
+            },
+            {"source_omissions[].warning": (1, {"stripe_key"})},
+            1,
+            False,
+        ),
+        (
+            {
+                "subject": "pkg_b/.mcp.json#/mcpServers/clean_server",
+                "detail": "Clean omission detail.",
+                "warning": "Warning with " + "sk_live_" + "warningsecret12345678",
+            },
+            {"source_omissions[].warning": (1, {"stripe_key"})},
+            1,
+            True,
+        ),
+        (
+            {
+                "subject": "pkg_b#/mcpServers/" + "ghp_" + "multi11111111111111111111",
+                "detail": "Detail " + "sk-" + "multi22222222222222222" + " and " + "whsec_" + "multi33333333333333333",
+                "warning": "Warning " + "ghp_" + "multi44444444444444444444",
+            },
+            {
+                "source_omissions[].subject": (1, {"github_token"}),
+                "source_omissions[].detail": (2, {"openai_api_key", "stripe_webhook_secret"}),
+                "source_omissions[].warning": (1, {"github_token"}),
+            },
+            4,
+            False,
+        ),
+    ],
+)
+def test_source_omission_field_redactions_propagate_to_audit_and_reviewer_summary(
+    tmp_path, monkeypatch, omission_kwargs, expected_paths, expected_count, include_baseline,
+):
+    from agents_shipgate.cli.scan import inputs as scan_inputs
+    from agents_shipgate.core.domain import SourceSurfaceOmission
+
+    project = tmp_path / "project"
+    reports = tmp_path / "reports"
+    project.mkdir()
+    (project / "tools.json").write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "name": "docs.lookup",
+                        "description": "Look up docs cleanly.",
+                        "inputSchema": {"type": "object", "properties": {}},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest_path = project / "shipgate.yaml"
+    manifest_path.write_text(
+        "version: '0.1'\n"
+        "project: {name: omission-field-project}\n"
+        "agent: {name: omission-field-agent, declared_purpose: [look up docs]}\n"
+        "environment: {target: local}\n"
+        "tool_sources:\n"
+        "  - id: docs_tools\n"
+        "    type: mcp\n"
+        "    path: tools.json\n"
+        "    authority: {mode: none, reason: local read-only docs lookup}\n"
+        "action_surface:\n"
+        "  actions:\n"
+        "    - {tool: docs.lookup, source_id: docs_tools, effect: read}\n"
+        "agent_bindings:\n"
+        "  declarations:\n"
+        "    - agent: root\n"
+        "      complete: true\n"
+        "      tools:\n"
+        "        - {tool: docs.lookup, source_id: docs_tools}\n"
+        "      handoffs: []\n"
+        "      reason: reviewed fixture\n"
+        "ci: {mode: advisory}\n",
+        encoding="utf-8",
+    )
+    baseline_path = None
+    if include_baseline:
+        baseline_path = project / "baseline.json"
+        baseline_path.write_text(
+            json.dumps(
+                {
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "source_report_run_id": "prior-run",
+                    "findings": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    real_load_sources = scan_inputs._load_sources
+
+    def load_with_omission(*args, **kwargs):
+        sources, bag = real_load_sources(*args, **kwargs)
+        omission = SourceSurfaceOmission(reason="unreadable_entry", **omission_kwargs)
+        updated = [
+            sources[0].model_copy(update={"omissions": [omission], "warnings": []}),
+            *sources[1:],
+        ]
+        return updated, bag
+
+    monkeypatch.setattr(scan_inputs, "_load_sources", load_with_omission)
+
+    report, payload, plan = _run_sanitized_outputs(
+        manifest_path, reports, packet_enabled=False, baseline_path=baseline_path
+    )
+
+    assert report.privacy_audit is not None
+    assert report.privacy_audit.redacted_occurrence_count == expected_count
+    assert plan.privacy_stats.occurrence_count == expected_count
+    path_counts = {row.path: (row.count, set(row.kinds)) for row in report.privacy_audit.redacted_paths}
+    assert path_counts == expected_paths
+
+    assert report.reviewer_summary is not None
+    assert report.reviewer_summary.privacy_redactions == expected_count
+    assert report.reviewer_summary.first_recommended_surface is not None
+    if not include_baseline:
+        assert report.reviewer_summary.first_recommended_surface.name == "privacy_audit"
+    assert payload["reviewer_summary"]["privacy_redactions"] == expected_count
+
+    if include_baseline:
+        assert any(
+            "pre-v0.18 raw secret fingerprints" in note
+            for note in report.privacy_audit.notes
+        )
+
+
+def test_multiple_duplicate_omissions_and_pre_sanitized_warning_do_not_double_count(tmp_path):
+    secret_server = "ghp_" + "multifileomission1234567890abcd"
+    project = tmp_path / "project"
+    reports = tmp_path / "reports"
+    config_path = _duplicate_mcp_fixture(
+        project,
+        files={
+            "pkg_a/.mcp.json": {secret_server: {"command": "gh", "tools": {"search": {}}}},
+            "pkg_b/.mcp.json": {secret_server: {"command": "curl", "tools": {"search": {}}}},
+            "pkg_c/.mcp.json": {secret_server: {"command": "wget", "tools": {"search": {}}}},
+        },
+    )
+
+    report, payload, plan = _run_sanitized_outputs(config_path, reports, packet_enabled=False)
+
+    # 7 tool fields + 1 deduplicated warning in source_warnings[][] + 2 omissions * 3 fields each = 14
+    assert report.privacy_audit is not None
+    assert report.privacy_audit.redacted_occurrence_count == 14
+    assert plan.privacy_stats.occurrence_count == 14
+    path_counts = {row.path: (row.count, set(row.kinds)) for row in report.privacy_audit.redacted_paths}
+    assert path_counts.get("source_warnings[][]") == (1, {"github_token"})
+    assert path_counts.get("source_omissions[].detail") == (2, {"github_token"})
+    assert path_counts.get("source_omissions[].subject") == (2, {"github_token"})
+    assert path_counts.get("source_omissions[].warning") == (2, {"github_token"})
+    assert sum(count for p, (count, _) in path_counts.items() if p.startswith("tools[]")) == 7
+    assert sum(count for count, _ in path_counts.values()) == 14
+    assert report.reviewer_summary is not None
+    assert report.reviewer_summary.privacy_redactions == 14
+    assert payload["privacy_audit"]["redacted_occurrence_count"] == 14
+    adapter_rows = [
+        row for row in report.surface_exclusions.entries if row.stage == "adapter_parse"
+    ]
+    assert len(adapter_rows) == 2
+    assert secret_server not in json.dumps(payload)
+
+
+def test_clean_source_omissions_produce_zero_privacy_redactions(tmp_path):
+    project = tmp_path / "project"
+    reports = tmp_path / "reports"
+    config_path = _duplicate_mcp_fixture(project, server_names=("github",))
+
+    report, payload, plan = _run_sanitized_outputs(config_path, reports, packet_enabled=False)
+
+    assert report.privacy_audit is not None
+    assert report.privacy_audit.redacted_occurrence_count == 0
+    assert report.privacy_audit.redacted_paths == []
+    assert plan.privacy_stats.occurrence_count == 0
+    assert report.reviewer_summary is not None
+    assert report.reviewer_summary.privacy_redactions == 0
+    assert payload["privacy_audit"]["redacted_occurrence_count"] == 0
+    (entry,) = [
+        row for row in report.surface_exclusions.entries if row.stage == "adapter_parse"
+    ]
+    assert entry.subject == "pkg_b/.mcp.json#/mcpServers/github"
+    assert entry.accounting == "evidence_gap"
+
+
+@pytest.mark.skipif(
+    os.open not in os.supports_dir_fd,
+    reason="run_scan current-control publishing requires POSIX dir_fd support",
+)
+def test_scan_source_omission_redactions_end_to_end(tmp_path, monkeypatch):
+    secret_server = "ghp_" + "e2eomissiontoken1234567890abcd"
+    project = tmp_path / "project"
+    reports = tmp_path / "reports"
+    summary_path = tmp_path / "github-summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_path))
+    config_path = _duplicate_mcp_fixture(project, server_names=(secret_server,))
+
+    report, _ = run_scan(
+        config_path=config_path,
+        output_dir=reports,
+        formats=["markdown", "json", "sarif"],
+        ci_mode="advisory",
+        packet_enabled=True,
+        packet_formats=["md", "json", "html"],
+    )
+
+    report_json = json.loads((reports / "report.json").read_text(encoding="utf-8"))
+    assert report.privacy_audit is not None
+    assert report.privacy_audit.redacted_occurrence_count == 11
+    assert report_json["privacy_audit"]["redacted_occurrence_count"] == 11
+    path_counts = {row.path: row.count for row in report.privacy_audit.redacted_paths}
+    for path in (
+        "source_omissions[].detail",
+        "source_omissions[].subject",
+        "source_omissions[].warning",
+        "source_warnings[][]",
+    ):
+        assert path_counts.get(path) == 1
+    assert report.reviewer_summary is not None
+    assert report.reviewer_summary.privacy_redactions == 11
+    assert report_json["reviewer_summary"]["privacy_redactions"] == 11
+    for path in [*reports.rglob("*"), summary_path]:
+        if path.is_file():
+            assert secret_server not in path.read_text(encoding="utf-8")
