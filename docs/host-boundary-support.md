@@ -1301,8 +1301,10 @@ and `deny` rule, and `diff` (text and `--json`), `verify`'s
 `host_comparison`, `check` and `audit --host --drift` all read its answer
 (#918). It follows Claude Code's permissions page,
 <https://code.claude.com/docs/en/permissions> ("Wildcard patterns",
-"Tool name wildcards", "Read and Edit"), read 2026-10-06. A rule is compared
-only with rules of the same host, settings source and disposition; nothing is
+"Tool name wildcards", "Read and Edit"), read 2026-10-06, and "Manage
+permissions" and "WebFetch", read 2026-11-08. A rule is compared only with
+rules of the same host, settings source and disposition, except that a removed
+`ask` rule is also read against the source's `deny` list (below); nothing is
 paired by likeness, and a pair it cannot decide stays a widening.
 
 - **Spelling.** A trailing `:*` is a trailing ` *`, and `Bash(*)` is `Bash`, so
@@ -1364,6 +1366,59 @@ paired by likeness, and a pair it cannot decide stays a widening.
   with evidence kind `permission_deny_carved_out` for a deny list. Removing a
   carve-out restricts more and is never a removed denial; one added together
   with the rules it follows lifts nothing the base declared.
+- **Held restrictions.** "Rules are evaluated in order: deny, then ask, then
+  allow", so a removed `deny` rule that a `deny` rule the same source still
+  declares matches entirely, or a removed `ask` rule that a `deny` or `ask`
+  rule of that source matches entirely, lifts nothing (#1036). Replacing
+  `deny: Bash(git push *)` with `deny: Bash(git *)`, moving `Bash(git push *)`
+  from `ask` to `deny`, or replacing `deny: Read(./.env)` with a bare
+  `deny: Read` is a row and no widening, worded `removes this deny rule;
+  deny: Bash(git *), which this source still declares, matches everything it
+  matched, so no denial is removed` (`… so what needed confirmation is now
+  denied` for an ask rule a deny rule holds; `check`'s redacted rows name no
+  rule), and `check` raises no `SHIP-HOST-BOUNDARY-PERMISSION-DENY-REMOVED`.
+  "Matches entirely" is the same text, the same spelling or a decided cover,
+  and never a carve-out, a rule Claude Code never consults, a padded rule,
+  another tool's rule, or a rule a `!` rule of its own list could except paths
+  from. A deny rule replaced by an `ask` rule, a narrower deny, a cover the
+  model cannot decide (`Read(./secrets/**)` over `Read(./secrets/a.txt)`) and a
+  cover a carve-out of its list may reach each still lift a restriction. So
+  does a rule moved to another settings source: a cloud session reads
+  `.claude/settings.json` and not `.claude/settings.local.json`, and a session
+  started in a subdirectory reads the local file from the repository root and
+  the shared one from where it started
+  (<https://code.claude.com/docs/en/settings>, read 2026-11-08), so neither
+  file holds a rule everywhere the other did; user and managed settings are one
+  machine's.
+- **Every domain.** `WebFetch(domain:*)` "matches every domain" and is a
+  whole-tool rule: added, it is rated `high`, worded `matches every target of
+  this kind, without a prompt`, and raises the blocking
+  `SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW`, as a bare `WebFetch` does
+  (#1036). It "isn't the same as a bare `WebFetch` rule": only the `domain:`
+  form adds its domain to the sandbox's allowed or denied domain list, so a
+  bare `WebFetch` and a `domain:` rule do not cover each other. `WebFetch` →
+  `WebFetch(domain:*)` is a widening, not a narrowing; an added
+  `WebFetch(domain:example.com)` beside an allowed bare `WebFetch` is new; and
+  `deny: WebFetch(domain:example.com)` → `deny: WebFetch` lifts a denial.
+  `domain:*` covers every other `domain:` rule. Any other domain wildcard is
+  undecided: outside a leading `*.` or a bare `*` "the wildcard matches only
+  the text between two dots", so `example.*` does not match
+  `example.evil.com`.
+- **A lifted restriction's severity.** Every deny and ask grant is rated
+  `low`, its own authority. A row that lifts one — a removed rule nothing
+  holds, or a carve-out that now excepts paths from a rule the base declared —
+  is rated by what the rule restricted, as an allow rule of the same text is (a
+  carve-out as the paths it excepts), and never below `medium` (#1036): a
+  removed `deny: Bash(*)` is `critical` and is read first, `deny: Read(./.env)`
+  is `medium`. An added restriction, and a removal that lifts nothing, stay
+  `low`. Severity orders the rows and moves no `expands`, signal or `check`
+  decision.
+- **Additional directories.** Each `additionalDirectories` entry is an
+  `additional_path` grant (`write`/`high`). Its row names the directory as the
+  reader publishes it (`../shared`, `~/notes`, or `<external-path:…>` for
+  another absolute path) and says `makes this directory a working directory:
+  the agent reads files in it without a prompt, and edits them as it edits the
+  project's` (#1036); every entry used to read `additional_path`.
 - **A URL in a rule.** Every route compares a rule as the settings reader
   publishes it (#922). A URL in it keeps its scheme, host and port, the `)` or
   shell separator after it, and the wildcard each part ends with (`/*`, `*`,
