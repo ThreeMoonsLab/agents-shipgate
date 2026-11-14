@@ -52,6 +52,7 @@ from agents_shipgate.core.host_grants import (
     hook_runs_for_no_tool_call,
     host_grant_direction_unknown,
     host_grant_expansion_signals,
+    lifted_restriction_risk,
     local_reusable_target,
     permission_rule_assessment,
     permission_rule_replacements,
@@ -849,6 +850,10 @@ def _grant_value(
         return str(grant["setting"])
     if kind == "env" and grant.get("name"):
         return f"env.{grant['name']}"
+    # The directory, as the reader published it: every row of several
+    # `additionalDirectories` used to read `additional_path` (#1036).
+    if kind == "additional_path" and grant.get("path"):
+        return str(grant["path"])
     # `event` names a hook's trigger. Without it a hook row rendered as
     # "hook", which tells a reviewer a hook changed and not which one (#689).
     for key in ("rule", "server", "name", "event", "value", "permission"):
@@ -1075,6 +1080,16 @@ def _why(
         )
     if kind == "instruction_trust_root":
         return "changes instructions the agent is given"
+    if kind == "additional_path":
+        # "Read-only" tools need no approval "within the working directory and
+        # additional directories", and edits there follow the project's rules
+        # and mode (https://code.claude.com/docs/en/permissions) (#1036).
+        if direction == REMOVED:
+            return "this directory is no longer a working directory of the agent"
+        return (
+            "makes this directory a working directory: the agent reads files in it "
+            "without a prompt, and edits them as it edits the project's"
+        )
     if kind == "command_setting":
         # Rated as a settings hook is: Claude Code runs it (#1027).
         basis = command_setting_basis(str(grant.get("setting") or ""))
@@ -2211,6 +2226,19 @@ def _permission_rule_why(
     if twin is not None and direction == REMOVED:
         named = "" if redacted else f": {disposition}: {twin}"
         return f"removes this rule; the source still declares the same grant written another way{named}"
+    holder = assessment.held.get(key)
+    if holder is not None and direction == REMOVED:
+        held_by = holder[2]
+        named = (
+            f"a {held_by} rule this source still declares"
+            if redacted else f"{held_by}: {holder[3]}, which this source still declares,"
+        )
+        outcome = (
+            "what needed confirmation is now denied"
+            if (disposition, held_by) == ("ask", "deny")
+            else f"no {_RESTRICTION_NOUN.get(disposition, 'restriction')} is removed"
+        )
+        return f"removes this {disposition} rule; {named} matches everything it matched, so {outcome}"
     cover = assessment.covered.get(key)
     if cover is not None and after is not None and (key[0], key[1], key[3]) not in paired:
         if same_grant(cover, str(after["rule"])):
@@ -2535,7 +2563,15 @@ def capability_diff_rows(
             ),
             direction=direction,
             why=why,
-            severity=str(grant.get("risk") or "unknown"),
+            # A deny or ask grant's own risk is `low`; a row lifting one is
+            # rated by what it restricted (#1036). Every other row, an added
+            # or a held restriction included, keeps the grant's rating.
+            severity=(
+                lifted_restriction_risk(str(grant.get("rule") or ""))
+                if expands and grant.get("kind") == "permission_rule"
+                and grant.get("disposition") in {"deny", "ask"}
+                else str(grant.get("risk") or "unknown")
+            ),
             expands=expands,
             # A permission grant's identity is its disposition and its rule, so
             # a row with both sides has one disposition; every other kind has

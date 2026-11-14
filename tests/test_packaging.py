@@ -458,6 +458,79 @@ def test_wheel_includes_org_policy_templates(built_wheel: Path) -> None:
         assert f"agents_shipgate/_meta/policies/templates/{template}" in names
 
 
+# Dumps the default policies an engine evaluates for a workspace with no policy
+# file: the records `check` reports, and the policy `mcp audit` loads.
+_DEFAULT_POLICY_PROBE = """
+import json, sys, tempfile
+from pathlib import Path
+
+import agents_shipgate
+from agents_shipgate.cli import mcp
+from agents_shipgate.core import agent_boundary
+
+with tempfile.TemporaryDirectory() as directory:
+    workspace = Path(directory)
+    policies = agent_boundary._load_policy_set(workspace=workspace, explicit=None)
+    mcp_rules, mcp_version = mcp._load_mcp_policy(
+        mcp.DEFAULT_MCP_POLICY_PATH, workspace, []
+    )
+json.dump(
+    {
+        "module": agents_shipgate.__file__,
+        "payloads": [
+            agent_boundary._policy_payload(policies.codex),
+            agent_boundary._policy_payload(policies.host),
+        ],
+        "records": [item.model_dump(mode="json") for item in policies.records],
+        "policy_set_sha256": policies.digest,
+        "codex_snapshot_sha256": policies.codex.snapshot_sha256,
+        "mcp": {"version": mcp_version, "rules": mcp_rules},
+    },
+    sys.stdout,
+    sort_keys=True,
+)
+"""
+
+
+def test_installed_wheel_evaluates_the_checkouts_default_policies(
+    installed_wheel_site: Path,
+    tmp_path: Path,
+) -> None:
+    """A checkout and the wheel built from it evaluate one default policy set.
+
+    The wheel reads the policies `pyproject.toml` force-includes under
+    `agents_shipgate/_meta/policies/`. A checkout has no `_meta/` and used to
+    fall back to the in-code rules, so `./shipgate` reported
+    `codex-boundary-default` and policy set `5ad04b64…` where the 1.2.0 and
+    1.3.0 wheels report `codex-boundary` and `480e1cec…`.
+    """
+
+    def probe(path: Path) -> dict:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(path)
+        env["PYTHONNOUSERSITE"] = "1"
+        result = subprocess.run(
+            [sys.executable, "-c", _DEFAULT_POLICY_PROBE],
+            cwd=tmp_path,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return json.loads(result.stdout)
+
+    wheel = probe(installed_wheel_site)
+    checkout = probe(REPO_ROOT / "src")
+
+    assert Path(wheel.pop("module")).resolve().is_relative_to(installed_wheel_site.resolve())
+    assert Path(checkout.pop("module")).resolve().is_relative_to((REPO_ROOT / "src").resolve())
+    assert checkout == wheel
+    assert [payload["id"] for payload in wheel["payloads"]] == [
+        "codex-boundary",
+        "host-boundary",
+    ]
+
+
 def test_wheel_claude_command_is_byte_identical_to_repo_file(
     built_wheel: Path,
 ) -> None:

@@ -2396,7 +2396,7 @@ Downstream repos generated with
 `init --agent-instructions=default` get the minimal local copy at
 `.shipgate/agent-contract.json`.
 
-- Latest release: `v1.2.0`
+- Latest release: `v1.3.0`
 - In-tree runtime: `1.3.0` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `42` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
@@ -4157,6 +4157,13 @@ stars (`*`, `**`, `**/*`): `Edit(**/.env.example)` names `.env.example` files
 and raises `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` when it is new
 authority (#969).
 
+`WebFetch(domain:*)` "matches every domain" and raises this check, as a bare
+`WebFetch` does; it raised `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED`
+before #1036. It is not the bare tool, since only the `domain:` form opens the
+sandbox's domain list: replacing `WebFetch` with it raises this check, and
+adding `WebFetch(domain:example.com)` beside an allowed `WebFetch` raises
+`SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED`.
+
 A wildcard grant over a read tool — `Read(**)`, `Glob`, `Grep(**)` — raises
 `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` instead. It is still an
 expansion and still reviewed, but it is not a release blocker: the agent
@@ -4234,8 +4241,17 @@ Have a human confirm the removed deny rule is no longer needed.
 It does not fire for a path-scoped `Write(...)` (or `NotebookEdit`, `Glob`,
 `MultiEdit`) rule, which Claude Code accepts and never consults (#938) — a bare
 `Write` deny still fires — for a `!` carve-out, whose removal restricts more,
-or for a rule the list still holds in its other documented spelling
-(`Bash(rm:*)` / `Bash(rm *)`). It also fires, with evidence kind
+for a rule the list still holds in its other documented spelling
+(`Bash(rm:*)` / `Bash(rm *)`), or for a rule another deny rule of the same
+file still matches entirely, such as `Bash(git push *)` replaced by
+`Bash(git *)` (#1036). A removed `ask` rule that a deny or ask rule of the file
+still matches entirely, such as `Bash(git push *)` moved from `ask` to `deny`,
+is likewise not a lifted restriction, so the file is not routed to a human for
+it. A rule moved to the other project settings file still fires: a cloud
+session reads `.claude/settings.json` and not `.claude/settings.local.json`,
+and a session started in a subdirectory reads each from a different directory.
+The [permission-rule model](host-boundary-support.md#claude-code-permission-rules)
+decides each, as it does for `diff`. It also fires, with evidence kind
 `permission_deny_carved_out`, when a `Read(!…)` or `Edit(!…)` deny rule now
 follows an earlier relative-path rule of the same tool the file already
 denied: Claude Code carves the paths it matches out of the rules listed

@@ -10,7 +10,7 @@
   },
   "decision": "allow",
   "risk_level": "none",
-  "audit_id": "agent_boundary_66bac52bc9f0ab9004b0d1b9",
+  "audit_id": "agent_boundary_ca3f11158406789fd0393721",
   "policy_version": "1",
   "summary": "The supplied input does not establish an evaluated checkout state. Re-run check against the intended worktree or with both --base and --head.",
   "changed_files": [
@@ -52,7 +52,7 @@
     "id": "agent-boundary",
     "version": "1",
     "source": "packaged_default",
-    "snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a",
+    "snapshot_sha256": "480e1cecc5c13c7f7a9bdc9d341ea74453bfc1c8dfdaeb13a96c7ba86e2658e0",
     "discovery": [
       "packaged_default:agent-boundary"
     ]
@@ -122,5 +122,5 @@
     }
   },
   "finding_fingerprints": [],
-  "policy_snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a"
+  "policy_snapshot_sha256": "480e1cecc5c13c7f7a9bdc9d341ea74453bfc1c8dfdaeb13a96c7ba86e2658e0"
 }

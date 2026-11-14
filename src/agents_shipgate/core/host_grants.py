@@ -44,10 +44,12 @@ from agents_shipgate.core.boundary_registry import (
     plugin_manifest_root,
 )
 from agents_shipgate.core.claude_permission_rules import (
+    RESTRICTION_STRICTNESS,
     carve_out_predecessors,
     carve_out_widens,
     covering_rule,
     is_carve_out,
+    restriction_holder,
     same_spelling,
     unconsulted_path_rule,
 )
@@ -122,6 +124,7 @@ from agents_shipgate.core.openshell_inputs import capture_openshell_input
 from agents_shipgate.core.permission_lattice import (
     canonical_rule,
     exec_equivalent_argument,
+    parse_rule,
     permission_pairing_group,
     scoped_risk,
     subsumes,
@@ -1442,6 +1445,44 @@ def _mcp_grants(
     return grants
 
 
+def allow_rule_rating(rule: str) -> tuple[str, str, bool]:
+    """``(access, risk, wildcard)`` of an allow rule with this text.
+
+    Not every whole-tool grant reaches the same thing. Rating `Read(**)`
+    beside `Bash(*)` put four of eight grants at `critical` on an ordinary
+    repository, and a severity column that cries critical at reading files is
+    one a reviewer stops reading (#657).
+    """
+
+    if _is_wildcard_allow(rule):
+        access, risk = whole_tool_risk(rule)
+        return access, risk, True
+    access, risk = scoped_risk(rule)
+    return access, risk, False
+
+
+_RISK_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+
+
+def lifted_restriction_risk(rule: str) -> str:
+    """The severity of a row that lifts a deny or ask rule: what it restricted (#1036).
+
+    Every deny and ask grant is rated `low`, its own authority, so a removed
+    `deny Bash(*)` printed as `low` and sorted after the additions beside it.
+    The row is rated as an allow rule of the same text is: what the rule held
+    back is handed to the remaining rules and the prompt. A `!` carve-out is
+    rated as the paths it excepts. Never below `medium`: a restriction is a
+    rule someone wrote, and a lifted `Read(./.env)` denial is not one of the
+    routine workspace reads `low` rates.
+    """
+
+    parsed = parse_rule(rule)
+    if is_carve_out(rule):
+        rule = f"{parsed.tool}({(parsed.argument or '')[1:]})"
+    _access, risk, _wildcard = allow_rule_rating(rule)
+    return risk if _RISK_ORDER.get(risk, 0) >= _RISK_ORDER["medium"] else "medium"
+
+
 def _permission_rule_grants(
     permissions: Any, *, host: str, scope: HostScope, source: str
 ) -> list[dict[str, Any]]:
@@ -1460,18 +1501,10 @@ def _permission_rule_grants(
         )
         for raw_rule in sorted(_string_entries(permissions.get(disposition))):
             rule = public_permission_rule(raw_rule)
-            wildcard = disposition == "allow" and _is_wildcard_allow(raw_rule)
-            if wildcard:
-                # Not every whole-tool grant reaches the same thing. Rating
-                # `Read(**)` beside `Bash(*)` put four of eight grants at
-                # `critical` on an ordinary repository, and a severity
-                # column that cries critical at reading files is one a
-                # reviewer stops reading (#657).
-                access, risk = whole_tool_risk(raw_rule)
-            elif disposition == "allow":
-                access, risk = scoped_risk(raw_rule)
+            if disposition == "allow":
+                access, risk, wildcard = allow_rule_rating(raw_rule)
             else:
-                access, risk = "none", "low"
+                access, risk, wildcard = "none", "low", False
             grants.append({
                 **_grant_base(
                     host=host, scope=scope, source=source, kind="permission_rule",
@@ -7731,13 +7764,17 @@ def host_grant_expansion_signals(
                 continue
             if (
                 before is not None
-                and exec_equivalent_argument(str(after.get("rule") or "")) is not None
+                and (
+                    exec_equivalent_argument(str(after.get("rule") or "")) is not None
+                    or parse_rule(str(after.get("rule") or "")).every_domain
+                )
                 and before.get("rule") == after.get("rule")
                 and before.get("config_sha256") is not None
                 and before.get("config_sha256") == after.get("config_sha256")
             ):
-                # #824 re-rates a saved declaration; unchanged bytes do not
-                # grant new authority merely because this engine rates higher.
+                # #824 and #1036 (`WebFetch(domain:*)` as the whole tool)
+                # re-rate a saved declaration; unchanged bytes do not grant
+                # new authority merely because this engine rates higher.
                 continue
             marker = "wildcard_allow" if after.get("wildcard") else "allow_rule"
             signals.append(f"{marker}_{prefix}: {after['host']}:{after['rule']}")
@@ -8011,7 +8048,8 @@ class PermissionRuleAssessment:
     Built once per comparison by :func:`permission_rule_assessment` and read by
     the drift signals, the replacement pairing and the rows, so the three
     cannot disagree. Every key is one host, source and disposition: nothing
-    here reaches across settings sources, and nothing pairs rules by likeness.
+    here reaches across settings sources (``held`` alone reads another
+    disposition of the same source), and nothing pairs rules by likeness.
 
     * ``covered`` — an added allow rule, to the allow rule the same source
       declared at the base that already matches all of it (#918, #941, #969).
@@ -8025,6 +8063,9 @@ class PermissionRuleAssessment:
       covered: the readable half of a one-to-many narrowing (#918).
     * ``respelled_pairs`` — removed and added rule spelling one grant, each the
       only such rule on its side, which a reader may print as one change.
+    * ``held`` — a removed deny or ask rule, to the deny or ask rule the same
+      source still declares that matches everything it matched, under the
+      same or a stricter disposition (#1036).
     """
 
     covered: dict[PermissionKey, str] = field(default_factory=dict)
@@ -8033,6 +8074,7 @@ class PermissionRuleAssessment:
     carve_widened: frozenset[PermissionKey] = frozenset()
     narrowed_into: dict[PermissionKey, list[str]] = field(default_factory=dict)
     respelled_pairs: tuple[tuple[PermissionKey, PermissionKey], ...] = ()
+    held: dict[PermissionKey, PermissionKey] = field(default_factory=dict)
 
     def grants_new(self, key: PermissionKey) -> bool:
         """Whether an added or changed allow rule may allow something the base did not."""
@@ -8043,13 +8085,16 @@ class PermissionRuleAssessment:
         """Whether a removed deny or ask rule leaves every restriction it imposed in place.
 
         A path rule Claude Code never consults imposed none; a carve-out only
-        excepted paths, so removing it restricts more; and a rule whose other
-        spelling the source still declares is still declared.
+        excepted paths, so removing it restricts more; a rule whose other
+        spelling the source still declares is still declared; and a rule
+        another of the source's rules still holds, as a deny rule wider than
+        it or a deny rule replacing an ask rule (#1036), restricts as before.
         """
 
         return (
             key in self.unconsulted
             or key in self.respelled
+            or key in self.held
             or (key[0] == "claude-code" and key[2] in {"deny", "ask"} and is_carve_out(key[3]))
         )
 
@@ -8143,6 +8188,22 @@ def permission_rule_assessment(
             if carve_out_widens(head_from, base_from, base[key]):
                 carve_widened.add((*key, rule))
 
+    held: dict[PermissionKey, PermissionKey] = {}
+    for key in lists:
+        if key[2] not in RESTRICTION_STRICTNESS:
+            continue
+        host, source = key[0], key[1]
+        restrictions_head = {
+            disposition: head.get((host, source, disposition), set())
+            for disposition in RESTRICTION_STRICTNESS
+        }
+        for rule in removed.get(key, {}):
+            if (*key, rule) in unconsulted or (*key, rule) in respelled:
+                continue
+            holder = restriction_holder(rule, key[2], restrictions_head)
+            if holder is not None:
+                held[(*key, rule)] = (host, source, *holder)
+
     covered: dict[PermissionKey, str] = {}
     narrowed_into: dict[PermissionKey, list[str]] = {}
     for key in lists:
@@ -8163,6 +8224,7 @@ def permission_rule_assessment(
             if not (
                 (host, source, disposition, rule) in unconsulted
                 or (host, source, disposition, rule) in respelled
+                or (host, source, disposition, rule) in held
                 or is_carve_out(rule)
             )
         } | {
@@ -8190,6 +8252,7 @@ def permission_rule_assessment(
         carve_widened=frozenset(carve_widened),
         narrowed_into={key: sorted(value) for key, value in narrowed_into.items()},
         respelled_pairs=tuple(sorted(pairs)),
+        held=held,
     )
 
 def reusable_call_target(uses: str) -> str:
