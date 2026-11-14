@@ -1119,3 +1119,20 @@ def test_mcp_loader_allows_symlink_resolving_inside_manifest_dir(tmp_path):
         project,
     )
     assert loaded.tools == []
+
+
+@pytest.mark.parametrize("method", ["DELETE", "Delete"])
+@pytest.mark.parametrize("canonical_also", [False, True])
+def test_openapi_rejects_noncanonical_method_with_actual_pointer(tmp_path, method, canonical_also):
+    import json
+
+    operation = {"operationId": "remove", "responses": {"204": {"description": "ok"}}}
+    methods = {method: operation}
+    if canonical_also:
+        methods["delete"] = operation
+    document = {"openapi": "3.0.3", "paths": {"/documents/{id}": methods}}
+    with pytest.raises(InputParseError) as exc:
+        _load_openapi_text(tmp_path, json.dumps(document))
+    assert f"/paths/~1documents~1{{id}}/{method}" in str(exc.value)
+    assert "noncanonical" in str(exc.value)
+    assert "lowercase 'delete'" in str(exc.value)
