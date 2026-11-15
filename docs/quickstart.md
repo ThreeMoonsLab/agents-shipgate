@@ -12,7 +12,7 @@ Three ways in, depending on what the pull request in front of you changes:
   this repository.
 - **Application-agent wiring without a manifest** — who receives a tool,
   what its interface or implementation changed, and where the read stops.
-  Start at [Application route in one YAML block](#application-route-in-one-yaml-block-source-only).
+  Start at [Application route in one YAML block](#application-route-in-one-yaml-block).
 
 By the end you should be able to say four things about the change under
 review, from the artifacts alone:
@@ -34,12 +34,15 @@ a manifest at all.
 
 Read this before you install. Agents Shipgate is published through more than
 one channel, and they do not all implement the same runtime contract. The
-newest published release is **`v1.2.0`**, which implements **runtime contract
-`41`**, including the agent-control envelope that later sections describe. It
+newest published release is **`v1.3.0`**, which implements **runtime contract
+`42`**, including the agent-control envelope that later sections describe. It
 ships on the advisory channel and makes no qualification claim. An older
-install may still be the previous release, `v1.1.0` (contract `40`), which has
-no `diff --application` and prints the change answer in
-[Read the answer](#3-read-the-answer) without its review guidance; `v1.0.0`
+install may still be the previous release, `v1.2.0` (contract `41`), which in
+[Read the answer](#3-read-the-answer) calls the added MCP server's launch
+source mutable rather than naming its unpinned package spec, and answers an
+`env` value edit with no change detected rather than `Changed, not compared`;
+`v1.1.0` (contract `40`), which has no `diff --application` and prints the
+change answer without its review guidance; `v1.0.0`
 (contract `39`), whose `diff` answers are flatter than the ones that section
 quotes; or `v0.15.0` (contract `10`), which predates that envelope and renders
 several steps below differently. `pipx upgrade agents-shipgate` replaces any
@@ -47,7 +50,7 @@ of them.
 
 | Channel | How you get it | Runtime contract | Has `control.*` / `current-control.json` | Accepts `check --format agent-boundary-json` | Qualification |
 | --- | --- | --- | --- | --- | --- |
-| Published release `v1.2.0` | `pipx install agents-shipgate` | 41 | Yes | Yes | **None.** Declared `advisory` in `.github/release-channels.json`; see [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 5 |
+| Published release `v1.3.0` | `pipx install agents-shipgate` | 42 | Yes | Yes | **None.** Declared `advisory` in `.github/release-channels.json`; see [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 5 |
 | Unqualified preview | `gh release download preview-<version> --repo ThreeMoonsLab/agents-shipgate --pattern '*.whl'`, then `pip install ./<wheel>` | that of the source commit it was cut from | Yes | Yes | **None**, by construction — no adjudicated corpus, no qualification artifact, nothing signed. See [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 2 |
 | Source checkout | `git clone`, then `./shipgate …` from the checkout | that of the checkout | Yes | Yes | Not a distributed build |
 
@@ -91,13 +94,12 @@ an older runtime, install the CLI with `pipx` or `uv` against a 3.12+
 interpreter rather than into the project environment — your agent project does
 not need Python 3.12 itself.
 
-## Application route in one YAML block (source only)
+## Application route in one YAML block
 
 Use this for a pull request that changes an application's agent/tool wiring.
 It needs no `shipgate.yaml`, policy or saved baseline. This Action input is
-**not in the published `v1.2.0` Action**. Replace `v<NEW>` below with the full
-reviewed commit SHA that contains this input. Leave `shipgate_version` empty
-so the Action installs the CLI from that same source.
+new in the published `v1.3.0` Action; no older Action has it. Leave
+`shipgate_version` empty so the Action installs the CLI from that same source.
 
 ```yaml
 name: Application agent review
@@ -115,7 +117,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-      - uses: ThreeMoonsLab/agents-shipgate@v<NEW>
+      - uses: ThreeMoonsLab/agents-shipgate@v1.3.0
         with:
           application: "true"
           pr_comment: "true"
@@ -192,14 +194,11 @@ as data.
 ### 3. Read the answer
 
 **Source-tree examples, not yet released:** the answers below are from this
-repository's source tree, run in a clone. The published `1.2.0` prints the
-same answers, except that its note on the added MCP server in the change
-example reads `launch source is mutable`. This tree says instead that the
-server's `npx` package spec has no exact version, and that the static read does
-not establish whether `npx` resolves a local project dependency or falls back
-to the registry or its cache, as
-[npm documents](https://docs.npmjs.com/cli/v11/commands/npm-exec#description)
-(#933). The note changes neither severity nor the widening count. On
+repository's source tree, run in a clone. The published `1.3.0` prints the
+same answers, except that it rates the removed `deny: Bash(rm -rf:*)` row of
+the change example `low`, the rating it gives every deny and ask grant. This
+tree rates a row that lifts a deny or ask rule by what the rule restricted,
+never below `medium` (#1036). On
 the remote's `main`, `.claude/settings.json` allows `Bash(npm test:*)` and denies `Bash(rm -rf:*)`,
 and `.mcp.json` configures one server, `docs`. The PR branch allows
 `Bash(npm *)`, drops the denial, and adds a `billing` server.
@@ -221,10 +220,11 @@ matcher, its timeout, and its command's executable name and digest, never the
 command's text.) A URL is printed only as its scheme
 and host with the path redacted; one the tool cannot reduce to that form, such
 as `${SLACK_MCP_BASE}/hooks/…`, reads `url not shown`. `⚠` marks an entry that
-widens what the agent may do:
+widens what the agent may do, or a workflow job's token outside any agent job,
+which the summary counts apart (#1011):
 
 ```text
-Agent capability diff  origin/main (5d1b9e23) -> working tree
+Agent capability diff  origin/main (3db015cd) -> working tree
 
 ⚠ high    added    claude-code .mcp.json
                   billing (command name npx; env keys BILLING_TOKEN)
@@ -234,7 +234,7 @@ Agent capability diff  origin/main (5d1b9e23) -> working tree
                   allow: Bash(npm test:*) → allow: Bash(npm *)
                   the new rule matches everything the old rule matched; runs without a prompt
 
-⚠ low     removed  claude-code .claude/settings.json
+⚠ medium  removed  claude-code .claude/settings.json
                   deny: Bash(rm -rf:*) → gone
                   removes a denial the agent was subject to
 
@@ -247,8 +247,8 @@ What this run established:
   .mcp.json (claude-code): compared; 1 row
 
 Review question: Does the team intend these 3 declared capability changes (from 4 rows)?
-Compared: base 5d1b9e23 → working tree at HEAD 58d2ac0c, agents-shipgate 1.2.0.
-Reproduce in that working tree: agents-shipgate diff --base 5d1b9e236525699910f4d93e334d2f4425927062
+Compared: base 3db015cd → working tree at HEAD 39a8a7b1, agents-shipgate 1.3.0.
+Reproduce in that working tree: agents-shipgate diff --base 3db015cd96dea7244dedd56309174e2998f5090d
 Permission review guidance:
 Conditional review choices only; current control permissions still apply. A PR note grants no authority.
 - Change 2: .claude/settings.json
@@ -294,7 +294,7 @@ change to ask about.
 **No change.** On a branch from `main` that only edits `README.md`:
 
 ```text
-Agent capability diff  origin/main (5d1b9e23) -> working tree
+Agent capability diff  origin/main (3db015cd) -> working tree
 
 No static host-grant changes detected. No verdict is implied.
 
@@ -302,8 +302,8 @@ What this run established:
   only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent
   compared with no change in what this entry reads: .claude/settings.json, .mcp.json
 
-Compared: base 5d1b9e23 → working tree at HEAD 0e87a139, agents-shipgate 1.2.0.
-Reproduce in that working tree: agents-shipgate diff --base 5d1b9e236525699910f4d93e334d2f4425927062
+Compared: base 3db015cd → working tree at HEAD 40cd44bd, agents-shipgate 1.3.0.
+Reproduce in that working tree: agents-shipgate diff --base 3db015cd96dea7244dedd56309174e2998f5090d
 ```
 
 That answer covers the sources both sides read, within the
@@ -387,7 +387,7 @@ as unchanged. Here `main` already carries a truncated `.cursor/mcp.json`, and
 the PR only edits `README.md`:
 
 ```text
-Agent capability diff  origin/main (69e257e6) -> working tree
+Agent capability diff  origin/main (bccf6096) -> working tree
 
 Not compared: unchanged in this change and not read, so no claim is made about them:
   cursor .cursor/mcp.json — parse_failed
@@ -398,8 +398,8 @@ What this run established:
   only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent
   compared with no change in what this entry reads: .claude/settings.json
 
-Compared: base 69e257e6 → working tree at HEAD bf9208f8, agents-shipgate 1.2.0.
-Reproduce in that working tree: agents-shipgate diff --base 69e257e6db955633bae234960f76d771174d13de
+Compared: base bccf6096 → working tree at HEAD d28f3c34, agents-shipgate 1.3.0.
+Reproduce in that working tree: agents-shipgate diff --base bccf60961c79f3bd54a5a1c35401ddeae587872b
 ```
 
 The no-change answer covers only the other sources; `--json` lists the skipped
@@ -416,8 +416,8 @@ What this run established:
   only sources this entry read or tried to read are listed, so this is not the whole change: a changed file it does not read is absent
   .mcp.json (claude-code): parse_failed in head, so the head inventory is incomplete
 
-Inputs: base 5d1b9e23 → working tree at HEAD 96079310, agents-shipgate 1.2.0.
-Reproduce in that working tree: agents-shipgate diff --base 5d1b9e236525699910f4d93e334d2f4425927062
+Inputs: base 3db015cd → working tree at HEAD a6ede392, agents-shipgate 1.3.0.
+Reproduce in that working tree: agents-shipgate diff --base 3db015cd96dea7244dedd56309174e2998f5090d
 ```
 
 This is not a pass. The block names each source that left an inventory
@@ -533,9 +533,9 @@ could not read. A link to a file conceals nothing and is not listed. Inspect
 them before interpreting an empty candidate list; the rest of the
 classification still stands.
 
-The published release `v1.2.0` (runtime contract 41) emits these host
-discovery fields, as did `v1.1.0` (contract 40) and `v1.0.0` (contract 39), the
-first release with `agents-shipgate diff`. On an older install such as `v0.15.0`, absence of the
+The published release `v1.3.0` (runtime contract 42) emits these host
+discovery fields, as did `v1.2.0` (contract 41), `v1.1.0` (contract 40) and
+`v1.0.0` (contract 39), the first release with `agents-shipgate diff`. On an older install such as `v0.15.0`, absence of the
 fields is not an empty answer, and [Review a host-configuration change](#review-a-host-configuration-change)
 is not available either: upgrade first.
 
@@ -593,13 +593,13 @@ absolute directory.
 ### 3. What changed
 
 Open `pr-comment.md` — the same text the GitHub Action posts on a pull
-request. The published `v1.2.0` release leads with the capability delta,
-by subject. The current source tree still reports what was added or changed
-when agent binding coverage is incomplete, withholds what was removed or
-narrowed, and names that limit:
+request. The published `v1.3.0` release leads with the capability delta,
+by subject. It still reports what was added or changed when agent binding
+coverage is incomplete, withholds what was removed or narrowed, and names that
+limit:
 
 ```text
-- Capability delta (analysed surface): 2 subjects across 6 changes (+1 added, 2 modified, -0 removed)
+- Capability delta (analysed surface): 2 subjects across 6 changes (+1 added, 2 modified, -0 removed); newly outside the analysed surface: unknown (comparison unavailable)
 - Top capability changes by subject:
   - `stripe.create_refund`: added action — blocks release; added tool — blocks
     release; broadened action destructive — high-risk effect destructive added;
@@ -644,13 +644,14 @@ effect evidence are compatible answers; see [effect projections and
 evidence](effect-evidence.md) for the existing JSON fields and review meaning.
 
 `report.md` carries its own coverage limit, and that limit is part of the
-answer. The published `v1.2.0` release renders this excerpt; the current
-source tree can report different reachability and pass-eligibility counts
-when binding coverage is incomplete. Read the counts from the run you made:
+answer. The published `v1.3.0` release renders this excerpt; it can report
+different reachability and pass-eligibility counts when binding coverage is
+incomplete. Read the counts from the run you made:
 
 ```text
-Evidence coverage: static (2/2 catalog tools reachable; 1 semantic review
-concern(s); 2/2 actions pass-eligible; human review recommended)
+Evidence coverage: static (1 binding evidence gap(s); 2/2 catalog tools
+reachable; 1 semantic review concern(s); 2/2 actions pass-eligible; human
+review recommended)
 ```
 
 The same boundary is repeated in `pr-comment.md`:
@@ -1078,13 +1079,13 @@ jobs:
         with:
           fetch-depth: 0
       - id: shipgate
-        uses: ThreeMoonsLab/agents-shipgate@v1.2.0
+        uses: ThreeMoonsLab/agents-shipgate@v1.3.0
         with:
           config: shipgate.yaml
           ci_mode: advisory
           diff_base: target
           pr_comment: "true"
-          shipgate_version: "1.2.0"
+          shipgate_version: "1.3.0"
 ```
 
 The action delegates to `verify` and never fetches — keep `fetch-depth: 0`.

@@ -22,6 +22,11 @@ https://code.claude.com/docs/en/permissions (read 2026-10-06):
   first it carves nothing, and it cannot reach `/`, `~/` or `//` rules.
 * #938 — "Read and Edit": a path-scoped `Write(...)` rule is accepted and
   never consulted; a bare `Write` rule is matched at the tool level.
+* #1036 — "Manage permissions": "Rules are evaluated in order: deny, then
+  ask, then allow", so a removed deny or ask rule that a deny rule, or for
+  an ask rule an ask rule, of the same source still matches entirely lifts
+  nothing. "WebFetch": `WebFetch(domain:*)` "matches every domain" and "isn't
+  the same as a bare `WebFetch` rule".
 
 The controls keep their markers: a genuinely new rule, a deny→allow move, a
 broadened pattern, and every pair the model cannot decide (shell syntax, an
@@ -452,6 +457,159 @@ CASES: dict[str, Case] = {
         changes=1, decision="require_review", violations=[DENY_REMOVED],
         signals=["deny_rule_removed: claude-code:Write"],
     ),
+    # ---- #1036: a deny or ask rule a rule of the same source still holds.
+    "1036_wider_deny": _one(
+        _settings(deny=["Bash(git push *)"]),
+        _settings(deny=["Bash(git *)"]),
+        rows=[("added", "deny: Bash(git *)", False), ("removed", "deny: Bash(git push *)", False)],
+        changes=2, decision="allow", violations=[], signals=[],
+        why={
+            "Bash(git push *)": (
+                "removes this deny rule; deny: Bash(git *), which this source still declares, "
+                "matches everything it matched, so no denial is removed"
+            ),
+        },
+    ),
+    "1036_ask_to_deny": _one(
+        _settings(ask=["Bash(git push *)"]),
+        _settings(deny=["Bash(git push *)"]),
+        rows=[("added", "deny: Bash(git push *)", False), ("removed", "ask: Bash(git push *)", False)],
+        # The same rule moved from ask to deny: one change, and no widening.
+        changes=1, decision="allow", violations=[], signals=[],
+    ),
+    "1036_ask_to_wider_deny": _one(
+        _settings(ask=["Bash(git push *)"]),
+        _settings(deny=["Bash(git *)"]),
+        rows=[("added", "deny: Bash(git *)", False), ("removed", "ask: Bash(git push *)", False)],
+        changes=2, decision="allow", violations=[], signals=[],
+        why={
+            "Bash(git push *)": (
+                "removes this ask rule; deny: Bash(git *), which this source still declares, "
+                "matches everything it matched, so what needed confirmation is now denied"
+            ),
+        },
+    ),
+    "1036_wider_ask": _one(
+        _settings(ask=["Bash(npm publish *)"]),
+        _settings(ask=["Bash(npm *)"]),
+        rows=[("added", "ask: Bash(npm *)", False), ("removed", "ask: Bash(npm publish *)", False)],
+        changes=2, decision="allow", violations=[], signals=[],
+    ),
+    # The holder is unchanged: only the head inventory knows it was there.
+    "1036_redundant_deny_removed": _one(
+        _settings(deny=["Bash(git *)", "Bash(git push *)"]),
+        _settings(deny=["Bash(git *)"]),
+        rows=[("removed", "deny: Bash(git push *)", False)],
+        changes=1, decision="allow", violations=[], signals=[],
+    ),
+    "1036_ask_under_an_unchanged_deny_removed": _one(
+        _settings(deny=["Bash(git *)"], ask=["Bash(git push *)"]),
+        _settings(deny=["Bash(git *)"]),
+        rows=[("removed", "ask: Bash(git push *)", False)],
+        changes=1, decision="allow", violations=[], signals=[],
+        why={
+            "Bash(git push *)": (
+                "removes this ask rule; deny: Bash(git *), which this source still declares, "
+                "matches everything it matched, so what needed confirmation is now denied"
+            ),
+        },
+    ),
+    "1036_whole_tool_deny_over_a_path": _one(
+        _settings(deny=["Read(./.env)"]),
+        _settings(deny=["Read"]),
+        rows=[("added", "deny: Read", False), ("removed", "deny: Read(./.env)", False)],
+        changes=2, decision="allow", violations=[], signals=[],
+    ),
+    # The ask rule is kept as a denial, so it is not a lifted restriction the
+    # covered addition could reach past: the addition adds nothing.
+    "1036_kept_restriction_leaves_a_covered_addition_covered": _one(
+        _settings(allow=["Bash(git *)"], ask=["Bash(git push *)"]),
+        _settings(allow=["Bash(git *)", "Bash(git push --force *)"], deny=["Bash(git push *)"]),
+        rows=[
+            ("added", "allow: Bash(git push --force *)", False),
+            ("added", "deny: Bash(git push *)", False),
+            ("removed", "ask: Bash(git push *)", False),
+        ],
+        changes=2, decision="allow", violations=[], signals=[],
+    ),
+    # ---- #1036 controls: each still lifts a restriction.
+    "1036_deny_to_ask_still_lifts": _one(
+        _settings(deny=["Bash(git push *)"]),
+        _settings(ask=["Bash(git push *)"]),
+        rows=[("added", "ask: Bash(git push *)", False), ("removed", "deny: Bash(git push *)", True)],
+        changes=1, joined_widenings=1, decision="require_review", violations=[DENY_REMOVED],
+        signals=["deny_rule_removed: claude-code:Bash(git push *)"],
+    ),
+    "1036_narrower_deny_still_lifts": _one(
+        _settings(deny=["Bash(git *)"]),
+        _settings(deny=["Bash(git push *)"]),
+        rows=[("added", "deny: Bash(git push *)", False), ("removed", "deny: Bash(git *)", True)],
+        changes=2, decision="require_review", violations=[DENY_REMOVED],
+        signals=["deny_rule_removed: claude-code:Bash(git *)"],
+    ),
+    # `**` is beyond the lattice: an undecided cover keeps nothing.
+    "1036_undecided_cover_still_lifts": _one(
+        _settings(deny=["Read(./secrets/a.txt)"]),
+        _settings(deny=["Read(./secrets/**)"]),
+        rows=[("added", "deny: Read(./secrets/**)", False), ("removed", "deny: Read(./secrets/a.txt)", True)],
+        changes=2, decision="require_review", violations=[DENY_REMOVED],
+        signals=["deny_rule_removed: claude-code:Read(./secrets/a.txt)"],
+    ),
+    # A `!` rule of the same list may except the removed path from the wider rule.
+    "1036_carved_cover_still_lifts": _one(
+        _settings(deny=["Read(./secrets/a.txt)"]),
+        _settings(deny=["Read(./secrets/*)", "Read(!./secrets/public.txt)"]),
+        rows=[
+            ("added", "deny: Read(!./secrets/public.txt)", False),
+            ("added", "deny: Read(./secrets/*)", False),
+            ("removed", "deny: Read(./secrets/a.txt)", True),
+        ],
+        changes=3, decision="require_review", violations=[DENY_REMOVED],
+        signals=["deny_rule_removed: claude-code:Read(./secrets/a.txt)"],
+    ),
+    # The two project files are not read in the same sessions: a cloud
+    # session reads `.claude/settings.json` and not the local file, and a
+    # session started in a subdirectory reads the local file from the
+    # repository root and the shared file from where it started. A rule moved
+    # between them is not held everywhere it was.
+    "1036_moved_to_local_still_lifts": Case(
+        base={SETTINGS: _settings(deny=["Bash(git push *)"]), LOCAL: None},
+        head={SETTINGS: _settings(), LOCAL: _settings(deny=["Bash(git push *)"])},
+        rows=[("added", "deny: Bash(git push *)", False), ("removed", "deny: Bash(git push *)", True)],
+        changes=2, decision="require_review", violations=[DENY_REMOVED],
+        signals=["deny_rule_removed: claude-code:Bash(git push *)"],
+    ),
+    "1036_moved_to_shared_still_lifts": Case(
+        base={SETTINGS: _settings(), LOCAL: _settings(deny=["Bash(git push *)"])},
+        head={SETTINGS: _settings(deny=["Bash(git push *)"]), LOCAL: _settings()},
+        rows=[("added", "deny: Bash(git push *)", False), ("removed", "deny: Bash(git push *)", True)],
+        changes=2, decision="require_review", violations=[DENY_REMOVED],
+        signals=["deny_rule_removed: claude-code:Bash(git push *)"],
+    ),
+    # ---- #1036: `WebFetch(domain:*)` is every domain, and not the bare tool.
+    "1036_every_domain_is_not_a_narrowing": _one(
+        _settings(allow=["WebFetch"]),
+        _settings(allow=["WebFetch(domain:*)"]),
+        rows=[("added", "allow: WebFetch(domain:*)", True), ("removed", "allow: WebFetch", False)],
+        changes=2, decision="block", violations=["SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW"],
+        signals=["wildcard_allow_added: claude-code:WebFetch(domain:*)"],
+        why={"WebFetch(domain:*)": "matches every target of this kind, without a prompt"},
+    ),
+    # Only a `domain:` rule adds its domain to the sandbox's lists.
+    "1036_domain_deny_not_kept_by_the_bare_tool": _one(
+        _settings(deny=["WebFetch(domain:example.com)"]),
+        _settings(deny=["WebFetch"]),
+        rows=[("added", "deny: WebFetch", False), ("removed", "deny: WebFetch(domain:example.com)", True)],
+        changes=2, decision="require_review", violations=[DENY_REMOVED],
+        signals=["deny_rule_removed: claude-code:WebFetch(domain:example.com)"],
+    ),
+    "1036_domain_allow_under_the_bare_tool_is_new": _one(
+        _settings(allow=["WebFetch"]),
+        _settings(allow=["WebFetch", "WebFetch(domain:example.com)"]),
+        rows=[("added", "allow: WebFetch(domain:example.com)", True)],
+        changes=1, decision="require_review", violations=[ALLOW_EXPANDED],
+        signals=["allow_rule_added: claude-code:WebFetch(domain:example.com)"],
+    ),
     # ---- Controls that must still widen.
     "control_genuine_new_rule": _one(
         _settings(allow=["Bash(git status)"]),
@@ -646,3 +804,38 @@ def test_974_inventory_records_what_each_carve_out_follows(tmp_path: Path) -> No
     assert grants["Read(!a)"]["carves_from"] == []
     assert grants["Read(!.env.example)"]["carves_from"] == ["Read(.env.*)"]
     assert "carves_from" not in grants["Read(.env.*)"]
+
+
+@pytest.mark.parametrize(
+    ("rule", "disposition", "head", "holder"),
+    [
+        ("Bash(git push *)", "deny", {"deny": ["Bash(git *)"]}, ("deny", "Bash(git *)")),
+        ("Bash(git push *)", "ask", {"ask": ["Bash(git *)"]}, ("ask", "Bash(git *)")),
+        # The same text first: a rule moved from ask to deny names itself.
+        ("Bash(git push *)", "ask", {"deny": ["Bash", "Bash(git push *)"]}, ("deny", "Bash(git push *)")),
+        ("Read(./secrets/a.txt)", "deny", {"deny": ["Read(./secrets/*)"]}, ("deny", "Read(./secrets/*)")),
+        ("WebFetch(domain:example.com)", "deny", {"deny": ["WebFetch(domain:*)"]}, ("deny", "WebFetch(domain:*)")),
+        ("mcp__github__create_issue", "deny", {"deny": ["mcp__github"]}, ("deny", "mcp__github")),
+        # An ask rule never holds a denial, and a narrower rule never holds a wider one.
+        ("Bash(git push *)", "deny", {"ask": ["Bash(git *)"]}, None),
+        ("Bash(git *)", "deny", {"deny": ["Bash(git push *)"]}, None),
+        # Undecided covers hold nothing.
+        ("Read(./secrets/a.txt)", "deny", {"deny": ["Read(./secrets/**)"]}, None),
+        ("Bash(git push | cat)", "deny", {"deny": ["Bash(git *)"]}, None),
+        ("WebFetch(domain:example.com)", "deny", {"deny": ["WebFetch"]}, None),
+        ("WebFetch(domain:example.evil.com)", "deny", {"deny": ["WebFetch(domain:example.*)"]}, None),
+        # A `!` rule of the holder's list may except the path, wherever it is listed.
+        ("Read(./secrets/a.txt)", "deny", {"deny": ["Read(!./secrets/b.txt)", "Read(./secrets/*)"]}, None),
+        # Claude Code matches tool names exactly, and padding is no documented spelling.
+        ("Bash(git push *)", "deny", {"deny": ["bash(git *)"]}, None),
+        ("Bash(git push *)", "deny", {"deny": ["Bash( git *)"]}, None),
+        ("Bash( git push *)", "deny", {"deny": ["Bash(git *)"]}, None),
+        # A tool-name glob is not read as a holder, and another tool holds nothing.
+        ("Bash(git push *)", "deny", {"deny": ["*"]}, None),
+        ("Read(./.env)", "deny", {"deny": ["Edit(./.env)"]}, None),
+    ],
+)
+def test_1036_restriction_holder(rule: str, disposition: str, head: dict, holder) -> None:
+    from agents_shipgate.core.claude_permission_rules import restriction_holder
+
+    assert restriction_holder(rule, disposition, head) == holder

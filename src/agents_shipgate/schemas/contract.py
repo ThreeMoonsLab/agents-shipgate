@@ -272,7 +272,8 @@ from agents_shipgate.schemas.verify_run import VERIFY_RUN_SCHEMA_VERSION
 # no row value, row count, verifier or capability-diff schema; the field
 # difference reaches the text and ``review.changes[].change``.
 # ``MINIMUM_CONTROL_CONTRACT_VERSION`` stays at 21.
-# v42 stops an empty preflight plan from minting authority (#610). Through
+# v42, shipped in 1.3.0, stops an empty preflight plan from minting authority
+# (#610). Through
 # preflight 0.5 a plan that named nothing returned the shared ``complete``,
 # whose vector grants ``merge`` and ``report_complete``, with no verifier
 # identity behind it. Preflight 0.6 carries its own control union instead:

@@ -423,6 +423,7 @@
   "tests/test_workflow_agent_launches.py": 67.8,
   "tests/test_workflow_capability_diff.py": 1.7,
   "tests/test_workflow_evidence.py": 0.1,
+  "tests/test_workflow_job_scoped_widening.py": 15.1,
   "tests/test_workflow_label_redaction.py": 46.3,
   "tests/test_workflow_step_action_references.py": 38.9,
   "tests/test_workspace_input_guard.py": 0.3,
@@ -446,6 +447,7 @@
   "tests/test_attest_approval.py": 0.2,
   "tests/test_declared_policy_pack_boundary.py": 44.3,
   "tests/test_packaged_default_policies.py": 0.2,
+  "tests/test_workflow_directory_instructions.py": 50.6,
   "tests/test_registry_drift_observation.py": 1.4
  },
  "measured_at": "cbff1ef0b101",
@@ -647,6 +649,17 @@
   },
   {
    "source": "junit",
+   "measured_at": "26bfa733b324 with issue #1011 workflow job-scoped widening increment",
+   "report_sha256": "02abdc987588809608ea8b1b742ba95a93ae93b6887191d699b62c97bb65feff",
+   "files": {
+    "tests/test_workflow_job_scoped_widening.py": 15.1
+   },
+   "case_count": 32,
+   "command": "python -m pytest tests/test_workflow_job_scoped_widening.py --junitxml=job-scoped-widening.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
    "measured_at": "ea14fe22d9 with issue #1075 manifest-bound trust roots increment",
    "report_sha256": "f5486d133ae94ed869954d701f4955f3c6dcd02ef111ca0eda191ed63e35ec5c",
    "files": {
@@ -676,6 +689,17 @@
    },
    "case_count": 9,
    "command": "python -m pytest tests/test_packaged_default_policies.py --junitxml=packaged-default-policies.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "26bfa733b324 with issue #1110 workflow-directory instruction files increment",
+   "report_sha256": "a8ac4ee259a453912d15c23829ed4094520ab526eae4a28867707e392564061a",
+   "files": {
+    "tests/test_workflow_directory_instructions.py": 50.6
+   },
+   "case_count": 23,
+   "command": "python -m pytest tests/test_workflow_directory_instructions.py --junitxml=workflow-directory-instructions.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {
