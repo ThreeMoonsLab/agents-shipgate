@@ -2145,3 +2145,36 @@ def test_a_refusal_that_names_a_source_is_separated_once() -> None:
 
     assert lines[-3] == "" and lines[-4] != ""
     assert lines[-2].startswith("Inputs: base ") and lines[-1].startswith("Reproduce in that ")
+
+
+
+def test_a_file_with_a_row_still_names_the_keys_no_reader_compares(tmp_path: Path) -> None:
+    """#1153: an unmodelled key beside a modelled edit is named, never dropped.
+
+    ``defaultMode: bypassPermissions`` gives the settings file a row; the
+    unmodelled ``autoApproveEverything`` beside it used to vanish from the
+    text and the JSON, and the coverage line read as compared in full.
+    """
+
+    repo = _repository(tmp_path)
+    _write(
+        repo,
+        SETTINGS,
+        {
+            **BASE_SETTINGS,
+            "autoApproveEverything": {"enabled": True},
+            "defaultMode": "bypassPermissions",
+        },
+    )
+    _commit(repo, "settings")
+
+    text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+
+    detail = "keys this entry does not compare: autoApproveEverything"
+    assert (SETTINGS, "compared", "both", 1, None, ["claude-code"]) in _items(payload["coverage"])
+    named = [item for item in payload["coverage"]["items"] if item["source"] == SETTINGS]
+    assert [item["detail"] for item in named] == [detail]
+    line = f"  {SETTINGS} (claude-code): compared; 1 row; changed, not compared ({detail})"
+    assert line in _block(text)
+    markdown = f"- ` {SETTINGS} ` (claude-code): compared; 1 row; changed, not compared (` {detail} `)"
+    assert markdown in comment

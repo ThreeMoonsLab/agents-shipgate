@@ -267,6 +267,11 @@ class HostComparisonCoverageItem(BaseModel):
                 raise ValueError(
                     "an unresolved hook script names its handlers and publishes no rows"
                 )
+        elif self.status == "compared" and self.detail is not None:
+            # A file's rows stand beside the keys no reader compares that moved
+            # in it (#1153).
+            if not self.rows or self.limit is not None or self.candidate is not None:
+                raise ValueError("a compared file names a detail only beside its rows")
         elif self.status in UNMODELLED_DETAIL_STATUSES and self.detail is not None:
             # A change in keys no reader compares, named (#1027).
             if self.limit is not None or self.candidate is not None or self.rows:
