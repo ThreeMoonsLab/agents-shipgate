@@ -499,8 +499,8 @@ Agents Shipgate is a static, manifest-first scanner. It is intentionally narrow:
 See [Trust model](docs/trust-model.md) and [Security policy](SECURITY.md) for
 the default local-only guarantees and the disclosure process.
 
-For support channels, the proposed 1.x maintenance policy and the release duties
-still requiring owner confirmation, see [Maintenance and support](MAINTAINERS.md).
+For support channels, the 1.x support policy and the release duties still
+requiring owner confirmation, see [Maintenance and support](MAINTAINERS.md).
 
 ## Pricing and open-source stance
 
