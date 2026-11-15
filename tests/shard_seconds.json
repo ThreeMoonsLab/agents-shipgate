@@ -446,7 +446,8 @@
   "tests/test_capability_payload_v2.py": 4.7,
   "tests/test_attest_approval.py": 0.2,
   "tests/test_declared_policy_pack_boundary.py": 44.3,
-  "tests/test_packaged_default_policies.py": 0.2
+  "tests/test_packaged_default_policies.py": 0.2,
+  "tests/test_workflow_directory_instructions.py": 50.6
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -687,6 +688,17 @@
    },
    "case_count": 9,
    "command": "python -m pytest tests/test_packaged_default_policies.py --junitxml=packaged-default-policies.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "26bfa733b324 with issue #1110 workflow-directory instruction files increment",
+   "report_sha256": "a8ac4ee259a453912d15c23829ed4094520ab526eae4a28867707e392564061a",
+   "files": {
+    "tests/test_workflow_directory_instructions.py": 50.6
+   },
+   "case_count": 23,
+   "command": "python -m pytest tests/test_workflow_directory_instructions.py --junitxml=workflow-directory-instructions.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]
