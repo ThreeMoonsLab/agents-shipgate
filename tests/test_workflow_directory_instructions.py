@@ -443,17 +443,18 @@ def _spellings(tmp_path: Path, source: str, base: str, head: str) -> dict[str, d
     return routes
 
 
-@pytest.mark.parametrize("name", ["CI.YML", "Release.Yaml"])
-def test_an_upper_case_workflow_compares_as_its_lower_case_spelling(tmp_path, name):
+def test_an_upper_case_workflow_compares_as_its_lower_case_spelling(tmp_path):
     """The reader classified `CI.YML` as a workflow and parsed it as JSON (#1143).
 
     Both inventories recorded a blocking `parse_failed`, so `diff` and
     `verify` refused the comparison with no rows. `check`'s own predicate
     skipped the name and answered `require_review` for input it could not
     read. A `write-all` widening is the same critical row and the same block
-    under either spelling.
+    under either spelling. A `.Yaml` spelling takes the same path, which the
+    parser and agreement cases above pin.
     """
 
+    name = "CI.YML"
     source = f"{WORKFLOWS}/{name}"
     routes = _spellings(tmp_path, source, READ, WRITE_ALL)
     upper = routes[source]

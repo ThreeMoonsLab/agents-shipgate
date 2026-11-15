@@ -445,9 +445,9 @@
   "tests/test_capability_definition.py": 0.2,
   "tests/test_capability_payload_v2.py": 4.7,
   "tests/test_attest_approval.py": 0.2,
-  "tests/test_declared_policy_pack_boundary.py": 44.3,
+  "tests/test_declared_policy_pack_boundary.py": 54.6,
   "tests/test_packaged_default_policies.py": 0.2,
-  "tests/test_workflow_directory_instructions.py": 50.6
+  "tests/test_workflow_directory_instructions.py": 106.4
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -699,6 +699,28 @@
    },
    "case_count": 23,
    "command": "python -m pytest tests/test_workflow_directory_instructions.py --junitxml=workflow-directory-instructions.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "42a5ed9db5 with issue #1143 workflow path predicate increment, on a loaded machine",
+   "report_sha256": "e717fd18bd4b415b653b7fa0ebda1f7038d7fb0bbfab9fc650e78b7a3d8245b6",
+   "files": {
+    "tests/test_workflow_directory_instructions.py": 106.4
+   },
+   "case_count": 33,
+   "command": "python -m pytest tests/test_workflow_directory_instructions.py --junitxml=workflow-directory-instructions.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "42a5ed9db5 with issue #1143 workflow path predicate increment, on a loaded machine",
+   "report_sha256": "4a2340b3ffa01e3354f3491d9eb1300054b3be4f054a00519dd62a1fa9a49263",
+   "files": {
+    "tests/test_declared_policy_pack_boundary.py": 54.6
+   },
+   "case_count": 27,
+   "command": "python -m pytest tests/test_declared_policy_pack_boundary.py --junitxml=declared-packs.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]
