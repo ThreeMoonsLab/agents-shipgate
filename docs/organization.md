@@ -218,8 +218,8 @@ agents-shipgate registry summary --registry .agents-shipgate/registry.jsonl --js
 agents-shipgate registry verify --registry .agents-shipgate/registry.jsonl --json
 ```
 
-The bypass report lists rows where `merge_verdict != "mergeable"` and the
-attestation does not carry satisfied human acknowledgement. It exits `0` by
+The bypass report lists attestation rows where `merge_verdict != "mergeable"`
+and the attestation does not carry satisfied human acknowledgement. It exits `0` by
 default so scheduled jobs can archive the report; pass `--fail-on-bypass` when
 CI should exit `20` if `bypass_count > 0`. Both `registry query --json` and
 `registry report --bypass --json` include `skipped_count` and `skipped_rows[]`
@@ -227,6 +227,13 @@ for malformed ledger lines. `registry summary --json` answers fleet-level
 counts by repo/service/tier/verdict plus bypass, trust-root, policy-weakening,
 and human-acknowledgement counts. `registry verify --json` checks row IDs,
 duplicates, malformed rows, and optional per-repo hash-chain links.
+
+The same ledger can hold a second row kind: `registry ingest --observation`
+records one scheduled `audit --host --drift` comparison (and optionally the
+same run's `capability diff`) as a `drift_observation` row, chained with the
+attestation rows of its repository, and `registry report --drift` reads them
+back with the runs that found drift and the gaps between runs. See
+[post-approval monitoring](post-approval-monitoring.md).
 
 Build one compact artifact for CI upload or future read-only hosted ingestion:
 
