@@ -41,7 +41,7 @@ Latest published release: `v1.3.0`.
 
 | Version | Fix and upgrade path |
 | --- | --- |
-| 1.3.x, the latest 1.x minor | Supported. Best-effort security and correctness fixes ship in 1.3 patch releases, under the compatibility contract in [STABILITY.md](STABILITY.md). Report against, and validate a fix on, the latest 1.3 patch. |
+| 1.3.x, the latest 1.x minor | Supported. Best-effort security and correctness fixes ship in patch releases of this minor, under the compatibility contract in [STABILITY.md](STABILITY.md). Report against, and validate a fix on, its latest patch. |
 | 1.0.x, 1.1.x and 1.2.x, the older 1.x minors | Not supported. Upgrade to the latest 1.x minor; fixes are not backported. |
 | 0.x | Not supported. Follow the published migration route to 1.x; no further 0.x maintenance is promised. |
 | Previews, release candidates and source checkouts | Development channels with no stable support promise. Report the exact version or commit and the channel. |

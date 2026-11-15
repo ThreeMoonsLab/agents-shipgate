@@ -6,9 +6,8 @@ from the commitments still awaiting acceptance.
 owner confirmations and recovery exercise;
 [#572](https://github.com/ThreeMoonsLab/agents-shipgate/issues/572) retains the
 release decision. Publishing this document supplies none of those confirmations.
-The [1.x support policy](#support-by-release-line) is the one commitment here
-the owner has accepted (2026-11-15, in
-[#1156](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1156)).
+The owner accepted the [1.x support policy](#support-by-release-line) on
+2026-11-15, in [#1156](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1156).
 
 ## Responsibilities
 
