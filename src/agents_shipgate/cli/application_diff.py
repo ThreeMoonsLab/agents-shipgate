@@ -1348,10 +1348,69 @@ def _meaning(binding: dict[str, Any]) -> dict[str, Any]:
     } | {"implementation_sha256": binding.get("definition", {}).get("implementation_sha256")}
 
 
+def _compared_meanings(
+    before: dict[str, Any], after: dict[str, Any], target_moves: dict[str, str] | None = None
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Both sides' compared meanings; a handoff target moved by the change is read at its new path."""
+
+    before_meaning = _meaning(before)
+    if "target_source" in before_meaning:
+        path = before_meaning["target_source"]
+        before_meaning["target_source"] = (target_moves or {}).get(path, path)
+    return before_meaning, _meaning(after)
+
+
+def _differs(
+    before: dict[str, Any], after: dict[str, Any], target_moves: dict[str, str] | None = None
+) -> bool:
+    """Whether a binding read on both sides reads differently: the one test of a difference.
+
+    Anything that tiers candidates asks this, so a row and a tier never
+    disagree on what differs (#1146).
+    """
+
+    before_meaning, after_meaning = _compared_meanings(before, after, target_moves)
+    return before_meaning != after_meaning
+
+
+def _unread_implementation(binding: dict[str, Any]) -> bool:
+    """A callable whose implementation was not read: its missing digest is no reading."""
+
+    return "definition" in binding and binding["definition"].get("implementation_sha256") is None
+
+
+def _reads_the_same(
+    before: dict[str, Any], after: dict[str, Any], target_moves: dict[str, str] | None = None
+) -> bool:
+    """Both sides were read, and read the same: not a candidate change (#1146).
+
+    However uncertain its agent is, such a binding is not a row; what is not
+    established about it is said once, for its agent, in ``read_same``. Equal
+    meanings whose implementation was read on neither side are not this: the
+    body may have changed unseen, so that binding stays a candidate row.
+    """
+
+    return not (
+        _differs(before, after, target_moves)
+        or _unread_implementation(before)
+        or _unread_implementation(after)
+    )
+
+
 def compare(
     base: Observations, head: Observations, *, target_moves: dict[str, str] | None = None
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The rows, and per agent the bindings that read the same but are not established.
+
+    A binding that reads the same on both sides (``_reads_the_same``) is never
+    a row. When a reason makes it uncertain, which is every binding of an agent
+    whose construction or callers were not read in full, it is named in the
+    second list, one entry per agent with every such tool and the union of
+    their reasons, so the doubt is stated once and not as a change per tool.
+    """
+
     rows = []
+    same: dict[tuple[str, str], dict[str, Any]] = {}
     moves = target_moves or {}
     old_agents = {(moves.get(path, path), name) for path, name in base.agents}
     new_agents = set(head.agents)
@@ -1405,20 +1464,18 @@ def compare(
             if present:
                 uncertainty["base"] = present
         else:
-            before_meaning = _meaning(before)
-            if "target_source" in before_meaning:
-                path = before_meaning["target_source"]
-                before_meaning["target_source"] = (target_moves or {}).get(path, path)
+            before_meaning, after_meaning = _compared_meanings(before, after, target_moves)
+            differs = _differs(before, after, target_moves)
             for side, value in (("base", before), ("head", after)):
                 if "definition" in value and value["definition"]["implementation_sha256"] is None:
                     uncertainty[side] = ["The bound callable's implementation could not be read."]
             # Only the condition it is bound under changed (#909): a change,
             # stated as one, whose direction is not established.
-            only_condition = before_meaning != _meaning(after) and (
-                {**before_meaning, "bound_when": None} == {**_meaning(after), "bound_when": None}
+            only_condition = differs and (
+                {**before_meaning, "bound_when": None} == {**after_meaning, "bound_when": None}
             )
-            only_settings = before_meaning != _meaning(after) and (
-                {**before_meaning, "agent_settings": None} == {**_meaning(after), "agent_settings": None}
+            only_settings = differs and (
+                {**before_meaning, "agent_settings": None} == {**after_meaning, "agent_settings": None}
             )
             if only_condition:
                 # A part of the list that was not read may hold the tool some
@@ -1427,7 +1484,7 @@ def compare(
                     reasons = observed.absence_gaps(key, side_moves)
                     if reasons:
                         uncertainty.setdefault(side, []).extend(reasons)
-            if before_meaning != _meaning(after):
+            if differs:
                 # A factory value this read cannot name moved with the code
                 # around it: a candidate change, not an established one.
                 for side, value in (("base", before), ("head", after)):
@@ -1438,7 +1495,19 @@ def compare(
                 reasons = observed.tool_gaps(key)
                 if reasons:
                     uncertainty.setdefault(side, []).extend(reasons)
-            if before_meaning == _meaning(after) and not uncertainty:
+            if _reads_the_same(before, after, target_moves):
+                # It reads the same on both sides: no candidate change, so no
+                # row whatever its agent's doubt (#1146). The doubt is kept
+                # once, for the agent.
+                if uncertainty:
+                    entry = same.setdefault(
+                        key[:2],
+                        {"agent": key[1], "agent_source": key[0], "tools": [], "uncertainty": {}},
+                    )
+                    entry["tools"].append(key[2])
+                    for side, reasons in uncertainty.items():
+                        known = entry["uncertainty"].setdefault(side, [])
+                        known.extend(reason for reason in reasons if reason not in known)
                 continue
         candidate_change = kind
         if uncertainty:
@@ -1483,7 +1552,16 @@ def compare(
                 ),
             }
         )
-    return rows
+    read_same = [
+        {
+            **entry,
+            "uncertainty": {
+                side: entry["uncertainty"][side] for side in ("base", "head") if side in entry["uncertainty"]
+            },
+        }
+        for entry in same.values()
+    ]
+    return rows, read_same
 
 
 def _align_exact_moves(
@@ -2124,11 +2202,13 @@ def _compare_scopes(
         _unobserved_agent_gaps(
             old, new, scratch / "base" / old_scope, scratch / "head" / scope, target_moves
         )
-        rows = compare(old, new, target_moves=target_moves)
+        rows, read_same = compare(old, new, target_moves=target_moves)
         for row in rows:
             row["before"] = _published_binding(row["before"], old_scope)
             row["after"] = _published_binding(row["after"], scope)
-    status = "partial" if "partial" in {old.status, new.status} else "compared"
+    # A binding that reads the same but is not established is not a no-change
+    # result for its agent (#1146).
+    status = "partial" if "partial" in {old.status, new.status} or read_same else "compared"
     if not old.agents and not new.agents and status == "compared":
         status = "not_established"
     return {
@@ -2143,6 +2223,9 @@ def _compare_scopes(
         "options": {"max_python_files": max_python_files, "max_python_bytes": MAX_PYTHON_BYTES},
         "source_correspondence": moves,
         "rows": rows,
+        # Present only when an agent has such bindings, so an answer without
+        # them is the one it was.
+        **({"read_same": read_same} if read_same else {}),
         "limits": list(_LIMITS),
     }
 
@@ -2216,6 +2299,12 @@ def _combined(
             ),
         }
 
+    # Spelled from the repository root, as the combined rows are.
+    read_same = [
+        {**entry, "agent_source": _location(item["head"]["scope"], entry["agent_source"])}
+        for item in comparisons
+        for entry in item.get("read_same", [])
+    ]
     return {
         "application_comparison_schema_version": SCHEMA_VERSION,
         "comparison_status": status,
@@ -2240,6 +2329,7 @@ def _combined(
             for item in comparisons
             for row in item["rows"]
         ],
+        **({"read_same": read_same} if read_same else {}),
         "comparisons": comparisons,
         "scope_selection": scope_selection,
         "limits": list(_LIMITS),

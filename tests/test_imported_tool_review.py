@@ -58,6 +58,21 @@ def _constructor_candidate(result, agent, tool, direction, *, repo, source, reas
     return row
 
 
+def _reads_the_same(result, agent, tool, *, reason=None):
+    """An unchanged binding of an uncertain agent is no row: its agent names it once (#1146)."""
+    assert result["comparison_status"] == "partial"
+    assert not [row for row in result["rows"] if row["agent"] == agent and row["tool"] == tool]
+    entry, = [item for item in result["read_same"] if item["agent"] == agent]
+    assert tool in entry["tools"]
+    stated = [value for values in entry["uncertainty"].values() for value in values]
+    assert stated
+    reasons = [gap["reason"] for side in ("base", "head") for gap in result[side]["coverage_gaps"]]
+    assert any("constructor identity is not established" in value for value in reasons)
+    if reason is not None:
+        assert any(reason in value for value in reasons)
+    return entry
+
+
 def test_sdk_two_definitions_under_one_name_bind_neither(repo):
     agent = "from agents import Agent\nimport billing, support\n\nagent = Agent(name='app', tools=TOOLS)\n"
     base = commit(
@@ -668,7 +683,19 @@ def test_a_guessed_definition_is_never_an_established_row(repo, rebinding):
     head = commit(repo, {"agent.py": source.replace("BODY", "__import__('os').system(q)")})
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
-    assert _rows(result) == [("app", "lookup", "not_established")]
+    if rebinding.startswith("if "):
+        # The definition read is the conditional one, the same on both sides:
+        # no row. Which definition is bound is the doubt, stated once for the
+        # agent with both lines (#1146).
+        assert _rows(result) == []
+        entry = _reads_the_same(result, "app", "lookup")
+        assert any(
+            "'lookup' is bound more than once in agent.py (lines 4, 9)" in value
+            for values in entry["uncertainty"].values()
+            for value in values
+        )
+    else:
+        assert _rows(result) == [("app", "lookup", "not_established")]
 
 
 # -- Round 4 --------------------------------------------------------------------
@@ -692,9 +719,8 @@ def test_a_guessed_binding_is_never_an_established_addition_or_removal(repo, dir
     assert result["comparison_status"] == "partial"
     _constructor_candidate(result, "app", "lookup", direction, repo=repo, source="agent.py",
                            reason="'lookup' is bound more than once")
-    _constructor_candidate(result, "app", "other", "changed", repo=repo, source="agent.py",
-                           reason="executable or reflective machinery")
-    assert _rows(result) == [("app", "lookup", "not_established"), ("app", "other", "not_established")]
+    _reads_the_same(result, "app", "other", reason="executable or reflective machinery")
+    assert _rows(result) == [("app", "lookup", "not_established")]
 
 
 def test_a_guessed_name_keeps_the_agents_other_findings_in_scan(tmp_path):
@@ -866,10 +892,8 @@ def test_an_import_fallback_does_not_hide_the_agents_other_changes(repo, directi
     head = commit(repo, {"agent.py": with_delete if direction == "added" else without})
     result = run(repo, base, head)
     _constructor_candidate(result, "app", "delete_customer_account", direction, repo=repo, source="agent.py")
-    _constructor_candidate(result, "app", "search", "changed", repo=repo, source="agent.py",
-                           reason="'search' is bound more than once")
-    assert _rows(result) == [("app", "delete_customer_account", "not_established"),
-                             ("app", "search", "not_established")]
+    _reads_the_same(result, "app", "search", reason="'search' is bound more than once")
+    assert _rows(result) == [("app", "delete_customer_account", "not_established")]
 
 
 @pytest.mark.parametrize(
@@ -2192,7 +2216,7 @@ def test_namespace_reads_in_the_chain_are_not_patches(repo, files):
         assert _rows(result) == [("x", "refund", "added")]
     else:
         _constructor_candidate(result, "x", "refund", "added", repo=repo, source="svc/app/tools.py")
-        _constructor_candidate(result, "x", "lookup", "changed", repo=repo, source="svc/app/tools.py")
+        _reads_the_same(result, "x", "lookup")
         assert any("reflective namespace access" in gap["reason"]
                    or "builtin or dynamic import machinery" in gap["reason"]
                    or "unread class construction hook" in gap["reason"]
@@ -2522,10 +2546,8 @@ def test_the_real_readers_still_read(repo, reader, established):
         # Library readers still lack retained-namespace proof. Readable
         # initializer members are candidates, never established bindings.
         assert result["comparison_status"] == "partial"
-        assert _rows(result) == [
-            ("agent", "execute", "not_established"),
-            ("agent", "lookup", "not_established"),
-        ]
+        assert _rows(result) == [("agent", "execute", "not_established")]
+        _reads_the_same(result, "agent", "lookup")
         assert all(row["uncertainty"] for row in result["rows"])
         assert next(row for row in result["rows"] if row["tool"] == "execute")["candidate_change"] == "added"
         assert any("dynamic tools expression" in gap["reason"] for gap in result["head"]["coverage_gaps"])
@@ -2547,4 +2569,8 @@ def test_a_lazy_hook_importing_another_submodule_under_the_name_is_not_the_idiom
     head = commit(repo, {"pkg/alternate.py": "def remember(q: str) -> str:\n    return q.upper()\n"})
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
-    assert _rows(result) == [("x", "remember", "not_established")]
+    # The definition read, pkg/memory.py's, is the same on both sides; whether
+    # the agent holds it or the lazily imported one is stated for the agent.
+    assert _rows(result) == []
+    entry, = result["read_same"]
+    assert (entry["agent"], entry["tools"]) == ("x", ["remember"])

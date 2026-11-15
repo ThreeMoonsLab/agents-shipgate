@@ -8,11 +8,13 @@ finding per changed agent, the first thing not read, one line per shared
 cause, and a question specific to what changed.
 
 It is presentation. It reads a finished payload and changes nothing in it: no
-status, row, direction, gap or exit code. Nothing it says is absent from a row,
-and every statement names the rows (by index into ``rows``) it summarizes. A
-statement that something was not read is never dropped to shorten a line:
-a finding with an unresolved binding or an unread reach is ``partial``, and the
-full list stays in the rows.
+status, row, direction, gap or exit code. Nothing it says is absent from a row
+or from ``read_same`` (an agent's bindings that read the same on both sides but
+are not established, which are not rows: #1146), and every statement about a
+change names the rows (by index into ``rows``) it summarizes. A statement that
+something was not read is never dropped to shorten a line: a finding with an
+unresolved binding, an unread reach or a binding that reads the same but is
+not established is ``partial``, and the full list stays in the payload.
 
 The text and the JSON ``summary`` block are one content model. ``summary_lines``
 renders the block and nothing else, so another renderer (the PR comment) can
@@ -114,13 +116,24 @@ def _params(binding: dict[str, Any]) -> list[str]:
 
 
 def _what_changed(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
-    """What differs between a tool's two sides, in the words a reviewer uses."""
+    """What differs between a tool's two sides, in the words a reviewer uses.
+
+    Every part of a binding's compared meaning (``_meaning`` in
+    ``application_diff``) that can differ between two sides of one binding is
+    named here, and so is an implementation read on neither side. Nothing is a
+    change for a reason this cannot state: a binding that reads the same on
+    both sides is not a row (#1146), so an empty answer for a row is a bug,
+    and a test holds every row to a non-empty one.
+    """
 
     changes: list[str] = []
     old = (before.get("definition") or {}).get("implementation_sha256")
     new = (after.get("definition") or {}).get("implementation_sha256")
     if old != new:
         changes.append("implementation changed")
+    elif old is None and "definition" in before and "definition" in after:
+        # No digest on either side is no reading: the body may have changed.
+        changes.append("implementation not read on either side; whether it changed is not established")
     if any(before.get(key) != after.get(key) for key in ("signature", "input_schema", "output_schema")):
         added = [name for name in _params(after) if name not in _params(before)]
         removed = [name for name in _params(before) if name not in _params(after)]
@@ -143,7 +156,9 @@ def _what_changed(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
             if identity_before.get(key) != identity_after.get(key)
         )
         changes.append("tool object changed" + (f" ({', '.join(keys)})" if keys else ""))
-    return changes or ["binding details changed"]
+    if before.get("edge_type") != after.get("edge_type"):
+        changes.append(f"bound as {before.get('edge_type')} → {after.get('edge_type')}")
+    return changes
 
 
 def _reach_items(binding: dict[str, Any]) -> list[dict[str, Any]]:
@@ -465,6 +480,21 @@ def _place(text: str) -> str | None:
     return found.group(0) if found else None
 
 
+def _read_same(entry: dict[str, Any]) -> dict[str, Any]:
+    """One agent's bindings that read the same on both sides but are not established (#1146)."""
+
+    reasons = [reason for _side, items in sorted(entry["uncertainty"].items()) for reason in items]
+    first = _first_named(reasons)
+    return {
+        "count": len(entry["tools"]),
+        "tools": list(entry["tools"]),
+        "sides": sorted(entry["uncertainty"]),
+        "reasons": len(set(reasons)),
+        "first": first,
+        "at": _place(first),
+    }
+
+
 def build_summary(payload: dict[str, Any]) -> dict[str, Any]:
     """The reviewer-first block for a finished comparison payload."""
 
@@ -503,9 +533,15 @@ def build_summary(payload: dict[str, Any]) -> dict[str, Any]:
         for pattern in patterns
     ]
 
-    # Reasons already stated elsewhere in the output: by a row, or as a
-    # scope limit under the scope line.
+    # Bindings that read the same on both sides, which are not rows, by agent:
+    # their doubt is stated once, on the agent (#1146).
+    same = {(entry["agent_source"], entry["agent"]): entry for entry in payload.get("read_same") or []}
+
+    # Reasons already stated elsewhere in the output: by a row, by the
+    # statement about bindings that read the same, or as a scope limit under
+    # the scope line.
     tied = {reason for row in rows for reasons in row["uncertainty"].values() for reason in reasons}
+    tied |= {reason for entry in same.values() for reasons in entry["uncertainty"].values() for reason in reasons}
     tied |= set((payload.get("scope_selection") or {}).get("limits") or [])
     by_agent: dict[str | None, list[tuple[str, str]]] = {}
     for side, agent, reason in _side_gaps(payload):
@@ -528,6 +564,7 @@ def build_summary(payload: dict[str, Any]) -> dict[str, Any]:
         ]
         own = sorted({cause for _, cause, _ in reasons_here})
         observed = rows[idxs[0]]["after"] or rows[idxs[0]]["before"] or {}
+        read_same = _read_same(same[(source, name)]) if (source, name) in same else None
         first: dict[str, Any] | None = None
         if reasons_here:
             # A reason that names a place is a hop; one that does not is the
@@ -538,6 +575,8 @@ def build_summary(payload: dict[str, Any]) -> dict[str, Any]:
             first = {"kind": "binding", "text": reason, "row": index}
         elif limits:
             first = {"kind": "agent", "text": _first_named([reason for _, reason in limits]), "row": None}
+        elif read_same is not None:
+            first = {"kind": "agent", "text": read_same["first"], "row": None}
         else:
             hopped = next((e for e in entries if "unresolved" in e), None)
             if hopped is not None:
@@ -565,6 +604,8 @@ def build_summary(payload: dict[str, Any]) -> dict[str, Any]:
                 "sides": sorted({side for side, _ in limits}),
                 "first": _first_named([reason for _, reason in limits]),
             }
+        if read_same is not None:
+            finding["read_same"] = read_same
         findings.append(finding)
 
     effects = Counter(
@@ -590,6 +631,14 @@ def build_summary(payload: dict[str, Any]) -> dict[str, Any]:
             if agent not in claimed
         ],
     }
+    # An agent with no row states its bindings that read the same here, once.
+    unclaimed = [
+        {"agent": entry["agent"], "agent_source": entry["agent_source"], **_read_same(entry)}
+        for key, entry in same.items()
+        if key not in order
+    ]
+    if unclaimed:
+        summary["read_same"] = unclaimed
     if unestablished:
         summary["question"] = (
             f"Resolve the named causes before treating the {unestablished} candidate "
@@ -651,6 +700,19 @@ def _effects_line(effects: list[dict[str, Any]]) -> str | None:
     return "effect evidence " + ", ".join(
         f"{item['count']} {item['effect']} ({EFFECT_EVIDENCE_LABELS.get(item['status'], item['status'])})"
         for item in effects
+    )
+
+
+def _read_same_line(agent: str, item: dict[str, Any]) -> str:
+    """Bindings that read the same but are not established, as one statement about their agent."""
+
+    one = item["count"] == 1
+    more = item["reasons"] - 1
+    return (
+        f"{_plural(item['count'], 'binding')} read{'s' if one else ''} the same on both sides "
+        f"({_names(item['tools'])}); whether {agent} holds {'it' if one else 'them'} unchanged "
+        f"is not established: {item['first']}"
+        + (f" (and {_plural(more, 'more reason')})" if more else "")
     )
 
 
@@ -737,6 +799,8 @@ def finding_lines(finding: dict[str, Any], *, qualify: bool = False, full: bool 
             + (f"; still reaching {', '.join(still[:3])}" + (f", and {len(still) - 3} more" if len(still) > 3 else "") if still else "")
             + (f"; reach not read in full for {unread}" if unread else "")
         )
+    if "read_same" in finding:
+        lines.append("  " + _read_same_line(finding["agent"], finding["read_same"]))
     if "agent_limits" in finding:
         limits = finding["agent_limits"]
         lines.append(
@@ -772,6 +836,22 @@ def summary_lines(summary: dict[str, Any]) -> list[str]:
     if len(summary["findings"]) > MAX_FINDINGS_FULL:
         more = len(summary["findings"]) - MAX_FINDINGS_FULL
         lines.append(f"{_plural(more, 'more agent')}: tool lines and questions are in --json summary.findings.")
+    unclaimed = summary.get("read_same") or []
+    if unclaimed:
+        # Agents with no row: what reads the same on them is not a change,
+        # and not established either (#1146).
+        bindings = sum(item["count"] for item in unclaimed)
+        lines.append(
+            f"Read the same, not established: {_plural(bindings, 'binding')} on "
+            f"{_plural(len(unclaimed), 'agent')} with no row."
+        )
+        same_names = Counter(item["agent"] for item in unclaimed)
+        for item in unclaimed[:MAX_FINDINGS_FULL]:
+            name = item["agent"] + (f" ({item['agent_source']})" if same_names[item["agent"]] > 1 else "")
+            lines.append("  " + _read_same_line(name, item))
+        if len(unclaimed) > MAX_FINDINGS_FULL:
+            more = len(unclaimed) - MAX_FINDINGS_FULL
+            lines.append(f"  and {_plural(more, 'more agent')} (see --json summary.read_same)")
     causes = summary["causes"]
     if causes:
         unestablished = total["not_established"]
