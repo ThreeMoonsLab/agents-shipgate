@@ -36,8 +36,8 @@ from agents_shipgate.core.boundary_diff import (
     parse_unified_diff,
 )
 from agents_shipgate.core.boundary_registry import (
-    boundary_adapters_for_path,
     is_agent_boundary_path,
+    is_github_workflow_path,
 )
 from agents_shipgate.core.claude_permission_rules import (
     carve_out_predecessors,
@@ -1382,17 +1382,16 @@ def is_host_boundary_path(path: str) -> bool:
     return is_agent_boundary_path(path)
 
 
-def _has_boundary_adapter(path: str, adapter_id: str) -> bool:
-    return any(item.id == adapter_id for item in boundary_adapters_for_path(path))
-
-
 def _is_workflow_path(path: str) -> bool:
-    if not (path.endswith(".yml") or path.endswith(".yaml")):
-        return False
-    if not _has_boundary_adapter(path, "shared"):
-        # Nested copies (samples/x/.github/workflows/…) never execute;
-        # see the root-anchoring note above.
-        return False
-    remainder = path[len(".github/workflows/") :]
-    # GitHub only runs workflows directly inside .github/workflows/.
-    return bool(remainder) and "/" not in remainder
+    """Whether `check` evaluates ``path`` as a workflow GitHub runs (#1143).
+
+    The reader's one predicate, so `check` evaluates exactly the documents
+    the host comparison reads as workflows: a `.yml` or `.yaml` directly in
+    the root `.github/workflows/`, case-folded. A nested copy never runs (see
+    the root-anchoring note above). Matching the `shared` adapter is not
+    enough: it also enumerates `policies/*.shipgate.yaml`, and testing what
+    followed the first 18 characters for a `/` read every policy pack as a
+    workflow, so a pack with a `permissions` key was blocked as one.
+    """
+
+    return is_github_workflow_path(path)

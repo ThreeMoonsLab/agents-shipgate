@@ -300,6 +300,99 @@ def test_verify_publishes_the_boundary_row_check_publishes(tmp_path: Path) -> No
     assert [item["evidence"]["trust_root_class"] for item in touched] == ["policy"]
 
 
+# --- a pack is never read as a GitHub workflow (#1143) ---------------------------
+
+
+#: A pack the trust-root table protects by name. The boundary registry's
+#: `shared` adapter enumerates `policies/*.shipgate.yaml` too.
+TABLE_PACK = "policies/org.shipgate.yaml"
+TABLE_EVIDENCE = {"kind": "protected_surface_unclassified"}
+#: Keys a GitHub workflow document carries, and a pack that does not parse.
+#: `check` raised a workflow rule for each of them on a pack.
+WORKFLOW_SHAPED_EDITS = {
+    "write-all": "permissions: write-all\n",
+    "scoped-write": "permissions:\n  contents: write\n",
+    "pull-request-target": "on: pull_request_target\n",
+    "malformed": "rules: [unclosed\n",
+}
+
+
+def _edit_table_pack(repo: Path, edit: str | None) -> None:
+    """Commit an ordinary edit to the pack (``None``), or its text plus ``edit``."""
+
+    path = repo / TABLE_PACK
+    _write_pack(path, version="2" if edit is None else "1")
+    if edit is not None:
+        path.write_text(path.read_text(encoding="utf-8") + edit, encoding="utf-8")
+    _commit(repo, "edit the pack")
+
+
+@pytest.fixture(scope="module")
+def ordinary_table_pack_edit(tmp_path_factory) -> dict:
+    """`check` on an ordinary edit to the pack: the route any pack edit takes."""
+
+    repo = _repo(tmp_path_factory.mktemp("ordinary-pack"), TABLE_PACK, declared=False)
+    _edit_table_pack(repo, None)
+    return _check(repo, "--base", "main", "--head", "HEAD")
+
+
+@pytest.mark.parametrize("edit", sorted(WORKFLOW_SHAPED_EDITS))
+def test_a_pack_with_workflow_keys_keeps_its_own_route(
+    tmp_path: Path, edit: str, ordinary_table_pack_edit: dict
+) -> None:
+    """`check` read every `policies/*.shipgate.yaml` as a GitHub workflow (#1143).
+
+    Its workflow predicate tested the suffix, a `shared` adapter match and
+    whether what followed the first 18 characters held a `/`, never the
+    `.github/workflows/` prefix. So a pack with a top-level
+    `permissions: write-all` was blocked by `HOST-WORKFLOW-WRITE-ALL`, and a
+    malformed pack got `HOST-CONFIG-PARSE-FAILED` as a workflow that did not
+    parse. The workflow rule then displaced the pack's own protected-surface
+    row. A pack now gets what any edit to it gets.
+    """
+
+    repo = _repo(tmp_path, TABLE_PACK, declared=False)
+    _edit_table_pack(repo, WORKFLOW_SHAPED_EDITS[edit])
+
+    shaped = _check(repo, "--base", "main", "--head", "HEAD")
+
+    assert [
+        item["id"]
+        for item in shaped["violations"]
+        if item["id"].startswith(("HOST-WORKFLOW-", "HOST-CONFIG-"))
+    ] == []
+    assert _rows(shaped) == _rows(ordinary_table_pack_edit) == {TABLE_PACK: TABLE_EVIDENCE}
+    for key in ("violations", "finding_fingerprints", "decision", "host_coverage", "affected_hosts"):
+        assert shaped[key] == ordinary_table_pack_edit[key], key
+    _assert_routed_to_review(shaped)
+
+
+def test_verify_publishes_the_packs_own_row_for_workflow_keys(tmp_path: Path) -> None:
+    """Full `verify` published the same workflow rule, and it blocked the release (#1143).
+
+    `checks/host_boundary.py` publishes every `HOST-*` violation from the
+    boundary assessment as a finding, and `HOST-WORKFLOW-WRITE-ALL` is a
+    `block` rule. The report now carries the pack's own row, as `check` does.
+    """
+
+    repo = _repo(tmp_path, TABLE_PACK, declared=False)
+    _edit_table_pack(repo, WORKFLOW_SHAPED_EDITS["write-all"])
+
+    check_rows = [
+        (row["check_id"], row["path"], row["evidence"])
+        for row in _check(repo, "--base", "main", "--head", "HEAD")["violations"]
+    ]
+    findings = _verify_findings(repo, tmp_path / "out")
+    boundary = [item for item in findings if item["category"] == "host_boundary"]
+
+    assert [
+        (item["check_id"], item["source"]["path"], item["evidence"]) for item in boundary
+    ] == check_rows == [
+        ("SHIP-AGENT-BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED", TABLE_PACK, TABLE_EVIDENCE)
+    ]
+    assert not any(item["blocks_release"] for item in boundary)
+
+
 # --- the one resolution --------------------------------------------------------
 
 
