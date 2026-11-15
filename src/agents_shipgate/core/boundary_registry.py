@@ -28,6 +28,27 @@ class BoundaryAdapterSpec:
         )
 
 
+#: The workflow documents GitHub runs: a `.yml` or `.yaml` file directly in
+#: the repository root's `.github/workflows/`. The shared adapter enumerates
+#: them through these globs; its `**/` globs add the nested copies, which
+#: never run.
+GITHUB_WORKFLOW_GLOBS = (".github/workflows/*.yml", ".github/workflows/*.yaml")
+
+
+def is_github_workflow_path(path: str) -> bool:
+    """Whether ``path`` is a workflow document GitHub runs (#1110).
+
+    Exactly what :data:`GITHUB_WORKFLOW_GLOBS` match, folding case as every
+    predicate here does. Nothing else under `.github/workflows/` is a
+    workflow, a file in a subdirectory included: an `AGENTS.md` or
+    `CLAUDE.md` there is an instruction file its own adapter enumerates, as
+    it would be in any other directory.
+    """
+
+    normalized = path.replace("\\", "/").removeprefix("./")
+    return any(glob_match_ci(pattern, normalized) for pattern in GITHUB_WORKFLOW_GLOBS)
+
+
 BOUNDARY_ADAPTERS: tuple[BoundaryAdapterSpec, ...] = (
     BoundaryAdapterSpec(
         id="openshell",
@@ -100,8 +121,7 @@ BOUNDARY_ADAPTERS: tuple[BoundaryAdapterSpec, ...] = (
             "**/AGENTS.override.md",
             ".agents/skills/*/SKILL.md",
             ".agents/skills/**/SKILL.md",
-            ".github/workflows/*.yml",
-            ".github/workflows/*.yaml",
+            *GITHUB_WORKFLOW_GLOBS,
             "**/.github/workflows/*.yml",
             "**/.github/workflows/*.yaml",
             ".agents-shipgate/baseline*.json",
@@ -159,10 +179,12 @@ def is_agent_boundary_path(path: str) -> bool:
 
 __all__ = [
     "BOUNDARY_ADAPTERS",
+    "GITHUB_WORKFLOW_GLOBS",
     "BoundaryAdapterSpec",
     "boundary_adapters_for_path",
     "boundary_hosts_for_path",
     "is_agent_boundary_path",
+    "is_github_workflow_path",
 ]
 
 

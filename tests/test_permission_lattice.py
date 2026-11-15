@@ -32,6 +32,7 @@ from agents_shipgate.core.host_grants import (
     host_audit_inventory,
 )
 from agents_shipgate.core.permission_lattice import (
+    parse_rule,
     scoped_risk,
     subsumes,
     whole_tool_risk,
@@ -483,6 +484,69 @@ class TestLatticeSoundness:
     def test_unrelated_tools_are_not_wider_than_each_other(self) -> None:
         assert subsumes("Read(**)", "Bash(*)") is False
         assert subsumes("mcp__gitlab__*", "mcp__github__get_issue") is False
+
+
+class TestWebFetchDomainRules:
+    """#1036: `WebFetch(domain:*)` is every domain, and not the bare tool.
+
+    Claude Code's permissions page ("WebFetch", "Allow or deny every fetch",
+    https://code.claude.com/docs/en/permissions, read 2026-11-08):
+    `WebFetch(domain:*)` "matches every domain. It isn't the same as a bare
+    `WebFetch` rule"; "only the `domain:` form also adds its domain to the
+    sandbox's allowed or denied domain list"; and outside a leading `*.` or a
+    bare `*` "the wildcard matches only the text between two dots".
+    """
+
+    def test_every_domain_is_the_whole_tool(self) -> None:
+        assert parse_rule("WebFetch(domain:*)").whole_tool is True
+        assert parse_rule("WebFetch(domain:*.example.com)").whole_tool is False
+        assert parse_rule("WebFetch(domain:example.com)").whole_tool is False
+
+    def test_the_bare_tool_and_a_domain_rule_are_undecided(self) -> None:
+        """Each covers a fetch the other may not: the bare form leaves the
+        sandbox's domain lists alone, and a `domain:` rule adds to them."""
+
+        assert subsumes("WebFetch", "WebFetch(domain:*)") is None
+        assert subsumes("WebFetch(domain:*)", "WebFetch") is None
+        assert subsumes("WebFetch", "WebFetch(domain:example.com)") is None
+        # Still a claim: one domain never covers every fetch.
+        assert subsumes("WebFetch(domain:example.com)", "WebFetch") is False
+
+    def test_every_domain_covers_each_domain_rule(self) -> None:
+        assert subsumes("WebFetch(domain:*)", "WebFetch(domain:example.com)") is True
+        assert subsumes("WebFetch(domain:*)", "WebFetch(domain:*.example.com)") is True
+        assert subsumes("WebFetch(domain:example.com)", "WebFetch(domain:*)") is False
+        assert subsumes("WebFetch(domain:*.example.com)", "WebFetch(domain:*)") is False
+
+    def test_a_domain_wildcard_is_not_a_text_prefix(self) -> None:
+        """`example.*` matches `example.org`, not `example.evil.com`."""
+
+        assert subsumes("WebFetch(domain:example.*)", "WebFetch(domain:example.evil.com)") is None
+        assert subsumes("WebFetch(domain:example.*)", "WebFetch(domain:example.org)") is None
+        assert subsumes("WebFetch(domain:*.example.com)", "WebFetch(domain:a.example.com)") is None
+        assert subsumes("WebFetch(domain:a.com)", "WebFetch(domain:b.com)") is False
+
+    def test_an_every_domain_allow_is_rated_as_the_whole_tool(self, tmp_path: Path) -> None:
+        inventory = _claude_inventory(tmp_path / "repo", ("WebFetch(domain:*)",))
+        [grant] = [item for item in inventory["grants"] if item["kind"] == "permission_rule"]
+
+        assert (grant["wildcard"], grant["access"], grant["risk"]) == (True, "execute", "high")
+
+    def test_a_baseline_that_rated_it_scoped_reads_no_new_grant(self) -> None:
+        """A 1.3.0 baseline holds the same rule as a scoped `medium` grant."""
+
+        from agents_shipgate.core.host_grants import (
+            _permission_rule_grants,
+            host_grant_expansion_signals,
+        )
+
+        [current] = _permission_rule_grants(
+            {"allow": ["WebFetch(domain:*)"]}, host="claude-code", scope="repository",
+            source=".claude/settings.json",
+        )
+        previous = {**current, "wildcard": False, "risk": "medium"}
+
+        assert host_grant_expansion_signals([{"baseline": previous, "current": current}]) == []
 
 
 # --- the boundary check reads direction from the same lattice (#661) ---------

@@ -41,6 +41,7 @@ from agents_shipgate.core.host_grants import (
     UNTRUSTED_INPUT_TRIGGERS,
     PermissionRuleAssessment,
     PermissionRuleReplacement,
+    WorkflowJobWidening,
     _permission_key,
     agent_launch_key,
     agent_rule_gains,
@@ -51,6 +52,7 @@ from agents_shipgate.core.host_grants import (
     hook_runs_for_no_tool_call,
     host_grant_direction_unknown,
     host_grant_expansion_signals,
+    lifted_restriction_risk,
     local_reusable_target,
     permission_rule_assessment,
     permission_rule_replacements,
@@ -60,6 +62,7 @@ from agents_shipgate.core.host_grants import (
     reusable_call_target,
     secret_mapping_key,
     step_action_key,
+    workflow_widening_outside_agent_jobs,
 )
 from agents_shipgate.core.host_settings import (
     claude_env_rating,
@@ -599,6 +602,51 @@ RESPELLED = "respelled"
 #: orders. The row is named, never silent, and the Claude Code Stop hook,
 #: which renders this text at install time, announces it beside widenings.
 DIRECTION_UNKNOWN = "authority direction is unknown"
+#: The `; ` clause of a widened workflow row whose only widening is a job token
+#: outside every job this audit finds an agent in, or a reusable workflow
+#: call or unreadable steps in, while each of those kept its token (#1011):
+#: the engine's :func:`workflow_widening_outside_agent_jobs`. The row still
+#: `expands`, and every gate reads it as before. `diff`'s summary counts it
+#: apart from "widening what the agent may do" and the Claude Code Stop hook,
+#: which renders this text at install time, names it under its own heading.
+OUTSIDE_AGENT_JOBS = "widens a workflow job's token outside any agent job"
+
+
+def widens_outside_agent_jobs(expands: bool, why: str) -> bool:
+    """Whether a row or change widens only a workflow job's token outside any agent job (#1011).
+
+    Read from the published row, so a row read back from JSON answers as the
+    one built here: an expanding row whose `why` holds :data:`OUTSIDE_AGENT_JOBS`
+    as a whole `; ` clause.
+    """
+
+    return expands and OUTSIDE_AGENT_JOBS in why.split("; ")
+
+
+def _outside_agent_jobs_reasons(found: WorkflowJobWidening) -> list[str]:
+    """Which jobs gained which write scopes, and which agent jobs kept their tokens (#1011).
+
+    Facts the engine established, said as such: it says nothing of what the
+    gaining job's steps do with the token, and that this audit finds no agent
+    launch in a job is not that no step of it starts one.
+    """
+
+    # Worded as the #823 note words a job's scopes: `the write scope issues`.
+    gains = [
+        f"{job} gained the write {'scope' if len(scopes) == 1 else 'scopes'} {_joined_words(list(scopes))}"
+        for job, scopes in found.gained
+    ]
+    gained = gains[0] if len(gains) == 1 else f"{', '.join(gains[:-1])}, and {gains[-1]}"
+    where = (
+        "this workflow" if not found.agent_jobs
+        else ("that job" if len(gains) == 1 else "those jobs")
+    )
+    reasons = [f"{gained}, and this audit finds no agent launch or reusable workflow call in {where}"]
+    if found.agent_jobs:
+        kept = "its token" if len(found.agent_jobs) == 1 else "their tokens"
+        jobs = _joined_words([f"{job} ({kind})" for job, kind in found.agent_jobs])
+        reasons.append(f"{jobs} kept {kept}")
+    return [*reasons, OUTSIDE_AGENT_JOBS]
 
 
 #: Why a same-repository called workflow's own permissions were not read (#921).
@@ -802,6 +850,10 @@ def _grant_value(
         return str(grant["setting"])
     if kind == "env" and grant.get("name"):
         return f"env.{grant['name']}"
+    # The directory, as the reader published it: every row of several
+    # `additionalDirectories` used to read `additional_path` (#1036).
+    if kind == "additional_path" and grant.get("path"):
+        return str(grant["path"])
     # `event` names a hook's trigger. Without it a hook row rendered as
     # "hook", which tells a reviewer a hook changed and not which one (#689).
     for key in ("rule", "server", "name", "event", "value", "permission"):
@@ -884,13 +936,16 @@ def _why(
     new_secrets: list[SecretMapping] | None = None,
     agent_reasons: list[str] | None = None,
     call_changes: list[CallChange] | None = None,
+    outside_agent_jobs: WorkflowJobWidening | None = None,
 ) -> str:
     """Why a reviewer should care, in the reviewer's terms.
 
     Stated as what the grant *permits*, never as a prediction about what the
     agent will do with it — the engine reads configuration, not behaviour.
     A workflow that launches an agent ends with the job facts beside each
-    agent step (#823), read off ``grant``, the side the row describes.
+    agent step (#823), read off ``grant``, the side the row describes. A
+    widened workflow whose widening the engine placed outside every agent job
+    names where, before that note (#1011).
     """
 
     kind = str(grant.get("kind") or "")
@@ -977,6 +1032,8 @@ def _why(
                 "token permissions and adds no scope"
             )
         reasons.extend(agent_reasons or [])
+        if outside_agent_jobs is not None:
+            reasons.extend(_outside_agent_jobs_reasons(outside_agent_jobs))
         why = "; ".join(reasons) or "changes the workflow's own authority"
         # A removed workflow runs nothing any more, so it gets no note.
         note = None if direction == REMOVED else _agent_composition_note(grant)
@@ -1023,6 +1080,16 @@ def _why(
         )
     if kind == "instruction_trust_root":
         return "changes instructions the agent is given"
+    if kind == "additional_path":
+        # "Read-only" tools need no approval "within the working directory and
+        # additional directories", and edits there follow the project's rules
+        # and mode (https://code.claude.com/docs/en/permissions) (#1036).
+        if direction == REMOVED:
+            return "this directory is no longer a working directory of the agent"
+        return (
+            "makes this directory a working directory: the agent reads files in it "
+            "without a prompt, and edits them as it edits the project's"
+        )
     if kind == "command_setting":
         # Rated as a settings hook is: Claude Code runs it (#1027).
         basis = command_setting_basis(str(grant.get("setting") or ""))
@@ -2159,6 +2226,19 @@ def _permission_rule_why(
     if twin is not None and direction == REMOVED:
         named = "" if redacted else f": {disposition}: {twin}"
         return f"removes this rule; the source still declares the same grant written another way{named}"
+    holder = assessment.held.get(key)
+    if holder is not None and direction == REMOVED:
+        held_by = holder[2]
+        named = (
+            f"a {held_by} rule this source still declares"
+            if redacted else f"{held_by}: {holder[3]}, which this source still declares,"
+        )
+        outcome = (
+            "what needed confirmation is now denied"
+            if (disposition, held_by) == ("ask", "deny")
+            else f"no {_RESTRICTION_NOUN.get(disposition, 'restriction')} is removed"
+        )
+        return f"removes this {disposition} rule; {named} matches everything it matched, so {outcome}"
     cover = assessment.covered.get(key)
     if cover is not None and after is not None and (key[0], key[1], key[3]) not in paired:
         if same_grant(cover, str(after["rule"])):
@@ -2381,6 +2461,12 @@ def capability_diff_rows(
             gone_secrets=gone_secrets, new_secrets=new_secrets,
             agent_reasons=agent_reasons,
             call_changes=_reusable_call_changes(before_grant, after_grant),
+            # Only an expanding row is placed: the predicate moves no gate (#1011).
+            outside_agent_jobs=(
+                workflow_widening_outside_agent_jobs(before_grant, after_grant)
+                if expands and grant.get("kind") == "workflow"
+                else None
+            ),
         )
         kind = grant.get("kind")
         if kind == "openshell_policy":
@@ -2477,7 +2563,15 @@ def capability_diff_rows(
             ),
             direction=direction,
             why=why,
-            severity=str(grant.get("risk") or "unknown"),
+            # A deny or ask grant's own risk is `low`; a row lifting one is
+            # rated by what it restricted (#1036). Every other row, an added
+            # or a held restriction included, keeps the grant's rating.
+            severity=(
+                lifted_restriction_risk(str(grant.get("rule") or ""))
+                if expands and grant.get("kind") == "permission_rule"
+                and grant.get("disposition") in {"deny", "ask"}
+                else str(grant.get("risk") or "unknown")
+            ),
             expands=expands,
             # A permission grant's identity is its disposition and its rule, so
             # a row with both sides has one disposition; every other kind has
