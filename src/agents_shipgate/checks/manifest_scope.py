@@ -14,15 +14,126 @@ from agents_shipgate.core.risk_hints import (
 
 STOPWORDS = {
     "a",
+    "about",
+    "after",
+    "all",
     "an",
     "and",
+    "any",
+    "are",
+    "as",
+    "at",
+    "be",
     "before",
+    "but",
+    "by",
+    "can",
+    "do",
+    "does",
+    "during",
+    "each",
+    "except",
     "for",
     "from",
+    "has",
+    "have",
+    "if",
+    "in",
+    "inside",
+    "into",
+    "is",
+    "it",
+    "its",
+    "may",
+    "must",
+    "no",
+    "nor",
+    "not",
+    "of",
+    "on",
+    "onto",
+    "or",
+    "our",
+    "outside",
+    "over",
+    "per",
+    "should",
+    "so",
+    "than",
+    "that",
     "the",
+    "their",
+    "them",
+    "then",
+    "these",
+    "they",
+    "this",
+    "those",
     "to",
+    "under",
+    "unless",
+    "until",
+    "upon",
+    "via",
+    "was",
+    "we",
+    "were",
+    "will",
     "with",
+    "within",
     "without",
+    "would",
+    "you",
+    "your",
+}
+
+# Verbs that name something an agent *does*. A prohibited action and a tool
+# overlap only when they share one of these (#1035): sharing nouns alone —
+# "customer", "data", "ticket" — says the tool touches the same subject, not
+# that it performs the prohibited action. Compared after ``_stem``.
+ACTION_VERBS = {
+    "approve",
+    "archive",
+    "cancel",
+    "capture",
+    "charge",
+    "close",
+    "create",
+    "delete",
+    "deploy",
+    "destroy",
+    "disable",
+    "drop",
+    "email",
+    "erase",
+    "execute",
+    "export",
+    "grant",
+    "issue",
+    "merge",
+    "message",
+    "modify",
+    "overwrite",
+    "pay",
+    "post",
+    "publish",
+    "purge",
+    "push",
+    "refund",
+    "remove",
+    "revoke",
+    "run",
+    "send",
+    "share",
+    "submit",
+    "terminate",
+    "transfer",
+    "truncate",
+    "update",
+    "upload",
+    "void",
+    "wipe",
+    "write",
 }
 
 READ_ONLY_TERMS = {
@@ -94,7 +205,10 @@ def run(context: ScanContext):
                         tool=tool,
                         check_id="SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
                         title=f"{tool.name} appears to overlap with a prohibited action",
-                        severity="high",
+                        # A word match is advisory and never moves the verdict
+                        # (#1055, Option A; ``advisory_when_policy_ineligible``
+                        # in the catalog), so it is not labelled ``high``.
+                        severity="medium",
                         category="scope",
                         evidence={
                             "prohibited_action": prohibited,
@@ -130,9 +244,15 @@ def _tool_matches_prohibited_action(tool: Tool, prohibited_action: str) -> bool:
     action_tokens = _tokens(prohibited_action)
     if not action_tokens:
         return False
-    tool_text = f"{tool.name} {tool.description or ''}".lower()
-    overlap = [token for token in action_tokens if token in tool_text]
-    if len(overlap) >= 2:
+    # Whole words on both sides, never substrings (#1035). Containment let
+    # "or" match "priority", "for" and "order", so adding "for a customer" to
+    # a description was enough to overlap "delete or export customer data".
+    # Two shared words are required, and one must be an action verb: a shared
+    # subject alone ("customer", "data") is not the prohibited action.
+    overlap = _word_stems(prohibited_action) & _word_stems(
+        f"{tool.name} {tool.description or ''}"
+    )
+    if len(overlap) >= 2 and overlap & _ACTION_VERB_STEMS:
         return True
     if {"email", "external"} & action_tokens and has_risk_tag(
         tool,
@@ -174,3 +294,49 @@ def _tokens(text: str) -> set[str]:
         for token in re.findall(r"[a-zA-Z][a-zA-Z0-9_-]+", text.lower())
         if token not in STOPWORDS
     }
+
+
+def _word_stems(text: str) -> set[str]:
+    """Whole-word stems of ``text``, for comparing a tool with a prohibited action.
+
+    Splits on every non-alphanumeric character and on camelCase, so a tool
+    named ``crm.delete_customer_data`` or ``deleteCustomerData`` contributes
+    ``delete``, ``customer`` and ``data``. Stopwords and one-letter tokens are
+    dropped, and each word is reduced by :func:`_stem` so "refunds" meets
+    "refund" and "deletes" meets "delete" — the inflections substring
+    containment used to catch, without its false matches inside other words.
+    """
+
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    return {
+        _stem(word)
+        for word in re.findall(r"[a-z][a-z0-9]*", spaced.lower())
+        if len(word) > 1 and word not in STOPWORDS
+    }
+
+
+def _stem(word: str) -> str:
+    """A deliberately small English stemmer, applied to both sides alike.
+
+    Strips a plural or third-person ``-s``, then ``-ing`` or ``-ed``, then a
+    final ``e``, then one letter of a final doubled consonant, each only while
+    at least three letters remain. "Deletes", "deleted" and "deleting" all
+    become "delet"; "cancelled" and "cancel" both become "cancel". It only
+    has to make two spellings of one word agree, never produce a real word.
+    """
+
+    stem = word
+    if stem.endswith("s") and not stem.endswith("ss") and len(stem) >= 4:
+        stem = stem[:-1]
+    for suffix in ("ing", "ed"):
+        if stem.endswith(suffix) and len(stem) - len(suffix) >= 3:
+            stem = stem[: -len(suffix)]
+            break
+    if stem.endswith("e") and len(stem) >= 4:
+        stem = stem[:-1]
+    if len(stem) >= 4 and stem[-1] == stem[-2] and stem[-1] not in "aeiou":
+        stem = stem[:-1]
+    return stem
+
+
+_ACTION_VERB_STEMS = frozenset(_stem(verb) for verb in ACTION_VERBS)

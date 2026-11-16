@@ -148,3 +148,87 @@ checks:
     assert "SHIP-MANIFEST-STALE-RISK-OVERRIDE" not in check_ids
     assert "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING" not in check_ids
     assert "SHIP-MANIFEST-UNUSED-SCOPE" not in check_ids
+
+
+def test_a_catalog_tool_without_an_established_binding_is_not_a_missing_tool(tmp_path):
+    """#1035: compare with the catalog, and never propose removing the entry."""
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "tools.json").write_text(
+        """
+{
+  "tools": [
+    {
+      "name": "billing.lookup_refund",
+      "description": "Look up a refund.",
+      "annotations": {"readOnlyHint": true}
+    },
+    {
+      "name": "billing.void_refund",
+      "description": "Void a pending refund.",
+      "annotations": {"destructiveHint": true}
+    }
+  ]
+}
+""",
+        encoding="utf-8",
+    )
+    config = project / "shipgate.yaml"
+    config.write_text(
+        """
+version: "0.1"
+project:
+  name: manifest-consistency-catalog
+agent:
+  name: manifest-agent
+  declared_purpose:
+    - look up refunds
+environment:
+  target: local
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools: [{tool: billing.lookup_refund, source_id: tools}]
+      handoffs: []
+      reason: reviewed fixture binding; void_refund is not bound to this agent
+policies:
+  require_approval_for_tools:
+    - billing.void_refund
+    - missing.tool
+""",
+        encoding="utf-8",
+    )
+
+    report, _ = run_scan(
+        config_path=config,
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+        suggest_patches=True,
+    )
+    stale = {
+        finding.evidence["tool"]: finding
+        for finding in report.findings
+        if finding.check_id == "SHIP-MANIFEST-STALE-POLICY"
+    }
+
+    assert set(stale) == {"billing.void_refund", "missing.tool"}
+    unbound = stale["billing.void_refund"]
+    assert unbound.title == (
+        "approval policy references billing.void_refund, whose binding to the "
+        "agent is not established"
+    )
+    assert unbound.evidence["issues"] == ["binding_not_established"]
+    assert [patch.kind for patch in unbound.patches] == ["manual"]
+    missing = stale["missing.tool"]
+    assert missing.title == "approval policy references missing tool missing.tool"
+    assert "issues" not in missing.evidence
+    assert [(patch.kind, patch.confidence) for patch in missing.patches] == [
+        ("remove_pointer", "high")
+    ]

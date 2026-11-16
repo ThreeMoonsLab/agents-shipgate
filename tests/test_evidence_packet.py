@@ -631,7 +631,7 @@ def test_verdict_derives_from_release_decision_not_fail_policy(tmp_path):
 
 
 def test_capability_intent_keeps_heuristic_policy_matches_out_of_findings(tmp_path):
-    _, packet = _scan_with_packet(tmp_path)
+    out, packet = _scan_with_packet(tmp_path)
     section = packet.capability_intent
     assert section.declared_purpose
     assert "stripe.create_refund" in section.observed_tools
@@ -639,10 +639,24 @@ def test_capability_intent_keeps_heuristic_policy_matches_out_of_findings(tmp_pa
         item.check_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
         for item in section.divergence_findings
     )
+    # Lexical evidence never moves the verdict (#1055, Option A; #1035): the
+    # word match is published as an advisory finding and raises no gap.
     assert packet.release_decision.evidence_coverage.policy_gap_count > 0
-    assert any(
+    assert not any(
         gap.why.startswith("SHIP-SCOPE-PROHIBITED-TOOL-PRESENT:")
         for gap in packet.release_decision.evidence_coverage.evidence_gaps
+    )
+    report = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    advisory = [
+        finding
+        for finding in report["findings"]
+        if finding["check_id"] == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
+    ]
+    assert advisory
+    assert all(
+        finding["blocks_release"] is False
+        and finding["support"]["policy_eligible"] is False
+        for finding in advisory
     )
 
 

@@ -55,6 +55,19 @@ as a finding with `support.policy_eligible: false` beside its gap, and the gap's
 `why` names what was detected; such a finding is never a blocker or a named
 review item.
 
+Lexical heuristics never move the verdict (#1055, Option A). A check whose
+catalog entry is marked `advisory_when_policy_ineligible` publishes an instance
+whose only weakness is lexical evidence (`inferred_keyword` or
+`inferred_regex`) as a visible, non-blocking advisory finding and raises **no**
+evidence gap for it. Three checks are marked today (#1035):
+`SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` (a word match between a tool and a
+prohibited action), and the keyword-driven instances of
+`SHIP-ACTION-EFFECT-ESCALATED` and `SHIP-ACTION-SAFEGUARD-REMOVED`. An instance
+that is weak for any other reason, such as a protocol default, still takes the
+gap route above. Keyword evidence elsewhere — risk-hint effect claims above a
+reviewed declaration, and the other keyword checks — still raises its gap
+until the rest of #1055 is implemented.
+
 Catalog membership never implies binding. `tool_catalog[]` contains every
 canonical extracted declaration; `tool_inventory[]`, actions, checks, and
 capability facts contain only tools proven reachable from the graph's entry

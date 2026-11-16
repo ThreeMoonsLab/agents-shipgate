@@ -661,6 +661,75 @@ now report the policy digests a released wheel reports.
 
 ---
 
+<a id="lexical-advisories-1035"></a>
+
+## Migration Note: Unreleased — keyword evidence no longer blocks or gaps three checks, and stale-manifest checks read the catalog (#1035)
+
+**What was wrong.** Three checks turned weak evidence into verdicts or harmful
+patches.
+
+- `SHIP-ACTION-EFFECT-ESCALATED` compared the conservative effect, which
+  counts keyword risk hints, and blocked as `critical` with
+  `protocol_structure` support. Rewording a reviewed `write` tool's
+  description to "the customer gets an email" moved a `passed` base to
+  `blocked`, with or without `--no-heuristics`.
+- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` matched by substring, so `or` matched
+  "priority", "for" and "order". Adding "for a customer" to a description
+  raised a non-waivable gap: `passed` became `insufficient_evidence`, and
+  neither `checks.ignore` nor `--no-heuristics` cleared it.
+- The stale-manifest checks compared policies, suppressions and risk overrides
+  with the proven-reachable tools only. On
+  `samples/large_multi_framework_agent` (63 catalog tools, none proven
+  reachable) they called `create_refund`, `terminate_account` and
+  `crm.delete_customer_data` missing, with `confidence: high` removal patches
+  that a default `apply-patches --apply` would apply, deleting their approval,
+  confirmation and idempotency policies.
+
+**What changes.** The owner ruling on #1055 (Option A: lexical heuristics
+never move the verdict) is applied to these checks through one in-process
+catalog flag, `advisory_when_policy_ineligible`. It is not catalog wire
+surface and is absent from `docs/checks.json`.
+
+- **Effect escalation.** It blocks only when the head effect can drive hard
+  controls and a policy-eligible claim places it above the base effect. An
+  escalation that only wording supports is a `medium`, non-blocking finding
+  with `provenance_kind: keyword_heuristic` and the claims' real bases
+  (`inferred_keyword`). It raises no evidence gap, so the verdict is what the
+  head scan alone gives, and `--no-heuristics` filters it. One backed by other
+  non-authoritative evidence, such as a protocol default, raises an evidence
+  gap as before.
+- **Safeguard removal.** It blocks only when the action's effect can drive
+  hard controls. Otherwise it is a `medium` advisory under the same rule. A
+  removed `rollback` is `critical` only when `destructive` is established.
+- **Prohibited actions.** The match compares whole-word stems and needs two
+  shared words, one of them an action verb. More connectives (`or`, `in`,
+  `of`, `on`, `by`, …) are stopwords. A match is a `medium`, non-blocking
+  advisory finding (`default_severity` `high` → `medium`) and never an evidence
+  gap.
+- **Stale manifest entries.** An entry naming a catalog tool whose binding is
+  not established is reported as such, with `evidence.issues:
+  ["binding_not_established"]`, a manual keep-the-entry patch and
+  `suggested_patch_kind: manual`. It never gets a `remove_pointer` patch. An
+  entry naming a tool absent from the catalog is unchanged, evidence and
+  fingerprint included.
+
+**What does not change.** No check ID is added, removed or renamed; the
+firing conditions only narrow, as [Check IDs](#check-ids) allows. A
+policy-eligible escalation or safeguard removal blocks as before, with the same
+evidence, support and fingerprint. No schema, contract or control state moves.
+
+**Who must act.** Nothing is required. A pipeline that relied on a
+keyword-only escalation blocking, or on a prohibited-action word match making
+the run `insufficient_evidence`, should declare the effect under
+`action_surface.actions[].effect` (a reviewed escalation blocks) or read the
+advisory findings. Baseline entries for the stale-manifest findings about
+catalog tools resolve once and reappear as new findings with the corrected
+statement. The keyword gaps that remain (a risk-hint effect claim above a
+reviewed declaration, `SHIP-SCHEMA-BROAD-FREE-TEXT`,
+`SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE`, and others) are the rest of #1055.
+
+---
+
 <a id="capability-definitions"></a>
 
 ## Migration Note: 1.3.0 — the capability lock records tool definitions (capability standard `0.6`, lock `0.9`, lock diff `0.10`, #1117)

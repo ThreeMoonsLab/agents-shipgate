@@ -38,7 +38,7 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 
 - Critical: 1
 - High: 10
-- Medium: 4
+- Medium: 6
 - Low: 0
 - Suppressed: 0
 - Status: Release blockers detected (legacy; see Release Decision above)
@@ -84,7 +84,7 @@ Reviewer triage signal only. Provenance kind does not change severity, release d
 | --- | ---: |
 | `static_declaration` | 14 |
 | `ast_extraction` | 0 |
-| `keyword_heuristic` | 0 |
+| `keyword_heuristic` | 2 |
 | `regex_heuristic` | 0 |
 | `policy_pack` | 0 |
 | `runtime_trace` | 1 |
@@ -121,7 +121,7 @@ Policy/control gaps:
 - HIGH control\_missing \[send\_customer\_email\]: send\_customer\_email function schema is not strict enough. (at tools/openai-tools.json)
   Requires: API function schemas must be strict enough for reliable tool calls.
   Release implication: The model may send ambiguous or overbroad tool arguments.
-- 11 more in report.json
+- 13 more in report.json
 
 Release implication:
 
@@ -135,6 +135,7 @@ Next validation:
 - Retry behavior for risky write: Retries use idempotency evidence or the side effect is not retried.
 - Least-privilege scope review: Manifest and tool scopes match the narrow permissions needed for the release.
 - Approval gate for high-risk action: The run records human approval before the tool call and denies calls without approval.
+- 1 more in report.json
 
 ## Recommended Next Actions
 
@@ -223,6 +224,11 @@ Matched trace rows:
 
 - HIGH: SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING [create\_refund] - create\_refund is high-risk but has no owner
 - HIGH: SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING [send\_customer\_email] - send\_customer\_email is high-risk but has no owner
+
+### Scope
+
+- MEDIUM: SHIP-SCOPE-PROHIBITED-TOOL-PRESENT [create\_refund] - create\_refund appears to overlap with a prohibited action
+- MEDIUM: SHIP-SCOPE-PROHIBITED-TOOL-PRESENT [send\_customer\_email] - send\_customer\_email appears to overlap with a prohibited action
 
 ### Side Effects
 

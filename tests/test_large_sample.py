@@ -31,11 +31,16 @@ loosening the budget.
 
 from __future__ import annotations
 
+import json
+import shutil
 import time
 from pathlib import Path
 
 import pytest
+import yaml
+from typer.testing import CliRunner
 
+from agents_shipgate.cli.main import app
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.schemas.report import ReadinessReport
 
@@ -299,3 +304,68 @@ def test_heuristics_filter_envelope_is_emitted(
     assert hf is not None
     assert hf.enabled is False
     assert hf.filtered_finding_count == 0
+
+
+# --- stale-manifest checks read the catalog (#1035) --------------------------
+
+STALE_MANIFEST_CHECKS = {
+    "SHIP-MANIFEST-STALE-POLICY",
+    "SHIP-MANIFEST-STALE-RISK-OVERRIDE",
+    "SHIP-MANIFEST-STALE-SUPPRESSION",
+}
+
+
+def test_entries_for_unbound_catalog_tools_are_neither_missing_nor_removed(
+    tmp_path: Path,
+) -> None:
+    """None of this sample's tools is proven reachable, but all 63 are in the
+    catalog. Its approval, confirmation and idempotency policies used to be
+    reported as naming "missing" tools, each with a high-confidence patch that
+    a default ``apply-patches --apply`` would use to delete the approval policy
+    of ``create_refund``, ``terminate_account`` and ``crm.delete_customer_data``.
+    """
+
+    workspace = tmp_path / "large"
+    shutil.copytree(SAMPLE_DIR, workspace)
+    report, _ = run_scan(
+        config_path=workspace / "shipgate.yaml",
+        output_dir=workspace / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+        suggest_patches=True,
+    )
+    catalog = {row["name"] for row in report.tool_catalog}
+    manifest = yaml.safe_load((workspace / "shipgate.yaml").read_text(encoding="utf-8"))
+    approval_tools = {
+        entry["tool"] for entry in manifest["policies"]["require_approval_for_tools"]
+    }
+    assert {"create_refund", "terminate_account", "crm.delete_customer_data"} <= approval_tools
+    assert approval_tools <= catalog
+
+    stale = [finding for finding in report.findings if finding.check_id in STALE_MANIFEST_CHECKS]
+    assert len(stale) == 17
+    for finding in stale:
+        assert finding.evidence["tool"] in catalog
+        assert "missing" not in finding.title
+        assert "binding_not_established" in finding.evidence["issues"]
+        assert finding.patches is not None
+        assert [patch.kind for patch in finding.patches] == ["manual"]
+        assert "Keep this" in finding.patches[0].instructions
+        assert finding.suggested_patch_kind == "manual"
+        assert finding.autofix_safe is False
+
+    result = CliRunner().invoke(
+        app,
+        ["apply-patches", "--from", str(workspace / "reports" / "report.json"), "--json"],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["applied"] is False
+    removed = [
+        line
+        for outcome in payload["files"].values()
+        for line in (outcome["diff"] or "").splitlines()
+        if line.startswith("-") and not line.startswith("---")
+    ]
+    assert not any(tool in line for tool in approval_tools for line in removed), removed

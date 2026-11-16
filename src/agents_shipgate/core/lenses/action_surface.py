@@ -33,6 +33,7 @@ from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.lenses.tool_surface import ToolSurfaceDiffReference, _stable_hash
 from agents_shipgate.core.policy_evidence import (
+    LEXICAL_EVIDENCE_BASES,
     finding_support,
     policy_evidence_gap,
     predicate_evidence,
@@ -60,6 +61,7 @@ from agents_shipgate.core.tool_identity import (
     configured_tool_source,
 )
 from agents_shipgate.schemas.common import (
+    ProvenanceKind,
     Severity,
     SourceReference,
     confidence_rank,
@@ -1315,8 +1317,13 @@ def _modified_changes(current: ActionFact, base: ActionFact) -> list[ActionSurfa
                 _change(
                     "SAFEGUARD_REMOVED",
                     current,
+                    # Critical only when ``destructive`` is established, not
+                    # when a keyword in a description put it into the
+                    # conservative effect (#1035). ``_control_effects`` is
+                    # ``{effect}`` for a fact without a semantic assessment,
+                    # so serialized facts keep their old severity.
                     "critical"
-                    if field == "rollback" and current.effect == "destructive"
+                    if field == "rollback" and "destructive" in _control_effects(current)
                     else "high",
                     f"Action safeguard removed: {field}.",
                     before=base.safeguards.model_dump(mode="json"),
@@ -1486,22 +1493,60 @@ def _builtin_policy_findings(
                 )
             )
         elif change.type == "EFFECT_ESCALATED":
-            findings.append(
-                _finding(
-                    check_id="SHIP-ACTION-EFFECT-ESCALATED",
-                    title=f"{action.tool_name} escalates action effect",
-                    severity="critical",
-                    action=action,
-                    agent_id=agent_id,
-                    evidence={"change": _change_evidence(change)},
-                    recommendation=(
-                        f"Review action_surface.actions[].effect for {action.tool_name}; "
-                        f"restore {change.before} or document approval/evidence for "
-                        f"{change.after}."
-                    ),
-                    blocks_release=True,
-                )
+            # Same guard as the current-surface loop above, plus one more
+            # condition: the escalated effect itself must rest on a
+            # policy-eligible claim. A reviewed ``write`` whose description
+            # gains "the customer gets an email" has a conservative effect of
+            # ``external_communication`` from a keyword, and that alone must
+            # not block — or move the verdict at all (#1035, #1055 Option A).
+            unsupported = _effect_escalation_unsupported(
+                action,
+                base_effect=str(change.before),
+                tool=tools_by_id.get(action.tool_id),
             )
+            if unsupported is None:
+                findings.append(
+                    _finding(
+                        check_id="SHIP-ACTION-EFFECT-ESCALATED",
+                        title=f"{action.tool_name} escalates action effect",
+                        severity="critical",
+                        action=action,
+                        agent_id=agent_id,
+                        evidence={"change": _change_evidence(change)},
+                        recommendation=(
+                            f"Review action_surface.actions[].effect for {action.tool_name}; "
+                            f"restore {change.before} or document approval/evidence for "
+                            f"{change.after}."
+                        ),
+                        blocks_release=True,
+                    )
+                )
+            else:
+                support, provenance_kind = unsupported
+                findings.append(
+                    _finding(
+                        check_id="SHIP-ACTION-EFFECT-ESCALATED",
+                        title=(
+                            f"{action.tool_name} may escalate action effect "
+                            "(unestablished evidence)"
+                        ),
+                        severity="medium",
+                        action=action,
+                        agent_id=agent_id,
+                        evidence={"change": _change_evidence(change)},
+                        recommendation=(
+                            f"Only {_unsupported_basis_phrase(support)} puts "
+                            f"{action.tool_name} at {change.after}; this advisory does "
+                            "not block. If the action really is "
+                            f"{change.after}, declare that in "
+                            "action_surface.actions[].effect so the escalation is "
+                            "reviewed; otherwise leave it or reword the description."
+                        ),
+                        blocks_release=False,
+                        support=support,
+                        provenance_kind=provenance_kind,
+                    )
+                )
         elif change.type == "APPROVAL_REMOVED":
             findings.append(
                 _finding(
@@ -1520,24 +1565,200 @@ def _builtin_policy_findings(
                 )
             )
         elif change.type == "SAFEGUARD_REMOVED":
-            findings.append(
-                _finding(
-                    check_id="SHIP-ACTION-SAFEGUARD-REMOVED",
-                    title=f"{action.tool_name} removes an action safeguard",
-                    severity=change.severity,
-                    action=action,
-                    agent_id=agent_id,
-                    evidence={"change": _change_evidence(change)},
-                    recommendation=(
-                        "Restore action_surface.actions[].safeguards."
-                        f"{change.removed[0] if change.removed else '<removed>'}: true "
-                        f"for {action.tool_name}, or document the reviewed exception "
-                        "under action_surface.actions[].evidence."
-                    ),
-                    blocks_release=True,
-                )
+            recommendation = (
+                "Restore action_surface.actions[].safeguards."
+                f"{change.removed[0] if change.removed else '<removed>'}: true "
+                f"for {action.tool_name}, or document the reviewed exception "
+                "under action_surface.actions[].evidence."
             )
+            if _effect_can_drive_hard_controls(action, tools_by_id.get(action.tool_id)):
+                findings.append(
+                    _finding(
+                        check_id="SHIP-ACTION-SAFEGUARD-REMOVED",
+                        title=f"{action.tool_name} removes an action safeguard",
+                        severity=change.severity,
+                        action=action,
+                        agent_id=agent_id,
+                        evidence={"change": _change_evidence(change)},
+                        recommendation=recommendation,
+                        blocks_release=True,
+                    )
+                )
+            else:
+                # The removal is structural, but whether this action needs
+                # the safeguard rests on an effect nothing reviewed or
+                # structural establishes. Same guard as the current-surface
+                # loop: such an effect does not drive a hard control (#1035).
+                support, provenance_kind = _safeguard_removal_unsupported(action)
+                findings.append(
+                    _finding(
+                        check_id="SHIP-ACTION-SAFEGUARD-REMOVED",
+                        title=(
+                            f"{action.tool_name} removes an action safeguard "
+                            "(effect unestablished)"
+                        ),
+                        severity="medium",
+                        action=action,
+                        agent_id=agent_id,
+                        evidence={"change": _change_evidence(change)},
+                        recommendation=recommendation,
+                        blocks_release=False,
+                        support=support,
+                        provenance_kind=provenance_kind,
+                    )
+                )
     return findings
+
+
+def _effect_escalation_unsupported(
+    action: ActionFact,
+    *,
+    base_effect: str,
+    tool: Tool | None,
+) -> tuple[FindingSupport, ProvenanceKind] | None:
+    """``None`` when an effect escalation is established; else why it is not.
+
+    An escalation is established when the action's effect can drive hard
+    controls at all (``_effect_can_drive_hard_controls``, the current-surface
+    guard) *and* some policy-eligible claim places it above ``base_effect``.
+    Otherwise the escalation exists only in the conservative effect, which
+    also counts keyword risk hints, protocol defaults and unknown evidence;
+    the returned support says which, with the bases those claims really have,
+    instead of the ``protocol_structure`` default every action finding carries.
+    """
+
+    assessment = action.semantic_assessment
+    if assessment is None:
+        # A serialized fact without semantics: the compatibility projection
+        # ``_control_effects`` makes for it, and ``_effect_can_drive_hard_controls``
+        # accepts, is the effect itself.
+        return None
+    base_rank = ACTION_EFFECT_RANK.get(base_effect)
+    escalating = [
+        claim
+        for claim in assessment.effect.claims
+        if claim.value in ACTION_EFFECT_RANK
+        and (base_rank is None or ACTION_EFFECT_RANK[claim.value] > base_rank)
+    ]
+    if _effect_can_drive_hard_controls(action, tool) and any(
+        claim.policy_eligible for claim in escalating
+    ):
+        return None
+    authoritative = [
+        claim
+        for claim in assessment.effect.claims
+        if claim.policy_eligible and claim.value in ACTION_EFFECT_RANK
+    ]
+    rows: list[PolicyPredicateEvidence] = []
+    if authoritative:
+        rows.append(
+            predicate_evidence(
+                "authoritative_effect_bound",
+                "matched",
+                expected="reviewed or structural effect evidence",
+                observed=sorted({claim.value for claim in authoritative}),
+                confidence=min(
+                    (claim.confidence for claim in authoritative),
+                    key=confidence_rank,
+                ),
+                claim_ids=[claim.claim_id for claim in authoritative],
+                evidence_bases=[claim.basis for claim in authoritative],
+                policy_eligible=True,
+            )
+        )
+    rows.append(
+        predicate_evidence(
+            "escalated_effect_support",
+            "indeterminate",
+            expected=f"reviewed or structural evidence for an effect above {base_effect}",
+            observed=sorted({claim.value for claim in escalating}) or action.effect,
+            confidence=min(
+                (claim.confidence for claim in escalating),
+                key=confidence_rank,
+                default="low",
+            ),
+            claim_ids=[claim.claim_id for claim in escalating],
+            evidence_bases=sorted({claim.basis for claim in escalating}) or ["unknown"],
+            policy_eligible=False,
+            why=(
+                "the escalated effect rests only on evidence that cannot drive a "
+                "release control"
+            ),
+        )
+    )
+    return finding_support(rows), _claims_provenance(escalating)
+
+
+def _safeguard_removal_unsupported(
+    action: ActionFact,
+) -> tuple[FindingSupport, ProvenanceKind]:
+    """Support for a safeguard removal on an action with no established effect."""
+
+    assessment = action.semantic_assessment
+    claims = (
+        [claim for claim in assessment.effect.claims if claim.value in ACTION_EFFECT_RANK]
+        if assessment is not None
+        else []
+    )
+    support = finding_support(
+        [
+            predicate_evidence(
+                "safeguard_removed",
+                "matched",
+                expected="safeguard kept",
+                observed="removed",
+                confidence="high",
+                evidence_bases=["protocol_structure"],
+                policy_eligible=True,
+            ),
+            predicate_evidence(
+                "safeguard_effect_applicability",
+                "indeterminate",
+                expected="reviewed or structural effect evidence",
+                observed=sorted({claim.value for claim in claims}) or action.effect,
+                confidence=min(
+                    (claim.confidence for claim in claims),
+                    key=confidence_rank,
+                    default="low",
+                ),
+                claim_ids=[claim.claim_id for claim in claims],
+                evidence_bases=sorted({claim.basis for claim in claims}) or ["unknown"],
+                policy_eligible=False,
+                why=(
+                    "no reviewed or structural effect claim establishes that this "
+                    "action needs the safeguard"
+                ),
+            ),
+        ]
+    )
+    return support, _claims_provenance(claims)
+
+
+def _claims_provenance(claims: list[Any]) -> ProvenanceKind:
+    """The provenance a finding resting only on ``claims`` truthfully has.
+
+    ``keyword_heuristic`` / ``regex_heuristic`` when the claims are lexical, so
+    ``--no-heuristics`` suppresses the finding like every other lexical one.
+    """
+
+    bases = {claim.basis for claim in claims}
+    if "inferred_keyword" in bases:
+        return "keyword_heuristic"
+    if "inferred_regex" in bases:
+        return "regex_heuristic"
+    return "static_declaration"
+
+
+def _unsupported_basis_phrase(support: FindingSupport) -> str:
+    bases = {
+        basis
+        for row in support.predicates
+        if not row.policy_eligible
+        for basis in row.evidence_bases
+    }
+    if bases and bases <= LEXICAL_EVIDENCE_BASES:
+        return "wording in the tool's name or description"
+    return "evidence that is not reviewed or structural"
 
 
 def _current_action_policy_findings(
@@ -2270,6 +2491,7 @@ def _finding(
     recommendation: str,
     blocks_release: bool,
     support: FindingSupport | None = None,
+    provenance_kind: ProvenanceKind = "static_declaration",
 ) -> Finding:
     support = support or finding_support(
         [
@@ -2293,7 +2515,7 @@ def _finding(
         agent_id=agent_id,
         evidence=evidence,
         confidence=support.confidence,
-        provenance_kind="static_declaration",
+        provenance_kind=provenance_kind,
         source=SourceReference(
             type=action.source_type or "action_surface",
             ref=action.source_ref or action.action_id,

@@ -208,11 +208,22 @@ def test_run_scan_with_no_heuristics_emits_envelope(tmp_path) -> None:
     )
     assert report.heuristics_filter is not None
     assert report.heuristics_filter.enabled is True
-    assert report.heuristics_filter.filtered_finding_count == 0
+    # The fixture's prohibited-action word matches are published as advisory
+    # findings (#1055 Option A, #1035), so the filter has something to filter;
+    # it still cannot touch a policy-evidence gap or move the verdict.
+    advisory = [
+        finding
+        for finding in control.findings
+        if finding.provenance_kind in NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS
+    ]
+    assert advisory
+    assert all(finding.blocks_release is False for finding in advisory)
+    assert report.heuristics_filter.filtered_finding_count == len(advisory)
     assert report.policy_evidence_gaps
     assert [gap.model_dump(mode="json") for gap in report.policy_evidence_gaps] == [
         gap.model_dump(mode="json") for gap in control.policy_evidence_gaps
     ]
+    assert report.release_decision.decision == control.release_decision.decision
 
 
 def test_run_scan_without_flag_is_unaffected(tmp_path) -> None:
@@ -307,14 +318,25 @@ def test_no_heuristics_via_cli_smoke(tmp_path) -> None:
     )
     report = json.loads((tmp_path / "report.json").read_text())
     assert report["heuristics_filter"]["enabled"] is True
-    assert report["heuristics_filter"]["filtered_finding_count"] == 0
+    filtered = [
+        finding
+        for finding in report["findings"]
+        if finding.get("suppression_reason") == NO_HEURISTICS_SUPPRESSION_REASON
+    ]
+    assert report["heuristics_filter"]["filtered_finding_count"] == len(filtered)
+    assert all(finding["blocks_release"] is False for finding in filtered)
     assert report["policy_evidence_gaps"]
 
 
 def test_filter_cannot_suppress_policy_evidence_gaps_e2e(
     tmp_path,
 ) -> None:
-    """Heuristic policy gaps are outside Finding suppression entirely."""
+    """Heuristic policy gaps are outside Finding suppression entirely.
+
+    The filter suppresses only heuristic-provenance findings, which are
+    advisories that never gate (#1055 Option A, #1035); every policy-evidence
+    gap survives it.
+    """
     report, _ = run_scan(
         config_path=SUPPORT_REFUND_FIXTURE,
         output_dir=tmp_path,
@@ -323,9 +345,17 @@ def test_filter_cannot_suppress_policy_evidence_gaps_e2e(
         no_heuristics=True,
     )
     assert report.policy_evidence_gaps
-    assert all(
-        finding.suppression_reason != NO_HEURISTICS_SUPPRESSION_REASON
+    filtered = [
+        finding
         for finding in report.findings
+        if finding.suppression_reason == NO_HEURISTICS_SUPPRESSION_REASON
+    ]
+    assert all(
+        finding.provenance_kind in NO_HEURISTICS_EXCLUDED_PROVENANCE_KINDS
+        and finding.blocks_release is False
+        and finding.support is not None
+        and finding.support.policy_eligible is False
+        for finding in filtered
     )
 
 

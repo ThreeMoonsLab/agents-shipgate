@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
   "report_schema_version": "1.0",
-  "run_id": "agents_shipgate_e7d73ad08011dd4d",
+  "run_id": "agents_shipgate_0f9130998367a3d4",
   "request_id": null,
   "subject_id": null,
   "input_set_id": null,
@@ -59,7 +59,7 @@
     "status": "release_blockers_detected",
     "critical_count": 1,
     "high_count": 10,
-    "medium_count": 4,
+    "medium_count": 6,
     "low_count": 0,
     "info_count": 0,
     "suppressed_count": 0,
@@ -600,66 +600,6 @@
         },
         {
           "kind": "inferred_policy_applicability",
-          "subject": "send_customer_email [openai_api]",
-          "subject_id": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
-          "subject_kind": "action",
-          "source_type": null,
-          "source_ref": "shipgate.yaml",
-          "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-          "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Tool appears to overlap with a manifest prohibited action. Policy applicability is supported only by heuristic evidence.",
-          "next_action": {
-            "kind": "provide_policy_evidence",
-            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "path": "/agent/prohibited_actions/1",
-            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
-            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
-            "accepted_values": [
-              "reviewed_declaration",
-              "protocol_structure",
-              "typed_provider_fact",
-              "structural_scope"
-            ],
-            "authorable_by": "human",
-            "suggested_patch_kind": "manual",
-            "declaration_template": null,
-            "patch": null,
-            "observed_readings": [],
-            "auto_apply": false,
-            "requires_human_review": true
-          }
-        },
-        {
-          "kind": "inferred_policy_applicability",
-          "subject": "create_refund [openai_api]",
-          "subject_id": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
-          "subject_kind": "action",
-          "source_type": null,
-          "source_ref": "shipgate.yaml",
-          "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-          "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Tool appears to overlap with a manifest prohibited action. Policy applicability is supported only by heuristic evidence.",
-          "next_action": {
-            "kind": "provide_policy_evidence",
-            "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-            "path": "/agent/prohibited_actions/0",
-            "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
-            "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
-            "accepted_values": [
-              "reviewed_declaration",
-              "protocol_structure",
-              "typed_provider_fact",
-              "structural_scope"
-            ],
-            "authorable_by": "human",
-            "suggested_patch_kind": "manual",
-            "declaration_template": null,
-            "patch": null,
-            "observed_readings": [],
-            "auto_apply": false,
-            "requires_human_review": true
-          }
-        },
-        {
-          "kind": "inferred_policy_applicability",
           "subject": "agent:simple-openai-api-agent/api-refund-assistant",
           "subject_id": null,
           "subject_kind": "action",
@@ -769,7 +709,7 @@
         "gap_count": 0,
         "reason_counts": {}
       },
-      "policy_gap_count": 6
+      "policy_gap_count": 4
     },
     "baseline_delta": {
       "enabled": false,
@@ -804,6 +744,22 @@
         "category": "review_item",
         "rule": "review_required",
         "rationale": "requires_human_review=true (severity=high); routed to review_items."
+      },
+      {
+        "finding_id": "fp_b9007e3ae3ed5f5f",
+        "fingerprint": "fp_b9007e3ae3ed5f5f",
+        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "category": "excluded",
+        "rule": "unsupported_evidence",
+        "rationale": "Finding lacks policy-eligible predicate support; it cannot become a blocker or named review concern."
+      },
+      {
+        "finding_id": "fp_4e7eb5aecdf2a82e",
+        "fingerprint": "fp_4e7eb5aecdf2a82e",
+        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "category": "excluded",
+        "rule": "unsupported_evidence",
+        "rationale": "Finding lacks policy-eligible predicate support; it cannot become a blocker or named review concern."
       },
       {
         "finding_id": "fp_d98bf7612c5be651",
@@ -1072,6 +1028,7 @@
         "fp_25d66c07cb88ccbc",
         "fp_304deac63e13e3c3",
         "fp_368e8c29ea686e2e",
+        "fp_4e7eb5aecdf2a82e",
         "fp_7313c45114c31330",
         "fp_88b22e5b095fcc05",
         "fp_b15fbb62fef1c41c",
@@ -1255,6 +1212,7 @@
         "fp_3cbb2883d00d87fd",
         "fp_886b380dba4cbb51",
         "fp_b15fbb62fef1c41c",
+        "fp_b9007e3ae3ed5f5f",
         "fp_cfe9353889dee25f"
       ]
     }
@@ -1528,6 +1486,43 @@
       "release_implication": "Observed sample evidence contradicts the approval expectation."
     },
     {
+      "id": "mis_fa1f6b701727dcfe",
+      "kind": "prohibited_action_present",
+      "severity": "medium",
+      "tool_name": "create_refund",
+      "capability_refs": [
+        "cap_1936b581aee1c411"
+      ],
+      "intention_refs": [
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
+      ],
+      "finding_refs": [
+        "fp_4e7eb5aecdf2a82e"
+      ],
+      "policy_requirement": "Prohibited actions must not be contradicted by enabled capabilities.",
+      "gap": "create_refund appears to overlap with a prohibited action.",
+      "release_implication": "The tool surface appears to enable behavior the manifest prohibits."
+    },
+    {
+      "id": "mis_eda491e9c3a9426a",
+      "kind": "prohibited_action_present",
+      "severity": "medium",
+      "tool_name": "send_customer_email",
+      "capability_refs": [
+        "cap_e809417ee4da1160"
+      ],
+      "intention_refs": [
+        "int_bf9d4ad9100fcc59"
+      ],
+      "finding_refs": [
+        "fp_b9007e3ae3ed5f5f"
+      ],
+      "policy_requirement": "Prohibited actions must not be contradicted by enabled capabilities.",
+      "gap": "send_customer_email appears to overlap with a prohibited action.",
+      "release_implication": "The tool surface appears to enable behavior the manifest prohibits."
+    },
+    {
       "id": "mis_4c29425dcfcbf694",
       "kind": "undetected_gap",
       "severity": "medium",
@@ -1669,6 +1664,21 @@
       ],
       "source_findings": [
         "fp_7313c45114c31330"
+      ]
+    },
+    {
+      "id": "scn_236342f5c0b2ee9b",
+      "scenario_type": "prohibited_action",
+      "title": "Prohibited-action guard",
+      "given": "Exercise the release path for create_refund, send_customer_email.",
+      "expected_control": "The prohibited action is blocked, removed, or covered by the stated control.",
+      "source_misalignments": [
+        "mis_eda491e9c3a9426a",
+        "mis_fa1f6b701727dcfe"
+      ],
+      "source_findings": [
+        "fp_4e7eb5aecdf2a82e",
+        "fp_b9007e3ae3ed5f5f"
       ]
     }
   ],
@@ -2511,6 +2521,161 @@
       "suggested_patch_kind": "manual",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-auth-missing-scope",
       "agent_action": "escalate_to_human"
+    },
+    {
+      "id": "fp_b9007e3ae3ed5f5f",
+      "fingerprint": "fp_b9007e3ae3ed5f5f",
+      "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+      "title": "send_customer_email appears to overlap with a prohibited action",
+      "severity": "medium",
+      "category": "scope",
+      "tool_id": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
+      "tool_name": "send_customer_email",
+      "agent_id": "agent:simple-openai-api-agent/api-refund-assistant",
+      "evidence": {
+        "prohibited_action": "send customer email without confirmation",
+        "risk_tags": [
+          "customer_communication",
+          "external_write",
+          "write"
+        ]
+      },
+      "confidence": "medium",
+      "provenance_kind": "keyword_heuristic",
+      "source": {
+        "type": "openai_api",
+        "ref": "tools/openai-tools.json#1",
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/1"
+      },
+      "policy_evidence_source": {
+        "type": "manifest",
+        "ref": "shipgate.yaml#/agent/prohibited_actions/1",
+        "location": null,
+        "path": "shipgate.yaml",
+        "start_line": 11,
+        "end_line": null,
+        "start_column": null,
+        "pointer": "/agent/prohibited_actions/1"
+      },
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "policy_routing": null,
+      "support": {
+        "status": "indeterminate",
+        "confidence": "medium",
+        "policy_eligible": false,
+        "blocking_eligible": false,
+        "claim_ids": [],
+        "evidence_bases": [
+          "inferred_keyword"
+        ],
+        "predicates": [
+          {
+            "predicate": "heuristic_check_applicability",
+            "status": "indeterminate",
+            "expected": null,
+            "observed": null,
+            "confidence": "medium",
+            "claim_ids": [],
+            "evidence_bases": [
+              "inferred_keyword"
+            ],
+            "policy_eligible": false,
+            "why": "Heuristic evidence is advisory and cannot contribute to release gating."
+          }
+        ],
+        "support_hash": "sha256:b78c5c348cb9df28aec40a01d130f9ce44ffbbaae85859c571677364ff939d60"
+      },
+      "capability_trace_refs": [],
+      "recommendation": "Remove send_customer_email, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
+      "blocks_release": false,
+      "suppressed": false,
+      "suppression_reason": null,
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": false,
+      "suggested_patch_kind": "none",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-scope-prohibited-tool-present",
+      "agent_action": "informational"
+    },
+    {
+      "id": "fp_4e7eb5aecdf2a82e",
+      "fingerprint": "fp_4e7eb5aecdf2a82e",
+      "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+      "title": "create_refund appears to overlap with a prohibited action",
+      "severity": "medium",
+      "category": "scope",
+      "tool_id": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
+      "tool_name": "create_refund",
+      "agent_id": "agent:simple-openai-api-agent/api-refund-assistant",
+      "evidence": {
+        "prohibited_action": "issue refund without approval",
+        "risk_tags": [
+          "financial_action",
+          "write"
+        ]
+      },
+      "confidence": "medium",
+      "provenance_kind": "keyword_heuristic",
+      "source": {
+        "type": "openai_api",
+        "ref": "tools/openai-tools.json#0",
+        "location": null,
+        "path": "tools/openai-tools.json",
+        "pointer": "/tools/0"
+      },
+      "policy_evidence_source": {
+        "type": "manifest",
+        "ref": "shipgate.yaml#/agent/prohibited_actions/0",
+        "location": null,
+        "path": "shipgate.yaml",
+        "start_line": 10,
+        "end_line": null,
+        "start_column": null,
+        "pointer": "/agent/prohibited_actions/0"
+      },
+      "capability_refs": [],
+      "capability_policy_evidence": null,
+      "policy_routing": null,
+      "support": {
+        "status": "indeterminate",
+        "confidence": "medium",
+        "policy_eligible": false,
+        "blocking_eligible": false,
+        "claim_ids": [],
+        "evidence_bases": [
+          "inferred_keyword"
+        ],
+        "predicates": [
+          {
+            "predicate": "heuristic_check_applicability",
+            "status": "indeterminate",
+            "expected": null,
+            "observed": null,
+            "confidence": "medium",
+            "claim_ids": [],
+            "evidence_bases": [
+              "inferred_keyword"
+            ],
+            "policy_eligible": false,
+            "why": "Heuristic evidence is advisory and cannot contribute to release gating."
+          }
+        ],
+        "support_hash": "sha256:b78c5c348cb9df28aec40a01d130f9ce44ffbbaae85859c571677364ff939d60"
+      },
+      "capability_trace_refs": [],
+      "recommendation": "Remove create_refund, narrow its policy, or revise prohibited_actions so the manifest and tool surface do not contradict each other.",
+      "blocks_release": false,
+      "suppressed": false,
+      "suppression_reason": null,
+      "baseline_status": null,
+      "autofix_safe": false,
+      "requires_human_review": false,
+      "suggested_patch_kind": "none",
+      "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-scope-prohibited-tool-present",
+      "agent_action": "informational"
     },
     {
       "id": "fp_d98bf7612c5be651",
@@ -4079,66 +4244,6 @@
     },
     {
       "kind": "inferred_policy_applicability",
-      "subject": "send_customer_email [openai_api]",
-      "subject_id": "tool_v2_99ba7c14d528f47da6093918bb937aafc5d75dd4f4972797c8e9697c14bcb61b",
-      "subject_kind": "action",
-      "source_type": null,
-      "source_ref": "shipgate.yaml",
-      "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-      "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Tool appears to overlap with a manifest prohibited action. Policy applicability is supported only by heuristic evidence.",
-      "next_action": {
-        "kind": "provide_policy_evidence",
-        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-        "path": "/agent/prohibited_actions/1",
-        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
-        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
-        "accepted_values": [
-          "reviewed_declaration",
-          "protocol_structure",
-          "typed_provider_fact",
-          "structural_scope"
-        ],
-        "authorable_by": "human",
-        "suggested_patch_kind": "manual",
-        "declaration_template": null,
-        "patch": null,
-        "observed_readings": [],
-        "auto_apply": false,
-        "requires_human_review": true
-      }
-    },
-    {
-      "kind": "inferred_policy_applicability",
-      "subject": "create_refund [openai_api]",
-      "subject_id": "tool_v2_b900644b842a2ec3ce8827653cf7153ac2b7f03e18f92566f5c12058bb368865",
-      "subject_kind": "action",
-      "source_type": null,
-      "source_ref": "shipgate.yaml",
-      "policy_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
-      "why": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT: Tool appears to overlap with a manifest prohibited action. Policy applicability is supported only by heuristic evidence.",
-      "next_action": {
-        "kind": "provide_policy_evidence",
-        "command": "agents-shipgate verify --workspace . --config shipgate.yaml --ci-mode advisory --format json",
-        "path": "/agent/prohibited_actions/0",
-        "why": "Heuristic or unknown evidence cannot create a blocking policy finding.",
-        "expects": "Provide reviewed or structural evidence for every indeterminate predicate.",
-        "accepted_values": [
-          "reviewed_declaration",
-          "protocol_structure",
-          "typed_provider_fact",
-          "structural_scope"
-        ],
-        "authorable_by": "human",
-        "suggested_patch_kind": "manual",
-        "declaration_template": null,
-        "patch": null,
-        "observed_readings": [],
-        "auto_apply": false,
-        "requires_human_review": true
-      }
-    },
-    {
-      "kind": "inferred_policy_applicability",
       "subject": "agent:simple-openai-api-agent/api-refund-assistant",
       "subject_id": null,
       "subject_kind": "action",
@@ -4240,9 +4345,9 @@
   },
   "reviewer_summary": {
     "verdict": "blocked",
-    "headline": "Release blocked: 16 lens changes. Start at release_decision.",
+    "headline": "Release blocked: 18 lens changes. Start at release_decision.",
     "tool_surface_changes": 0,
-    "capability_misalignments": 16,
+    "capability_misalignments": 18,
     "action_surface_changes": 0,
     "evidence_matrix_gaps": 0,
     "severity_overrides_applied": 0,
@@ -4286,7 +4391,7 @@
     "by_severity": {
       "critical": 1,
       "high": 10,
-      "medium": 4
+      "medium": 6
     },
     "by_reason_code": {
       "SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING": 1,
@@ -4299,6 +4404,7 @@
       "SHIP-API-TRACE-APPROVAL-MISSING": 1,
       "SHIP-AUTH-MISSING-SCOPE": 2,
       "SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING": 2,
+      "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT": 2,
       "SHIP-SIDEFX-IDEMPOTENCY-MISSING": 1
     },
     "capability_delta_summary": {

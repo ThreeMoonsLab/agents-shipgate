@@ -13,6 +13,7 @@ from typing import get_args
 import pytest
 from jsonschema import ValidationError, validate
 
+from agents_shipgate.checks.registry import check_catalog
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core.findings import (
     PROVENANCE_KIND_ORDER,
@@ -69,10 +70,17 @@ def test_emitted_findings_never_have_none_provenance(tmp_path, sample):
         )
 
 
-def test_bundled_fixture_findings_exclude_heuristic_policy_matches(tmp_path):
-    """Heuristic applicability is represented as evidence gaps, not Findings."""
+def test_bundled_fixture_heuristic_findings_are_only_advisories(tmp_path):
+    """Heuristic applicability never moves the verdict.
+
+    It is an evidence gap, or — for a check whose catalog entry opts in, such
+    as ``SHIP-SCOPE-PROHIBITED-TOOL-PRESENT`` under #1055's Option A (#1035) —
+    a published advisory finding that is never a blocker or review item.
+    """
+    catalog = {metadata.id: metadata for metadata in check_catalog(plugins_enabled=False)}
     kinds: set[str] = set()
     policy_gap_count = 0
+    advisories = 0
     for sample in SAMPLES:
         out = tmp_path / sample.parent.name
         out.mkdir()
@@ -83,13 +91,27 @@ def test_bundled_fixture_findings_exclude_heuristic_policy_matches(tmp_path):
             ci_mode="advisory",
             packet_enabled=False,
         )
+        rules = {rule.finding_id: rule for rule in report.release_decision.contribution_rules}
         for finding in report.findings:
             if finding.provenance_kind is not None:
                 kinds.add(finding.provenance_kind)
+            if finding.provenance_kind not in {"keyword_heuristic", "regex_heuristic"}:
+                continue
+            advisories += 1
+            metadata = catalog[finding.check_id]
+            assert (
+                metadata.advisory_when_policy_ineligible
+                or metadata.publish_when_policy_ineligible
+            ), finding.check_id
+            assert finding.blocks_release is False
+            assert finding.support is not None and finding.support.policy_eligible is False
+            assert (rules[finding.id].category, rules[finding.id].rule) == (
+                "excluded",
+                "unsupported_evidence",
+            )
         policy_gap_count += len(report.policy_evidence_gaps)
     assert "static_declaration" in kinds
-    assert "keyword_heuristic" not in kinds
-    assert "regex_heuristic" not in kinds
+    assert advisories > 0
     assert policy_gap_count > 0
 
 
