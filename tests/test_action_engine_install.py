@@ -528,7 +528,10 @@ def _record_sha256_after_install(root: Path, wheel: Path) -> str:
          "--disable-pip-version-check", "--quiet", str(wheel)],
         check=True, env=env, cwd=root, timeout=300,
     )
-    [record] = (root / "venv").glob("lib*/python*/site-packages/demo_tool-1.0.dist-info/RECORD")
+    # One file, however many names reach it: a Linux venv has `lib64 -> lib`,
+    # so the glob below finds the same RECORD twice there.
+    found = (root / "venv").glob("lib*/python*/site-packages/demo_tool-1.0.dist-info/RECORD")
+    [record] = {path.resolve() for path in found}
     text = record.read_text(encoding="utf-8")
     assert "bin/demo," in text, text
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
