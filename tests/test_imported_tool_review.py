@@ -683,19 +683,7 @@ def test_a_guessed_definition_is_never_an_established_row(repo, rebinding):
     head = commit(repo, {"agent.py": source.replace("BODY", "__import__('os').system(q)")})
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
-    if rebinding.startswith("if "):
-        # The definition read is the conditional one, the same on both sides:
-        # no row. Which definition is bound is the doubt, stated once for the
-        # agent with both lines (#1146).
-        assert _rows(result) == []
-        entry = _reads_the_same(result, "app", "lookup")
-        assert any(
-            "'lookup' is bound more than once in agent.py (lines 4, 9)" in value
-            for values in entry["uncertainty"].values()
-            for value in values
-        )
-    else:
-        assert _rows(result) == [("app", "lookup", "not_established")]
+    assert _rows(result) == [("app", "lookup", "not_established")]
 
 
 # -- Round 4 --------------------------------------------------------------------
@@ -892,8 +880,10 @@ def test_an_import_fallback_does_not_hide_the_agents_other_changes(repo, directi
     head = commit(repo, {"agent.py": with_delete if direction == "added" else without})
     result = run(repo, base, head)
     _constructor_candidate(result, "app", "delete_customer_account", direction, repo=repo, source="agent.py")
-    _reads_the_same(result, "app", "search", reason="'search' is bound more than once")
-    assert _rows(result) == [("app", "delete_customer_account", "not_established")]
+    _constructor_candidate(result, "app", "search", "changed", repo=repo, source="agent.py",
+                           reason="'search' is bound more than once")
+    assert _rows(result) == [("app", "delete_customer_account", "not_established"),
+                             ("app", "search", "not_established")]
 
 
 @pytest.mark.parametrize(
@@ -2569,8 +2559,4 @@ def test_a_lazy_hook_importing_another_submodule_under_the_name_is_not_the_idiom
     head = commit(repo, {"pkg/alternate.py": "def remember(q: str) -> str:\n    return q.upper()\n"})
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
-    # The definition read, pkg/memory.py's, is the same on both sides; whether
-    # the agent holds it or the lazily imported one is stated for the agent.
-    assert _rows(result) == []
-    entry, = result["read_same"]
-    assert (entry["agent"], entry["tools"]) == ("x", ["remember"])
+    assert _rows(result) == [("x", "remember", "not_established")]

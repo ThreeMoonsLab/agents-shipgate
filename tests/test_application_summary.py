@@ -266,7 +266,7 @@ def test_one_line_per_cause_however_many_rows_share_it(repo):
 def test_the_json_differs_only_by_the_additive_summary(repo, monkeypatch):
     result, base, head = _added(repo, CALL)
     assert list(result)[:3] == ["application_comparison_schema_version", "comparison_status", "summary"]
-    assert result["application_comparison_schema_version"] == "0.4"
+    assert result["application_comparison_schema_version"] == "0.5"
     assert result["summary"] == build_summary(result)
     identity = result.pop("comparison_id")
     assert identity == diff_module._digest(result)

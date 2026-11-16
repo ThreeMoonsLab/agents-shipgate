@@ -115,14 +115,26 @@ def _params(binding: dict[str, Any]) -> list[str]:
     return list(properties) if isinstance(properties, dict) else []
 
 
-def _what_changed(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
+#: Why two sides that read the same are still a candidate (a row's
+#: ``doubts``, #1146): the reading is not of what is bound.
+_DOUBT_FACTS = {
+    "definition_identity": "reads the same on both sides, but which definition is bound is not established",
+    "settings": "reads the same on both sides, but the agent's declared settings were not read",
+    "unclassified": "reads the same on both sides, but what is bound is not established",
+}
+
+
+def _what_changed(
+    before: dict[str, Any], after: dict[str, Any], doubts: tuple[str, ...] | list[str] = ()
+) -> list[str]:
     """What differs between a tool's two sides, in the words a reviewer uses.
 
     Every part of a binding's compared meaning (``_meaning`` in
     ``application_diff``) that can differ between two sides of one binding is
     named here, and so is an implementation read on neither side. Nothing is a
     change for a reason this cannot state: a binding that reads the same on
-    both sides is not a row (#1146), so an empty answer for a row is a bug,
+    both sides is a row only for a doubt the row names in ``doubts`` (#1146),
+    and then that doubt is what is said. An empty answer for a row is a bug,
     and a test holds every row to a non-empty one.
     """
 
@@ -158,6 +170,8 @@ def _what_changed(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
         changes.append("tool object changed" + (f" ({', '.join(keys)})" if keys else ""))
     if before.get("edge_type") != after.get("edge_type"):
         changes.append(f"bound as {before.get('edge_type')} → {after.get('edge_type')}")
+    if not changes:
+        changes.extend(_DOUBT_FACTS[doubt] for doubt in doubts if doubt in _DOUBT_FACTS)
     return changes
 
 
@@ -253,7 +267,9 @@ def _entry(index: int, row: dict[str, Any]) -> dict[str, Any]:
     observed = after if after is not None else before
     facts: list[dict[str, Any]] = []
     if kind == "changed" and before is not None and after is not None:
-        facts.extend({"kind": "change", "text": text} for text in _what_changed(before, after))
+        facts.extend(
+            {"kind": "change", "text": text} for text in _what_changed(before, after, row.get("doubts", ()))
+        )
     if observed is not None and observed.get("object"):
         fact = {"kind": "object", "text": _object_text(observed)}
         credentials = [credential_phrase(item) for item in observed["object"].get("credential_sources") or []]
@@ -488,6 +504,7 @@ def _read_same(entry: dict[str, Any]) -> dict[str, Any]:
     return {
         "count": len(entry["tools"]),
         "tools": list(entry["tools"]),
+        "doubts": list(entry.get("doubts", [])),
         "sides": sorted(entry["uncertainty"]),
         "reasons": len(set(reasons)),
         "first": first,
@@ -704,14 +721,27 @@ def _effects_line(effects: list[dict[str, Any]]) -> str | None:
 
 
 def _read_same_line(agent: str, item: dict[str, Any]) -> str:
-    """Bindings that read the same but are not established, as one statement about their agent."""
+    """Bindings that read the same but are not established, as one statement about their agent.
+
+    It says what the doubt is: whether the agent's construction holds them,
+    or which files an import search reaches for them (#1146).
+    """
 
     one = item["count"] == 1
     more = item["reasons"] - 1
+    them = "it" if one else "them"
+    doubts = set(item.get("doubts") or ())
+    holds = f"whether {agent} holds {them}"
+    search = f"which file{'' if one else 's'} an import search reaches for {them}"
+    if doubts == {"import_search"}:
+        doubt = f"{search} is not established"
+    elif "import_search" in doubts:
+        doubt = f"{holds}, and {search}, are not established"
+    else:
+        doubt = f"{holds} is not established"
     return (
         f"{_plural(item['count'], 'binding')} read{'s' if one else ''} the same on both sides "
-        f"({_names(item['tools'])}); whether {agent} holds {'it' if one else 'them'} unchanged "
-        f"is not established: {item['first']}"
+        f"({_names(item['tools'])}); {doubt}: {item['first']}"
         + (f" (and {_plural(more, 'more reason')})" if more else "")
     )
 

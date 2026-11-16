@@ -18,6 +18,9 @@ from agents_shipgate.core.artifact_models import (
 )
 from agents_shipgate.core.domain import (
     ANY_TOOL,
+    DOUBT_CONSTRUCTION,
+    DOUBT_DEFINITION_IDENTITY,
+    DOUBT_IMPORT_SEARCH,
     SURFACE_ENUMERATED,
     SURFACE_PARTIAL,
     AgentBindingObservation,
@@ -27,6 +30,7 @@ from agents_shipgate.core.domain import (
     RemoteBindingStatus,
     Tool,
     ToolParameter,
+    joined_doubts,
 )
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.privacy import is_credential_key, redact_url_credentials
@@ -924,6 +928,8 @@ class _AdkAgentBinding:
     duplicated: set[str] = field(default_factory=set)
     #: ``tool_name -> why`` for a binding made on a guess (#879 review).
     tool_issues: dict[str, str] = field(default_factory=dict)
+    #: ``tool_name -> [DOUBT_*]``: what each of those reasons doubts (#1146).
+    tool_issue_doubts: dict[str, list[str]] = field(default_factory=dict)
     constructor_issue: str | None = None
     constructor_issues: dict[str, str] = field(default_factory=dict)
     #: Why this agent's tool list is incomplete, when it is.
@@ -999,6 +1005,7 @@ class _AdkAgentBinding:
 
         self.duplicated.add(tool_name)
         self.tool_issues.pop(tool_name, None)
+        self.tool_issue_doubts.pop(tool_name, None)
         self.objects.pop(tool_name, None)
         self.tool_names = [name for name in self.tool_names if name != tool_name]
         self.tool_locators.pop(tool_name, None)
@@ -1914,6 +1921,12 @@ class _PythonAdkExtractor:
                              **({name: "; ".join(filter(None, [binding.tool_issues.get(name), binding.constructor_issue]))
                                  for name in (*binding.tool_names, *binding.objects)}
                                 if binding.constructor_issue is not None else {})},
+                tool_issue_doubts=joined_doubts(
+                    binding.tool_issues,
+                    binding.tool_issue_doubts,
+                    (*binding.tool_names, *binding.objects) if binding.constructor_issue is not None else (),
+                    DOUBT_CONSTRUCTION,
+                ),
                 tool_sites={
                     name: sorted(lines, key=lambda location: (location.rsplit(":", 1)[0], int(location.rsplit(":", 1)[1])))
                     for name, lines in binding.tool_sites.items()
@@ -2498,6 +2511,7 @@ class _PythonAdkExtractor:
         candidates = self._guess_candidates(name)
         names |= candidates if candidates is not None else {ANY_TOOL}
         binding.tool_issues.update({item: issue for item in names})
+        binding.tool_issue_doubts.update({item: [DOUBT_DEFINITION_IDENTITY] for item in names})
 
     def _guess_candidates(self, name: str) -> set[str] | None:
         """The tool names the module's bindings of ``name`` can give the agent.
@@ -2691,6 +2705,7 @@ class _PythonAdkExtractor:
                 inner,
                 steps=(*resolution.steps, *inner.steps),
                 caveats=tuple(dict.fromkeys((*resolution.caveats, *inner.caveats))),
+                search_caveats=tuple(dict.fromkeys((*resolution.search_caveats, *inner.search_caveats))),
             ),
             inner_long_running,
         )
@@ -2735,6 +2750,7 @@ class _PythonAdkExtractor:
                 # What runs before this module's wrapper is used still runs
                 # before its function is (#879 review).
                 caveats=tuple(dict.fromkeys((*resolution.caveats, *inner.caveats))),
+                search_caveats=tuple(dict.fromkeys((*resolution.search_caveats, *inner.search_caveats))),
             ),
             call_name in LONG_RUNNING_TOOL_NAMES,
         )
@@ -2874,6 +2890,7 @@ class _PythonAdkExtractor:
                     detail=f"{reference!r} is the tool factory {factory.name!r} ({home.ref}:{factory.lineno}) returns, and {detail}",
                     steps=steps,
                     caveats=callee.caveats,
+                    search_caveats=callee.search_caveats,
                 ),
                 False,
             )
@@ -2905,6 +2922,7 @@ class _PythonAdkExtractor:
                 resolution,
                 steps=(*steps, *resolution.steps),
                 caveats=tuple(dict.fromkeys((*callee.caveats, *resolution.caveats))),
+                search_caveats=tuple(dict.fromkeys((*callee.search_caveats, *resolution.search_caveats))),
             ),
             long_running,
         )
@@ -3364,6 +3382,11 @@ class _PythonAdkExtractor:
                 f"({tool.source_location}), but {'; '.join(resolution.caveats)}; the "
                 "definition read for it is not established as the one bound."
             )
+            # Only which file an import search reaches is a whole-program
+            # doubt; any other caveat doubts the definition read (#1146).
+            binding.tool_issue_doubts[tool.name] = [
+                DOUBT_IMPORT_SEARCH if resolution.search_only else DOUBT_DEFINITION_IDENTITY
+            ]
         evidence = resolution.evidence()
         recorded = tool.extraction.setdefault("import_resolutions", [])
         if evidence not in recorded:

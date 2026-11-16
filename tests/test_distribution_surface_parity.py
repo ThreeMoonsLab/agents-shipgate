@@ -214,11 +214,15 @@ SURFACES: tuple[Surface, ...] = (
         # does not: no row, status, gap or exit code moves, and it is left out
         # of the benchmark's `answer_id`, so it adds no claim either
         # (`tests/test_application_summary.py`).
-        # Its optional `read_same` (#1146) names, per agent, the bindings that
-        # read the same on both sides but are not established, which are not
-        # rows: the comparator's own equality and per-binding uncertainty,
-        # regrouped, and it keeps the answer `partial`. It restates no engine
-        # answer, so it adds no claim (`tests/test_application_read_same.py`).
+        # Its optional `read_same` (#1146) claims, per agent, that each named
+        # binding's compared meaning was read from what is bound and is equal
+        # on both sides, and that its only doubts are whether the agent holds
+        # it or which file an import search reaches; such a binding is no row
+        # and the answer stays `partial`. A row's `doubts` names why equal
+        # sides are no such reading. Both are the comparator's own equality
+        # and its readers' doubt kinds, not an engine verdict, release or
+        # merge answer, so neither is one of the claims checked here
+        # (`tests/test_application_read_same.py`).
         {},
     ),
     Surface(

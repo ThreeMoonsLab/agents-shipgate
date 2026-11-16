@@ -11,7 +11,11 @@ said once, for its agent (``read_same``), and the comparison stays
   agent-level statement naming the two bindings that read the same and why;
 - the one test of a difference is ``_differs`` (the engine's ``_meaning``),
   and every row the engine emits for a change says what changed;
-- a callable read on neither side does not read the same, so it stays a row.
+- equal meanings that are no reading stay a candidate row, as on ``main``: an
+  implementation read on neither side, a doubt about which definition or
+  which settings are bound, and any doubt no reader classified (fail
+  closed). Only whether the agent holds a binding, or which file an import
+  search reaches, is said once for the agent.
 """
 
 from __future__ import annotations
@@ -22,10 +26,11 @@ import json
 from pathlib import Path
 
 import pytest
-from test_application_diff import SDK, commit, run
+from test_application_diff import SDK, assert_every_change_says_what, commit, run
 from test_application_diff import repo as repo
 from typer.testing import CliRunner
 
+import agents_shipgate.cli.application_diff as diff_module
 from agents_shipgate.cli.application_diff import _differs, _meaning, _reads_the_same
 from agents_shipgate.cli.application_summary import _what_changed, build_summary, summary_lines
 from agents_shipgate.cli.main import app
@@ -83,17 +88,6 @@ def _text(repo, base: str, head: str) -> str:
     return result.output
 
 
-def assert_every_change_says_what(payload: dict) -> None:
-    """A row for a change, established or candidate, names what changed."""
-
-    for row in payload["rows"]:
-        kind = row["candidate_change"] if row["change"] == "not_established" else row["change"]
-        if kind != "changed":
-            continue
-        assert row["before"] is not None and row["after"] is not None, row
-        assert _what_changed(row["before"], row["after"]), (row["agent"], row["tool"])
-
-
 def test_the_readme_shape_is_one_row_and_one_statement_about_the_agent(repo):
     base = commit(repo, {"app.py": README.replace("TOOLS", BASE_TOOLS)})
     head = commit(repo, {"app.py": README.replace("TOOLS", HEAD_TOOLS)})
@@ -104,10 +98,11 @@ def test_the_readme_shape_is_one_row_and_one_statement_about_the_agent(repo):
         ("issue_refund", "not_established", "added")
     ]
     [same] = result["read_same"]
-    assert (same["agent"], same["agent_source"], same["tools"]) == (
+    assert (same["agent"], same["agent_source"], same["tools"], same["doubts"]) == (
         "support_agent",
         "app.py",
         ["lookup_order", "track_shipment"],
+        ["construction"],
     )
     assert sorted(same["uncertainty"]) == ["base", "head"]
     reasons = [reason for items in same["uncertainty"].values() for reason in items]
@@ -128,7 +123,7 @@ def test_the_readme_shape_is_one_row_and_one_statement_about_the_agent(repo):
     assert "support_agent [partial]: ?+issue_refund (" in text
     assert (
         "  2 bindings read the same on both sides (lookup_order, track_shipment); whether "
-        "support_agent holds them unchanged is not established: the constructor identity is not "
+        "support_agent holds them is not established: the constructor identity is not "
         "established: a framework constructor or namespace is retained or used opaquely in app.py:32\n"
     ) in text
     # The statement is made once, and no unchanged tool is a row or a candidate.
@@ -238,9 +233,58 @@ _CHANGED = {
 _IDENTITY = {"agent", "tool", "target_source"}
 
 
-def test_the_compared_meaning_is_the_one_listed_here():
-    # A part added to the compared meaning needs a way to say it changed.
-    assert set(_meaning(_binding())) == {*_CHANGED, *_IDENTITY, "implementation_sha256"}
+#: One file whose agents bind a function tool under a condition, a tool
+#: object, a handoff, and a clone with a declared setting: every part of a
+#: binding's compared meaning the readers record.
+EVERY_PART = """import os
+
+from agents import Agent, WebSearchTool, function_tool
+from agents.mcp import MCPServerStdio
+
+
+@function_tool
+def lookup(q: str) -> str:
+    return q
+
+
+@function_tool
+def execute(code: str) -> str:
+    return code
+
+
+worker = Agent(name="worker", tools=[lookup])
+source = Agent(
+    name="source",
+    tools=[lookup, WebSearchTool(), *([execute] if os.environ.get("DEBUG") else [])],
+    handoffs=[worker],
+)
+copy = source.clone(tool_use_behavior="stop_on_first_tool")
+
+
+async def serve() -> None:
+    async with MCPServerStdio(params={"command": "npx"}) as server:
+        assistant = Agent(name="assistant", tools=[lookup], mcp_servers=[server])
+        await assistant.run()
+"""
+
+
+def test_the_compared_meaning_is_what_a_real_run_records(repo, monkeypatch):
+    """Every part of what ``_observe_source`` records that ``_meaning`` keeps
+    has a way to say it changed; a new field there fails this until it does."""
+
+    seen: list[dict] = []
+    compare = diff_module.compare
+
+    def recording(base, head, **kwargs):
+        seen.extend([*base.bindings.values(), *head.bindings.values()])
+        return compare(base, head, **kwargs)
+
+    monkeypatch.setattr(diff_module, "compare", recording)
+    base = commit(repo, {"agent.py": EVERY_PART})
+    head = commit(repo, {"agent.py": EVERY_PART.replace("return code", "return code.upper()")})
+    run(repo, base, head, "--scope", ".")
+    keys = set().union(*(_meaning(binding) for binding in seen))
+    assert keys == {*_CHANGED, *_IDENTITY, "implementation_sha256"}
 
 
 @pytest.mark.parametrize("part", sorted({*_CHANGED, "implementation_sha256"}))
@@ -266,6 +310,32 @@ def test_only_evidence_differs_is_not_a_difference():
     )
     assert not _differs(before, after)
     assert _what_changed(before, after) == []
+
+
+def test_only_a_doubt_about_the_agent_leaves_a_binding_reading_the_same():
+    same = _binding()
+    construction, search = frozenset({"construction"}), frozenset({"import_search"})
+    assert _reads_the_same(same, copy.deepcopy(same))
+    assert _reads_the_same(same, copy.deepcopy(same), None, [construction, search])
+    assert _reads_the_same(same, copy.deepcopy(same), None, [construction | search])
+    # Which definition or settings are bound, and a doubt no reader
+    # classified, keep it a candidate: fail closed.
+    for kept in ({"definition_identity"}, {"settings"}, {"construction", "definition_identity"}, set()):
+        assert not _reads_the_same(same, copy.deepcopy(same), None, [construction, frozenset(kept)])
+
+
+def test_a_kept_doubt_is_what_an_equal_row_says():
+    same = _binding()
+    assert _what_changed(same, copy.deepcopy(same)) == []
+    assert _what_changed(same, copy.deepcopy(same), ["definition_identity"]) == [
+        "reads the same on both sides, but which definition is bound is not established"
+    ]
+    assert _what_changed(same, copy.deepcopy(same), ["settings"]) == [
+        "reads the same on both sides, but the agent's declared settings were not read"
+    ]
+    # A doubt never stands in for a real difference.
+    changed = _binding(signature="t(q, n) -> str")
+    assert _what_changed(same, changed, ["definition_identity"]) == ["signature changed"]
 
 
 def test_an_implementation_read_on_neither_side_does_not_read_the_same():
@@ -316,3 +386,137 @@ def test_every_golden_change_row_says_what_changed(path):
     assert_every_change_says_what(payload)
     for line in summary_lines(payload["summary"]):
         assert "binding details changed" not in line
+
+
+# Equal meanings that are no reading stay candidate rows, as on main (#1146
+# review). Four hide a body change to `os.system`; two read the agent's
+# settings on neither side.
+_COND_DEF = (
+    "import os\n\nfrom google.adk.agents import Agent\n\n\n"
+    "def lookup(q: str) -> str:\n    return BODY\n\n\n"
+    "if os.environ.get('SAFE_LOOKUP'):\n    def lookup(q: str) -> str:\n        return q\n"
+    "\nroot_agent = Agent(name='app', model='m', tools=[lookup])\n"
+)
+_ADK_FALLBACK = (
+    "from google.adk.agents import Agent\n\n"
+    "try:\n    from fast_search import search\nexcept ImportError:\n"
+    "    def search(q: str) -> str:\n        return q\n\n\n"
+    "root_agent = Agent(name='app', model='m', tools=[search])\n"
+)
+_SDK_FALLBACK = (
+    "from agents import Agent, function_tool\n\n"
+    "try:\n    from fast_search import search\nexcept ImportError:\n"
+    "    @function_tool\n    def search(q: str) -> str:\n        return q\n\n\n"
+    "agent = Agent(name='app', instructions='x', tools=[search])\n"
+)
+_SDK_SEARCH = "from agents import function_tool\n\n\n@function_tool\ndef search(q: str) -> str:\n    return BODY\n"
+_LAZY = {
+    "pkg/__init__.py": (
+        "def __getattr__(name):\n    if name == 'memory':\n        from . import alternate as memory\n"
+        "        return memory\n    raise AttributeError(name)\n"
+    ),
+    "pkg/memory.py": "def remember(q: str) -> str:\n    return q\n",
+    "pkg/alternate.py": "def remember(q: str) -> str:\n    return q\n",
+    "agent.py": (
+        "from google.adk.agents import Agent\nfrom pkg import memory\n\n"
+        "root_agent = Agent(name='x', model='m', tools=[memory.remember])\n"
+    ),
+}
+_CLONE = (
+    "from agents import Agent, ModelSettings, function_tool\n@function_tool\ndef read():\n    return None\n"
+    "@function_tool\ndef write():\n    return None\nsource = Agent(name='Source', tools=[read, write])\n"
+)
+REGRESSIONS = {
+    "conditional-def": (
+        {"agent.py": _COND_DEF.replace("BODY", "q")},
+        {"agent.py": _COND_DEF.replace("BODY", "str(os.system(q))")},
+        [("app", "lookup")],
+        "definition_identity",
+    ),
+    "adk-import-fallback": (
+        {"agent.py": _ADK_FALLBACK, "fast_search.py": "def search(q: str) -> str:\n    return q\n"},
+        {"fast_search.py": "import os\n\n\ndef search(q: str) -> str:\n    return os.system(q)\n"},
+        [("app", "search")],
+        "definition_identity",
+    ),
+    "lazy-hook": (
+        _LAZY,
+        {"pkg/alternate.py": "import os\n\ndef remember(q: str) -> str:\n    return os.system(q)\n"},
+        [("x", "remember")],
+        "definition_identity",
+    ),
+    "sdk-import-fallback": (
+        {"agent.py": _SDK_FALLBACK, "fast_search.py": _SDK_SEARCH.replace("BODY", "q")},
+        {"fast_search.py": "import os\n\n" + _SDK_SEARCH.replace("BODY", "str(os.system(q))")},
+        [("agent", "search")],
+        "definition_identity",
+    ),
+    "settings-unread": (
+        {"agent.py": _CLONE + "BEHAVIOR = 'run_llm_again'\ncopy = source.clone(tool_use_behavior=BEHAVIOR)\n"},
+        {"agent.py": _CLONE + "BEHAVIOR = 'stop_on_first_tool'\ncopy = source.clone(tool_use_behavior=BEHAVIOR)\n"},
+        [("source clone at copy@agent.py", "read"), ("source clone at copy@agent.py", "write")],
+        "settings",
+    ),
+    "settings-conflict": (
+        {"agent.py": _CLONE + "a = source.clone(name='Copy', model_settings=ModelSettings(tool_choice='none'))\n"
+         "b = source.clone(name='Copy', model_settings=ModelSettings(tool_choice='auto'))\n"},
+        {"agent.py": _CLONE + "a = source.clone(name='Copy', model_settings=ModelSettings(tool_choice='none'))\n"
+         "b = source.clone(name='Copy', model_settings=ModelSettings(tool_choice='required'))\n"},
+        [("Copy", "read"), ("Copy", "write")],
+        "settings",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(REGRESSIONS))
+def test_a_reading_of_what_may_not_be_bound_stays_a_candidate_row(repo, case):
+    base_files, head_files, expected, doubt = REGRESSIONS[case]
+    base = commit(repo, base_files)
+    head = commit(repo, head_files)
+    result = run(repo, base, head, "--scope", ".")
+    assert result["comparison_status"] == "partial"
+    assert [(r["agent"], r["tool"]) for r in result["rows"]] == expected
+    for row in result["rows"]:
+        assert (row["change"], row["candidate_change"]) == ("not_established", "changed")
+        assert doubt in row["doubts"]
+    named = {(e["agent"], tool) for e in result.get("read_same", []) for tool in e["tools"]}
+    assert not named & set(expected)
+    facts = [
+        fact["text"]
+        for finding in result["summary"]["findings"]
+        for tool in finding["tools"]
+        for fact in tool["facts"]
+        if fact["kind"] == "change"
+    ]
+    assert len(facts) == len(expected)
+    assert all(fact.startswith("reads the same on both sides, but ") for fact in facts)
+
+
+_SEARCH_TOOLS = (
+    "from agents import function_tool\n\n\n@function_tool\ndef lookup(q: str) -> str:\n    return q\n\n\n"
+    "@function_tool\ndef execute(code: str) -> str:\n    return code\n"
+)
+_SEARCH_AGENT = (
+    "import sys\n\nfrom agents import Agent\n\nfrom tools import execute, lookup\n\n"
+    "sys.path.insert(0, '/opt/plugins')\n\nagent = Agent(name='assistant', tools=TOOLS)\n"
+)
+
+
+def test_an_import_search_doubt_is_said_as_one(repo):
+    # O.R.I.O.N#126's and OpenCMO#41's shape: `sys.path` is changed, so which
+    # file an import search reaches is a whole-program doubt (#1147 D1),
+    # stated once for the agent, not a reason to list each tool as changed.
+    base = commit(repo, {"tools.py": _SEARCH_TOOLS, "agent.py": _SEARCH_AGENT.replace("TOOLS", "[lookup]")})
+    head = commit(repo, {"agent.py": _SEARCH_AGENT.replace("TOOLS", "[lookup, execute]")})
+    result = run(repo, base, head, "--scope", ".")
+    assert [(r["tool"], r["candidate_change"]) for r in result["rows"]] == [("execute", "added")]
+    [same] = result["read_same"]
+    assert (same["tools"], same["doubts"]) == (["lookup"], ["construction", "import_search"])
+    result = CliRunner().invoke(
+        app, ["diff", "--application", "--workspace", str(repo), "--base", base, "--head", head, "--scope", "."]
+    )
+    assert result.exit_code == 0, result.output
+    assert (
+        "  1 binding reads the same on both sides (lookup); whether agent holds it, and which file "
+        "an import search reaches for it, are not established: "
+    ) in result.output

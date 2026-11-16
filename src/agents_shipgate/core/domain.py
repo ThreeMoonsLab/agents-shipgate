@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -683,6 +684,39 @@ class AgentRemoteBinding(BaseModel):
 #: agent's tools, not one this reader can name (#879 review).
 ANY_TOOL = "*"
 
+#: What a ``tool_issues`` reason doubts (#1146), recorded by the reader that
+#: writes it, never read back from its text. Which definition the name is
+#: bound to: a same-named definition bound more than once, an import
+#: fallback, a lazy ``__getattr__``, code run first that could rebind it.
+DOUBT_DEFINITION_IDENTITY = "definition_identity"
+#: Which file an import search reaches: ``sys.path`` or an import-search
+#: carrier the read does not follow. A whole-program doubt (#1147 D1).
+DOUBT_IMPORT_SEARCH = "import_search"
+#: Whether the agent's construction holds the binding: its constructor or
+#: callers were not proved, or the binding is a refused constructor's
+#: initializer member.
+DOUBT_CONSTRUCTION = "construction"
+#: The agent's declared settings were not read or conflict.
+DOUBT_SETTINGS = "settings"
+
+
+def joined_doubts(
+    issues: dict[str, str], doubts: dict[str, list[str]], names: Iterable[str], doubt: str
+) -> dict[str, list[str]]:
+    """``doubts`` after one more reason of kind ``doubt`` is joined to each of ``names``.
+
+    A reason already there without a recorded kind stays unclassified: the
+    joined reason is then left without one too, never classified by its last
+    part alone (#1146).
+    """
+
+    joined = dict(doubts)
+    for name in names:
+        if name in issues and name not in doubts:
+            continue
+        joined[name] = list(dict.fromkeys((*doubts.get(name, ()), doubt)))
+    return joined
+
 
 class AgentBindingObservation(BaseModel):
     """One framework parser's normalized, agent-level binding observation."""
@@ -703,6 +737,10 @@ class AgentBindingObservation(BaseModel):
     #: definition for it but could not establish that it is the one bound
     #: (#879 review). The binding is reported, never as established.
     tool_issues: dict[str, str] = Field(default_factory=dict)
+    #: ``tool_name -> [DOUBT_*, ...]``: what each ``tool_issues`` reason
+    #: doubts, one entry per part the reason joins (#1146). A reason without
+    #: an entry doubts something this field does not classify.
+    tool_issue_doubts: dict[str, list[str]] = Field(default_factory=dict)
     #: ``tool_name -> ["file:line", ...]``: the constructions of this agent
     #: that list the tool, when one name is constructed more than once in the
     #: source (#872). Where each binding is, not which one runs.

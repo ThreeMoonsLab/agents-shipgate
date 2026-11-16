@@ -255,10 +255,20 @@ class Resolution:
     #: above the read scope, which could reassign it (#879 review). A caller
     #: names the tool and reports it, never as an established binding.
     caveats: tuple[str, ...] = ()
+    #: Those of ``caveats`` that doubt only which file an import search
+    #: reaches (``sys.path``, an unread import-search carrier), not the
+    #: definition the chain read (#1146).
+    search_caveats: tuple[str, ...] = ()
 
     @property
     def resolved(self) -> bool:
         return self.definition is not None
+
+    @property
+    def search_only(self) -> bool:
+        """Every caveat is an import-search one (and there is at least one)."""
+
+        return bool(self.caveats) and all(caveat in self.search_caveats for caveat in self.caveats)
 
     def evidence(self) -> dict[str, Any]:
         """JSON-safe record of the chain: every hop and the digest it read."""
@@ -899,12 +909,15 @@ class ImportResolver:
             outcome = self._through_import(
                 module, statement, alias, parts, steps, set()
             )
-            caveats = self._no_import_patch(outcome, steps)
+            caveats, search_caveats = self._import_caveats(outcome, steps)
         except _Stop as stop:
             return Resolution(
                 reference=reference, reason=stop.reason, detail=stop.detail, steps=tuple(steps)
             )
-        return Resolution(reference=reference, steps=tuple(steps), caveats=caveats, **outcome)
+        return Resolution(
+            reference=reference, steps=tuple(steps), caveats=caveats,
+            search_caveats=search_caveats, **outcome,
+        )
 
     def _no_attribute_patch(self, module: PythonModule, parts: list[str]) -> None:
         """Stop when this module rebinds an imported attribute on the path.
@@ -1066,7 +1079,18 @@ class ImportResolver:
         self, outcome: dict[str, Any], steps: list[dict[str, Any]],
         *, external_symbol: str | None = None,
     ) -> tuple[str, ...]:
+        """The caveats of :meth:`_import_caveats`, every kind together."""
+
+        return self._import_caveats(outcome, steps, external_symbol=external_symbol)[0]
+
+    def _import_caveats(
+        self, outcome: dict[str, Any], steps: list[dict[str, Any]],
+        *, external_symbol: str | None = None,
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
         """Stop when code that runs before the name is used may rebind it.
+
+        Returns every caveat, and those of them that doubt only which file an
+        import search reaches (#1146).
 
         Every module the chain reads, every package enclosing one of them, and
         every module those import runs before the agent receives the name:
@@ -1091,7 +1115,7 @@ class ImportResolver:
 
         defining = outcome.get("module")
         if not isinstance(defining, PythonModule) or not steps:
-            return ()
+            return (), ()
         names = sorted({step["name"] for step in steps if isinstance(step.get("name"), str)})
         runners: list[Path] = []
         for path in [*(self.scope_root / step["path"] for step in steps), defining.path]:
@@ -1298,7 +1322,7 @@ class ImportResolver:
                         f"which {self.ref(runner)} runs before the name is used",
                     )
             caveats.extend(item for item in scan.unread if item not in caveats)
-        return tuple(caveats)
+        return tuple(caveats), tuple(dict.fromkeys(search_limits))
 
     def _above_constructor_context(
         self, above: _AboveScope,
@@ -1971,7 +1995,7 @@ class ImportResolver:
         try:
             self._no_attribute_patch(module, parts)
             outcome = self._in_module(module, parts, steps, set())
-            caveats = self._no_import_patch(outcome, steps)
+            caveats, search_caveats = self._import_caveats(outcome, steps)
         except _Stop as stop:
             return Resolution(
                 reference=reference,
@@ -1979,7 +2003,10 @@ class ImportResolver:
                 detail=stop.detail,
                 steps=tuple(steps),
             )
-        return Resolution(reference=reference, steps=tuple(steps), caveats=caveats, **outcome)
+        return Resolution(
+            reference=reference, steps=tuple(steps), caveats=caveats,
+            search_caveats=search_caveats, **outcome,
+        )
 
     def _in_module(
         self,
