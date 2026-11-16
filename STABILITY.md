@@ -363,6 +363,91 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="unreadable-host-input-1154"></a>
+
+## Migration Note: Unreleased — a changed host configuration the reader cannot read holds the verdict at `insufficient_evidence` (#1154)
+
+**What was wrong.** A pull request that added `Bash(*)` to
+`.claude/settings.json` was `blocked`, and `verify --ci-mode strict` exited
+`20`. The same pull request with the file padded past the reader's 1 MiB
+per-file bound (still valid JSON), with one value longer than that bound, with
+a leading `// widened` line, or with its closing braces missing was
+`review_required`, exited `0`, and its control was `review_publishable`: the
+`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` blocker was gone and two medium
+review rows (`SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED`,
+`SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE`) stood in for it. Unread tool input was
+already a coverage gap that held the decision at `insufficient_evidence`;
+unread host input never reached that path. A valid `.claude/settings.json`
+nested 5,000 levels deep made `diff`, `check` and `audit --host` exit `1` with
+a `RecursionError` traceback and `verify` exit `4` with `internal_error`. And
+`check --diff` on an empty file reported `decision: "allow"`, `risk_level:
+"none"` and `input_coverage: "complete"` beside a control that stopped.
+
+**What changes.**
+
+- **Unread changed host input.** For every path the change touches (git's
+  changed-file list between the base and head) on which the boundary
+  assessment holds a row saying that file was not read — a
+  `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` or
+  `SHIP-CODEX-BOUNDARY-CONFIG-PARSE-FAILED` row whose evidence kind does not
+  say the file was read, or a `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` row from
+  an inventory read or parse failure of it (`host_inventory_unreadable`,
+  `host_inventory_parse_failed`) — `verify` adds one entry to the report's
+  `policy_evidence_gaps[]`: kind `unknown_policy_evidence`, `source_type`
+  `agent_boundary_input`, `source_ref` and `subject` the path, `policy_id` the
+  row's check ID, and a `provide_policy_evidence` action for a human. The one
+  decision engine then reads it like any policy evidence gap:
+  `release_decision.decision` is `insufficient_evidence` unless a blocker makes
+  it `blocked`, `evidence_coverage.policy_gap_count` counts it, and strict mode
+  exits `20` as [Exit codes](#exit-codes) already states for a policy evidence
+  gap. The verifier's control is `human_review_required` with no permissions,
+  where it was `review_publishable`: a run that did not read a file the change
+  edits did not read the change. `check` already stopped on the same refs, and
+  its `require_review` is the projection it gives `insufficient_evidence`. The
+  gap is not a finding, so `checks.ignore`, a baseline or a severity override
+  cannot clear it. The review rows stay.
+- **The size bound.** `MAX_HOST_CONFIG_BYTES` stays 1 MiB, and a file past it
+  is refused whole. Raising it for a changed file would move the cliff without
+  removing it; holding the verdict removes the reason to pad.
+- **Depth.** Every host reader parses through one bound: a document nested
+  more than 64 levels (`MAX_HOST_CONFIG_DEPTH`) is refused as a file the
+  static parser rejected, `static parser rejected this json file (nested more
+  than 64 levels deep)`. `diff` names it as a `parse_failed` limit, `audit
+  --host` as a blocking `parse_failed` issue, and `check` as a
+  `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` (or Codex) row whose evidence adds
+  `parser: "NestingLimitExceeded"` and `max_depth: 64`.
+- **An empty detached diff.** `check --diff` on an empty file, and the
+  `shipgate.check` MCP tool with empty `diff_text`, add the input issue
+  `boundary_diff_empty`: `decision` is `require_review`, `risk_level`
+  `medium`, `input_coverage` `partial`, with a
+  `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` row, as a non-empty diff with no file
+  record (`boundary_diff_unparseable`) already was. Its control is the same
+  stop as before, byte for byte: `The supplied input does not establish an
+  evaluated checkout state.`, or the unbound-diff stop where a verification
+  is owed. Where another input issue was already found, that issue alone is
+  named. An empty worktree or ref range is an evaluated "nothing changed" and
+  is unchanged. `AgentBoundaryResultV1` refuses `decision: "allow"` with
+  `input_coverage` other than `complete`; the published
+  `agent-boundary-result-schema.v3.json` keeps its pinned bytes.
+
+**What does not change.** No schema version, field, CLI flag, exit code
+meaning, check ID or contract version; `source_type` is an existing free-text
+field. Other incomplete-input rows keep their review route: an instruction
+file whose structure is not modelled (it was read), a file renamed out of a
+boundary path, a settings shape the inventory does not interpret, and the
+coverage summary row. A host configuration git reports identical on both
+sides adds no gap: readable, it contributes no row, so its unreadable copy
+keeps the `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` review row it already raised,
+and no pull request in that repository fails over a file it does not touch.
+
+**Who must act.** A strict pipeline that passed a pull request editing an
+unreadable host configuration now fails it until the file is readable or a
+human merges it. A consumer that read `review_publishable` from such a run
+sees `human_review_required`. One that read `decision: "allow"` from an empty
+`check --diff` sees `require_review`.
+
+---
+
 <a id="held-restrictions-1036"></a>
 
 ## Migration Note: Unreleased — a tightened deny or ask rule is not a widening, and a lifted denial is rated by what it restricted (#1036)

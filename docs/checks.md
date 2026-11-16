@@ -571,6 +571,8 @@ skill a unique routing name and clear description.
 
 A changed repo-local `.codex/config.toml` or `.codex/hooks.json` cannot be
 parsed. Fix the malformed config or have a human review the boundary change.
+Under `verify`, the unread file also holds the release decision at
+`insufficient_evidence` (#1154), as for `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED`.
 
 ### SHIP-CODEX-BOUNDARY-UNKNOWN-PERMISSION-KEY
 
@@ -668,13 +670,25 @@ host trust root for approvals, sandboxing, and network constraints.
 
 A relevant diff or file was truncated, malformed, unsafe to read, traversing,
 binary, oversized, or otherwise unresolved. Supply coherent input and rerun.
+An empty `check --diff` raises it with the issue `boundary_diff_empty`: an
+empty detached diff names no change, so nothing was evaluated (#1154). Under
+`verify`, a row raised because a file the change edits could not be read or
+parsed also holds the release decision at `insufficient_evidence`, as below.
 
 ### SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED
 
 A changed `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
 `.claude/settings(.local).json`, or `.github/workflows` file cannot be parsed,
 or its content cannot be resolved from the diff. Fix the malformed host config
-or have a human review the change.
+or have a human review the change. A file nested more than 64 levels deep is
+refused, with evidence `parser: NestingLimitExceeded` and `max_depth: 64`.
+
+Under `verify`, a file the change edits that was not read is also a policy
+evidence gap (`source_type: agent_boundary_input`), so the release decision
+is `insufficient_evidence` (or `blocked`), strict mode exits `20`, and the
+control is `human_review_required` (#1154). The gap is not a finding, so
+`checks.ignore`, a baseline or a severity override cannot clear it. A file the
+change does not touch keeps only its review row.
 
 A settings file that parses but changes a top-level key outside the
 host-boundary rule allow-list, such as `outputStyle`, also raises this check,

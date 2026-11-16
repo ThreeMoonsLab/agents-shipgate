@@ -1228,6 +1228,22 @@ The Claude Code settings in [the setting table](#claude-code-setting-ratings)
 are not unknown keys: `check` rates them by that table. A file that could not
 be parsed or resolved is `partial` and never authorizes publication.
 
+**A file the reader could not read is never judged more leniently than the
+same file read (#1154).** A host configuration past the 1 MiB per-file bound,
+nested more than 64 levels, not parseable, or not resolvable from the diff is
+refused whole; the bound is not raised for a changed file. When the change
+edits that file, `verify` records it as a policy evidence gap
+(`unknown_policy_evidence`, `source_type: agent_boundary_input`): the release
+decision is `insufficient_evidence` (or `blocked`), `--ci-mode strict` exits
+`20`, and the control is `human_review_required`, as `check` says for the same
+refs with `require_review` and `partial` coverage. A gap is not a finding, so
+`checks.ignore`, a baseline or a severity override cannot clear it. A file git
+reports identical on both sides adds no gap: readable, it contributes no row,
+so its unread copy keeps the `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` review row
+and does not fail every pull request in the repository. `check --diff` on an
+empty file names no change, so it reports the input issue
+`boundary_diff_empty` with `partial` coverage, never `allow`.
+
 ### Partial comparisons
 
 A plugin directory `diff` and `verify` could not compare no longer hides the

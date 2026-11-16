@@ -136,6 +136,7 @@ from agents_shipgate.core.privacy import (
     SENSITIVE_VALUE_KEYS,
     redact_text,
 )
+from agents_shipgate.core.structured_depth import NestingLimitExceeded, bounded_parse
 from agents_shipgate.core.trust_roots import (
     IdentityBoundReadSession,
     IdentityReadBudget,
@@ -386,16 +387,25 @@ class HostStaticParseCache:
         assert text is not None
         display = str(path.absolute())
         self.parse_counts[display] = self.parse_counts.get(display, 0) + 1
+        if path.suffix == ".toml":
+            loads: Callable[[str], Any] = tomllib.loads
+        elif path.suffix in {".yml", ".yaml"}:
+            loads = yaml.safe_load
+        elif is_vscode_mcp_path(path.as_posix()):
+            # VS Code reads `mcp.json` as JSON with comments (#659).
+            loads = loads_jsonc
+        else:
+            loads = json.loads
         try:
-            if path.suffix == ".toml":
-                data = tomllib.loads(text)
-            elif path.suffix in {".yml", ".yaml"}:
-                data = yaml.safe_load(text)
-            elif is_vscode_mcp_path(path.as_posix()):
-                # VS Code reads `mcp.json` as JSON with comments (#659).
-                data = loads_jsonc(text)
-            else:
-                data = json.loads(text)
+            # Bounded, so a document nested past what the walks below can take
+            # is a file this reader could not parse, never a crash (#1154).
+            data = bounded_parse(loads, text)
+        except NestingLimitExceeded as exc:
+            result = (
+                None,
+                "parse_failed",
+                f"static parser rejected this {path.suffix.lstrip('.')} file ({exc})",
+            )
         except (tomllib.TOMLDecodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
             result = (
                 None,

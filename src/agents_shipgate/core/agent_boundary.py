@@ -33,6 +33,7 @@ from agents_shipgate.core.codex_boundary import (
     DEFAULT_RULES as CODEX_DEFAULT_RULES,
 )
 from agents_shipgate.core.codex_boundary import (
+    EMPTY_DIFF_ISSUE,
     UNEVALUATED_SUBJECT_REASON,
     CodexBoundaryPolicy,
     _affected_files_for,
@@ -54,6 +55,7 @@ from agents_shipgate.core.codex_boundary import (
     parse_failure_kind_was_read,
     preview_command_for,
     verify_command_for,
+    violation_records_unread_input,
     violations_within_agent_actionable_band,
 )
 from agents_shipgate.core.host_boundary import (
@@ -66,6 +68,7 @@ from agents_shipgate.core.host_boundary import (
     load_host_boundary_policy,
 )
 from agents_shipgate.core.host_grants import (
+    MAX_HOST_CONFIG_BYTES,
     EnabledPluginHookFiles,
     HostBoundarySnapshot,
     build_host_boundary_snapshot,
@@ -73,6 +76,7 @@ from agents_shipgate.core.host_grants import (
 )
 from agents_shipgate.core.host_input_failure import safe_failure_text
 from agents_shipgate.core.mcp_host_selection import UNATTRIBUTED_MCP_HOST, is_mcp_config_path
+from agents_shipgate.core.structured_depth import MAX_HOST_CONFIG_DEPTH
 from agents_shipgate.core.trust_roots import (
     is_configured_manifest,
     is_manifest_policy_pack,
@@ -92,6 +96,7 @@ from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultTraceEvent,
     AgentResultViolatedRule,
 )
+from agents_shipgate.schemas.report import EvidenceGap, EvidenceGapAction
 
 # The actor every pre-detection audit id implicitly described.
 _LEGACY_AUDIT_ACTOR = "codex"
@@ -322,6 +327,28 @@ def evaluate_agent_boundary(
             diff_text=diff_text,
         ),
     ]
+    if (
+        not input_issues
+        and not verification_replayable
+        and not changed_files
+        and not diff_text.strip()
+    ):
+        # A detached diff that names no file establishes no change at all, so
+        # nothing was evaluated and no pass can be reported on it (#1154). The
+        # bound counterpart, a worktree or ref range with no change, is an
+        # evaluated "nothing changed" and stays a pass; a non-empty diff with
+        # no file record is already `boundary_diff_unparseable`. An input issue
+        # already found keeps the result off a pass and stays the one named.
+        input_issues.append(
+            BoundaryInputIssue(
+                code=EMPTY_DIFF_ISSUE,
+                path="<diff>",
+                message=(
+                    "The supplied diff is empty: it names no changed file, so it "
+                    "establishes no change to evaluate."
+                ),
+            )
+        )
     policies = _load_policy_set(workspace=workspace, explicit=policy_path)
     resolved_text_cache = {}
     instruction_structure_unchanged: set[str] = set()
@@ -729,6 +756,128 @@ def assessment_for_scan_context(context) -> AgentBoundaryAssessment:
         manifest_policy_packs=verification.manifest_policy_packs,
     )
     return context.agent_boundary
+
+
+#: ``EvidenceGap.source_type`` of a changed boundary input the evaluator could
+#: not read (#1154). Written by :func:`unread_changed_input_gaps` and read by
+#: :func:`is_unread_changed_input_gap`, so the two cannot drift.
+UNREAD_CHANGED_INPUT_SOURCE_TYPE = "agent_boundary_input"
+
+
+def unread_changed_input_gaps(
+    assessment: AgentBoundaryAssessment, changed_files: Collection[str]
+) -> list[EvidenceGap]:
+    """One policy evidence gap per changed boundary input that was not read (#1154).
+
+    A host configuration this change edits, and that the static reader could
+    not read — past the per-file size bound, nested past the depth bound, not
+    parseable, or content the diff could not resolve — is the answer's
+    missing input, not a finding about the change. Recording it as a policy
+    evidence gap holds the release decision at ``insufficient_evidence``
+    through the one decision engine, exactly as an unread tool input does, so
+    unread input can never earn a weaker verdict than the same input read: a
+    readable file that widens a grant blocks, and the unreadable one used to
+    leave only two medium review rows. A gap is not a finding, so a baseline,
+    a suppression or a severity override cannot clear it.
+
+    Only a path in the change set counts. A host configuration git reports
+    identical on both sides contributes no row when it is readable, so its
+    unread copy keeps the review row it already raises and stays out of the
+    verdict here: escalating it would fail every pull request in that
+    repository over a file none of them touched.
+    """
+
+    changed = {path.replace("\\", "/") for path in changed_files}
+    unread: dict[str, list[AgentResultViolatedRule]] = {}
+    for item in assessment.violations:
+        path = (item.path or "").replace("\\", "/")
+        if path in changed and _records_unread_file(item):
+            unread.setdefault(path, []).append(item)
+    gaps: list[EvidenceGap] = []
+    for path, rows in sorted(unread.items()):
+        item, detail = _unread_reason(rows)
+        gaps.append(
+            EvidenceGap(
+                kind="unknown_policy_evidence",
+                subject=path,
+                source_type=UNREAD_CHANGED_INPUT_SOURCE_TYPE,
+                source_ref=path,
+                policy_id=item.check_id,
+                why=(
+                    f"{item.check_id}: This change edits {path}, and the static reader "
+                    f"could not read it ({detail}). What the edited file grants is not "
+                    "established, so the change cannot be judged from it."
+                ),
+                next_action=EvidenceGapAction(
+                    kind="provide_policy_evidence",
+                    path=path,
+                    why=(
+                        "A host configuration the reader could not read is missing "
+                        "input, so the verdict holds until it is read."
+                    ),
+                    expects=(
+                        f"{path} readable by the static host reader: valid for its "
+                        f"format, at most {MAX_HOST_CONFIG_BYTES} bytes, and nested no "
+                        f"more than {MAX_HOST_CONFIG_DEPTH} levels deep. Then rerun verify."
+                    ),
+                ),
+            )
+        )
+    return gaps
+
+
+#: Incomplete-input codes that say the reader could not read or parse the
+#: file at the row's path, as the inventory reports it (#1154).
+_UNREAD_FILE_CODES = frozenset({"host_inventory_unreadable", "host_inventory_parse_failed"})
+
+
+def _records_unread_file(item: AgentResultViolatedRule) -> bool:
+    """Whether a row says the bytes of the file at its path were not read (#1154).
+
+    A parse-failure row whose evidence kind does not say the file was read
+    (`check`'s own predicate, :func:`violation_records_unread_input`), or an
+    incomplete-input row raised by an inventory read or parse failure of
+    that file. Other incomplete-input rows keep their review route: an
+    instruction file whose structure is not modelled was read, a file renamed
+    out of a boundary path is a removed trust root, and a summary row names
+    no file of its own.
+    """
+
+    if item.id == "BOUNDARY-INPUT-INCOMPLETE":
+        return item.evidence.get("code") in _UNREAD_FILE_CODES
+    return violation_records_unread_input(item)
+
+
+def _unread_reason(
+    rows: list[AgentResultViolatedRule],
+) -> tuple[AgentResultViolatedRule, str]:
+    """The row that best says why one path was not read, and that reason as text.
+
+    The nesting bound first, then a read failure's own summary (it names the
+    phase and the configured limits), then the parser's error, then the
+    row's title.
+    """
+
+    for item in rows:
+        depth = item.evidence.get("max_depth")
+        if isinstance(depth, int):
+            return item, f"nested more than {depth} levels deep"
+    for item in rows:
+        if item.evidence.get("recovery"):
+            return item, " ".join(item.title.split()).rstrip(".")
+    for item in rows:
+        parser = item.evidence.get("parser")
+        line = item.evidence.get("line")
+        if isinstance(parser, str) and parser:
+            where = f" at line {line}" if isinstance(line, int) else ""
+            return item, f"{parser}{where}"
+    return rows[0], " ".join(rows[0].title.split()).rstrip(".")
+
+
+def is_unread_changed_input_gap(gap: EvidenceGap) -> bool:
+    """Whether ``gap`` records a changed boundary input that was not read (#1154)."""
+
+    return gap.source_type == UNREAD_CHANGED_INPUT_SOURCE_TYPE
 
 
 def _scan_workspace(*, config_path: Path, configured_manifest: Path) -> Path:

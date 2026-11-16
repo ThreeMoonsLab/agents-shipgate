@@ -402,6 +402,7 @@
   "tests/test_type_checking_constructor_ownership.py": 168.1,
   "tests/test_unchanged_host_limits.py": 19.5,
   "tests/test_unread_changed_inputs.py": 154.5,
+  "tests/test_unreadable_host_input.py": 282.5,
   "tests/test_unresolved_descriptions.py": 0.1,
   "tests/test_v07_metadata_roundtrip.py": 1.9,
   "tests/test_validation_evidence.py": 1.4,
@@ -711,6 +712,17 @@
    },
    "case_count": 44,
    "command": "python -m pytest tests/test_registry_drift_observation.py --junitxml=registry-drift-observation.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "fc8cbb670766 with issue #1154 unreadable host input increment",
+   "report_sha256": "b8853e6d2fc83e7e989ab751b3ea2b9d16970f8d670da19ac77ed50b35b3a728",
+   "files": {
+    "tests/test_unreadable_host_input.py": 282.5
+   },
+   "case_count": 37,
+   "command": "python -m pytest tests/test_unreadable_host_input.py --junitxml=unreadable-host-input.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

@@ -119,6 +119,12 @@ class AgentBoundaryResultV1(AgentResultV2):
             raise ValueError("actor and agent must identify the same calling agent")
         if self.input_coverage != "complete" and self.control.state == "complete":
             raise ValueError("incomplete boundary input cannot allow completion")
+        # A pass is never reported on input that was not completely read: an
+        # empty detached diff reported `allow` with nothing evaluated beside a
+        # control that stopped (#1154). Enforced on the model only; the
+        # published v3 JSON Schema keeps its pinned bytes.
+        if self.decision == "allow" and self.input_coverage != "complete":
+            raise ValueError("an allow decision requires complete boundary input coverage")
         if self.control.state == "complete" and any(
             item.status in {"partial", "experimental"} for item in self.host_coverage
         ):

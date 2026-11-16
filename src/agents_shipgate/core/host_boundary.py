@@ -72,6 +72,7 @@ from agents_shipgate.core.permission_lattice import (
     subsumes,
     whole_tool_risk,
 )
+from agents_shipgate.core.structured_depth import NestingLimitExceeded, bounded_parse
 from agents_shipgate.core.trust_roots import read_absolute_identity_bound_text
 from agents_shipgate.core.wheel_layout import packaged_path
 from agents_shipgate.schemas.agent_result_v1 import (
@@ -344,13 +345,14 @@ def load_host_boundary_policy(
     data: dict[str, Any] | None = None
     if candidate.is_file():
         try:
-            loaded = yaml.safe_load(
+            loaded = bounded_parse(
+                yaml.safe_load,
                 policy_text
                 if policy_text is not None
                 else read_absolute_identity_bound_text(
                     candidate,
                     max_bytes=1024 * 1024,
-                )
+                ),
             ) or {}
             if isinstance(loaded, dict):
                 data = loaded
@@ -908,9 +910,9 @@ def settings_change_only_narrows(resolved: ResolvedFileText, *, cursor: bool) ->
     if resolved.new_text is None or resolved.source == "diff_deleted_file":
         return False
     try:
-        new_data = json.loads(resolved.new_text)
-        old_data = json.loads(resolved.old_text) if resolved.old_text else {}
-    except json.JSONDecodeError:
+        new_data = bounded_parse(json.loads, resolved.new_text)
+        old_data = bounded_parse(json.loads, resolved.old_text) if resolved.old_text else {}
+    except (json.JSONDecodeError, NestingLimitExceeded):
         return False
     if not isinstance(old_data, dict) or not isinstance(new_data, dict):
         return False
@@ -1091,8 +1093,8 @@ def _evaluate_workflow(diff_file, resolved, add) -> None:
         new_loaded = {}
     else:
         try:
-            new_loaded = yaml.safe_load(resolved.new_text)
-        except yaml.YAMLError as exc:
+            new_loaded = bounded_parse(yaml.safe_load, resolved.new_text)
+        except (yaml.YAMLError, NestingLimitExceeded) as exc:
             add(
                 "HOST-CONFIG-PARSE-FAILED",
                 path=path,
@@ -1110,8 +1112,8 @@ def _evaluate_workflow(diff_file, resolved, add) -> None:
         old_loaded: Any = {}
     else:
         try:
-            old_loaded = yaml.safe_load(resolved.old_text)
-        except yaml.YAMLError as exc:
+            old_loaded = bounded_parse(yaml.safe_load, resolved.old_text)
+        except (yaml.YAMLError, NestingLimitExceeded) as exc:
             add(
                 "HOST-CONFIG-PARSE-FAILED",
                 path=path,
@@ -1294,8 +1296,8 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
         new_data = {}
     else:
         try:
-            new_data = loads(resolved.new_text)
-        except json.JSONDecodeError as exc:
+            new_data = bounded_parse(loads, resolved.new_text)
+        except (json.JSONDecodeError, NestingLimitExceeded) as exc:
             add(
                 "HOST-CONFIG-PARSE-FAILED",
                 path=path,
@@ -1306,8 +1308,8 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
         old_data: Any = {}
     else:
         try:
-            old_data = loads(resolved.old_text)
-        except json.JSONDecodeError as exc:
+            old_data = bounded_parse(loads, resolved.old_text)
+        except (json.JSONDecodeError, NestingLimitExceeded) as exc:
             add(
                 "HOST-CONFIG-PARSE-FAILED",
                 path=path,
@@ -1319,6 +1321,9 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
 
 def _parser_error(kind: str, exc: Exception) -> dict[str, Any]:
     evidence: dict[str, Any] = {"kind": kind, "parser": type(exc).__name__}
+    if isinstance(exc, NestingLimitExceeded):
+        # The bound it passed, so the row says why the file was not read (#1154).
+        evidence["max_depth"] = exc.limit
     line = getattr(exc, "lineno", None)
     column = getattr(exc, "colno", None)
     mark = getattr(exc, "problem_mark", None)
