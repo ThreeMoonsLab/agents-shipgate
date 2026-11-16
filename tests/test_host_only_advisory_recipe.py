@@ -130,9 +130,10 @@ def test_the_pinned_version_installs_from_the_index_not_the_pr() -> None:
     assert install["env"]["SHIPGATE_VERSION"] == "${{ inputs.shipgate_version }}"
     assert '"${GITHUB_ACTION_PATH}/scripts/install_action_engine.py"' in install["run"]
     installer = (REPO_ROOT / "scripts/install_action_engine.py").read_text(encoding="utf-8")
-    assert '_pip("install", "--no-deps", "--no-warn-script-location", f"{DISTRIBUTION}=={exact}")' in (
-        installer
-    )
+    assert (
+        '_pip(python, "install", "--no-deps", "--no-warn-script-location", '
+        'f"{DISTRIBUTION}=={exact}")'
+    ) in installer
 
 
 def test_the_comment_is_updated_in_place_and_falls_back_to_the_summary() -> None:
@@ -237,6 +238,7 @@ def _run_step(name: str, clone: Path, tmp_path: Path, github: dict[str, str]) ->
     # the interpreter and the console-script directory, by path.
     outputs = {
         "python.outputs.python-path": str(bin_dir / "python"),
+        "install.outputs.python": str(bin_dir / "python"),
         "install.outputs.bin": str(bin_dir),
     }
 

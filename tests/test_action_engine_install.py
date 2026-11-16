@@ -159,13 +159,29 @@ def pull_request_checkout(tmp_path: Path) -> dict[str, Path]:
         )
         (workspace / package / "__init__.py").write_text(body, encoding="utf-8")
         (workspace / package / "__main__.py").write_text(body, encoding="utf-8")
+    runner_temp = (tmp_path / "runner-temp").resolve()
+    runner_temp.mkdir()
     trusted = tmp_path / "trusted"
     (trusted / "pip").mkdir(parents=True)
     (trusted / "pip" / "__init__.py").write_text("", encoding="utf-8")
+    # Logs each call. Inside the Action's own environment, and only there, it
+    # leaves what a real install would: the locked runtime (this suite's own
+    # site-packages, through a `.pth` file) and the engine's two console
+    # scripts, so the identity diagnostic imports and the step can expose them.
+    site_packages = sorted({sysconfig.get_path("purelib"), sysconfig.get_path("platlib")})
     (trusted / "pip" / "__main__.py").write_text(
-        "import json, pathlib, sys\n"
+        "import json, pathlib, sys, sysconfig\n"
         f"with pathlib.Path({str(markers / 'trusted-pip')!r}).open('a') as log:\n"
-        "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n",
+        "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        f"inside = pathlib.Path(sys.prefix).is_relative_to({str(runner_temp)!r})\n"
+        "if inside and sys.argv[-1].endswith('action-runtime.txt'):\n"
+        "    pth = pathlib.Path(sysconfig.get_path('purelib')) / 'runtime-under-test.pth'\n"
+        f"    pth.write_text({chr(10).join(site_packages) + chr(10)!r})\n"
+        "if inside and sys.argv[1:2] == ['install'] and '--no-deps' in sys.argv:\n"
+        "    scripts = pathlib.Path(sysconfig.get_path('scripts'))\n"
+        "    for name in ('agents-shipgate', 'shipgate'):\n"
+        "        (scripts / name).write_text('#!/bin/sh\\necho ' + name + ' \"$@\"\\n')\n"
+        "        (scripts / name).chmod(0o755)\n",
         encoding="utf-8",
     )
     bin_dir = tmp_path / "bin"
@@ -173,7 +189,10 @@ def pull_request_checkout(tmp_path: Path) -> dict[str, Path]:
     python = bin_dir / "python"
     python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
     python.chmod(0o755)
-    return {"workspace": workspace, "markers": markers, "trusted": trusted, "bin": bin_dir}
+    return {
+        "workspace": workspace, "markers": markers, "trusted": trusted, "bin": bin_dir,
+        "runner_temp": runner_temp,
+    }
 
 
 def _clean_env(checkout: dict[str, Path]) -> dict[str, str]:
@@ -186,6 +205,7 @@ def _clean_env(checkout: dict[str, Path]) -> dict[str, str]:
         "PYTHONPATH": os.pathsep.join([str(checkout["trusted"]), str(REPO_ROOT / "src")]),
         "GITHUB_ACTION_PATH": str(REPO_ROOT),
         "GITHUB_WORKSPACE": str(checkout["workspace"]),
+        "RUNNER_TEMP": str(checkout["runner_temp"]),
     })
     return env
 
@@ -194,7 +214,8 @@ def _run_step(
     checkout: dict[str, Path], name: str, env: dict[str, str], *, run: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     step = _action_steps()[name]
-    # What `steps.python.outputs.python-path` names on a runner: the
+    # What `steps.python.outputs.python-path` (the install step) or
+    # `steps.install.outputs.python` (every later step) names on a runner: an
     # interpreter by path, with nothing put on PATH for it.
     env = {"SHIPGATE_PYTHON": str(checkout["bin"] / "python"), **env}
     assert set(step.get("env", {})) <= set(env), f"{name!r} reads env this test does not set"
@@ -266,7 +287,12 @@ def test_every_python_the_action_starts_keeps_the_workspace_off_sys_path() -> No
     ]
     assert not offenders, offenders
     installer = (REPO_ROOT / "scripts/install_action_engine.py").read_text(encoding="utf-8")
-    assert re.findall(r'sys\.executable, "[^"]*"', installer) == ['sys.executable, "-P"']
+    # Each interpreter the installer starts: pip, always with `-P`, and the
+    # identity diagnostic, by script path.
+    assert re.findall(r'\[(?:sys\.executable|python|environment\.python), [^\]]*\]', installer) == [
+        '[python, "-P", "-m", "pip", *arguments]',
+        "[environment.python, str(IDENTITY_SCRIPT)]",
+    ]
 
 
 _RUNTIME = ["install", "--require-hashes", "--no-warn-script-location",
@@ -281,9 +307,10 @@ def test_install_step_runs_pip_and_not_the_pull_requests_pip(
     """Every route: the hash-locked runtime first, then the engine with `--no-deps` (#1032)."""
 
     checkout = pull_request_checkout
-    output = tmp_path / "github-output"
+    output, path_file = tmp_path / "github-output", tmp_path / "github-path"
     output.write_text("", encoding="utf-8")
-    env = {**_INSTALL_ENV, "GITHUB_OUTPUT": str(output)}
+    path_file.write_text("/caller/already/had/this\n", encoding="utf-8")
+    env = {**_INSTALL_ENV, "GITHUB_OUTPUT": str(output), "GITHUB_PATH": str(path_file)}
     if route == "version":
         env["SHIPGATE_VERSION"] = "1.0.0"
         expected = [
@@ -325,8 +352,20 @@ def test_install_step_runs_pip_and_not_the_pull_requests_pip(
         calls[1][-1] = wheel.name
     # Then pip's own requirement check, read for lines naming the engine.
     assert calls == [*expected, ["check"]], calls
-    # Later steps call the console scripts here; nothing put them on PATH.
-    assert output.read_text(encoding="utf-8") == f"bin={sysconfig.get_path('scripts')}\n"
+
+    # Everything went into one fresh environment under RUNNER_TEMP, never into
+    # the interpreter that ran the step.
+    published = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
+    assert set(published) == {"python", "bin", "cli"}
+    python, scripts, cli = (Path(published[key]) for key in ("python", "bin", "cli"))
+    [root] = list(checkout["runner_temp"].iterdir())
+    assert root.name.startswith("agents-shipgate-")
+    assert python.parent == scripts == root / "venv" / "bin"
+    assert (root / "venv" / "pyvenv.cfg").is_file()
+    assert scripts != Path(sysconfig.get_path("scripts"))
+    # Only the CLI directory goes on PATH, after whatever the caller had.
+    assert cli == root / "cli" / "agents-shipgate"
+    assert path_file.read_text(encoding="utf-8") == f"/caller/already/had/this\n{cli.parent}\n"
     if route == "version":
         from agents_shipgate.core.verification_identity import _engine_distribution_sha256
 
@@ -352,6 +391,7 @@ def test_an_engine_older_than_1_0_is_refused_at_install_as_a_version_skew(
     )
     assert result.returncode != 0
     assert not (checkout["markers"] / "trusted-pip").exists(), "pip ran for a refused version"
+    assert not list(checkout["runner_temp"].iterdir()), "an environment was created anyway"
     if "*" in version or ">" in version:
         assert "must name one exact release" in result.stderr, result.stderr
     else:
@@ -392,7 +432,7 @@ def test_a_candidate_wheel_below_the_floor_is_refused_before_install(
     with pytest.raises(ValueError, match="version skew: shipgate_wheel 0.15.0"):
         install_wheel(workspace=tmp_path, wheel=wheel.name,
                       sha256=hashlib.sha256(wheel.read_bytes()).hexdigest(),
-                      install_dependencies=lambda: pytest.fail("dependencies installed"))
+                      prepare_environment=lambda: pytest.fail("environment prepared"))
 
 
 @pytest.mark.parametrize(
@@ -412,17 +452,18 @@ def test_an_engine_the_lock_does_not_satisfy_is_a_version_skew(
     """`--no-deps` stops pip comparing the engine's requirements with the lock; this does."""
 
     def pip(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        assert argv[1:] == ["-P", "-m", "pip", "check"] and kwargs["capture_output"] is True
+        assert argv == ["/env/bin/python", "-P", "-m", "pip", "check"]
+        assert kwargs["capture_output"] is True
         return subprocess.CompletedProcess(argv, returncode, stdout=report, stderr="")
 
     monkeypatch.setattr(subprocess, "run", pip)
     if refused:
         with pytest.raises(ValueError, match="version skew: the installed engine needs") as caught:
-            installer.require_engine_requirements()
+            installer.require_engine_requirements("/env/bin/python")
         assert report.strip().rstrip(".") in str(caught.value)
         assert "constraints/action-runtime.txt" in str(caught.value)
     else:
-        installer.require_engine_requirements()
+        installer.require_engine_requirements("/env/bin/python")
 
 
 def test_the_runtime_lock_is_a_gated_lock_with_every_pin_hashed() -> None:
@@ -442,19 +483,28 @@ def test_the_runtime_lock_is_a_gated_lock_with_every_pin_hashed() -> None:
 
 
 def test_the_action_calls_its_python_and_console_scripts_by_path() -> None:
-    """`update-environment: false`: the caller's later steps keep their own Python."""
+    """`update-environment: false`: the caller's later steps keep their own Python.
+
+    The runner's interpreter only creates the engine's environment; every
+    later step runs that environment's interpreter and scripts (#1032).
+    """
 
     steps = _action_steps()
     setup = steps["Set up Python"]
     assert setup["id"] == "python" and setup["with"]["update-environment"] is False
-    assert steps["Install Agents Shipgate"]["id"] == "install"
+    install = steps["Install Agents Shipgate"]
+    assert install["id"] == "install"
+    assert install["env"]["SHIPGATE_PYTHON"] == "${{ steps.python.outputs.python-path }}"
+    assert install["run"].rstrip().endswith('--venv-parent "${RUNNER_TEMP}"')
+    action = yaml.safe_load((REPO_ROOT / "action.yml").read_text(encoding="utf-8"))
+    assert action["outputs"]["cli_path"]["value"] == "${{ steps.install.outputs.cli }}"
     commands = re.compile(r'(?<![\w/-])(?:agents-shipgate|shipgate)(?= )')
     for name, step in steps.items():
         run = str(step.get("run", ""))
         code = "\n".join(line for line in run.splitlines() if not line.strip().startswith("#"))
         env = step.get("env", {})
-        if "${SHIPGATE_PYTHON}" in code:
-            assert env["SHIPGATE_PYTHON"] == "${{ steps.python.outputs.python-path }}", name
+        if "${SHIPGATE_PYTHON}" in code and step is not install:
+            assert env["SHIPGATE_PYTHON"] == "${{ steps.install.outputs.python }}", name
         if "${SHIPGATE_BIN}" in code:
             assert env["SHIPGATE_BIN"] == "${{ steps.install.outputs.bin }}", name
         # No interpreter or console script resolved through PATH.
@@ -462,6 +512,46 @@ def test_the_action_calls_its_python_and_console_scripts_by_path() -> None:
         bare = [match.group(0) for match in commands.finditer(code)]
         assert not bare, (name, bare)
     assert sum("${SHIPGATE_BIN}/" in str(step.get("run", "")) for step in steps.values()) == 5
+
+
+@_BASH_STEPS
+def test_later_steps_find_the_cli_on_path_and_not_the_actions_python(
+    pull_request_checkout: dict[str, Path], tmp_path: Path,
+) -> None:
+    """`run: agents-shipgate …` after the Action keeps working (docs/integrations.md).
+
+    Only a directory holding the two entry points goes on `GITHUB_PATH`; the
+    environment's `python` and `pip` stay off every later step's PATH.
+    """
+
+    checkout = pull_request_checkout
+    output, path_file = tmp_path / "github-output", tmp_path / "github-path"
+    for handle in (output, path_file):
+        handle.write_text("", encoding="utf-8")
+    result = _run_step(checkout, "Install Agents Shipgate",
+                       {**_INSTALL_ENV, "GITHUB_OUTPUT": str(output), "GITHUB_PATH": str(path_file)})
+    assert result.returncode == 0, result.stdout + result.stderr
+    published = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
+    [added] = path_file.read_text(encoding="utf-8").splitlines()
+    cli_dir, scripts = Path(added), Path(published["bin"])
+    assert Path(published["cli"]) == cli_dir / "agents-shipgate"
+
+    assert sorted(entry.name for entry in cli_dir.iterdir()) == ["agents-shipgate", "shipgate"]
+    for interpreter in ("python", "python3", f"python3.{sys.version_info.minor}", "pip", "pip3"):
+        assert not (cli_dir / interpreter).exists(), interpreter
+    assert (scripts / "python").exists() and (scripts / "pip").exists()
+    for entry in cli_dir.iterdir():
+        assert entry.is_symlink() and entry.resolve() == (scripts / entry.name).resolve()
+
+    # A later step: the runner's PATH plus what the step added, as GitHub builds it.
+    later = subprocess.run(
+        ["bash", "-c", "agents-shipgate --version && shipgate --version && "
+                       "command -v python3 || true; command -v pip || true"],
+        env={"PATH": f"{cli_dir}{os.pathsep}/usr/bin{os.pathsep}/bin", "HOME": str(tmp_path)},
+        capture_output=True, text=True, timeout=60,
+    )
+    assert later.stdout.splitlines()[:2] == ["agents-shipgate --version", "shipgate --version"]
+    assert str(scripts) not in later.stdout and str(cli_dir / "python") not in later.stdout
 
 
 @_BASH_STEPS
@@ -556,7 +646,7 @@ def test_negative_control_an_unguarded_python_runs_the_pull_requests_code(
     verdict = steps["Apply Agents Shipgate merge verdict policy"]["run"]
     assert '"${SHIPGATE_PYTHON}" -P - <<' in verdict
     source = (REPO_ROOT / "scripts/install_action_engine.py").read_text(encoding="utf-8")
-    assert '[sys.executable, "-P", "-m", "pip", *arguments]' in source
+    assert '[python, "-P", "-m", "pip", *arguments]' in source
 
     # The installer's pip command, in the directory the install step runs in.
     _run_step(checkout, "Install Agents Shipgate", dict(_INSTALL_ENV),

@@ -663,7 +663,7 @@ now report the policy digests a released wheel reports.
 
 <a id="action-hardening-1032"></a>
 
-## Migration Note: Unreleased — the Action refuses unknown check-run policies and engines before 1.0.0, installs onto a hash-locked runtime, and updates only its own comment (#1032)
+## Migration Note: Unreleased — the Action refuses unknown check-run policies and engines before 1.0.0, installs into a hash-locked environment of its own, and updates only its own comment (#1032)
 
 **What was wrong.** The GitHub Action failed open on its inputs and installed
 an unlocked closure:
@@ -675,8 +675,8 @@ an unlocked closure:
 - The PR comment step, and the application-mode one, updated the first comment
   that started with its marker, whoever posted it.
 - The engine and its dependencies were installed with plain pip, unconstrained
-  and with build isolation on, and `setup-python` exported Python 3.12 to the
-  caller's later steps.
+  and with build isolation on, into the runner's Python, and `setup-python`
+  exported that Python to the caller's later steps.
 - `shipgate_version` accepted any version. The outputs step imports what
   `1.0.0` introduced, so `0.15.0` ran the scan and then failed that step with
   an `ImportError` and empty outputs.
@@ -689,40 +689,76 @@ an unlocked closure:
   `Validate Agents Shipgate check-run policy` step before the scan, naming the
   hyphenated spelling when the value was an underscore typo of one.
 - Under `blocked-fails` and `require-mergeable`, a run with no readable
-  `verifier.json`, or with no `merge_verdict`, concludes `failure`; the check's
-  summary says so. `advisory` still concludes `neutral` for it.
+  `verifier.json`, or with no `merge_verdict`, concludes `failure`, and the
+  check's summary says which of the two it was. `advisory` still concludes
+  `neutral` for it.
+- **`verify_mode: scan` with `blocked-fails` or `require-mergeable` is refused
+  in that same validation step.** Both policies are defined on the merge
+  verdict and `can_merge_without_human` that `verify` writes to
+  `verifier.json`; `scan` writes only `report.json`. Before this change the
+  pair concluded `neutral` on every run, which is the fail-open above; with
+  only the missing-verdict rule it would conclude `failure` on every run, a
+  passed scan included. Mapping `report.json`'s release decision onto a merge
+  verdict in the Action would be a second derivation of what `verify` decides,
+  so the combination is refused instead, naming `verify_mode: verify` and
+  `check_run_policy: advisory` as the two ways out. `scan` with `advisory` is
+  unchanged.
 - The comment steps update a prior comment only when its author is the `Bot`
   `github-actions[bot]`. Any other comment carrying a marker is left alone and
   the step posts its own.
-- Every install route installs `constraints/action-runtime.txt` with
-  `--require-hashes`, then the engine with `--no-deps`. The source route also
-  installs `constraints/build-backend.txt` and builds with
+- Every install route creates a virtual environment under `RUNNER_TEMP` from
+  the `setup-python` interpreter, installs `constraints/action-runtime.txt`
+  into it with `--require-hashes`, then the engine with `--no-deps`. The
+  source route also installs `constraints/build-backend.txt` and builds with
   `--no-build-isolation`. The lock is the runtime half of `constraints/dev.txt`,
-  at the same versions and hashes.
-- `shipgate_version` must name one exact release, `1.0.0` or later (a leading
-  `v` is accepted); a range, a wildcard or an older release fails the install
-  step as a version skew before anything is installed. An engine whose declared
-  requirements the lock does not meet, as `pip check` reports, fails the
-  install step the same way. A `shipgate_wheel` below `1.0.0` is refused too.
+  at the same versions and hashes. Nothing is installed into the runner's
+  Python, so a package the caller's earlier steps installed there is never
+  upgraded or downgraded by the lock's exact pins.
 - `setup-python` runs with `update-environment: false`. The Action's steps call
-  the interpreter and the `agents-shipgate` and `shipgate` console scripts by
-  path, and the job's `PATH`, `pythonLocation` and the other variables
-  `setup-python` exports are the caller's own afterwards.
+  the environment's interpreter and console scripts by path. Only a directory
+  holding the `agents-shipgate` and `shipgate` commands is added to `PATH` for
+  the job's later steps, and the new `cli_path` output names the command; the
+  environment's `python` and `pip` are not on `PATH`, and the job's
+  `pythonLocation` and the other variables `setup-python` exports stay the
+  caller's own.
+- `shipgate_version` must name one exact release, `1.0.0` or later (a leading
+  `v` is accepted). A range or wildcard fails the install step with
+  `shipgate_version must name one exact release such as 1.0.0, not '…'`; an
+  older release fails it with `version skew: shipgate_version … is older than
+  this Action supports`. Both happen before an environment is created or pip
+  runs. An engine whose declared requirements the lock does not meet, as
+  `pip check` reports, fails the install step as a version skew too. A
+  `shipgate_wheel` below `1.0.0` is refused.
 
-**What does not change.** No input or output is added, renamed or removed, and
-no schema, contract version, check ID, exit code or merge verdict moves. The
-`advisory` policy, the default, maps verdicts as before, and the Check Run's
-conclusion still mirrors the verdict rather than replacing the release gate.
+**What does not change.** No input is added, renamed or removed, and no
+output is renamed or removed; `cli_path` is the one output added. No schema,
+contract version, check ID, exit code or merge verdict moves. The `advisory`
+policy, the default, maps verdicts as before, and the Check Run's conclusion
+still mirrors the verdict rather than replacing the release gate. A later
+`run: agents-shipgate …` step, as `docs/integrations.md` shows, still finds
+the command.
 
 **Who must act.**
 
 - A workflow whose `check_run_policy` is misspelled now fails: use one of the
   three documented values.
-- A workflow that pins `shipgate_version` below `1.0.0` now fails at install:
-  move it to `1.0.0` or later, or pin the Action itself to the tag of the
-  release that engine came from.
-- A later step that ran `python` and relied on the Action having set up 3.12
-  needs its own `actions/setup-python`.
+- A workflow that sets `verify_mode: scan` with `check_run_policy:
+  blocked-fails` or `require-mergeable` now fails before the scan: use
+  `verify_mode: verify` (the default) to keep the policy, or
+  `check_run_policy: advisory` to keep the scan.
+- A workflow that pins `shipgate_version` below `1.0.0` now fails at install
+  with a version-skew message: move it to `1.0.0` or later, or pin the Action
+  itself to the tag of the release that engine came from.
+- A `shipgate_version` that is not one exact release, such as `1.*`, `1.3.*`
+  or `1.3.0,<2`, used to install whatever pip picked and now fails at install
+  with "must name one exact release": name the release, for example `1.3.0`.
+- A later step that ran `python` or `pip` and relied on the Action having set
+  up 3.12 needs its own `actions/setup-python`. A later step that runs
+  `agents-shipgate` or `shipgate` needs nothing.
+- A workflow that installed packages into the runner's Python before the
+  Action and expected the Action's engine to see them, such as check plugins
+  enabled with `AGENTS_SHIPGATE_ENABLE_PLUGINS=1`, no longer has them loaded:
+  the engine runs in its own environment, which holds only the locked closure.
 - A workflow that passes a `github_token` for a user or another app gets a new
   PR comment on every run, since only `github-actions[bot]`'s comment is
   updated in place.

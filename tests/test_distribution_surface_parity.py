@@ -407,7 +407,11 @@ SURFACES: tuple[Surface, ...] = (
     Surface(
         "zero_install_detector",
         ("tools/shipgate-detect.py",),
-        {"agent_project_verdict": ("test_detector_verdict_matches_cli",)},
+        {
+            "agent_project_verdict": ("test_detector_verdict_matches_cli",),
+            # Its docstring tells a reader which ref to fetch it from (#1032).
+            "executable_pin": ("test_every_detector_fetch_names_the_published_release",),
+        },
     ),
     Surface(
         "emitted_ci_workflow",

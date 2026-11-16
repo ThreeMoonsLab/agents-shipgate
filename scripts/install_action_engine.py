@@ -25,9 +25,16 @@ With ``--no-deps`` pip never compares the engine's own requirements with the
 lock, so the installer does: ``pip check`` naming the engine is a version skew,
 refused at install rather than met as an ``ImportError`` in a later step.
 
-The Action's Python is not on PATH (``update-environment: false``), so the
-console-script directory goes to the step's ``bin`` output, where later steps
-call ``agents-shipgate`` and ``shipgate`` by path.
+The Action passes ``--venv-parent "$RUNNER_TEMP"``. The engine and its locked
+closure then go into a virtual environment of their own, created there from the
+runner's Python, so the exact pins never move a package the caller installed
+into that Python. The step outputs name the environment's interpreter
+(``python``) and console-script directory (``bin``), which the Action's later
+steps call by path, and the ``agents-shipgate`` command (``cli``). Only a
+directory holding the ``agents-shipgate`` and ``shipgate`` entry points goes on
+``GITHUB_PATH``, so the caller's later steps can run the CLI without finding
+this environment's ``python`` or ``pip``. Without the option, as the release
+engine smoke runs it, the installer installs into the interpreter running it.
 """
 
 from __future__ import annotations
@@ -36,20 +43,28 @@ import argparse
 import hashlib
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
 import sysconfig
 import tempfile
+import venv
 import zipfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from email.parser import BytesParser
 from pathlib import Path
+from types import SimpleNamespace
 
 ACTION_ROOT = Path(__file__).resolve().parent.parent
 RUNTIME_LOCK = ACTION_ROOT / "constraints" / "action-runtime.txt"
 BUILD_BACKEND_LOCK = ACTION_ROOT / "constraints" / "build-backend.txt"
+IDENTITY_SCRIPT = Path(__file__).resolve().with_name("action_engine_identity.py")
 DISTRIBUTION = "agents-shipgate"
+#: The console scripts the caller's later steps may run. Nothing else from the
+#: environment goes on their PATH.
+CLI_COMMANDS = ("agents-shipgate", "shipgate")
 
 #: The oldest engine the Action's steps can read. `github_action_outputs.py`
 #: imports `validate_agent_control`, which 1.0.0 introduced.
@@ -101,38 +116,77 @@ def check_engine_version(version: str, *, source: str = "shipgate_version") -> s
     return exact
 
 
-def _pip(*arguments: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
+def _pip(python: str, *arguments: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
     # `-P`: this runs in GITHUB_WORKSPACE, and `-m` would otherwise import a
     # `pip/` package from the pull request's checkout instead of pip.
     return subprocess.run(
-        [sys.executable, "-P", "-m", "pip", *arguments],
+        [python, "-P", "-m", "pip", *arguments],
         check=not capture,
         capture_output=capture,
         text=True,
     )
 
 
-def install_runtime() -> None:
+@dataclass(frozen=True)
+class Environment:
+    """Where the engine was installed: its interpreter and console scripts."""
+
+    python: str
+    bin: Path
+
+
+class _EnvironmentBuilder(venv.EnvBuilder):
+    """Records the interpreter and script paths of the environment it creates."""
+
+    created: Environment | None = None
+
+    def post_setup(self, context: SimpleNamespace) -> None:
+        self.created = Environment(python=context.env_exec_cmd, bin=Path(context.bin_path))
+
+
+def create_environment(parent: Path) -> Environment:
+    """A fresh virtual environment under ``parent``, from the interpreter running this.
+
+    Symlinked where `python -m venv` symlinks (everywhere but Windows), so the
+    interpreter finds its shared library exactly as the runner's does. pip
+    comes from the interpreter's own bundled `ensurepip`, which venv runs from
+    inside the new environment's directory, not the workspace.
+    """
+
+    root = Path(tempfile.mkdtemp(prefix="agents-shipgate-", dir=parent)).resolve()
+    builder = _EnvironmentBuilder(with_pip=True, symlinks=os.name != "nt")
+    builder.create(root / "venv")
+    if builder.created is None:  # pragma: no cover - venv always calls post_setup
+        raise OSError(f"could not create a virtual environment under {root}")
+    return builder.created
+
+
+def current_environment() -> Environment:
+    return Environment(python=sys.executable, bin=Path(sysconfig.get_path("scripts")))
+
+
+def install_runtime(python: str) -> None:
     """The engine's dependencies, from the committed hash-locked closure."""
 
-    _pip("install", "--require-hashes", "--no-warn-script-location", "--requirement", str(RUNTIME_LOCK))
+    _pip(python, "install", "--require-hashes", "--no-warn-script-location",
+         "--requirement", str(RUNTIME_LOCK))
 
 
-def install_version(version: str) -> None:
-    exact = check_engine_version(version)
-    install_runtime()
-    _pip("install", "--no-deps", "--no-warn-script-location", f"{DISTRIBUTION}=={exact}")
+def install_version(python: str, exact: str) -> None:
+    install_runtime(python)
+    _pip(python, "install", "--no-deps", "--no-warn-script-location", f"{DISTRIBUTION}=={exact}")
 
 
-def install_source() -> None:
-    install_runtime()
+def install_source(python: str) -> None:
+    install_runtime(python)
     # The build backend is locked as well, and installed first, so the build
     # needs no isolated environment resolved from the index.
     _pip(
-        "install", "--require-hashes", "--no-warn-script-location",
+        python, "install", "--require-hashes", "--no-warn-script-location",
         "--requirement", str(BUILD_BACKEND_LOCK),
     )
-    _pip("install", "--no-deps", "--no-build-isolation", "--no-warn-script-location", str(ACTION_ROOT))
+    _pip(python, "install", "--no-deps", "--no-build-isolation", "--no-warn-script-location",
+         str(ACTION_ROOT))
 
 
 def install_wheel(
@@ -141,8 +195,15 @@ def install_wheel(
     wheel: str,
     sha256: str,
     version: str = "",
-    install_dependencies: Callable[[], object] | None = None,
+    prepare_environment: Callable[[], str] | None = None,
 ) -> None:
+    """Capture, check and install one candidate wheel.
+
+    ``prepare_environment`` runs only once every check has passed: it readies
+    the environment (and its locked runtime) and returns the interpreter to
+    install into. Without it the wheel goes into the interpreter running this.
+    """
+
     if version:
         raise ValueError("shipgate_wheel cannot be combined with shipgate_version")
     if not wheel or not re.fullmatch(r"[0-9a-f]{64}", sha256):
@@ -217,26 +278,26 @@ def install_wheel(
                 match[1]
             ]:
                 raise ValueError("Candidate wheel METADATA disagrees with its filename")
-        if install_dependencies is not None:
-            install_dependencies()
+        python = prepare_environment() if prepare_environment is not None else sys.executable
         # Reinstall even when the runner already has the same version: its
         # bytes may be a different development build of that version.
-        _pip("install", "--force-reinstall", "--no-deps", "--no-warn-script-location", str(snapshot))
+        _pip(python, "install", "--force-reinstall", "--no-deps", "--no-warn-script-location",
+             str(snapshot))
 
 
 def _names_the_engine(line: str) -> bool:
     return re.match(r"agents[-_.]shipgate\s", line.strip(), flags=re.IGNORECASE) is not None
 
 
-def require_engine_requirements() -> None:
+def require_engine_requirements(python: str) -> None:
     """Refuse an engine whose declared requirements the runtime lock does not meet.
 
-    Only lines about the engine count: the runner's Python may already hold
-    packages a caller's earlier steps installed, and their state is not this
-    install's to judge.
+    Only lines about the engine count: without ``--venv-parent`` the runner's
+    Python may already hold packages a caller's earlier steps installed, and
+    their state is not this install's to judge.
     """
 
-    result = _pip("check", capture=True)
+    result = _pip(python, "check", capture=True)
     if result.returncode == 0:
         return
     problems = [
@@ -253,22 +314,70 @@ def require_engine_requirements() -> None:
         )
 
 
-def record_console_script_directory() -> None:
-    """Hand later steps the directory `agents-shipgate` and `shipgate` were installed to."""
+def expose_cli(environment: Environment, directory: Path) -> Path:
+    """A directory holding only the CLI entry points, for the caller's PATH.
+
+    Each entry is a symlink to the environment's console script, whose first
+    line names the environment's interpreter, so it runs the engine without
+    putting that interpreter, or pip, on anyone's PATH. Windows gets a copy of
+    the launcher `.exe`, which finds its interpreter the same way.
+    """
+
+    suffix = ".exe" if os.name == "nt" else ""
+    directory.mkdir()
+    for name in CLI_COMMANDS:
+        target = environment.bin / f"{name}{suffix}"
+        if not target.is_file():
+            raise ValueError(f"the engine installed no {name} command at {target}")
+        entry = directory / target.name
+        if os.name == "nt":
+            shutil.copy2(target, entry)
+        else:
+            entry.symlink_to(target)
+    return directory / f"{CLI_COMMANDS[0]}{suffix}"
+
+
+def publish(environment: Environment, cli: Path) -> None:
+    """Hand the interpreter, scripts and CLI to later steps; put only the CLI on PATH."""
 
     output = os.environ.get("GITHUB_OUTPUT")
-    if not output:
-        return
-    with open(output, "a", encoding="utf-8") as handle:
-        handle.write(f"bin={sysconfig.get_path('scripts')}\n")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"python={environment.python}\n")
+            handle.write(f"bin={environment.bin}\n")
+            handle.write(f"cli={cli}\n")
+    path = os.environ.get("GITHUB_PATH")
+    if path:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(f"{cli.parent}\n")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.parse_args(argv)
+    parser.add_argument(
+        "--venv-parent",
+        type=Path,
+        help="create the engine's own virtual environment under this directory",
+    )
+    args = parser.parse_args(argv)
     version = os.environ.get("SHIPGATE_VERSION", "")
     wheel = os.environ.get("SHIPGATE_WHEEL", "")
     wheel_sha256 = os.environ.get("SHIPGATE_WHEEL_SHA256", "")
+    environment: Environment | None = None
+
+    def prepare() -> str:
+        nonlocal environment
+        if args.venv_parent is not None:
+            environment = create_environment(args.venv_parent)
+        else:
+            environment = current_environment()
+        return environment.python
+
+    def prepare_with_runtime() -> str:
+        python = prepare()
+        install_runtime(python)
+        return python
+
     try:
         if wheel or wheel_sha256:
             install_wheel(
@@ -276,17 +385,26 @@ def main(argv: list[str] | None = None) -> int:
                 wheel=wheel,
                 sha256=wheel_sha256,
                 version=version,
-                install_dependencies=install_runtime,
+                prepare_environment=prepare_with_runtime,
             )
         elif version:
-            install_version(version)
+            # Refused before an environment exists or pip runs.
+            exact = check_engine_version(version)
+            install_version(prepare(), exact)
         else:
-            install_source()
-        require_engine_requirements()
-        record_console_script_directory()
+            install_source(prepare())
+        assert environment is not None
+        require_engine_requirements(environment.python)
+        if args.venv_parent is not None:
+            cli = expose_cli(environment, environment.bin.parent.parent / "cli")
+            publish(environment, cli)
     except (ValueError, OSError, KeyError, zipfile.BadZipFile, subprocess.CalledProcessError) as exc:
         print(f"Agents Shipgate install refused: {exc}", file=sys.stderr)
         return 1
+    if version and not (wheel or wheel_sha256):
+        # A diagnostic: the identity of what was installed, from the
+        # environment it was installed into. Run by script path.
+        subprocess.run([environment.python, str(IDENTITY_SCRIPT)], check=False)
     return 0
 
 

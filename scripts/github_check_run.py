@@ -16,8 +16,9 @@ Mapping contract:
   is the strict branch-protection policy: only
   ``can_merge_without_human=true`` succeeds. Under either of those two, a run
   that states no merge verdict — no readable ``verifier.json``, or one without
-  ``merge_verdict`` — fails. Any other policy value is an error, never
-  ``advisory`` (#1032). The conclusion mirrors — never replaces — the one
+  ``merge_verdict`` — fails, and the summary says why. Any other policy value
+  is an error, never ``advisory``, and so is either strict policy with
+  ``verify_mode: scan``, which writes no ``verifier.json`` (#1032). The conclusion mirrors — never replaces — the one
   decision engine: ``report.json.release_decision.decision`` stays the gate.
 - PR projection items → up to ``MAX_ANNOTATIONS`` line-level annotations
   (Checks API caps one request at 50). SARIF remains the full finding export;
@@ -122,6 +123,26 @@ def normalize_check_run_policy(policy: object) -> str:
     )
 
 
+def check_policy_for_mode(policy: str, verify_mode: object) -> None:
+    """Refuse a strict policy under ``verify_mode: scan``, which writes no verdict.
+
+    `blocked-fails` and `require-mergeable` are defined on the merge verdict
+    and `can_merge_without_human` in `verifier.json`. A scan writes
+    `report.json` alone, so under either policy every scan run would conclude
+    `failure`, a passed one included. Mapping the report's release decision
+    onto a verdict here would be a second derivation of what `verify` decides,
+    so the combination is refused instead (#1032).
+    """
+
+    mode = verify_mode.strip() if isinstance(verify_mode, str) else ""
+    if mode == "scan" and policy in STRICT_CHECK_RUN_POLICIES:
+        raise CheckRunPolicyError(
+            f"check_run_policy {policy} reads the merge verdict in verifier.json, which "
+            "verify_mode scan does not write, so every run would fail its check. Use "
+            "verify_mode verify (the default), or check_run_policy advisory with scan."
+        )
+
+
 def title_for(merge_verdict: object, *, blocker_count: int = 0) -> str:
     verdict = merge_verdict if isinstance(merge_verdict, str) and merge_verdict else "unknown"
     if verdict == "blocked" and blocker_count:
@@ -212,11 +233,22 @@ def build_check_run_payload(
     if not annotations and report is None:
         annotations = annotations_from_sarif(sarif)
     total_results = _sarif_result_count(sarif)
+    conclusion = conclusion_for(
+        merge_verdict,
+        policy=policy,
+        can_merge_without_human=verifier.get("can_merge_without_human"),
+    )
     summary = summary_markdown.strip() or "No Shipgate summary was produced."
-    if verifier_missing and policy in STRICT_CHECK_RUN_POLICIES:
+    no_verdict = not isinstance(merge_verdict, str) or not merge_verdict.strip()
+    if conclusion == "failure" and policy in STRICT_CHECK_RUN_POLICIES and no_verdict:
+        reason = (
+            "No readable `verifier.json` was produced"
+            if verifier_missing
+            else "`verifier.json` carries no `merge_verdict`"
+        )
         summary = (
-            "_No readable `verifier.json` was produced, so this run states no merge "
-            f"verdict. The `{policy}` check-run policy fails the check._\n\n{summary}"
+            f"_{reason}, so this run states no merge verdict. The `{policy}` "
+            f"check-run policy fails the check._\n\n{summary}"
         )
     if total_results > len(annotations):
         summary += (
@@ -226,11 +258,7 @@ def build_check_run_payload(
         )
     return {
         "name": name,
-        "conclusion": conclusion_for(
-            merge_verdict,
-            policy=policy,
-            can_merge_without_human=verifier.get("can_merge_without_human"),
-        ),
+        "conclusion": conclusion,
         "output": {
             "title": title_for(merge_verdict, blocker_count=len(blockers)),
             "summary": summary[:MAX_SUMMARY_CHARS],
@@ -268,11 +296,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check-policy",
         action="store_true",
-        help="only validate CHECK_RUN_POLICY; read and write no artifacts",
+        help="only validate CHECK_RUN_POLICY against VERIFY_MODE; read and write no artifacts",
     )
     args = parser.parse_args(argv)
     try:
         check_run_policy = normalize_check_run_policy(os.environ.get("CHECK_RUN_POLICY"))
+        check_policy_for_mode(check_run_policy, os.environ.get("VERIFY_MODE"))
     except CheckRunPolicyError as exc:
         print(f"Agents Shipgate check run refused: {exc}", file=sys.stderr)
         return 2

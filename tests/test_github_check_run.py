@@ -357,20 +357,83 @@ def test_a_missing_verifier_fails_under_the_strict_policies(policy, expected):
 
 
 @pytest.mark.parametrize("policy", ["blocked-fails", "require-mergeable"])
-def test_a_verifier_without_a_merge_verdict_fails_under_the_strict_policies(policy):
+@pytest.mark.parametrize("verdict", [None, "", "  "])
+def test_a_verifier_without_a_merge_verdict_fails_under_the_strict_policies(policy, verdict):
+    verifier = {"release_decision": {"blockers": []}}
+    if verdict is not None:
+        verifier["merge_verdict"] = verdict
     payload = build_check_run_payload(
-        verifier={"release_decision": {"blockers": []}},
-        summary_markdown="",
-        check_run_policy=policy,
+        verifier=verifier, summary_markdown="Review.", check_run_policy=policy
     )
     assert payload["conclusion"] == "failure"
+    # The summary says why, as it does when verifier.json is missing.
+    assert payload["output"]["summary"].startswith(
+        "_`verifier.json` carries no `merge_verdict`, so this run states no merge verdict. "
+        f"The `{policy}` check-run policy fails the check._\n\nReview."
+    )
 
 
-def _main(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: str, *argv: str) -> int:
+def test_the_no_verdict_note_appears_only_on_a_failing_check():
+    """`require-mergeable` decides on `can_merge_without_human`, not the verdict."""
+
+    passing = build_check_run_payload(
+        verifier={"can_merge_without_human": True},
+        summary_markdown="Review.",
+        check_run_policy="require-mergeable",
+    )
+    assert passing["conclusion"] == "success" and passing["output"]["summary"] == "Review."
+    advisory = build_check_run_payload(verifier={}, summary_markdown="Review.")
+    assert advisory["conclusion"] == "neutral" and advisory["output"]["summary"] == "Review."
+    stated = build_check_run_payload(
+        verifier={"merge_verdict": "human_review_required", "can_merge_without_human": False},
+        summary_markdown="Review.",
+        check_run_policy="require-mergeable",
+    )
+    assert stated["conclusion"] == "failure" and stated["output"]["summary"] == "Review."
+
+
+@pytest.mark.parametrize(
+    ("mode", "policy", "refused"),
+    [
+        ("scan", "blocked-fails", True),
+        ("scan", "require-mergeable", True),
+        (" scan\n", "require-mergeable", True),
+        ("scan", "advisory", False),
+        ("verify", "blocked-fails", False),
+        ("verify", "require-mergeable", False),
+        ("", "require-mergeable", False),
+        (None, "blocked-fails", False),
+    ],
+)
+def test_a_strict_policy_is_refused_under_scan_mode(mode, policy, refused):
+    """A scan writes no verifier.json, so a strict policy would fail every scan run."""
+
+    if refused:
+        with pytest.raises(CheckRunPolicyError, match="verify_mode scan does not write"):
+            github_check_run.check_policy_for_mode(policy, mode)
+    else:
+        github_check_run.check_policy_for_mode(policy, mode)
+
+
+def _main(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: str, *argv: str, mode: str = ""
+) -> int:
     monkeypatch.setenv("OUTPUT_DIR", str(tmp_path))
     monkeypatch.setenv("CHECK_RUN_POLICY", policy)
+    monkeypatch.setenv("VERIFY_MODE", mode)
     monkeypatch.delenv("CHECK_RUN_NAME", raising=False)
     return github_check_run.main(list(argv))
+
+
+@pytest.mark.parametrize("argv", [(), ("--check-policy",)])
+def test_the_action_steps_refuse_a_strict_policy_with_scan_mode(tmp_path, monkeypatch, capsys, argv):
+    (tmp_path / "report.json").write_text(
+        json.dumps({"release_decision": {"decision": "passed"}}), encoding="utf-8"
+    )
+    assert _main(tmp_path, monkeypatch, "blocked-fails", *argv, mode="scan") == 2
+    assert not (tmp_path / PAYLOAD_FILENAME).exists()
+    assert "verify_mode scan does not write" in capsys.readouterr().err
+    assert _main(tmp_path, monkeypatch, "advisory", *argv, mode="scan") == 0
 
 
 @pytest.mark.parametrize("policy", ["blocked-fails", "require-mergeable"])
@@ -414,3 +477,7 @@ def test_action_validates_the_policy_before_the_scan_runs():
     assert validate["if"] == "${{ inputs.check_run == 'true' }}"
     assert validate["env"]["CHECK_RUN_POLICY"] == "${{ inputs.check_run_policy }}"
     assert 'scripts/github_check_run.py" --check-policy' in validate["run"]
+    # Both steps that read the policy see the mode it is checked against.
+    payload = action["runs"]["steps"][steps["Build Agents Shipgate check-run payload"]]
+    for step in (validate, payload):
+        assert step["env"]["VERIFY_MODE"] == "${{ inputs.verify_mode }}"

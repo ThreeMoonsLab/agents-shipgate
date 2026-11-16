@@ -5,10 +5,16 @@
 # default source route, the build backend were resolved from the index on
 # every run: two runs of one pinned Action could execute different dependency
 # versions (#1032). Every install route in scripts/install_action_engine.py now
-# runs `pip install --require-hashes --requirement` on this file, then installs
-# the engine (a PyPI version, a candidate wheel, or the Action's own source)
-# with `--no-deps`. The source route also installs constraints/build-backend.txt
+# creates a virtual environment of the Action's own, runs `pip install
+# --require-hashes --requirement` on this file there, then installs the engine
+# (a PyPI version, a candidate wheel, or the Action's own source) with
+# `--no-deps`. The source route also installs constraints/build-backend.txt
 # with `--require-hashes` and builds with `--no-build-isolation`.
+#
+# Wheels cover CPython 3.12+ on Linux x86_64 and aarch64 (manylinux and
+# musllinux), macOS arm64 and Windows x86_64. cryptography 50.0.2 publishes
+# none for macOS x86_64 or Windows ARM64, so there the hashed sdist builds
+# from source (Rust); constraints/dev.txt pins the same version.
 #
 # Compiled from pyproject.toml's runtime dependencies (no extras) and
 # constrained by constraints/dev.txt, so the Action runs the versions the test

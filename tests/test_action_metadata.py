@@ -50,7 +50,9 @@ def test_action_installs_from_source_when_no_pypi_version_is_set():
         install["run"]
     )
     # Empty `shipgate_version` installs this Action's source; set, the PyPI release.
-    assert "elif version:\n            install_version(version)\n        else:\n" in installer
+    assert "install_version(prepare(), exact)\n        else:\n            install_source(prepare())" in (
+        installer
+    )
     assert 'f"{DISTRIBUTION}=={exact}"' in installer
 
 

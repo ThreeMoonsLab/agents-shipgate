@@ -286,7 +286,7 @@ present. That is why the backend has a lock of its own.
 | [`constraints/build-backend.txt`](../constraints/build-backend.txt) | CI, `verify` → `suite`, `tests`, qualification promotion | The build backend's closure, so builds need no isolation |
 | [`constraints/release-seal.txt`](../constraints/release-seal.txt) | `verify` → `artifact` | `build`, `hatchling`, `sigstore` |
 | [`constraints/release-publish.txt`](../constraints/release-publish.txt) | `stage`, `publish`, `finalize` | `uv`, `sigstore` |
-| [`constraints/action-runtime.txt`](../constraints/action-runtime.txt) | The GitHub Action, on every install route, before the engine goes in with `--no-deps` | The runtime dependencies alone, compiled with `constraints/dev.txt` as a constraint so the Action runs what the suite ran (#1032) |
+| [`constraints/action-runtime.txt`](../constraints/action-runtime.txt) | The GitHub Action, into a virtual environment of its own on every install route, before the engine goes in with `--no-deps`; Release Engine Smoke's local half, beside `dev.txt` | The runtime dependencies alone, compiled with `constraints/dev.txt` as a constraint so the Action runs what the suite ran (#1032). Its header names the runner platforms it has wheels for |
 | [`constraints/release-build.txt`](../constraints/release-build.txt) | — | Not a lock: the one hand-maintained backend pin the closure above resolves |
 
 Locks installed into the same environment must pin every shared distribution to

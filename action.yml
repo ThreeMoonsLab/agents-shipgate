@@ -117,7 +117,7 @@ inputs:
   check_run_policy:
     required: false
     default: advisory
-    description: "Check Run conclusion policy: advisory, blocked-fails, or require-mergeable."
+    description: "Check Run conclusion policy: advisory, blocked-fails, or require-mergeable. Any other value fails the job before the scan. blocked-fails and require-mergeable read the merge verdict in verifier.json, which verify_mode scan does not write, so they require verify_mode verify."
   check_run_name:
     required: false
     default: "Agents Shipgate"
@@ -129,7 +129,7 @@ inputs:
   shipgate_version:
     required: false
     default: ""
-    description: Optional exact Agents Shipgate PyPI version to install, 1.0.0 or later; an older engine is refused at install as a version skew. Empty installs this action source. Either way the dependencies come from this Action's hash-locked constraints/action-runtime.txt and the engine is installed with --no-deps.
+    description: Optional Agents Shipgate PyPI version to install. It must name one exact release, 1.0.0 or later; a range or wildcard is refused, and an older release is refused as a version skew. Empty installs this action source. Either way the engine goes into a virtual environment of the Action's own, over this Action's hash-locked constraints/action-runtime.txt, with --no-deps.
   shipgate_wheel:
     required: false
     default: ""
@@ -268,6 +268,9 @@ outputs:
   exit_code:
     description: Agents Shipgate CLI exit code.
     value: ${{ steps.scan.outputs.exit_code }}
+  cli_path:
+    description: Path to the installed agents-shipgate command. Its directory, which holds only agents-shipgate and shipgate, is added to PATH for later steps; the Action's Python is not.
+    value: ${{ steps.install.outputs.cli }}
   decision:
     description: Release decision (`blocked`, `review_required`, `insufficient_evidence`, or `passed`). v0.8+; `insufficient_evidence` added v0.14.
     value: ${{ steps.report_outputs.outputs.decision }}
@@ -363,14 +366,17 @@ runs:
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
       with:
         python-version: "3.12"
-        # Keep this interpreter to the Action's own steps, which call it by
-        # path: the caller's later steps keep the Python and PATH they set up.
+        # This interpreter only creates the engine's own virtual environment,
+        # called by path: the caller's later steps keep the Python and PATH
+        # they set up, plus the CLI directory the install step adds.
         update-environment: false
 
     - name: Install Agents Shipgate
       id: install
       shell: bash
       env:
+        # The runner's interpreter, which only creates the engine's own
+        # environment; every later step runs that environment's interpreter.
         SHIPGATE_PYTHON: ${{ steps.python.outputs.python-path }}
         SHIPGATE_VERSION: ${{ inputs.shipgate_version }}
         SHIPGATE_WHEEL: ${{ inputs.shipgate_wheel }}
@@ -382,20 +388,21 @@ runs:
         # leaves it off. A script path puts the script's directory first, not
         # the workspace, and the installer passes `-P` to its own pip.
         #
-        # Every route installs constraints/action-runtime.txt with
-        # --require-hashes, then the engine with --no-deps (#1032). The
-        # installer writes the console-script directory to `bin`.
-        "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/install_action_engine.py" || exit $?
-        if [ -n "${SHIPGATE_VERSION}" ]; then
-          "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/action_engine_identity.py"
-        fi
+        # The installer creates a virtual environment under RUNNER_TEMP from
+        # this interpreter, installs constraints/action-runtime.txt into it
+        # with --require-hashes and then the engine with --no-deps (#1032),
+        # and writes its interpreter (`python`), scripts (`bin`) and CLI
+        # (`cli`). Only a directory holding `agents-shipgate` and `shipgate`
+        # goes on GITHUB_PATH.
+        "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/install_action_engine.py" --venv-parent "${RUNNER_TEMP}"
 
     - name: Validate Agents Shipgate check-run policy
       if: ${{ inputs.check_run == 'true' }}
       shell: bash
       env:
-        SHIPGATE_PYTHON: ${{ steps.python.outputs.python-path }}
+        SHIPGATE_PYTHON: ${{ steps.install.outputs.python }}
         CHECK_RUN_POLICY: ${{ inputs.check_run_policy }}
+        VERIFY_MODE: ${{ inputs.verify_mode }}
       run: |
         "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/github_check_run.py" --check-policy
 
@@ -403,7 +410,7 @@ runs:
       id: scan
       shell: bash
       env:
-        SHIPGATE_PYTHON: ${{ steps.python.outputs.python-path }}
+        SHIPGATE_PYTHON: ${{ steps.install.outputs.python }}
         SHIPGATE_BIN: ${{ steps.install.outputs.bin }}
         CONFIG: ${{ inputs.config }}
         CI_MODE: ${{ inputs.ci_mode }}
@@ -598,7 +605,7 @@ runs:
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' }}
       shell: bash
       env:
-        SHIPGATE_PYTHON: ${{ steps.python.outputs.python-path }}
+        SHIPGATE_PYTHON: ${{ steps.install.outputs.python }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
       run: |
         "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py"
@@ -607,7 +614,7 @@ runs:
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.check_annotations == 'true' }}
       shell: bash
       env:
-        SHIPGATE_PYTHON: ${{ steps.python.outputs.python-path }}
+        SHIPGATE_PYTHON: ${{ steps.install.outputs.python }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
         CHECK_ANNOTATION_LIMIT: ${{ inputs.check_annotation_limit }}
       run: |
@@ -702,10 +709,11 @@ runs:
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.check_run == 'true' }}
       shell: bash
       env:
-        SHIPGATE_PYTHON: ${{ steps.python.outputs.python-path }}
+        SHIPGATE_PYTHON: ${{ steps.install.outputs.python }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
         CHECK_RUN_NAME: ${{ inputs.check_run_name }}
         CHECK_RUN_POLICY: ${{ inputs.check_run_policy }}
+        VERIFY_MODE: ${{ inputs.verify_mode }}
       run: |
         "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/github_check_run.py"
 
@@ -749,7 +757,7 @@ runs:
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.fail_on_merge_verdicts != '' }}
       shell: bash
       env:
-        SHIPGATE_PYTHON: ${{ steps.python.outputs.python-path }}
+        SHIPGATE_PYTHON: ${{ steps.install.outputs.python }}
         FAIL_ON_MERGE_VERDICTS: ${{ inputs.fail_on_merge_verdicts }}
         MERGE_VERDICT: ${{ steps.report_outputs.outputs.merge_verdict }}
       run: |
