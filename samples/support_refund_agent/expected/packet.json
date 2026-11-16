@@ -302,7 +302,9 @@
   },
   "evidence_matrix": {
     "notes": [
-      "Evidence Matrix Light is derived from public report.json only. Release decisions, CI exit behavior, and baseline semantics remain owned by release_decision. Domain rows intentionally overlap; a single finding can appear in multiple rows when it is relevant to each review lens."
+      "Evidence Matrix Light is derived from public report.json only. Release decisions, CI exit behavior, and baseline semantics remain owned by release_decision. Domain rows intentionally overlap; a single finding can appear in multiple rows when it is relevant to each review lens.",
+      "Advisory (lexical evidence, does not gate): SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on stripe.create_refund: stripe.create_refund appears to overlap with a prohibited action",
+      "Advisory (lexical evidence, does not gate): SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on gmail.send_customer_email: gmail.send_customer_email appears to overlap with a prohibited action"
     ],
     "rows": [
       {
@@ -1255,18 +1257,13 @@
         "blocking_findings": [],
         "confidence": "medium",
         "domain": "Prompt/scope alignment",
-        "evidence_present": "partial",
+        "evidence_present": "covered",
         "evidence_source": [
           "declared_intentions",
           "misalignments",
-          "capability_facts",
-          "findings[]"
+          "capability_facts"
         ],
-        "missing_controls": [
-          "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on send_email_preview: send_email_preview appears to overlap with a prohibited action",
-          "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on stripe.create_refund: stripe.create_refund appears to overlap with a prohibited action",
-          "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on gmail.send_customer_email: gmail.send_customer_email appears to overlap with a prohibited action"
-        ],
+        "missing_controls": [],
         "review_items": []
       },
       {
@@ -1693,7 +1690,7 @@
   "not_proven": {
     "additional_residuals": [
       "Memory isolation is not modeled by the v0.1 manifest schema; no static evidence is available.",
-      "3 active finding(s) came from heuristic provenance (keyword_heuristic=3, regex_heuristic=0); review the finding evidence before acting."
+      "2 active finding(s) came from heuristic provenance (keyword_heuristic=2, regex_heuristic=0); review the finding evidence before acting."
     ],
     "headline": "Agents Shipgate is an advisory tool: the deterministic merge gate for AI-generated agent capability changes, run as a local-first, static Tool-Use Readiness review. The packet below is derived from a scan; it does not, by itself, prove the following properties:",
     "low_confidence_tools": [],
@@ -2751,7 +2748,7 @@
     "verdict": "BLOCKED"
   },
   "request_id": null,
-  "run_id": "agents_shipgate_675b004592200f17",
+  "run_id": "agents_shipgate_3ee288224e7fd555",
   "scope_coverage": {
     "declared_scopes": [
       "zendesk:tickets:read",

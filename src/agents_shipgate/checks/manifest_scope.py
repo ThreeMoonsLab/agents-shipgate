@@ -30,6 +30,8 @@ STOPWORDS = {
     "can",
     "do",
     "does",
+    "don",
+    "dont",
     "during",
     "each",
     "except",
@@ -46,6 +48,7 @@ STOPWORDS = {
     "its",
     "may",
     "must",
+    "never",
     "no",
     "nor",
     "not",
@@ -88,14 +91,22 @@ STOPWORDS = {
 }
 
 # Verbs that name something an agent *does*. A prohibited action and a tool
-# overlap only when they share one of these (#1035): sharing nouns alone —
+# overlap only when they share a verb (#1035): sharing nouns alone —
 # "customer", "data", "ticket" — says the tool touches the same subject, not
-# that it performs the prohibited action. Compared after ``_stem``.
+# that it performs the prohibited action. The prohibited action's own leading
+# word always counts as its verb ("buy stock" → ``buy``), so this list only
+# has to cover a verb that is not first ("delete or export customer data" →
+# ``export``). Compared after ``_canonical_words``.
 ACTION_VERBS = {
     "approve",
     "archive",
+    "ban",
+    "book",
+    "buy",
+    "call",
     "cancel",
     "capture",
+    "change",
     "charge",
     "close",
     "create",
@@ -104,37 +115,102 @@ ACTION_VERBS = {
     "destroy",
     "disable",
     "drop",
+    "edit",
     "email",
+    "enable",
     "erase",
     "execute",
     "export",
     "grant",
+    "install",
+    "invite",
     "issue",
+    "kill",
+    "lock",
     "merge",
     "message",
     "modify",
+    "move",
+    "notify",
     "overwrite",
     "pay",
     "post",
     "publish",
+    "purchase",
     "purge",
     "push",
     "refund",
     "remove",
+    "reset",
+    "restart",
     "revoke",
+    "rotate",
     "run",
+    "sell",
     "send",
+    "set",
     "share",
+    "shutdown",
+    "sign",
+    "spend",
     "submit",
+    "suspend",
     "terminate",
+    "trade",
     "transfer",
     "truncate",
     "update",
     "upload",
     "void",
     "wipe",
+    "wire",
+    "withdraw",
     "write",
 }
+
+# Spellings that name one action, so "delete customer data" meets a tool
+# that "purges all data for a customer" and "modify user permissions" meets
+# ``update_user_permissions`` — matches substring containment used to make by
+# accident (#1035). An explicit table, applied to both sides after ``_stem``:
+# every equivalence the matcher draws is listed here, and nothing is fuzzy.
+ACTION_SYNONYMS = {
+    "alter": "update",
+    "approval": "approve",
+    "cancellation": "cancel",
+    "change": "update",
+    "close": "terminate",
+    "deletion": "delete",
+    "deployment": "deploy",
+    "destroy": "delete",
+    "edit": "update",
+    "erase": "delete",
+    "execution": "execute",
+    "issue": "create",
+    "mail": "email",
+    "make": "create",
+    "modification": "update",
+    "modify": "update",
+    "payment": "pay",
+    "purchase": "buy",
+    "purge": "delete",
+    "removal": "delete",
+    "remove": "delete",
+    "run": "execute",
+    "termination": "terminate",
+    "wipe": "delete",
+}
+
+# Two words that spell one action ("shut down" and ``shutdown``; "e-mail").
+_PHRASES = {
+    ("e", "mail"): "email",
+    ("power", "off"): "shutdown",
+    ("shut", "down"): "shutdown",
+}
+
+# Words that open the clause naming what the prohibited action lacks or is
+# limited by: "send external email *without preview*". The clause is not part
+# of the action, so its words never count towards an overlap.
+_QUALIFIERS = ("without", "unless", "except", "outside")
 
 READ_ONLY_TERMS = {
     "answer",
@@ -244,15 +320,21 @@ def _tool_matches_prohibited_action(tool: Tool, prohibited_action: str) -> bool:
     action_tokens = _tokens(prohibited_action)
     if not action_tokens:
         return False
+    action, qualifier, safeguard = _split_qualifier(prohibited_action)
+    if qualifier == "without" and _word_stems(tool.name) & _word_stems(safeguard):
+        # The tool is named for the safeguard the prohibited action lacks:
+        # ``send_email_preview`` against "send external email without
+        # preview" is the preview, not the unpreviewed send (#1035).
+        return False
     # Whole words on both sides, never substrings (#1035). Containment let
     # "or" match "priority", "for" and "order", so adding "for a customer" to
     # a description was enough to overlap "delete or export customer data".
-    # Two shared words are required, and one must be an action verb: a shared
-    # subject alone ("customer", "data") is not the prohibited action.
-    overlap = _word_stems(prohibited_action) & _word_stems(
-        f"{tool.name} {tool.description or ''}"
-    )
-    if len(overlap) >= 2 and overlap & _ACTION_VERB_STEMS:
+    # Two shared words are required, and one must be a verb: the action's own
+    # leading word, or one of ``ACTION_VERBS``. A shared subject alone
+    # ("customer", "data") is not the prohibited action.
+    action_words = _canonical_words(action)
+    overlap = set(action_words) & _word_stems(f"{tool.name} {tool.description or ''}")
+    if len(overlap) >= 2 and overlap & (_ACTION_VERB_STEMS | set(action_words[:1])):
         return True
     if {"email", "external"} & action_tokens and has_risk_tag(
         tool,
@@ -296,23 +378,59 @@ def _tokens(text: str) -> set[str]:
     }
 
 
-def _word_stems(text: str) -> set[str]:
-    """Whole-word stems of ``text``, for comparing a tool with a prohibited action.
+def _split_qualifier(text: str) -> tuple[str, str | None, str]:
+    """Split a prohibited action at its first qualifier word.
+
+    ``"send external email without preview"`` → ``("send external email ",
+    "without", " preview")``. Without a qualifier the whole text is the action.
+    """
+
+    parts = re.split(
+        rf"\b({'|'.join(_QUALIFIERS)})\b", text, maxsplit=1, flags=re.IGNORECASE
+    )
+    if len(parts) == 3:
+        return parts[0], parts[1].lower(), parts[2]
+    return text, None, ""
+
+
+def _canonical_words(text: str) -> list[str]:
+    """The words of ``text`` in order, as the prohibited-action matcher compares them.
 
     Splits on every non-alphanumeric character and on camelCase, so a tool
     named ``crm.delete_customer_data`` or ``deleteCustomerData`` contributes
-    ``delete``, ``customer`` and ``data``. Stopwords and one-letter tokens are
-    dropped, and each word is reduced by :func:`_stem` so "refunds" meets
-    "refund" and "deletes" meets "delete" — the inflections substring
-    containment used to catch, without its false matches inside other words.
+    ``delete``, ``customer`` and ``data``. Joins the two-word spellings in
+    ``_PHRASES``, drops stopwords and one-letter tokens, reduces each word by
+    :func:`_stem` so "refunds" meets "refund" and "deletes" meets "delete" —
+    the inflections substring containment used to catch, without its false
+    matches inside other words — and then maps it through
+    ``ACTION_SYNONYMS``.
     """
 
     spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
-    return {
-        _stem(word)
-        for word in re.findall(r"[a-z][a-z0-9]*", spaced.lower())
-        if len(word) > 1 and word not in STOPWORDS
-    }
+    raw = re.findall(r"[a-z][a-z0-9]*", spaced.lower())
+    words: list[str] = []
+    index = 0
+    while index < len(raw):
+        phrase = _PHRASES.get((raw[index], raw[index + 1])) if index + 1 < len(raw) else None
+        if phrase is not None:
+            words.append(phrase)
+            index += 2
+            continue
+        words.append(raw[index])
+        index += 1
+    out: list[str] = []
+    for word in words:
+        if len(word) <= 1 or word in STOPWORDS:
+            continue
+        stem = _stem(word)
+        out.append(_SYNONYM_STEMS.get(stem, stem))
+    return out
+
+
+def _word_stems(text: str) -> set[str]:
+    """The set of :func:`_canonical_words` of ``text``."""
+
+    return set(_canonical_words(text))
 
 
 def _stem(word: str) -> str:
@@ -339,4 +457,7 @@ def _stem(word: str) -> str:
     return stem
 
 
-_ACTION_VERB_STEMS = frozenset(_stem(verb) for verb in ACTION_VERBS)
+_SYNONYM_STEMS = {_stem(word): _stem(canonical) for word, canonical in ACTION_SYNONYMS.items()}
+_ACTION_VERB_STEMS = frozenset(
+    _SYNONYM_STEMS.get(_stem(verb), _stem(verb)) for verb in ACTION_VERBS
+)

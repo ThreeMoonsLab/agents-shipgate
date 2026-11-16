@@ -1028,7 +1028,6 @@
         "fp_25d66c07cb88ccbc",
         "fp_304deac63e13e3c3",
         "fp_368e8c29ea686e2e",
-        "fp_4e7eb5aecdf2a82e",
         "fp_7313c45114c31330",
         "fp_88b22e5b095fcc05",
         "fp_b15fbb62fef1c41c",
@@ -1212,7 +1211,6 @@
         "fp_3cbb2883d00d87fd",
         "fp_886b380dba4cbb51",
         "fp_b15fbb62fef1c41c",
-        "fp_b9007e3ae3ed5f5f",
         "fp_cfe9353889dee25f"
       ]
     }
@@ -1486,43 +1484,6 @@
       "release_implication": "Observed sample evidence contradicts the approval expectation."
     },
     {
-      "id": "mis_fa1f6b701727dcfe",
-      "kind": "prohibited_action_present",
-      "severity": "medium",
-      "tool_name": "create_refund",
-      "capability_refs": [
-        "cap_1936b581aee1c411"
-      ],
-      "intention_refs": [
-        "int_07ec701205b21b96",
-        "int_788db5032dd9f920"
-      ],
-      "finding_refs": [
-        "fp_4e7eb5aecdf2a82e"
-      ],
-      "policy_requirement": "Prohibited actions must not be contradicted by enabled capabilities.",
-      "gap": "create_refund appears to overlap with a prohibited action.",
-      "release_implication": "The tool surface appears to enable behavior the manifest prohibits."
-    },
-    {
-      "id": "mis_eda491e9c3a9426a",
-      "kind": "prohibited_action_present",
-      "severity": "medium",
-      "tool_name": "send_customer_email",
-      "capability_refs": [
-        "cap_e809417ee4da1160"
-      ],
-      "intention_refs": [
-        "int_bf9d4ad9100fcc59"
-      ],
-      "finding_refs": [
-        "fp_b9007e3ae3ed5f5f"
-      ],
-      "policy_requirement": "Prohibited actions must not be contradicted by enabled capabilities.",
-      "gap": "send_customer_email appears to overlap with a prohibited action.",
-      "release_implication": "The tool surface appears to enable behavior the manifest prohibits."
-    },
-    {
       "id": "mis_4c29425dcfcbf694",
       "kind": "undetected_gap",
       "severity": "medium",
@@ -1577,6 +1538,43 @@
       "policy_requirement": "Static review requires deterministic evidence for release gaps.",
       "gap": "OpenAI API flow lacks timeout metadata.",
       "release_implication": "Human review is required to interpret this finding."
+    },
+    {
+      "id": "mis_fa1f6b701727dcfe",
+      "kind": "prohibited_action_present",
+      "severity": "medium",
+      "tool_name": "create_refund",
+      "capability_refs": [
+        "cap_1936b581aee1c411"
+      ],
+      "intention_refs": [
+        "int_07ec701205b21b96",
+        "int_788db5032dd9f920"
+      ],
+      "finding_refs": [
+        "fp_4e7eb5aecdf2a82e"
+      ],
+      "policy_requirement": "Prohibited actions must not be contradicted by enabled capabilities.",
+      "gap": "Advisory (lexical evidence, does not gate): create_refund appears to overlap with a prohibited action.",
+      "release_implication": "None: the match is lexical evidence, which never changes the release decision."
+    },
+    {
+      "id": "mis_eda491e9c3a9426a",
+      "kind": "prohibited_action_present",
+      "severity": "medium",
+      "tool_name": "send_customer_email",
+      "capability_refs": [
+        "cap_e809417ee4da1160"
+      ],
+      "intention_refs": [
+        "int_bf9d4ad9100fcc59"
+      ],
+      "finding_refs": [
+        "fp_b9007e3ae3ed5f5f"
+      ],
+      "policy_requirement": "Prohibited actions must not be contradicted by enabled capabilities.",
+      "gap": "Advisory (lexical evidence, does not gate): send_customer_email appears to overlap with a prohibited action.",
+      "release_implication": "None: the match is lexical evidence, which never changes the release decision."
     }
   ],
   "release_consequence": {
@@ -1664,21 +1662,6 @@
       ],
       "source_findings": [
         "fp_7313c45114c31330"
-      ]
-    },
-    {
-      "id": "scn_236342f5c0b2ee9b",
-      "scenario_type": "prohibited_action",
-      "title": "Prohibited-action guard",
-      "given": "Exercise the release path for create_refund, send_customer_email.",
-      "expected_control": "The prohibited action is blocked, removed, or covered by the stated control.",
-      "source_misalignments": [
-        "mis_eda491e9c3a9426a",
-        "mis_fa1f6b701727dcfe"
-      ],
-      "source_findings": [
-        "fp_4e7eb5aecdf2a82e",
-        "fp_b9007e3ae3ed5f5f"
       ]
     }
   ],

@@ -1949,7 +1949,18 @@ def test_description_only_rewording_of_a_reviewed_write_tool_does_not_block(
     alone = _ticket_scan(head, "alone", no_heuristics=no_heuristics)
 
     decision = report.release_decision
-    assert decision.decision != "blocked"
+    # Not `passed` yet, and pinned so a change is deliberate. The one review
+    # item is SHIP-MCP-PERMISSION-EXPANDED, which reads the same keyword
+    # through the capability delta (effect write -> external_communication,
+    # a risk tag added); the head scan alone is `insufficient_evidence` from
+    # the `mixed_policy_evidence` gap a keyword effect claim raises. Both are
+    # the remainder of #1055 (Option A), whose implementation should make this
+    # reproduction `passed`. Neither comes from SHIP-ACTION-EFFECT-ESCALATED.
+    assert decision.decision == "review_required"
+    assert [item.check_id for item in decision.review_items] == [
+        "SHIP-MCP-PERMISSION-EXPANDED"
+    ]
+    assert alone.release_decision.decision == "insufficient_evidence"
     assert decision.blockers == []
     assert report.action_surface_diff.summary.effect_escalations == 1
     assert report.action_surface_diff.summary.blocking_findings == 0

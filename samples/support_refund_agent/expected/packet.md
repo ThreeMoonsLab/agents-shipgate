@@ -3,7 +3,7 @@
 - Project: support-refund-agent
 - Agent: refund-assistant
 - Environment: production\_like
-- Run id: agents\_shipgate\_675b004592200f17
+- Run id: agents\_shipgate\_3ee288224e7fd555
 - Generated at: 2026-01-01T00:00:00\+00:00
 - Packet schema: 0\.18
 
@@ -54,6 +54,8 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 ## §1A Evidence matrix — compact review summary
 
 - Evidence Matrix Light is derived from public report.json only. Release decisions, CI exit behavior, and baseline semantics remain owned by release\_decision. Domain rows intentionally overlap; a single finding can appear in multiple rows when it is relevant to each review lens.
+- Advisory \(lexical evidence, does not gate\): SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on stripe.create\_refund: stripe.create\_refund appears to overlap with a prohibited action
+- Advisory \(lexical evidence, does not gate\): SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on gmail.send\_customer\_email: gmail.send\_customer\_email appears to overlap with a prohibited action
 
 | Domain | Evidence present | Evidence source | Confidence | Missing controls | Blocking findings | Review items |
 |---|---|---|---|---|---|---|
@@ -66,7 +68,7 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 | Side effects | partial | tool\_inventory\[\].risk\_tags; action\_surface\_facts.actions\[\].effect; \+1 more | high | SHIP-POLICY-APPROVAL-MISSING on stripe.create\_refund: stripe.create\_refund lacks a declared approval policy; SHIP-POLICY-CONFIRMATION-MISSING on stripe.create\_refund: stripe.create\_refund lacks a declared confirmation policy; \+5 more | SHIP-POLICY-APPROVAL-MISSING \(critical\); SHIP-SIDEFX-IDEMPOTENCY-MISSING \(critical\); \+3 more | SHIP-POLICY-CONFIRMATION-MISSING \(high\); SHIP-POLICY-CONFIRMATION-MISSING \(high\) |
 | Memory isolation | not\_declared | — | unknown | — | — | — |
 | Human-in-the-loop evidence | not\_declared | — | unknown | — | — | — |
-| Prompt/scope alignment | partial | declared\_intentions; misalignments; \+2 more | medium | SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on send\_email\_preview: send\_email\_preview appears to overlap with a prohibited action; SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on stripe.create\_refund: stripe.create\_refund appears to overlap with a prohibited action; \+1 more | — | — |
+| Prompt/scope alignment | covered | declared\_intentions; misalignments; \+1 more | medium | — | — | — |
 | Retry/timeout | not\_declared | — | unknown | — | — | — |
 | Baseline debt | informational | — | unknown | — | — | — |
 | Action-surface policy | partial | action\_surface\_facts.actions; findings\[\].blocks\_release; \+1 more | high | SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING on gmail.send\_customer\_email: gmail.send\_customer\_email has external communication capability without required controls; SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING on stripe.create\_refund: stripe.create\_refund has external communication capability without required controls; \+1 more | SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING \(high\); SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING \(high\); \+1 more | — |
@@ -235,4 +237,4 @@ Agents Shipgate is an advisory tool: the deterministic merge gate for AI-generat
 - Low-confidence tool extractions: none
 - Suppressed findings in effect: none
 - Memory isolation is not modeled by the v0.1 manifest schema; no static evidence is available.
-- 3 active finding\(s\) came from heuristic provenance \(keyword\_heuristic=3, regex\_heuristic=0\); review the finding evidence before acting.
+- 2 active finding\(s\) came from heuristic provenance \(keyword\_heuristic=2, regex\_heuristic=0\); review the finding evidence before acting.

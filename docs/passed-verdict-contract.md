@@ -62,7 +62,10 @@ whose only weakness is lexical evidence (`inferred_keyword` or
 evidence gap for it. Three checks are marked today (#1035):
 `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` (a word match between a tool and a
 prohibited action), and the keyword-driven instances of
-`SHIP-ACTION-EFFECT-ESCALATED` and `SHIP-ACTION-SAFEGUARD-REMOVED`. An instance
+`SHIP-ACTION-EFFECT-ESCALATED` and `SHIP-ACTION-SAFEGUARD-REMOVED`. Review
+surfaces label such an advisory and do not count it towards coverage: its
+`misalignments[]` entry says so and suggests no scenario, `capability_facts[]`
+ignores it, and the packet's evidence matrix lists it as a note. An instance
 that is weak for any other reason, such as a protocol default, still takes the
 gap route above. Keyword evidence elsewhere — risk-hint effect claims above a
 reviewed declaration, and the other keyword checks — still raises its gap

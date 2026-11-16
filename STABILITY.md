@@ -694,18 +694,35 @@ surface and is absent from `docs/checks.json`.
   controls and a policy-eligible claim places it above the base effect. An
   escalation that only wording supports is a `medium`, non-blocking finding
   with `provenance_kind: keyword_heuristic` and the claims' real bases
-  (`inferred_keyword`). It raises no evidence gap, so the verdict is what the
-  head scan alone gives, and `--no-heuristics` filters it. One backed by other
-  non-authoritative evidence, such as a protocol default, raises an evidence
-  gap as before.
+  (`inferred_keyword`). That finding raises no evidence gap and is never a
+  blocker or review item, so it adds nothing to the verdict, and
+  `--no-heuristics` filters it. Other checks can still read the same keyword:
+  on the #1035 reproduction (a reviewed `write` tool whose description gains
+  "the customer gets an email") `--diff-from` moves `blocked` to
+  `review_required`, not to `passed`, because `SHIP-MCP-PERMISSION-EXPANDED`
+  reports the keyword-driven capability change as a review item, and the head
+  scan alone is `insufficient_evidence` from the keyword effect claim's
+  `mixed_policy_evidence` gap. Both are the remainder of #1055. An escalation
+  backed by other non-authoritative evidence, such as a protocol default,
+  raises an evidence gap as before.
 - **Safeguard removal.** It blocks only when the action's effect can drive
   hard controls. Otherwise it is a `medium` advisory under the same rule. A
   removed `rollback` is `critical` only when `destructive` is established.
 - **Prohibited actions.** The match compares whole-word stems and needs two
-  shared words, one of them an action verb. More connectives (`or`, `in`,
-  `of`, `on`, `by`, …) are stopwords. A match is a `medium`, non-blocking
-  advisory finding (`default_severity` `high` → `medium`) and never an evidence
-  gap.
+  shared words, one of them the prohibited action's leading verb or a listed
+  action verb, after an explicit synonym table (delete/purge/remove,
+  update/modify/edit/change, buy/purchase, …) and joining "shut down" and
+  "e-mail". More connectives (`or`, `in`, `of`, `on`, `by`, `never`, …) are
+  stopwords, and a tool named for the safeguard a `without` clause names
+  (`send_email_preview` against "send external email without preview") does
+  not match. A match is a `medium`, non-blocking advisory finding
+  (`default_severity` `high` → `medium`) and never an evidence gap.
+- **Advisory framing.** A lexical advisory is labelled
+  `Advisory (lexical evidence, does not gate)` in its `misalignments[]` entry,
+  which is listed after every gating one, suggests no scenario, and is no
+  longer counted in `capability_facts[]` (which tools are selected, their
+  `control_status`, `related_findings`). The packet's evidence matrix lists it
+  as a note, not a missing control, so it changes no row's `evidence_present`.
 - **Stale manifest entries.** An entry naming a catalog tool whose binding is
   not established is reported as such, with `evidence.issues:
   ["binding_not_established"]`, a manual keep-the-entry patch and
@@ -713,20 +730,34 @@ surface and is absent from `docs/checks.json`.
   entry naming a tool absent from the catalog is unchanged, evidence and
   fingerprint included.
 
-**What does not change.** No check ID is added, removed or renamed; the
-firing conditions only narrow, as [Check IDs](#check-ids) allows. A
-policy-eligible escalation or safeguard removal blocks as before, with the same
-evidence, support and fingerprint. No schema, contract or control state moves.
+**What does not change.** No check ID is added, removed or renamed. The
+blocking conditions only narrow, as [Check IDs](#check-ids) allows. The
+prohibited-action matcher both narrows and widens: it drops substring false
+matches and catches some inflections and synonyms the substring match missed
+(`cancel orders` against `cancel_order`, `terminate accounts` against
+`terminate_account`, `delete customer data` against a tool that purges it),
+and every match it adds is an advisory that cannot move the verdict. A
+policy-eligible escalation blocks as before, with the same evidence, support
+and fingerprint. No schema, contract or control state moves.
 
 **Who must act.** Nothing is required. A pipeline that relied on a
 keyword-only escalation blocking, or on a prohibited-action word match making
 the run `insufficient_evidence`, should declare the effect under
 `action_surface.actions[].effect` (a reviewed escalation blocks) or read the
-advisory findings. Baseline entries for the stale-manifest findings about
-catalog tools resolve once and reappear as new findings with the corrected
-statement. The keyword gaps that remain (a risk-hint effect claim above a
-reviewed declaration, `SHIP-SCHEMA-BROAD-FREE-TEXT`,
-`SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE`, and others) are the rest of #1055.
+advisory findings. Two kinds of baseline entry rotate once and reappear as new
+findings:
+
+- stale-manifest findings about catalog tools, which carry the corrected
+  statement and a new `evidence.issues`;
+- a removed-`rollback` `SHIP-ACTION-SAFEGUARD-REMOVED` on an action whose
+  `destructive` effect only a keyword supplied. It still blocks when the
+  action has an established effect, but its `change.severity` is now `high`
+  instead of `critical`, and that value is part of the fingerprinted evidence.
+
+The keyword gaps that remain (a risk-hint effect claim above a reviewed
+declaration, `SHIP-SCHEMA-BROAD-FREE-TEXT`, `SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE`,
+and others) and `SHIP-MCP-PERMISSION-EXPANDED` on a keyword-driven capability
+change are the rest of #1055.
 
 ---
 

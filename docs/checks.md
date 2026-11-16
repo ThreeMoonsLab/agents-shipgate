@@ -50,7 +50,7 @@ baseline summary and do not fail CI.
 | `SHIP-AUTH-TOOL-BROAD-SCOPE` | high | A tool declares broad scopes such as `*`, `admin`, or `service:*`. |
 | `SHIP-AUTH-SCOPE-COVERAGE-MISSING` | high | A tool requires scopes that are not covered by `permissions.scopes`. |
 | `SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE` | high | A write-capable tool contradicts a read-only declared purpose. |
-| `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` | medium | A tool shares an action verb and another word with a manifest `prohibited_actions` entry; advisory, never moves the verdict. |
+| `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` | medium | A tool shares a verb and another word with a manifest `prohibited_actions` entry; advisory, never moves the verdict. |
 | `SHIP-POLICY-APPROVAL-MISSING` | critical | A high-risk tool lacks a manifest approval policy. |
 | `SHIP-POLICY-CONFIRMATION-MISSING` | high | A destructive, external-write, or customer-communication tool lacks a confirmation policy. |
 | `SHIP-ACTION-UNDECLARED` | high | A loaded tool lacks explicit action-surface metadata when explicit actions are required. |
@@ -259,22 +259,40 @@ A write-capable tool contradicts a read-only declared purpose. Remove the tool o
 
 A tool appears to overlap with a manifest `prohibited_actions` entry. Remove or narrow the tool, or revise policy/scope text.
 
-The match compares whole words, never substrings: the tool's name (split on
-punctuation and camelCase) and description must share at least two words with
-the prohibited action, and one of them must be an action verb such as
-`delete`, `export`, `send` or `refund`. Inflections meet (`deletes`,
-`refunds`), and connectives such as `or`, `in`, `of`, `on` and `by` are
-ignored, so "priority", "order" or "for a customer" no longer matches
-"delete or export customer data" (#1035). A shared subject alone — "customer",
-"data" — is not the prohibited action. Risk tags still match `email`/`external`,
-`refund` and `cancel` actions as before.
+The match compares whole words, never substrings (#1035). The tool's name
+(split on punctuation and camelCase) and description must share at least two
+words with the prohibited action, and one of them must be a verb: the
+prohibited action's own leading word ("**buy** stock", "**withdraw** funds"),
+or a listed action verb such as `delete`, `export`, `send` or `refund`. A
+shared subject alone — "customer", "data" — is not the prohibited action.
+
+- Inflections meet (`deletes`, `refunds`, `cancelled`), "shut down" meets
+  `shutdown` and "e-mail" meets `email`.
+- A small explicit synonym table, applied to both sides, joins spellings of one
+  action: delete/purge/remove/erase/wipe/destroy, update/modify/edit/change,
+  buy/purchase, execute/run, terminate/close, create/issue/make, approve/approval,
+  pay/payment. Nothing else is fuzzy.
+- Connectives such as `or`, `in`, `of`, `on`, `by`, `never` and `don't` are
+  ignored, so "priority", "order" or "for a customer" no longer match
+  "delete or export customer data".
+- Words after `without`, `unless`, `except` or `outside` qualify the action and
+  never count towards the overlap. A tool *named* for the safeguard a
+  `without` clause names is that safeguard: `send_email_preview` does not
+  match "send external email without preview".
+- Risk tags still match `email`/`external`, `refund` and `cancel` actions as
+  before.
 
 The match is lexical, so it is a **medium, non-blocking advisory** that never
 moves the release verdict (#1055, Option A): it is published in `report.json`,
 `report.md` and SARIF with `support.policy_eligible: false`, raises no evidence
 gap, and can be suppressed with a `checks.ignore` reason or filtered by
-`--no-heuristics`. Before 1.3.1 it raised a non-waivable evidence gap instead,
-which moved `passed` to `insufficient_evidence` on wording alone.
+`--no-heuristics`. Review surfaces label it rather than count it: its
+`misalignments[]` entry says "Advisory (lexical evidence, does not gate)" and
+is listed last, it suggests no scenario and changes no
+`capability_facts[].control_status`, and the packet's evidence matrix lists it
+as a note instead of a missing control. Before 1.3.1 it raised a non-waivable
+evidence gap instead, which moved `passed` to `insufficient_evidence` on
+wording alone.
 
 ### SHIP-SCOPE-TOOLKIT-UNBOUNDED
 

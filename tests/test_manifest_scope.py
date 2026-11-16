@@ -48,10 +48,27 @@ def _tool(name: str, description: str) -> Tool:
         # Two shared nouns but no shared action verb: same subject, not the
         # prohibited action.
         ("crm.read_customer_data", "Read customer data for a support ticket."),
+        ("customer.get_data", "Get customer data."),
     ],
 )
 def test_word_overlap_without_a_shared_action_verb_does_not_match(name, description):
     assert not _tool_matches_prohibited_action(_tool(name, description), DELETE_OR_EXPORT)
+
+
+@pytest.mark.parametrize(
+    ("prohibited", "name", "description"),
+    [
+        # One shared word, even a verb, is not the prohibited action.
+        ("export customer data", "export_records", ""),
+        ("send email", "email.read", "Read email."),
+        ("send email", "email_search", "Search sent email."),
+        # A tool named for the safeguard the prohibited action lacks is that
+        # safeguard: the preview, not the unpreviewed send.
+        ("send external email without preview", "send_email_preview", "Render an email."),
+    ],
+)
+def test_other_non_matches(prohibited, name, description):
+    assert not _tool_matches_prohibited_action(_tool(name, description), prohibited)
 
 
 @pytest.mark.parametrize(
@@ -72,6 +89,41 @@ def test_word_overlap_without_a_shared_action_verb_does_not_match(name, descript
             "Send an email to a customer.",
             "send external customer communications without preview",
         ),
+        (
+            "gmail.send_customer_email",
+            "Send an email to a customer.",
+            "send external email without preview",
+        ),
+        # The prohibited action's leading word is its verb, whatever it is
+        # (#1035 review: a closed verb list silenced these).
+        ("broker.buy_stock", "Buy stock for the account.", "buy stock without approval"),
+        ("broker.sell_stock", "", "sell stock"),
+        ("trade_stock", "", "trade stock"),
+        ("withdraw_funds", "", "withdraw funds"),
+        ("move_funds", "", "move funds"),
+        ("spend_money", "", "spend money"),
+        ("wire_money", "", "wire money"),
+        ("book_flight", "", "book flights"),
+        ("reset_password", "", "reset passwords"),
+        ("kill_process", "", "kill processes"),
+        ("rotate_key", "", "rotate keys"),
+        ("notify_customer", "", "notify customers"),
+        # "shut down" and ``shutdown`` are one word.
+        ("shutdown_servers", "Shut down servers.", "shut down servers"),
+        ("server.shutdown", "Shut down a server.", "shut down production servers"),
+        # The explicit synonym table: update/modify/edit/change,
+        # delete/purge/remove/erase/wipe, buy/purchase, execute/run,
+        # terminate/close, create/issue/make.
+        ("update_user_permissions", "", "modify user permissions"),
+        ("crm.purge_customer", "Purge all data for a customer.", "delete customer data"),
+        ("purchase_item", "", "buy items"),
+        ("run_shell_command", "", "execute shell commands"),
+        ("close_account", "Close a customer account.", "terminate customer accounts"),
+        ("stripe.create_refund", "Create a refund.", "issue refunds"),
+        ("payments.create_payment", "", "make payments"),
+        ("loan_approval", "", "approve loan applications"),
+        ("send_customer_email", "", "Do not e-mail customers"),
+        ("crm.delete_customer_record", "", "Never delete customer records"),
     ],
 )
 def test_a_shared_write_verb_and_a_second_word_match(name, description, prohibited):
@@ -86,7 +138,7 @@ agent:
   name: ticket-assistant
   declared_purpose: [triage support tickets]
   prohibited_actions:
-    - delete or export customer data outside a compliance request
+    - %(prohibited)s
 environment: {target: local}
 tool_sources:
   - {id: ticket_tools, type: mcp, path: tools.json}
@@ -110,10 +162,18 @@ ci: {mode: advisory}
 """
 
 
-def _workspace(tmp_path: Path, *, tool: str, description: str, checks: str = "") -> Path:
+def _workspace(
+    tmp_path: Path,
+    *,
+    tool: str,
+    description: str,
+    checks: str = "",
+    prohibited: str = DELETE_OR_EXPORT,
+) -> Path:
     tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "shipgate.yaml").write_text(
-        _MANIFEST % {"tool": tool, "checks": checks}, encoding="utf-8"
+        _MANIFEST % {"tool": tool, "checks": checks, "prohibited": prohibited},
+        encoding="utf-8",
     )
     (tmp_path / "tools.json").write_text(
         json.dumps(
@@ -208,6 +268,18 @@ def test_a_genuine_word_match_is_a_published_advisory_that_raises_no_gap(tmp_pat
     assert (rule.category, rule.rule) == ("excluded", "unsupported_evidence")
     assert finding.requires_human_review is False
     assert finding.agent_action == "informational"
+    # Visible in the capability/intent diff, labelled advisory, sorted after
+    # every gating misalignment, and the source of no suggested scenario.
+    misalignment = next(
+        item for item in report.misalignments if item.kind == "prohibited_action_present"
+    )
+    assert misalignment.gap.startswith("Advisory (lexical evidence, does not gate): ")
+    assert report.misalignments[-1] == misalignment
+    assert not any(
+        scenario.scenario_type == "prohibited_action" for scenario in report.suggested_scenarios
+    )
+    # Nor does it select a capability or change a capability's control status.
+    assert not any(finding.id in fact.related_findings for fact in report.capability_facts)
 
     # A finding, unlike the gap it replaced, can be suppressed with a reason,
     # and --no-heuristics filters it like every other keyword finding.
@@ -236,3 +308,32 @@ def test_a_genuine_word_match_is_a_published_advisory_that_raises_no_gap(tmp_pat
         if item.check_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
     )
     assert filtered.release_decision.decision == report.release_decision.decision
+
+
+def test_a_prohibited_action_with_an_unlisted_verb_is_still_published(tmp_path):
+    """#1035 review: "buy stock without approval" against ``broker.buy_stock``.
+
+    main raised a gap for it; the first cut of this change, which needed a
+    verb from a closed list, published nothing. The prohibited action's
+    leading word is its verb, so the match is a visible advisory.
+    """
+
+    report = _scan(
+        _workspace(
+            tmp_path / "buy",
+            tool="broker.buy_stock",
+            description="Buy stock for the account.",
+            prohibited="buy stock without approval",
+        )
+    )
+
+    finding = next(
+        item for item in report.findings if item.check_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
+    )
+    assert finding.evidence["prohibited_action"] == "buy stock without approval"
+    assert finding.blocks_release is False
+    assert not any(
+        gap.policy_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
+        for gap in report.policy_evidence_gaps
+    )
+    assert report.release_decision.decision == "passed"

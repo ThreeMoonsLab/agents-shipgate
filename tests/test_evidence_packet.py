@@ -500,6 +500,47 @@ def test_evidence_matrix_source_only_rows_use_medium_confidence():
     assert action_surface.confidence == "medium"
 
 
+def test_evidence_matrix_labels_a_lexical_advisory_and_keeps_coverage():
+    """#1035: an advisory word match is visible but is not a missing control."""
+
+    advisory = {
+        "id": "advisory-1",
+        "fingerprint": "fp_advisory",
+        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "severity": "medium",
+        "category": "scope",
+        "title": "broker.buy_stock appears to overlap with a prohibited action",
+        "tool_name": "broker.buy_stock",
+        "confidence": "medium",
+        "suppressed": False,
+        "blocks_release": False,
+        "support": {"policy_eligible": False},
+    }
+    payload = {
+        "release_decision": {"blockers": [], "review_items": []},
+        "declared_intentions": [{"kind": "prohibited_action", "text": "buy stock"}],
+        "findings": [advisory],
+    }
+
+    matrix = build_evidence_matrix(payload)
+    row = next(row for row in matrix.rows if row.domain == "Prompt/scope alignment")
+
+    assert row.evidence_present == "covered"
+    assert row.missing_controls == []
+    assert row.evidence_source == ["declared_intentions"]
+    assert (
+        "Advisory (lexical evidence, does not gate): SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on "
+        "broker.buy_stock: broker.buy_stock appears to overlap with a prohibited action"
+    ) in matrix.notes
+
+    # A policy-eligible finding of the same check is still a missing control.
+    eligible = {**advisory, "support": {"policy_eligible": True}}
+    matrix = build_evidence_matrix({**payload, "findings": [eligible]})
+    row = next(row for row in matrix.rows if row.domain == "Prompt/scope alignment")
+    assert row.evidence_present == "partial"
+    assert len(row.missing_controls) == 1
+
+
 def test_evidence_matrix_confidence_mixed_stays_domain_local():
     payload = {
         "release_decision": {"blockers": [], "review_items": []},

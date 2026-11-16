@@ -2840,7 +2840,7 @@
         "prohibited_action",
         "risk_tags"
       ],
-      "fires_when": "A tool's name and description share two words with a prohibited action, one of them an action verb such as delete, export or send, or its risk tags match one, without a mitigating policy. The match is lexical, so it is published as a non-blocking advisory finding and never moves the verdict.",
+      "fires_when": "A tool's name and description share two words with a prohibited action, one of them the action's leading verb or a listed action verb (after an explicit synonym table), or its risk tags match one, without a mitigating policy. A tool named for the safeguard a \"without\" clause names does not match. The match is lexical, so it is published as a non-blocking advisory finding and never moves the verdict.",
       "floor_severity": "medium",
       "id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
       "mvp_tier": "core",

@@ -135,7 +135,6 @@ Next validation:
 - Retry behavior for risky write: Retries use idempotency evidence or the side effect is not retried.
 - Least-privilege scope review: Manifest and tool scopes match the narrow permissions needed for the release.
 - Approval gate for high-risk action: The run records human approval before the tool call and denies calls without approval.
-- 1 more in report.json
 
 ## Recommended Next Actions
 
