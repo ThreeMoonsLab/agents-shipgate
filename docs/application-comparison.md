@@ -242,7 +242,7 @@ version 0.4 adds `object` and `object_evidence` (see
 [Tools bound as objects](#tools-bound-as-objects)), `reach.effects` (see
 [What a bound tool reaches beyond HTTP](#what-a-bound-tool-reaches-beyond-http))
 and the top-level `summary` (see [Findings first](#findings-first)); 0.4 was
-not yet released, so `summary` extended it rather than adding 0.5. After 1.3.0,
+not yet released, so `summary` extended it rather than adding 0.5. Since 1.3.0,
 0.4 also carries the optional top-level `read_same` (#1146): one entry per
 agent whose bindings read the same on both sides but are not established, with
 `agent`, `agent_source` (spelled as a row's), `tools` and per-side
