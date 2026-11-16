@@ -39,27 +39,30 @@ establish widening, narrowing, business impact or runtime behavior.
 The text opens with one **finding per changed agent**, then the rows. A finding
 names the tools the change added (`+`), removed (`-`) or changed (`~`); a
 leading `?` marks a candidate the comparison could not establish. Its first line
-stands alone. For [jpka/attest#3](https://github.com/jpka/attest/pull/3):
+stands alone. For [jpka/attest#3](https://github.com/jpka/attest/pull/3), whose
+two additions the comparison cannot establish, and whose four other tools read
+the same on both sides:
 
 ```text
-Findings: 1 changed agent, 2 rows (2 added); effect evidence 2 write (provisional: unknown effect).
-attest_orchestrator [partial]: +recall_firm_memory, +remember_firm_finding (reach: none established; not read beyond agents/attest_orchestrator/memory_bank.py:531)
-  Review: Should attest_orchestrator be able to call recall_firm_memory, remember_firm_finding? What they reach was not read in full.
-Detail:
+Findings: 1 changed agent, 2 rows (2 not established).
+attest_orchestrator [partial]: ?+recall_firm_memory, ?+remember_firm_finding (not read beyond agent.py:35)
+  4 bindings read the same on both sides (append_evidence, get_adv_ground_truth, list_covered_firms, score_answer); whether attest_orchestrator holds them unchanged is not established: Google ADK agent 'attest_orchestrator': its constructor identity is not established: a framework constructor or namespace is retained or used opaquely in agent.py:35.
+Not established: 2 rows share 2 causes.
 ```
 
-and for [MIS_TALENT#7](https://github.com/Tiendat2703/MIS_TALENT/pull/7), whose
-first finding line names a new database read before the rows that carry it:
+and for [MIS_TALENT#7](https://github.com/Tiendat2703/MIS_TALENT/pull/7), where
+a candidate addition still names the database read it would bring:
 
 ```text
-Finance_Agent_Preflight [partial]: +load_service_catalog, ~load_and_validate (new reach: database read; not read beyond app/tools/FinanceAgent/tools.py:39)
+Finance_Agent_Preflight [partial]: ?+load_service_catalog, ?~load_and_validate (not read beyond app/Agent/financeAgent.py:139)
+  ?+load_service_catalog (candidate, not established): reaches database read SELECT (postgresql, psycopg2 cursor.execute) at app/database/repository.py:80 [host aws-0-ap-southeast-1.pooler.supabase.com, env SUPABASE_DB_HOST; credential env SUPABASE_DB_PASSWORD, env SUPABASE_PASSWORD → keyword password]
 ```
 
 The committed goldens in
 [`benchmark/application-q2/goldens/`](../benchmark/application-q2/goldens/)
 hold the whole text of six real answers, among them these two and the 234-row
 [O.R.I.O.N#126](https://github.com/VidulaWickramasinghe/O.R.I.O.N/pull/126),
-which reads in 24 lines.
+which reads in 35 lines.
 
 What a finding states, and from where:
 

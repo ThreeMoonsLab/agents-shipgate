@@ -828,7 +828,9 @@ def summary_lines(summary: dict[str, Any]) -> list[str]:
             + (f"; {effects}" if effects else "")
             + "."
         )
-    names = Counter(f["agent"] for f in summary["findings"])
+    unclaimed = summary.get("read_same") or []
+    # One agent name built in two files is qualified wherever it is printed.
+    names = Counter([f["agent"] for f in summary["findings"]] + [item["agent"] for item in unclaimed])
     for position, finding in enumerate(summary["findings"]):
         lines.extend(
             finding_lines(finding, qualify=names[finding["agent"]] > 1, full=position < MAX_FINDINGS_FULL)
@@ -836,7 +838,6 @@ def summary_lines(summary: dict[str, Any]) -> list[str]:
     if len(summary["findings"]) > MAX_FINDINGS_FULL:
         more = len(summary["findings"]) - MAX_FINDINGS_FULL
         lines.append(f"{_plural(more, 'more agent')}: tool lines and questions are in --json summary.findings.")
-    unclaimed = summary.get("read_same") or []
     if unclaimed:
         # Agents with no row: what reads the same on them is not a change,
         # and not established either (#1146).
@@ -845,9 +846,8 @@ def summary_lines(summary: dict[str, Any]) -> list[str]:
             f"Read the same, not established: {_plural(bindings, 'binding')} on "
             f"{_plural(len(unclaimed), 'agent')} with no row."
         )
-        same_names = Counter(item["agent"] for item in unclaimed)
         for item in unclaimed[:MAX_FINDINGS_FULL]:
-            name = item["agent"] + (f" ({item['agent_source']})" if same_names[item["agent"]] > 1 else "")
+            name = item["agent"] + (f" ({item['agent_source']})" if names[item["agent"]] > 1 else "")
             lines.append("  " + _read_same_line(name, item))
         if len(unclaimed) > MAX_FINDINGS_FULL:
             more = len(unclaimed) - MAX_FINDINGS_FULL

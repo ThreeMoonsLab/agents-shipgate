@@ -495,7 +495,10 @@ def test_each_scope_keeps_its_status_when_the_rows_are_not_printed(capsys):
 # development corpus (benchmark/application-q2/goldens.py regenerates them).
 GOLDEN = {
     "jpka_attest-3": 15,
-    "Tiendat2703_MIS_TALENT-7": 15,
+    # Re-rendered at #1146 from main's answer, which withholds every row: two
+    # agents with candidates, three whose bindings only read the same, and
+    # five shared causes (main's own rendering of that answer takes 22).
+    "Tiendat2703_MIS_TALENT-7": 21,
     "VidulaWickramasinghe_O.R.I.O.N-126": 40,
 }
 
@@ -523,19 +526,30 @@ def test_the_corpus_goldens_render_from_their_inputs(slug, capsys):
 
 
 def test_the_goldens_answer_what_the_change_lets_each_agent_do():
-    """The first finding line of each golden says it, checked against the hand-scored ledger (#908)."""
+    """Each golden's finding names the change the hand-scored ledger found (#908).
 
-    first = {}
+    The goldens were re-rendered at #1146 from main's answers, which establish
+    no row (#963, #964): each change is a candidate, and a tool that reads the
+    same on both sides is no row but one statement on its agent.
+    """
+
+    findings = {}
     for slug in GOLDEN:
         lines = (GOLDENS / f"{slug}.txt").read_text(encoding="utf-8").splitlines()
-        first[slug] = next(line for line in lines if re.match(r"^\S.*\[(partial|compared)\]:", line))
-    attest = first["jpka_attest-3"]
-    assert attest.startswith("attest_orchestrator [partial]: +recall_firm_memory, +remember_firm_finding")
-    assert "memory_bank.py:531" in attest
-    mis = first["Tiendat2703_MIS_TALENT-7"]
-    assert "+load_service_catalog" in mis and "~load_and_validate" in mis and "database read" in mis
-    orion = first["VidulaWickramasinghe_O.R.I.O.N-126"]
-    assert "58" in orion or "changed" in orion and "not established" in orion
+        findings[slug] = [line for line in lines if re.match(r"^\S.*\[(partial|compared)\]:", line)]
+    attest = findings["jpka_attest-3"][0]
+    assert attest.startswith("attest_orchestrator [partial]: ?+recall_firm_memory, ?+remember_firm_finding")
+    attest_text = (GOLDENS / "jpka_attest-3.txt").read_text(encoding="utf-8")
+    assert "  4 bindings read the same on both sides (append_evidence, get_adv_ground_truth, list_covered_firms, score_answer)" in attest_text
+    [mis] = [line for line in findings["Tiendat2703_MIS_TALENT-7"] if line.startswith("Finance_Agent_Preflight ")]
+    assert "?+load_service_catalog" in mis and "?~load_and_validate" in mis
+    mis_text = (GOLDENS / "Tiendat2703_MIS_TALENT-7.txt").read_text(encoding="utf-8")
+    assert "  ?+load_service_catalog (candidate, not established): reaches database read SELECT" in mis_text
+    orion = findings["VidulaWickramasinghe_O.R.I.O.N-126"][0]
+    assert "candidate changes" in orion and "not established" in orion
+    # No golden lists a tool whose two sides read the same.
+    for slug in GOLDEN:
+        assert "binding details changed" not in (GOLDENS / f"{slug}.txt").read_text(encoding="utf-8")
 
 
 def test_summary_counts_match_a_counter_of_rows():
