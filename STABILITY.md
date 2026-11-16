@@ -661,6 +661,74 @@ now report the policy digests a released wheel reports.
 
 ---
 
+<a id="action-hardening-1032"></a>
+
+## Migration Note: Unreleased — the Action refuses unknown check-run policies and engines before 1.0.0, installs onto a hash-locked runtime, and updates only its own comment (#1032)
+
+**What was wrong.** The GitHub Action failed open on its inputs and installed
+an unlocked closure:
+
+- `check_run_policy` mapped any value it did not know to `advisory`. The
+  underscore typo `require_mergeable` turned a `human_review_required` verdict
+  into a passing `neutral` check, and under `blocked-fails` a run that wrote no
+  `verifier.json` was `neutral` too.
+- The PR comment step, and the application-mode one, updated the first comment
+  that started with its marker, whoever posted it.
+- The engine and its dependencies were installed with plain pip, unconstrained
+  and with build isolation on, and `setup-python` exported Python 3.12 to the
+  caller's later steps.
+- `shipgate_version` accepted any version. The outputs step imports what
+  `1.0.0` introduced, so `0.15.0` ran the scan and then failed that step with
+  an `ImportError` and empty outputs.
+
+**What changes.**
+
+- `check_run_policy` accepts `advisory`, `blocked-fails` and
+  `require-mergeable`, ignoring letter case and surrounding space; empty is
+  `advisory`. With `check_run: true`, any other value fails the
+  `Validate Agents Shipgate check-run policy` step before the scan, naming the
+  hyphenated spelling when the value was an underscore typo of one.
+- Under `blocked-fails` and `require-mergeable`, a run with no readable
+  `verifier.json`, or with no `merge_verdict`, concludes `failure`; the check's
+  summary says so. `advisory` still concludes `neutral` for it.
+- The comment steps update a prior comment only when its author is the `Bot`
+  `github-actions[bot]`. Any other comment carrying a marker is left alone and
+  the step posts its own.
+- Every install route installs `constraints/action-runtime.txt` with
+  `--require-hashes`, then the engine with `--no-deps`. The source route also
+  installs `constraints/build-backend.txt` and builds with
+  `--no-build-isolation`. The lock is the runtime half of `constraints/dev.txt`,
+  at the same versions and hashes.
+- `shipgate_version` must name one exact release, `1.0.0` or later (a leading
+  `v` is accepted); a range, a wildcard or an older release fails the install
+  step as a version skew before anything is installed. An engine whose declared
+  requirements the lock does not meet, as `pip check` reports, fails the
+  install step the same way. A `shipgate_wheel` below `1.0.0` is refused too.
+- `setup-python` runs with `update-environment: false`. The Action's steps call
+  the interpreter and the `agents-shipgate` and `shipgate` console scripts by
+  path, and the job's `PATH`, `pythonLocation` and the other variables
+  `setup-python` exports are the caller's own afterwards.
+
+**What does not change.** No input or output is added, renamed or removed, and
+no schema, contract version, check ID, exit code or merge verdict moves. The
+`advisory` policy, the default, maps verdicts as before, and the Check Run's
+conclusion still mirrors the verdict rather than replacing the release gate.
+
+**Who must act.**
+
+- A workflow whose `check_run_policy` is misspelled now fails: use one of the
+  three documented values.
+- A workflow that pins `shipgate_version` below `1.0.0` now fails at install:
+  move it to `1.0.0` or later, or pin the Action itself to the tag of the
+  release that engine came from.
+- A later step that ran `python` and relied on the Action having set up 3.12
+  needs its own `actions/setup-python`.
+- A workflow that passes a `github_token` for a user or another app gets a new
+  PR comment on every run, since only `github-actions[bot]`'s comment is
+  updated in place.
+
+---
+
 <a id="capability-definitions"></a>
 
 ## Migration Note: 1.3.0 — the capability lock records tool definitions (capability standard `0.6`, lock `0.9`, lock diff `0.10`, #1117)

@@ -1,9 +1,33 @@
 #!/usr/bin/env python3
-"""Install an explicitly supplied, hash-checked local candidate wheel (#570).
+"""Install the Action's engine over a hash-locked runtime (#570, #1032).
 
-The Action's ordinary source/version paths are unchanged. This route captures
-one local file privately, checks its digest, and installs those same bytes.
-No candidate code is imported to validate its metadata.
+Every route first installs ``constraints/action-runtime.txt`` with
+``--require-hashes``: the runtime half of the closure the test suite runs on,
+so two runs of one pinned Action execute the same dependency bytes. The engine
+then goes in with ``--no-deps``, which cannot move that closure:
+
+``shipgate_version``
+    ``agents-shipgate==<version>`` from PyPI. A version below
+    :data:`MINIMUM_ENGINE_VERSION` is refused before anything is installed: the
+    Action's output step imports what only 1.0.0 and later ship, so an older
+    engine ran the whole scan and then failed with an ``ImportError`` and empty
+    outputs.
+neither input
+    This Action's own source, built by the hash-locked backend
+    (``constraints/build-backend.txt``) with ``--no-build-isolation``, so the
+    build resolves nothing from the index either.
+``shipgate_wheel`` + ``shipgate_wheel_sha256``
+    One local candidate wheel, captured privately, checked against its digest
+    and installed from those same bytes. No candidate code is imported to
+    validate its metadata.
+
+With ``--no-deps`` pip never compares the engine's own requirements with the
+lock, so the installer does: ``pip check`` naming the engine is a version skew,
+refused at install rather than met as an ``ImportError`` in a later step.
+
+The Action's Python is not on PATH (``update-environment: false``), so the
+console-script directory goes to the step's ``bin`` output, where later steps
+call ``agents-shipgate`` and ``shipgate`` by path.
 """
 
 from __future__ import annotations
@@ -15,13 +39,110 @@ import re
 import stat
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import zipfile
+from collections.abc import Callable
 from email.parser import BytesParser
 from pathlib import Path
 
+ACTION_ROOT = Path(__file__).resolve().parent.parent
+RUNTIME_LOCK = ACTION_ROOT / "constraints" / "action-runtime.txt"
+BUILD_BACKEND_LOCK = ACTION_ROOT / "constraints" / "build-backend.txt"
+DISTRIBUTION = "agents-shipgate"
 
-def install_wheel(*, workspace: Path, wheel: str, sha256: str, version: str = "") -> None:
+#: The oldest engine the Action's steps can read. `github_action_outputs.py`
+#: imports `validate_agent_control`, which 1.0.0 introduced.
+MINIMUM_ENGINE_VERSION = "1.0.0"
+
+#: One exact release: the PEP 440 public forms a release of this project uses.
+#: A range or wildcard would let the index pick the engine, which is what a
+#: version input exists to prevent.
+_EXACT_VERSION = re.compile(
+    r"v?(?P<release>[0-9]+(?:\.[0-9]+)*)"
+    r"(?P<pre>(?:a|b|rc)[0-9]+)?"
+    r"(?P<post>\.post[0-9]+)?"
+    r"(?P<dev>\.dev[0-9]+)?"
+)
+
+
+def _ordering(match: re.Match[str]) -> tuple[tuple[int, ...], int]:
+    """Enough of PEP 440 ordering to compare a release with the floor."""
+
+    release = [int(part) for part in match["release"].split(".")]
+    while release and release[-1] == 0:
+        release.pop()
+    # A pre-release, or a development release of the release itself (not of
+    # a post-release), sorts before that release.
+    before_final = bool(match["pre"]) or (bool(match["dev"]) and not match["post"])
+    return tuple(release), 0 if before_final else 1
+
+
+def check_engine_version(version: str, *, source: str = "shipgate_version") -> str:
+    """The exact release ``version`` names, or :class:`ValueError` for a version skew."""
+
+    match = _EXACT_VERSION.fullmatch(version.strip())
+    if not match:
+        raise ValueError(
+            f"{source} must name one exact release such as {MINIMUM_ENGINE_VERSION}, "
+            f"not {version!r}."
+        )
+    minimum = _EXACT_VERSION.fullmatch(MINIMUM_ENGINE_VERSION)
+    assert minimum is not None
+    exact = version.strip().removeprefix("v")
+    if _ordering(match) < _ordering(minimum):
+        raise ValueError(
+            f"version skew: {source} {exact} is older than this Action supports. Its steps "
+            f"import what agents-shipgate {MINIMUM_ENGINE_VERSION} introduced, so an older "
+            "engine runs the scan and then fails the outputs step with an ImportError and "
+            f"empty outputs. Set {source} to {MINIMUM_ENGINE_VERSION} or later, or pin the "
+            "Action itself to the tag of the release that engine came from."
+        )
+    return exact
+
+
+def _pip(*arguments: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
+    # `-P`: this runs in GITHUB_WORKSPACE, and `-m` would otherwise import a
+    # `pip/` package from the pull request's checkout instead of pip.
+    return subprocess.run(
+        [sys.executable, "-P", "-m", "pip", *arguments],
+        check=not capture,
+        capture_output=capture,
+        text=True,
+    )
+
+
+def install_runtime() -> None:
+    """The engine's dependencies, from the committed hash-locked closure."""
+
+    _pip("install", "--require-hashes", "--no-warn-script-location", "--requirement", str(RUNTIME_LOCK))
+
+
+def install_version(version: str) -> None:
+    exact = check_engine_version(version)
+    install_runtime()
+    _pip("install", "--no-deps", "--no-warn-script-location", f"{DISTRIBUTION}=={exact}")
+
+
+def install_source() -> None:
+    install_runtime()
+    # The build backend is locked as well, and installed first, so the build
+    # needs no isolated environment resolved from the index.
+    _pip(
+        "install", "--require-hashes", "--no-warn-script-location",
+        "--requirement", str(BUILD_BACKEND_LOCK),
+    )
+    _pip("install", "--no-deps", "--no-build-isolation", "--no-warn-script-location", str(ACTION_ROOT))
+
+
+def install_wheel(
+    *,
+    workspace: Path,
+    wheel: str,
+    sha256: str,
+    version: str = "",
+    install_dependencies: Callable[[], object] | None = None,
+) -> None:
     if version:
         raise ValueError("shipgate_wheel cannot be combined with shipgate_version")
     if not wheel or not re.fullmatch(r"[0-9a-f]{64}", sha256):
@@ -47,6 +168,7 @@ def install_wheel(*, workspace: Path, wheel: str, sha256: str, version: str = ""
     match = re.fullmatch(r"agents_shipgate-([0-9]+\.[0-9]+\.[0-9]+)-py3-none-any\.whl", path.name)
     if not match:
         raise ValueError("Expected an agents_shipgate X.Y.Z py3-none-any wheel filename")
+    check_engine_version(match[1], source="shipgate_wheel")
     with tempfile.TemporaryDirectory(prefix="shipgate-action-wheel-") as directory:
         snapshot = Path(directory) / path.name
         # O_BINARY matters on Windows runners: without it os.open() hands back
@@ -95,28 +217,75 @@ def install_wheel(*, workspace: Path, wheel: str, sha256: str, version: str = ""
                 match[1]
             ]:
                 raise ValueError("Candidate wheel METADATA disagrees with its filename")
+        if install_dependencies is not None:
+            install_dependencies()
         # Reinstall even when the runner already has the same version: its
-        # bytes may be a different development build of that version. `-P`:
-        # this runs in GITHUB_WORKSPACE, and `-m` would otherwise import a
-        # `pip/` package from the pull request's checkout instead of pip.
-        subprocess.run(
-            [sys.executable, "-P", "-m", "pip", "install", "--force-reinstall", "--no-deps", str(snapshot)],
-            check=True,
+        # bytes may be a different development build of that version.
+        _pip("install", "--force-reinstall", "--no-deps", "--no-warn-script-location", str(snapshot))
+
+
+def _names_the_engine(line: str) -> bool:
+    return re.match(r"agents[-_.]shipgate\s", line.strip(), flags=re.IGNORECASE) is not None
+
+
+def require_engine_requirements() -> None:
+    """Refuse an engine whose declared requirements the runtime lock does not meet.
+
+    Only lines about the engine count: the runner's Python may already hold
+    packages a caller's earlier steps installed, and their state is not this
+    install's to judge.
+    """
+
+    result = _pip("check", capture=True)
+    if result.returncode == 0:
+        return
+    problems = [
+        line.strip().rstrip(".")
+        for line in f"{result.stdout}\n{result.stderr}".splitlines()
+        if _names_the_engine(line)
+    ]
+    if problems:
+        raise ValueError(
+            "version skew: the installed engine needs what this Action's hash-locked "
+            f"runtime ({RUNTIME_LOCK.relative_to(ACTION_ROOT).as_posix()}) does not provide: "
+            f"{'; '.join(problems)}. Pin the Action to the release tag that matches "
+            "shipgate_version, or leave shipgate_version empty to install the Action's own source."
         )
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.parse_args()
+def record_console_script_directory() -> None:
+    """Hand later steps the directory `agents-shipgate` and `shipgate` were installed to."""
+
+    output = os.environ.get("GITHUB_OUTPUT")
+    if not output:
+        return
+    with open(output, "a", encoding="utf-8") as handle:
+        handle.write(f"bin={sysconfig.get_path('scripts')}\n")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.parse_args(argv)
+    version = os.environ.get("SHIPGATE_VERSION", "")
+    wheel = os.environ.get("SHIPGATE_WHEEL", "")
+    wheel_sha256 = os.environ.get("SHIPGATE_WHEEL_SHA256", "")
     try:
-        install_wheel(
-            workspace=Path(os.environ["GITHUB_WORKSPACE"]),
-            wheel=os.environ.get("SHIPGATE_WHEEL", ""),
-            sha256=os.environ.get("SHIPGATE_WHEEL_SHA256", ""),
-            version=os.environ.get("SHIPGATE_VERSION", ""),
-        )
+        if wheel or wheel_sha256:
+            install_wheel(
+                workspace=Path(os.environ["GITHUB_WORKSPACE"]),
+                wheel=wheel,
+                sha256=wheel_sha256,
+                version=version,
+                install_dependencies=install_runtime,
+            )
+        elif version:
+            install_version(version)
+        else:
+            install_source()
+        require_engine_requirements()
+        record_console_script_directory()
     except (ValueError, OSError, KeyError, zipfile.BadZipFile, subprocess.CalledProcessError) as exc:
-        print(f"Candidate wheel install refused: {exc}", file=sys.stderr)
+        print(f"Agents Shipgate install refused: {exc}", file=sys.stderr)
         return 1
     return 0
 

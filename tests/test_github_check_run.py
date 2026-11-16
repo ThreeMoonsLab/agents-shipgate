@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 
 import pytest
+import yaml
 
+from scripts import github_check_run
 from scripts.github_check_run import (
+    CHECK_RUN_POLICIES,
     MAX_ANNOTATIONS,
+    PAYLOAD_FILENAME,
+    CheckRunPolicyError,
     annotations_from_pr_projection,
     annotations_from_sarif,
     build_check_run_payload,
     conclusion_for,
+    normalize_check_run_policy,
     title_for,
 )
 
@@ -40,6 +48,10 @@ def test_conclusion_mapping(verdict, expected):
         ("human_review_required", "neutral"),
         ("insufficient_evidence", "neutral"),
         ("future", "neutral"),
+        # No verdict is the `unknown` this policy fails (#1032).
+        (None, "failure"),
+        ("", "failure"),
+        ("  ", "failure"),
     ],
 )
 def test_blocked_fails_conclusion_mapping(verdict, expected):
@@ -235,3 +247,170 @@ def test_payload_is_json_serializable_and_deterministic():
         verifier=verifier, sarif=sarif, summary_markdown="ok"
     )
     assert json.dumps(one, sort_keys=True) == json.dumps(two, sort_keys=True)
+
+
+# --- #1032: an unknown policy is an error, and no verdict fails the strict ones ---
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _documented_policies() -> set[str]:
+    """Every `check_run_policy` spelling a reader is shown, hyphen or underscore.
+
+    The input's own description, `.well-known`'s enumeration, and every
+    `check_run_policy:` value in the README, docs, examples and the workflow
+    `init --ci` emits.
+    """
+
+    action = yaml.safe_load((REPO_ROOT / "action.yml").read_text(encoding="utf-8"))
+    description = action["inputs"]["check_run_policy"]["description"]
+    match = re.search(r"policy:\s*([a-z_,\s-]+)\.", description)
+    assert match, description
+    documented = {
+        token.strip().removeprefix("or ").strip()
+        for token in match.group(1).split(",")
+        if token.strip()
+    }
+    well_known = json.loads((REPO_ROOT / ".well-known/agents-shipgate.json").read_text("utf-8"))
+    documented |= set(well_known["check_run_policies"])
+    documented.add(well_known["github_action_pr_workflow"]["branch_protection_check_run_policy"])
+    roots = ("README.md", "docs", "examples", "src/agents_shipgate/cli/discovery")
+    for root in roots:
+        top = REPO_ROOT / root
+        for path in [top] if top.is_file() else sorted(top.rglob("*")):
+            if path.suffix not in {".md", ".yml", ".yaml", ".py"} or "changelog" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8")
+            documented |= set(re.findall(r"check_run_policy:\s*`?([a-z][a-z_-]*)", text))
+    return documented
+
+
+def test_every_documented_policy_spelling_is_accepted_as_itself():
+    documented = _documented_policies()
+    assert documented == set(CHECK_RUN_POLICIES), (
+        "The docs and the script disagree about check_run_policy: only documented "
+        f"{sorted(documented - CHECK_RUN_POLICIES)}, only in the script "
+        f"{sorted(CHECK_RUN_POLICIES - documented)}."
+    )
+    for policy in documented:
+        assert normalize_check_run_policy(policy) == policy
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, "advisory"),
+        ("", "advisory"),
+        ("  \n", "advisory"),
+        (" require-mergeable\n", "require-mergeable"),
+        ("Blocked-Fails", "blocked-fails"),
+    ],
+)
+def test_an_unset_policy_is_the_default_and_spacing_or_case_is_not_a_new_value(raw, expected):
+    assert normalize_check_run_policy(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["require_mergeable", "blocked_fails", "strict", "requiremergeable", "advisory-only", "true"],
+)
+def test_an_unknown_policy_raises_instead_of_falling_back_to_advisory(raw):
+    with pytest.raises(CheckRunPolicyError, match="Unknown check_run_policy"):
+        normalize_check_run_policy(raw)
+    # Every entry point that takes a policy refuses it the same way.
+    with pytest.raises(CheckRunPolicyError):
+        conclusion_for("human_review_required", policy=raw, can_merge_without_human=False)
+    with pytest.raises(CheckRunPolicyError):
+        build_check_run_payload(
+            verifier={"merge_verdict": "human_review_required"},
+            summary_markdown="",
+            check_run_policy=raw,
+        )
+
+
+@pytest.mark.parametrize(
+    ("raw", "suggested"),
+    [("require_mergeable", "require-mergeable"), ("blocked_fails", "blocked-fails")],
+)
+def test_an_underscore_typo_names_the_documented_spelling(raw, suggested):
+    with pytest.raises(CheckRunPolicyError, match=f"Did you mean '{suggested}'"):
+        normalize_check_run_policy(raw)
+
+
+def test_a_non_string_policy_raises():
+    with pytest.raises(CheckRunPolicyError):
+        normalize_check_run_policy(["require-mergeable"])
+
+
+@pytest.mark.parametrize(
+    ("policy", "expected"),
+    [("advisory", "neutral"), ("blocked-fails", "failure"), ("require-mergeable", "failure")],
+)
+def test_a_missing_verifier_fails_under_the_strict_policies(policy, expected):
+    payload = build_check_run_payload(
+        verifier=None, report=None, sarif=None, summary_markdown="", check_run_policy=policy
+    )
+    assert payload["conclusion"] == expected
+    assert payload["output"]["title"] == "merge_verdict: unknown"
+    stated = "No readable `verifier.json` was produced" in payload["output"]["summary"]
+    assert stated is (expected == "failure")
+
+
+@pytest.mark.parametrize("policy", ["blocked-fails", "require-mergeable"])
+def test_a_verifier_without_a_merge_verdict_fails_under_the_strict_policies(policy):
+    payload = build_check_run_payload(
+        verifier={"release_decision": {"blockers": []}},
+        summary_markdown="",
+        check_run_policy=policy,
+    )
+    assert payload["conclusion"] == "failure"
+
+
+def _main(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy: str, *argv: str) -> int:
+    monkeypatch.setenv("OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setenv("CHECK_RUN_POLICY", policy)
+    monkeypatch.delenv("CHECK_RUN_NAME", raising=False)
+    return github_check_run.main(list(argv))
+
+
+@pytest.mark.parametrize("policy", ["blocked-fails", "require-mergeable"])
+def test_the_action_step_fails_the_check_when_verify_wrote_no_verifier(
+    tmp_path, monkeypatch, policy
+):
+    assert _main(tmp_path, monkeypatch, policy) == 0
+    payload = json.loads((tmp_path / PAYLOAD_FILENAME).read_text(encoding="utf-8"))
+    assert payload["conclusion"] == "failure"
+
+
+def test_the_action_step_refuses_an_unknown_policy_and_writes_no_payload(
+    tmp_path, monkeypatch, capsys
+):
+    (tmp_path / "verifier.json").write_text(
+        json.dumps({"merge_verdict": "human_review_required", "can_merge_without_human": False}),
+        encoding="utf-8",
+    )
+    assert _main(tmp_path, monkeypatch, "require_mergeable") == 2
+    assert not (tmp_path / PAYLOAD_FILENAME).exists()
+    assert "Did you mean 'require-mergeable'" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("policy", "code"), [("require-mergeable", 0), ("", 0), ("strict", 2)])
+def test_check_policy_validates_without_reading_or_writing_artifacts(
+    tmp_path, monkeypatch, policy, code
+):
+    (tmp_path / "verifier.json").write_text("not json", encoding="utf-8")
+    assert _main(tmp_path, monkeypatch, policy, "--check-policy") == code
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["verifier.json"]
+
+
+def test_action_validates_the_policy_before_the_scan_runs():
+    """The input is checked by the script that owns the vocabulary, before use."""
+
+    action = yaml.safe_load((REPO_ROOT / "action.yml").read_text(encoding="utf-8"))
+    steps = {step["name"]: index for index, step in enumerate(action["runs"]["steps"])}
+    name = "Validate Agents Shipgate check-run policy"
+    assert steps[name] < steps["Run Agents Shipgate"]
+    validate = action["runs"]["steps"][steps[name]]
+    assert validate["if"] == "${{ inputs.check_run == 'true' }}"
+    assert validate["env"]["CHECK_RUN_POLICY"] == "${{ inputs.check_run_policy }}"
+    assert 'scripts/github_check_run.py" --check-policy' in validate["run"]

@@ -163,6 +163,10 @@ class LockTarget:
     source: str
     extras: tuple[str, ...] = ()
     purpose: str = ""
+    #: Locks the resolution is constrained by (``uv pip compile --constraint``),
+    #: so a lock that ships a subset of another closure pins what that closure
+    #: tested rather than whatever the index offers on the day it is compiled.
+    constraints: tuple[str, ...] = ()
 
 
 # `constraints/release-build.txt` is not a lock but a *source*: one
@@ -191,6 +195,12 @@ LOCK_TARGETS: tuple[LockTarget, ...] = (
         source="constraints/release-publish.in",
         purpose="the publication jobs' toolchain",
     ),
+    LockTarget(
+        lock="constraints/action-runtime.txt",
+        source="pyproject.toml",
+        purpose="the GitHub Action's engine runtime (#1032)",
+        constraints=("constraints/dev.txt",),
+    ),
 )
 
 # Locks installed into one environment. A shared distribution pinned at two
@@ -198,6 +208,12 @@ LOCK_TARGETS: tuple[LockTarget, ...] = (
 # the closure that was tested is not the closure that ends up installed.
 CO_INSTALLED: tuple[tuple[str, ...], ...] = (
     ("constraints/dev.txt", "constraints/build-backend.txt"),
+    # The Action's source route installs both into the runner's Python.
+    ("constraints/action-runtime.txt", "constraints/build-backend.txt"),
+    # The release engine smoke installs dev.txt into the same runner Python
+    # before the Action installs its runtime, and the Action must run the
+    # versions the suite ran.
+    ("constraints/dev.txt", "constraints/action-runtime.txt"),
 )
 
 # The closure that must satisfy `[build-system]`.

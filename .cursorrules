@@ -23,7 +23,7 @@ writes `shipgate.yaml` and `init --ci` writes `.github/workflows/agents-shipgate
 For a no-install relevance check, use the zero-install detector:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py \
+curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/v1.3.0/tools/shipgate-detect.py \
   | python3 - --workspace . --json
 ```
 

@@ -105,6 +105,8 @@ When `shipgate_version` is empty the action installs the CLI from the action sou
 
 `shipgate_version` pins the `agents-shipgate` package only; pip resolves its dependencies when the job runs. A tag such as `v1.3.0` can be moved, so the hardened form replaces it with the commit it names and keeps the tag as a comment — see *What runs* under [Host-only advisory PR review](#host-only-advisory-pr-review).
 
+Unreleased (#1032), on `main` until the next release tag: on every route the Action first installs its hash-locked `constraints/action-runtime.txt` with `--require-hashes`, then the engine with `--no-deps`, so its dependencies no longer resolve when the job runs. `shipgate_version` must name one exact release, `1.0.0` or later; an older one fails the install step as a version skew instead of failing the outputs step after the scan. The Action's Python 3.12 is no longer put on the `PATH` of the job's later steps, so a step that used it needs its own `actions/setup-python`. `check_run_policy` accepts only `advisory`, `blocked-fails` and `require-mergeable`, and the PR comment is updated in place only when `github-actions[bot]` posted it.
+
 ## Action outputs
 
 **Prefer for new release gates (v0.8+):**

@@ -14,9 +14,11 @@ Mapping contract:
   → ``neutral``). ``blocked-fails`` maps ``blocked`` and ``unknown`` to
   ``failure`` while leaving human-routed verdicts neutral. ``require-mergeable``
   is the strict branch-protection policy: only
-  ``can_merge_without_human=true`` succeeds. The conclusion mirrors — never
-  replaces — the one decision engine:
-  ``report.json.release_decision.decision`` stays the gate.
+  ``can_merge_without_human=true`` succeeds. Under either of those two, a run
+  that states no merge verdict — no readable ``verifier.json``, or one without
+  ``merge_verdict`` — fails. Any other policy value is an error, never
+  ``advisory`` (#1032). The conclusion mirrors — never replaces — the one
+  decision engine: ``report.json.release_decision.decision`` stays the gate.
 - PR projection items → up to ``MAX_ANNOTATIONS`` line-level annotations
   (Checks API caps one request at 50). SARIF remains the full finding export;
   Check Runs intentionally annotate only merge-relevant PR items.
@@ -25,8 +27,10 @@ Mapping contract:
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +45,19 @@ MAX_SUMMARY_CHARS = 60000
 PAYLOAD_FILENAME = "check-run-payload.json"
 DEFAULT_CHECK_NAME = "Agents Shipgate"
 DEFAULT_CHECK_RUN_POLICY = "advisory"
+#: The spellings `action.yml`'s `check_run_policy` input and the docs give.
+#: Accepted exactly, surrounding whitespace and letter case aside, and nothing
+#: else: an unknown value used to fall back to ``advisory``, which turned the
+#: underscore typo ``require_mergeable`` into a passing ``neutral`` check for a
+#: verdict that needs a human (#1032).
 CHECK_RUN_POLICIES = frozenset({"advisory", "blocked-fails", "require-mergeable"})
+#: The policies under which a run that states no merge verdict fails.
+STRICT_CHECK_RUN_POLICIES = frozenset({"blocked-fails", "require-mergeable"})
+
+
+class CheckRunPolicyError(ValueError):
+    """``check_run_policy`` names no documented policy."""
+
 
 _CONCLUSIONS = {
     "mergeable": "success",
@@ -68,22 +84,42 @@ def conclusion_for(
     normalized_policy = normalize_check_run_policy(policy)
     if normalized_policy == "require-mergeable":
         return "success" if _truthy(can_merge_without_human) else "failure"
-    if not isinstance(merge_verdict, str):
-        return "neutral"
     if normalized_policy == "blocked-fails":
+        if not isinstance(merge_verdict, str) or not merge_verdict.strip():
+            # No verdict at all is the `unknown` this policy exists to fail.
+            return "failure"
         if merge_verdict == "mergeable":
             return "success"
         if merge_verdict in {"blocked", "unknown"}:
             return "failure"
         return "neutral"
+    if not isinstance(merge_verdict, str):
+        return "neutral"
     return _CONCLUSIONS.get(merge_verdict, "neutral")
 
 
 def normalize_check_run_policy(policy: object) -> str:
-    normalized = str(policy or DEFAULT_CHECK_RUN_POLICY).strip().lower()
+    """The documented policy ``policy`` names; :class:`CheckRunPolicyError` otherwise.
+
+    An empty value is the input's default, ``advisory``. Anything else must be
+    one of :data:`CHECK_RUN_POLICIES`.
+    """
+
+    if policy is None:
+        return DEFAULT_CHECK_RUN_POLICY
+    if not isinstance(policy, str):
+        raise CheckRunPolicyError(f"check_run_policy must be a string, not {policy!r}.")
+    normalized = policy.strip().lower()
+    if not normalized:
+        return DEFAULT_CHECK_RUN_POLICY
     if normalized in CHECK_RUN_POLICIES:
         return normalized
-    return DEFAULT_CHECK_RUN_POLICY
+    hyphenated = normalized.replace("_", "-")
+    hint = f" Did you mean {hyphenated!r}?" if hyphenated in CHECK_RUN_POLICIES else ""
+    raise CheckRunPolicyError(
+        f"Unknown check_run_policy {policy!r}. Supported values: "
+        f"{', '.join(sorted(CHECK_RUN_POLICIES))}.{hint}"
+    )
 
 
 def title_for(merge_verdict: object, *, blocker_count: int = 0) -> str:
@@ -166,6 +202,8 @@ def build_check_run_payload(
     name: str = DEFAULT_CHECK_NAME,
     check_run_policy: str = DEFAULT_CHECK_RUN_POLICY,
 ) -> dict[str, Any]:
+    policy = normalize_check_run_policy(check_run_policy)
+    verifier_missing = verifier is None
     verifier = verifier or {}
     merge_verdict = verifier.get("merge_verdict")
     release_decision = verifier.get("release_decision") or {}
@@ -175,6 +213,11 @@ def build_check_run_payload(
         annotations = annotations_from_sarif(sarif)
     total_results = _sarif_result_count(sarif)
     summary = summary_markdown.strip() or "No Shipgate summary was produced."
+    if verifier_missing and policy in STRICT_CHECK_RUN_POLICIES:
+        summary = (
+            "_No readable `verifier.json` was produced, so this run states no merge "
+            f"verdict. The `{policy}` check-run policy fails the check._\n\n{summary}"
+        )
     if total_results > len(annotations):
         summary += (
             f"\n\n_{len(annotations)} of {total_results} findings shown as "
@@ -185,7 +228,7 @@ def build_check_run_payload(
         "name": name,
         "conclusion": conclusion_for(
             merge_verdict,
-            policy=check_run_policy,
+            policy=policy,
             can_merge_without_human=verifier.get("can_merge_without_human"),
         ),
         "output": {
@@ -220,10 +263,23 @@ def _truthy(value: object) -> bool:
     return False
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build the Agents Shipgate check-run payload.")
+    parser.add_argument(
+        "--check-policy",
+        action="store_true",
+        help="only validate CHECK_RUN_POLICY; read and write no artifacts",
+    )
+    args = parser.parse_args(argv)
+    try:
+        check_run_policy = normalize_check_run_policy(os.environ.get("CHECK_RUN_POLICY"))
+    except CheckRunPolicyError as exc:
+        print(f"Agents Shipgate check run refused: {exc}", file=sys.stderr)
+        return 2
+    if args.check_policy:
+        return 0
     output_dir = Path(os.environ.get("OUTPUT_DIR") or "agents-shipgate-reports")
     name = os.environ.get("CHECK_RUN_NAME") or DEFAULT_CHECK_NAME
-    check_run_policy = normalize_check_run_policy(os.environ.get("CHECK_RUN_POLICY"))
     verifier = _load_json(output_dir / "verifier.json")
     report = _load_json(output_dir / "report.json")
     sarif = _load_json(output_dir / "report.sarif")

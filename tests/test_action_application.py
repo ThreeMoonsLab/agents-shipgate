@@ -15,7 +15,7 @@ import pytest
 import yaml
 
 from scripts.github_action_application import fail_policy, markdown, output_directory
-from tests.test_action_comment_fallback import HARNESS, NODE
+from tests.test_action_comment_fallback import BOT, HARNESS, NODE
 from tests.test_application_diff import SDK, commit, git
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,6 +55,8 @@ def run_step(tmp_path, workspace, base, head, **overrides):
         "GITHUB_ACTION_PATH": str(ROOT), "GITHUB_WORKSPACE": str(workspace),
         "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
         "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"], "PYTHONPATH": str(ROOT / "src"),
+        # The setup-python and install step outputs the step reads by path.
+        "SHIPGATE_PYTHON": str(python), "SHIPGATE_BIN": str(bin_dir),
         **overrides,
     }
     result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", step["run"]],
@@ -150,8 +152,9 @@ def test_application_comment_publication_or_fork_summary(tmp_path, application, 
         [NODE, "-e", HARNESS], text=True, capture_output=True, check=True,
         input=json.dumps({
             "script": STEPS["Comment on pull request"]["with"]["script"], "status": 403 if denied else 0,
-            "comments": [{"id": 41, "body": "<!-- agents-shipgate-pr-comment --> old"}]
-            + ([{"id": 42, "body": "<!-- agents-shipgate-application-comment --> old"}] if prior else []),
+            "comments": [{"id": 41, "body": "<!-- agents-shipgate-pr-comment --> old", "user": BOT}]
+            + ([{"id": 42, "body": "<!-- agents-shipgate-application-comment --> old", "user": BOT}]
+               if prior else []),
         }),
         env={**os.environ, "OUTPUT_DIR": outputs["application_reports"], "APPLICATION": "true", "GITHUB_RUN_ID": "123"},
     )

@@ -59,7 +59,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 _VERSION = r"\d+\.\d+\.\d+(?:[A-Za-z]+\d*)?"
 
-#: The four shapes an adopter's machine has to resolve, and what each one is.
+#: The shapes an adopter's machine has to resolve, and what each one is.
 #: The Action ref deliberately captures *any* ref rather than a version — the
 #: failure this file exists for was a ref that did not exist, and ``@main`` or a
 #: stale SHA would be the same failure wearing different syntax.
@@ -89,10 +89,29 @@ PIN_SHAPES: tuple[tuple[str, re.Pattern[str], str], ...] = (
         re.compile(rf"shipgate_version:\s*['\"]({_VERSION})['\"]"),
         "The Action installs this version from PyPI inside the job.",
     ),
+    (
+        "detector fetch ref",
+        # The zero-install detector is fetched by URL from this repository. A
+        # `main` ref ran a detector newer than the release the same page told
+        # the reader to install, and the two answered differently (#1032).
+        re.compile(
+            r"raw\.githubusercontent\.com/ThreeMoonsLab/agents-shipgate/"
+            r"([^/\s\"'`)\],;{}]+)/tools/shipgate-detect\.py"
+        ),
+        "The detector is fetched at this ref; it must be the release the page installs.",
+    ),
 )
 
+#: Shapes `init` never emits, so the emitted-file sweep cannot see them. The
+#: repository-wide sweep in `tests/test_distribution_surface_parity.py` holds
+#: each to the published release and keeps it non-vacuous instead.
+REPOSITORY_ONLY_SHAPES = frozenset({"detector fetch ref"})
 
-#: The fifth shape, and the only one that spans two lines: a downstream
+#: Shapes whose value is the release *tag* (`v1.3.0`), not the package version.
+_TAG_SHAPES = frozenset({"action ref", "detector fetch ref"})
+
+
+#: One more shape, and the only one that spans two lines: a downstream
 #: ``.pre-commit-config.yaml`` names this repository on one line and the git tag
 #: pre-commit clones on the next,
 #:
@@ -122,7 +141,7 @@ READER_BLANK_REFS = frozenset({"v<NEW>"})
 
 
 def _expected(shape: str) -> str:
-    return latest_published_action_ref() if shape == "action ref" else LATEST_PUBLISHED_VERSION
+    return latest_published_action_ref() if shape in _TAG_SHAPES else LATEST_PUBLISHED_VERSION
 
 
 def _emitted_files(tmp_path: Path) -> dict[str, str]:
@@ -372,6 +391,13 @@ def test_the_pin_sweep_actually_sees_every_shape_it_checks(tmp_path):
         found = {
             relpath for relpath, text in emitted.items() if pattern.search(text)
         }
+        if shape in REPOSITORY_ONLY_SHAPES:
+            # Both ends: the day `init` emits one, this sweep owns it again.
+            assert not found, (
+                f"init now emits a {shape} ({sorted(found)}); drop it from "
+                "REPOSITORY_ONLY_SHAPES so this sweep checks it there too."
+            )
+            continue
         assert found, (
             f"no emitted file carries a {shape}; the sweep over it is vacuous. "
             "Either the template stopped rendering the pin, or PIN_SHAPES is "

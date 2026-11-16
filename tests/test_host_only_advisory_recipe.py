@@ -122,10 +122,17 @@ def test_the_pinned_version_installs_from_the_index_not_the_pr() -> None:
     """With `shipgate_version` set, the Action installs that release by name.
 
     `-P` keeps the PR's checkout off sys.path while pip runs; the behaviour is
-    executed in `tests/test_action_engine_install.py`.
+    executed in `tests/test_action_engine_install.py`, which also runs each
+    route: the hash-locked runtime, then `agents-shipgate==<version>` with
+    `--no-deps` (#1032).
     """
     install = _named_step("Install Agents Shipgate")
-    assert 'python -P -m pip install "agents-shipgate==${SHIPGATE_VERSION}"' in install["run"]
+    assert install["env"]["SHIPGATE_VERSION"] == "${{ inputs.shipgate_version }}"
+    assert '"${GITHUB_ACTION_PATH}/scripts/install_action_engine.py"' in install["run"]
+    installer = (REPO_ROOT / "scripts/install_action_engine.py").read_text(encoding="utf-8")
+    assert '_pip("install", "--no-deps", "--no-warn-script-location", f"{DISTRIBUTION}=={exact}")' in (
+        installer
+    )
 
 
 def test_the_comment_is_updated_in_place_and_falls_back_to_the_summary() -> None:
@@ -225,17 +232,31 @@ def _run_step(name: str, clone: Path, tmp_path: Path, github: dict[str, str]) ->
     """Execute one of action.yml's bash steps with the recipe's inputs."""
     inputs = _inputs()
     step = _named_step(name)
+    bin_dir = _bin_dir(tmp_path)
+    # What the setup-python and install steps hand later steps on a runner:
+    # the interpreter and the console-script directory, by path.
+    outputs = {
+        "python.outputs.python-path": str(bin_dir / "python"),
+        "install.outputs.bin": str(bin_dir),
+    }
 
     def expand(value: str) -> str:
         def replace(match: re.Match[str]) -> str:
             scope, key = match.group(1), match.group(2)
+            if scope == "steps":
+                return outputs[key]
             return inputs[key] if scope == "inputs" else github[key]
-        return re.sub(r"\$\{\{\s*(inputs|github)\.(\w+)\s*\}\}", replace, value)
+        return re.sub(
+            r"\$\{\{\s*(inputs|github|steps)\.((?:python|install)\.outputs\.[\w-]+|\w+)\s*\}\}",
+            replace,
+            value,
+        )
 
     env = _clean_env()
     env.update({key: expand(str(value)) for key, value in step.get("env", {}).items()})
+    # Nothing goes on PATH: `update-environment: false` leaves the runner's
+    # PATH alone, so every step must reach its interpreter and CLI by path.
     env.update({
-        "PATH": f"{_bin_dir(tmp_path)}{os.pathsep}{env.get('PATH', '')}",
         "PYTHONPATH": str(REPO_ROOT / "src"),
         "GITHUB_ACTION_PATH": str(REPO_ROOT),
         "GITHUB_WORKSPACE": str(clone),

@@ -185,7 +185,11 @@ merged as-is. To act on it, move any exact toolchain pin it changes in a
 `constraints/release-publish.in` pinned before the PR. A recompile refreshes
 that lock's whole closure, not only the bumped pin, so check its diff for
 unrelated movement, dropped environment markers and extras-qualified pins
-before pushing.
+before pushing. When `dev.txt` moves a runtime dependency, recompile
+`constraints/action-runtime.txt` after it: the GitHub Action installs that lock,
+it is compiled with `dev.txt` as a constraint, and
+`scripts/verify_dependency_lock.py` fails while the two pin a distribution at
+different versions (#1032).
 
 ## Changing the CHANGELOG
 

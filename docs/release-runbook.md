@@ -286,11 +286,15 @@ present. That is why the backend has a lock of its own.
 | [`constraints/build-backend.txt`](../constraints/build-backend.txt) | CI, `verify` → `suite`, `tests`, qualification promotion | The build backend's closure, so builds need no isolation |
 | [`constraints/release-seal.txt`](../constraints/release-seal.txt) | `verify` → `artifact` | `build`, `hatchling`, `sigstore` |
 | [`constraints/release-publish.txt`](../constraints/release-publish.txt) | `stage`, `publish`, `finalize` | `uv`, `sigstore` |
+| [`constraints/action-runtime.txt`](../constraints/action-runtime.txt) | The GitHub Action, on every install route, before the engine goes in with `--no-deps` | The runtime dependencies alone, compiled with `constraints/dev.txt` as a constraint so the Action runs what the suite ran (#1032) |
 | [`constraints/release-build.txt`](../constraints/release-build.txt) | — | Not a lock: the one hand-maintained backend pin the closure above resolves |
 
 Locks installed into the same environment must pin every shared distribution to
 the same version, or the second `pip install` moves part of the first one's
-closure; that is checked too.
+closure; that is checked too. The Action's runtime lock is held to
+`constraints/dev.txt` and `constraints/build-backend.txt` the same way, so a
+recompiled `dev.txt` that moves a runtime pin needs
+`python scripts/update_locks.py constraints/action-runtime.txt` too.
 
 Updating a dependency is two commands, and the second one is the gate:
 
@@ -591,8 +595,11 @@ The shape that holds:
    fails once per file until each does, so the suite enumerates them for you.
    That includes the `rev: v<version>` of every pre-commit example
    (`.pre-commit-hooks.yaml`'s header, `docs/integrations.md`,
-   `examples/pre-commit/README.md`): `tests/test_distribution_surface_parity.py`
-   sweeps the whole repository for them, so a new one is enumerated the same way.
+   `examples/pre-commit/README.md`) and the tag in every zero-install detector
+   URL (the README, the quickstart, `llms.txt`, `.cursorrules`, `.well-known`,
+   `docs/zero-install.md`, `docs/ai-search-summary.md` and the detector's own
+   docstring, #1032): `tests/test_distribution_surface_parity.py` sweeps the
+   whole repository for both, so a new one is enumerated the same way.
    Two surfaces are measurements rather than pins, and are re-taken on the
    published build installed from PyPI into a clean virtualenv outside any
    checkout. The first is the README and quickstart `diff` answers: run that

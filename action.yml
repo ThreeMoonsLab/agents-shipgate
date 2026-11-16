@@ -125,15 +125,15 @@ inputs:
   github_token:
     required: false
     default: ""
-    description: Token for optional PR comments.
+    description: Token for optional PR comments. The PR comment is updated in place only when github-actions[bot] posted it, so a token for another identity adds a new comment on each run.
   shipgate_version:
     required: false
     default: ""
-    description: Optional Agents Shipgate PyPI version to install. Empty installs this action source.
+    description: Optional exact Agents Shipgate PyPI version to install, 1.0.0 or later; an older engine is refused at install as a version skew. Empty installs this action source. Either way the dependencies come from this Action's hash-locked constraints/action-runtime.txt and the engine is installed with --no-deps.
   shipgate_wheel:
     required: false
     default: ""
-    description: Optional exact candidate wheel inside GITHUB_WORKSPACE. Requires shipgate_wheel_sha256; cannot be combined with shipgate_version. Install runtime dependencies separately from the reviewed lock.
+    description: Optional exact candidate wheel inside GITHUB_WORKSPACE. Requires shipgate_wheel_sha256; cannot be combined with shipgate_version. Installed with --no-deps over the same hash-locked runtime as the other routes.
   shipgate_wheel_sha256:
     required: false
     default: ""
@@ -359,13 +359,19 @@ runs:
   using: composite
   steps:
     - name: Set up Python
+      id: python
       uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
       with:
         python-version: "3.12"
+        # Keep this interpreter to the Action's own steps, which call it by
+        # path: the caller's later steps keep the Python and PATH they set up.
+        update-environment: false
 
     - name: Install Agents Shipgate
+      id: install
       shell: bash
       env:
+        SHIPGATE_PYTHON: ${{ steps.python.outputs.python-path }}
         SHIPGATE_VERSION: ${{ inputs.shipgate_version }}
         SHIPGATE_WHEEL: ${{ inputs.shipgate_wheel }}
         SHIPGATE_WHEEL_SHA256: ${{ inputs.shipgate_wheel_sha256 }}
@@ -375,19 +381,30 @@ runs:
         # `pip/__main__.py` would run before the engine is installed; `-P`
         # leaves it off. A script path puts the script's directory first, not
         # the workspace, and the installer passes `-P` to its own pip.
-        if [ -n "${SHIPGATE_WHEEL}" ] || [ -n "${SHIPGATE_WHEEL_SHA256}" ]; then
-          python "${GITHUB_ACTION_PATH}/scripts/install_action_engine.py"
-        elif [ -n "${SHIPGATE_VERSION}" ]; then
-          python -P -m pip install "agents-shipgate==${SHIPGATE_VERSION}"
-          python "${GITHUB_ACTION_PATH}/scripts/action_engine_identity.py"
-        else
-          python -P -m pip install "${GITHUB_ACTION_PATH}"
+        #
+        # Every route installs constraints/action-runtime.txt with
+        # --require-hashes, then the engine with --no-deps (#1032). The
+        # installer writes the console-script directory to `bin`.
+        "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/install_action_engine.py" || exit $?
+        if [ -n "${SHIPGATE_VERSION}" ]; then
+          "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/action_engine_identity.py"
         fi
+
+    - name: Validate Agents Shipgate check-run policy
+      if: ${{ inputs.check_run == 'true' }}
+      shell: bash
+      env:
+        SHIPGATE_PYTHON: ${{ steps.python.outputs.python-path }}
+        CHECK_RUN_POLICY: ${{ inputs.check_run_policy }}
+      run: |
+        "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/github_check_run.py" --check-policy
 
     - name: Run Agents Shipgate
       id: scan
       shell: bash
       env:
+        SHIPGATE_PYTHON: ${{ steps.python.outputs.python-path }}
+        SHIPGATE_BIN: ${{ steps.install.outputs.bin }}
         CONFIG: ${{ inputs.config }}
         CI_MODE: ${{ inputs.ci_mode }}
         FAIL_ON: ${{ inputs.fail_on }}
@@ -420,7 +437,7 @@ runs:
         if [ "${APPLICATION}" = "true" ]; then
           echo "execution_mode=application" >> "${GITHUB_OUTPUT}"
           set +e
-          python "${GITHUB_ACTION_PATH}/scripts/github_action_application.py"
+          "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/github_action_application.py"
           exit_code=$?
           echo "exit_code=${exit_code}" >> "${GITHUB_OUTPUT}"
           exit 0
@@ -487,7 +504,7 @@ runs:
         fi
         echo "execution_mode=manifest" >> "${GITHUB_OUTPUT}"
         set +e
-        agents-shipgate "${args[@]}"
+        "${SHIPGATE_BIN}/agents-shipgate" "${args[@]}"
         exit_code=$?
         echo "exit_code=${exit_code}" >> "${GITHUB_OUTPUT}"
         exit 0
@@ -496,6 +513,7 @@ runs:
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.attestation == 'true' }}
       shell: bash
       env:
+        SHIPGATE_BIN: ${{ steps.install.outputs.bin }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
         CONFIG: ${{ inputs.config }}
         REGISTRY_REPO_LABEL: ${{ inputs.registry_repo_label }}
@@ -511,7 +529,7 @@ runs:
           if [ -n "${REGISTRY_REPO_LABEL}" ]; then
             args+=(--repo "${REGISTRY_REPO_LABEL}")
           fi
-          agents-shipgate "${args[@]}"
+          "${SHIPGATE_BIN}/agents-shipgate" "${args[@]}"
         else
           echo "Agents Shipgate verifier.json not found; attestation skipped." >&2
         fi
@@ -520,10 +538,11 @@ runs:
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.host_audit == 'true' }}
       shell: bash
       env:
+        SHIPGATE_BIN: ${{ steps.install.outputs.bin }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
       run: |
         mkdir -p "${OUTPUT_DIR}"
-        shipgate audit --host --workspace "." --json \
+        "${SHIPGATE_BIN}/shipgate" audit --host --workspace "." --json \
           --out "${OUTPUT_DIR}/host-grants.json" >/dev/null || \
           echo "Agents Shipgate host audit failed; artifact skipped." >&2
 
@@ -531,12 +550,13 @@ runs:
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.org_status == 'true' }}
       shell: bash
       env:
+        SHIPGATE_BIN: ${{ steps.install.outputs.bin }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
         CONFIG: ${{ inputs.config }}
       run: |
         mkdir -p "${OUTPUT_DIR}"
         set +e
-        agents-shipgate org status --config "${CONFIG}" --workspace "." --json \
+        "${SHIPGATE_BIN}/agents-shipgate" org status --config "${CONFIG}" --workspace "." --json \
           > "${OUTPUT_DIR}/org-status.json"
         status_code=$?
         set -e
@@ -548,6 +568,7 @@ runs:
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.org_bundle == 'true' }}
       shell: bash
       env:
+        SHIPGATE_BIN: ${{ steps.install.outputs.bin }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
         CONFIG: ${{ inputs.config }}
         REGISTRY_PATH: ${{ inputs.registry_path }}
@@ -566,7 +587,7 @@ runs:
           if [ -n "${REGISTRY_PATH}" ]; then
             args+=(--registry "${REGISTRY_PATH}")
           fi
-          agents-shipgate "${args[@]}" >/dev/null || \
+          "${SHIPGATE_BIN}/agents-shipgate" "${args[@]}" >/dev/null || \
             echo "Agents Shipgate org evidence bundle failed; artifact skipped." >&2
         else
           echo "Agents Shipgate verifier.json not found; org bundle skipped." >&2
@@ -577,18 +598,20 @@ runs:
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' }}
       shell: bash
       env:
+        SHIPGATE_PYTHON: ${{ steps.python.outputs.python-path }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
       run: |
-        python "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py"
+        "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py"
 
     - name: Emit Agents Shipgate annotations
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.check_annotations == 'true' }}
       shell: bash
       env:
+        SHIPGATE_PYTHON: ${{ steps.python.outputs.python-path }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
         CHECK_ANNOTATION_LIMIT: ${{ inputs.check_annotation_limit }}
       run: |
-        python "${GITHUB_ACTION_PATH}/scripts/github_action_annotations.py"
+        "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/github_action_annotations.py"
 
     - name: Upload Agents Shipgate report
       if: ${{ always() && inputs.upload_artifact == 'true' && (steps.scan.outputs.execution_mode == 'manifest' || (steps.scan.outputs.execution_mode == 'application' && steps.scan.outputs.application_reports != '')) }}
@@ -628,6 +651,11 @@ runs:
           // Upsert via sticky marker so re-runs update the existing comment instead of spamming the PR.
           // Paginate the lookup — single-page (per_page=100) misses the marker on PRs with >100
           // earlier comments before Shipgate's first run, which would silently regress to append-only.
+          // Only a comment github-actions[bot] posted is ours. Anyone can post one that starts with
+          // the marker: updating it would put the review in a comment its author can rewrite, and a
+          // refused update would post no review at all (#1032).
+          const postedByActions = (c) =>
+            Boolean(c.user && c.user.type === "Bot" && c.user.login === "github-actions[bot]");
           try {
             const allComments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
@@ -635,7 +663,9 @@ runs:
               issue_number: context.issue.number,
               per_page: 100,
             });
-            const prior = allComments.find((c) => c.body && c.body.startsWith(STICKY));
+            const prior = allComments.find(
+              (c) => postedByActions(c) && typeof c.body === "string" && c.body.startsWith(STICKY)
+            );
             if (prior) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
@@ -672,11 +702,12 @@ runs:
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.check_run == 'true' }}
       shell: bash
       env:
+        SHIPGATE_PYTHON: ${{ steps.python.outputs.python-path }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
         CHECK_RUN_NAME: ${{ inputs.check_run_name }}
         CHECK_RUN_POLICY: ${{ inputs.check_run_policy }}
       run: |
-        python "${GITHUB_ACTION_PATH}/scripts/github_check_run.py"
+        "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/github_check_run.py"
 
     - name: Create Agents Shipgate check run
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.check_run == 'true' }}
@@ -718,13 +749,14 @@ runs:
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.fail_on_merge_verdicts != '' }}
       shell: bash
       env:
+        SHIPGATE_PYTHON: ${{ steps.python.outputs.python-path }}
         FAIL_ON_MERGE_VERDICTS: ${{ inputs.fail_on_merge_verdicts }}
         MERGE_VERDICT: ${{ steps.report_outputs.outputs.merge_verdict }}
       run: |
         # `-P`: a script read from stdin puts the workspace (the pull
         # request's files) on sys.path ahead of site-packages, where an
         # `agents_shipgate/` package there would stand in for the engine.
-        python -P - <<'PY'
+        "${SHIPGATE_PYTHON}" -P - <<'PY'
         import os
         import sys
 
