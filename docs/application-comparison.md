@@ -46,7 +46,7 @@ the same on both sides:
 ```text
 Findings: 1 changed agent, 2 rows (2 not established).
 attest_orchestrator [partial]: ?+recall_firm_memory, ?+remember_firm_finding (not read beyond agent.py:35)
-  4 bindings read the same on both sides (append_evidence, get_adv_ground_truth, list_covered_firms, score_answer); whether attest_orchestrator holds them unchanged is not established: Google ADK agent 'attest_orchestrator': its constructor identity is not established: a framework constructor or namespace is retained or used opaquely in agent.py:35.
+  4 bindings read the same on both sides (append_evidence, get_adv_ground_truth, list_covered_firms, score_answer); whether attest_orchestrator holds them is not established: Google ADK agent 'attest_orchestrator': its constructor identity is not established: a framework constructor or namespace is retained or used opaquely in agent.py:35.
 Not established: 2 rows share 2 causes.
 ```
 
