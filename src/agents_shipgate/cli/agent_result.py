@@ -145,7 +145,10 @@ def build_agent_boundary_result(
         try:
             comparison = (
                 compare_host_diff(workspace, diff_text)
-                if result.input_coverage == "complete"
+                # Every file the diff names was read. A detached diff's own
+                # coverage is `unknown`, because it may not be the whole
+                # change, and its rows describe only the files it names (#1154).
+                if assessment.diff_coverage == "complete"
                 else HostComparison(
                     comparison_status="incomparable",
                     incomparable_reasons=["diff_input_coverage_incomplete"],

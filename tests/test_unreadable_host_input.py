@@ -14,12 +14,16 @@ Pinned here:
 
 * the six heads of the issue's table, through `verify` (strict) and `check`
   on the same refs;
-* the property: replacing a changed host configuration with an unreadable
-  variant (size, comment, truncation, depth) never yields a verdict weaker
-  than ``insufficient_evidence``;
+* the property: replacing a changed host configuration (Claude Code
+  settings, `.mcp.json`, Codex config, an OpenShell policy) with an
+  unreadable variant (size, comment, truncation, depth, and for JSON a top
+  level that is not an object) never yields a verdict weaker than
+  ``insufficient_evidence``, while the readable change, with or without a
+  final newline, is judged on its rows;
+* a settings shape the reader cannot interpret, and an unparseable base;
 * the rule for an unreadable configuration the change does not touch;
 * the depth refusal, typed and naming the file, on all four commands;
-* the empty detached diff, and the model rule that keeps ``decision``,
+* detached diffs, and the model rules that keep ``decision``,
   ``input_coverage`` and ``control`` from disagreeing.
 """
 
@@ -56,6 +60,9 @@ from agents_shipgate.mcp_server.server import shipgate_check
 from agents_shipgate.schemas.agent_boundary import AgentBoundaryResultV1
 from agents_shipgate.schemas.agent_control import HumanControlAction
 from agents_shipgate.schemas.agent_result_v1 import AgentResultViolatedRule
+from tests.test_openshell_inputs import POLICY as OPENSHELL_BASE
+from tests.test_openshell_inputs import REGISTRATION as OPENSHELL_REGISTRATION
+from tests.test_openshell_inputs import selection as openshell_selection
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = REPO_ROOT / "samples" / "simple_langchain_agent"
@@ -107,14 +114,19 @@ def _repository(
     *,
     base: dict[str, str] | None = None,
     touch_agent: bool = False,
+    empty_base: bool = False,
 ) -> Path:
-    """The issue's sample with `base` on `main` and `head` on `change`, left checked out."""
+    """The issue's sample with `base` on `main` and `head` on `change`, left checked out.
+
+    The base holds `.claude/settings.json` as ``BASE_SETTINGS`` unless ``base``
+    names its files, or ``empty_base`` says it holds none of its own.
+    """
 
     repo = tmp_path / "repo"
     shutil.copytree(SAMPLE, repo, ignore=shutil.ignore_patterns("expected"))
     (repo / ".gitignore").write_text("agents-shipgate-reports/\n.agents-shipgate/\n", encoding="utf-8")
     _git(repo, "init", "-q", "-b", "main")
-    for path, text in (base or {SETTINGS: BASE_SETTINGS}).items():
+    for path, text in ({} if empty_base else base or {SETTINGS: BASE_SETTINGS}).items():
         (repo / path).parent.mkdir(parents=True, exist_ok=True)
         (repo / path).write_text(text, encoding="utf-8")
     _git(repo, "add", "-A")
@@ -202,69 +214,154 @@ def test_the_six_heads_through_verify_and_check(tmp_path: Path, head: str) -> No
 # --- The property ---------------------------------------------------------------
 
 
-def _pad(text: str) -> str:
+def _pad(text: str, path: str) -> str:
     return text + " " * PAST_LIMIT
 
 
-def _comment(text: str) -> str:
+def _comment(text: str, path: str) -> str:
     return "// widened\n" + text
 
 
-def _truncate(text: str) -> str:
+def _truncate(text: str, path: str) -> str:
     return text.rstrip()[:-1]
 
 
-def _nest(text: str) -> str:
+def _nest(text: str, path: str) -> str:
     deep = "[" * 5000 + "]" * 5000
-    if text.startswith("{"):
-        return '{"x": ' + deep + ", " + text[1:]
-    return f"x = {deep}\n" + text
+    if path.endswith(".toml"):
+        return f"x = {deep}\n" + text
+    if text.lstrip().startswith("{"):
+        return '{"x": ' + deep + ", " + text.lstrip()[1:]
+    return text.rstrip("\n") + f"\nx: {deep}\n"
 
 
-UNREADABLE: dict[str, Callable[[str], str]] = {
+def _shape(text: str, path: str) -> str:
+    """Valid JSON whose top level is not the object every host reads."""
+
+    return "[" + text.strip() + "]"
+
+
+UNREADABLE: dict[str, Callable[[str, str], str]] = {
     "size": _pad,
     "comment": _comment,
     "truncation": _truncate,
     "depth": _nest,
+    "shape": _shape,
 }
 
-# A readable change that widens what the agent may do, per host file.
-WIDENINGS: dict[str, tuple[str, str, str]] = {
-    "claude_wildcard_allow": (SETTINGS, BASE_SETTINGS, WIDENED),
+OPENSHELL_POLICY = "arbitrary.rules"
+
+# A readable change that widens what the agent may do, per host reader:
+# (path, base, head, the check its row raises, other base files).
+WIDENINGS: dict[str, tuple[str, str, str, str, dict[str, str]]] = {
+    "claude_wildcard_allow": (SETTINGS, BASE_SETTINGS, WIDENED, WILDCARD, {}),
     "mcp_server_added": (
         ".mcp.json",
         '{"mcpServers": {}}',
         '{"mcpServers": {"shell": {"command": "bash", "args": ["-lc", "x"]}}}',
+        "SHIP-HOST-BOUNDARY-MCP-SERVER-ADDED",
+        {},
     ),
     "codex_full_access": (
         ".codex/config.toml",
         'sandbox_mode = "read-only"\n',
         'sandbox_mode = "danger-full-access"\n',
+        "SHIP-CODEX-BOUNDARY-DANGER-FULL-ACCESS",
+        {},
+    ),
+    "openshell_enforcement_relaxed": (
+        OPENSHELL_POLICY,
+        OPENSHELL_BASE,
+        OPENSHELL_BASE.replace("enforcement: enforce", "enforcement: audit"),
+        "SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED",
+        {OPENSHELL_REGISTRATION: json.dumps(openshell_selection(OPENSHELL_POLICY))},
     ),
 }
+#: The transformations that mean something for a reader's format: a TOML or
+#: YAML document has no JSON top level to get wrong.
+_JSON_WIDENINGS = {"claude_wildcard_allow", "mcp_server_added"}
+PROPERTY_CASES = [
+    (widening, transform)
+    for widening in sorted(WIDENINGS)
+    for transform in sorted(UNREADABLE)
+    if transform != "shape" or widening in _JSON_WIDENINGS
+]
 
 
-@pytest.mark.parametrize("widening", sorted(WIDENINGS))
-def test_each_readable_widening_is_judged_on_its_rows(tmp_path: Path, widening: str) -> None:
-    """The control for the property below: read, the change is a finding, not a gap."""
+def _widening_repo(tmp_path: Path, widening: str, head_text: str, *, new: bool = False) -> Path:
+    path, base, _head, _check_id, extra = WIDENINGS[widening]
+    files = {**extra, **({} if new else {path: base})}
+    return _repository(tmp_path, {path: head_text}, base=files, empty_base=not files)
 
-    path, base, head = WIDENINGS[widening]
-    read, _exit = _verify(_repository(tmp_path, {path: head}, base={path: base}))
+
+def test_a_readable_openshell_widening_is_judged_on_its_rows(tmp_path: Path) -> None:
+    path, _base, head, check_id, _extra = WIDENINGS["openshell_enforcement_relaxed"]
+    read, _exit = _verify(_widening_repo(tmp_path, "openshell_enforcement_relaxed", head))
     assert _unread_gaps(read) == []
-    assert read["release_decision"]["blockers"] or read["release_decision"]["review_items"]
+    assert check_id in {item["check_id"] for item in read["release_decision"]["review_items"]}
 
 
-@pytest.mark.parametrize("transform", sorted(UNREADABLE))
-@pytest.mark.parametrize("widening", sorted(WIDENINGS))
+@pytest.mark.parametrize("ending", ["newline", "no_final_newline"])
+@pytest.mark.parametrize("change", ["edited", "new"])
+@pytest.mark.parametrize("widening", sorted(_JSON_WIDENINGS | {"codex_full_access"}))
+def test_each_readable_widening_is_judged_on_its_rows(
+    tmp_path: Path, widening: str, change: str, ending: str
+) -> None:
+    """The control for the property below: read, the change is a finding, not a gap.
+
+    Whether the file ends in a newline changes nothing (#1154 review): Git's
+    `\\ No newline at end of file` marker was dropped, the rebuilt file got a
+    newline it does not have, and a readable new file read as unresolved.
+    """
+
+    path, _base, head, check_id, _extra = WIDENINGS[widening]
+    text = head.rstrip("\n") + ("\n" if ending == "newline" else "")
+    read, _exit = _verify(_widening_repo(tmp_path, widening, text, new=change == "new"))
+    assert _unread_gaps(read) == []
+    rows = {
+        item["check_id"]
+        for key in ("blockers", "review_items")
+        for item in read["release_decision"][key]
+    }
+    assert check_id in rows, read["release_decision"]
+    assert "SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED" not in rows
+    assert "SHIP-CODEX-BOUNDARY-CONFIG-PARSE-FAILED" not in rows
+    if widening == "claude_wildcard_allow":
+        assert read["decision"] == "blocked"
+
+
+@pytest.mark.parametrize(
+    "path,text",
+    [
+        (SETTINGS, '{"permissions": {"deny": ["Bash(rm:*)"]}}'),
+        (".mcp.json", '{"mcpServers": {}}'),
+        (".codex/config.toml", 'sandbox_mode = "read-only"'),
+    ],
+    ids=["claude_settings", "mcp", "codex_config"],
+)
+def test_a_new_file_without_a_final_newline_is_judged_like_one_with(
+    tmp_path: Path, path: str, text: str
+) -> None:
+    without, without_exit = _verify(
+        _repository(tmp_path / "without", {path: text}, empty_base=True)
+    )
+    with_newline, with_exit = _verify(
+        _repository(tmp_path / "with", {path: text + "\n"}, empty_base=True)
+    )
+    assert _unread_gaps(without) == []
+    assert (without["decision"], without_exit) == (with_newline["decision"], with_exit)
+
+
+@pytest.mark.parametrize("widening,transform", PROPERTY_CASES)
 def test_an_unreadable_variant_never_weakens_the_verdict(
     tmp_path: Path, widening: str, transform: str
 ) -> None:
     """Whatever the readable change earned, its unreadable variant earns at least
     `insufficient_evidence`, fails strict mode and is never published."""
 
-    path, base, head = WIDENINGS[widening]
+    path, _base, head, _check_id, _extra = WIDENINGS[widening]
     unread, exit_code = _verify(
-        _repository(tmp_path, {path: UNREADABLE[transform](head)}, base={path: base})
+        _widening_repo(tmp_path, widening, UNREADABLE[transform](head, path))
     )
 
     assert _DECISION_RANK[unread["decision"]] >= _DECISION_RANK["insufficient_evidence"]
@@ -273,6 +370,38 @@ def test_an_unreadable_variant_never_weakens_the_verdict(
     assert not any(unread["control"]["permissions"].values())
     assert [gap["source_ref"] for gap in _unread_gaps(unread)] == [path]
     assert "RecursionError" not in json.dumps(unread)
+
+
+# A settings file the reader parses but cannot interpret.
+# A host configuration the reader parses but cannot interpret:
+# shape -> (path, base, head).
+SHAPES: dict[str, tuple[str, str, str]] = {
+    "allow_is_a_string": (
+        SETTINGS, BASE_SETTINGS, '{"permissions": {"allow": "Bash(*)", "deny": []}}\n'
+    ),
+    "permissions_is_a_list": (SETTINGS, BASE_SETTINGS, '{"permissions": ["Bash(*)"]}\n'),
+    "top_level_is_a_list": (SETTINGS, BASE_SETTINGS, "[" + WIDENED + "]\n"),
+    "mcp_servers_is_a_list": (
+        ".mcp.json",
+        '{"mcpServers": {}}\n',
+        '{"mcpServers": [{"name": "shell", "command": "bash"}]}\n',
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(SHAPES))
+def test_a_shape_the_reader_cannot_interpret_is_unread(tmp_path: Path, shape: str) -> None:
+    path, base, head = SHAPES[shape]
+    repo = _repository(tmp_path, {path: head}, base={path: base})
+    verify, exit_code = _verify(repo)
+    check = _check(repo)
+
+    assert (verify["decision"], exit_code) == ("insufficient_evidence", 20)
+    assert verify["control"]["state"] == "human_review_required"
+    assert [gap["source_ref"] for gap in _unread_gaps(verify)] == [path]
+    # `check` answers too: a top-level array used to fail it with a traceback.
+    assert (check["decision"], check["input_coverage"]) == ("require_review", "partial")
+    assert check["control"]["state"] == "human_review_required"
 
 
 # --- What "changed" means -------------------------------------------------------
@@ -320,7 +449,8 @@ def test_only_a_changed_files_failed_read_is_a_gap() -> None:
     """Rows that do not say a changed file's bytes went unread keep their review route."""
 
     changed = [
-        SETTINGS, ".mcp.json", ".claude/agents/reviewer.md", ".cursor/mcp.json", "retired.json",
+        SETTINGS, ".mcp.json", ".cursor/cli.json", ".claude/agents/reviewer.md",
+        ".cursor/mcp.json", "retired.json", "hooks/run.sh",
     ]
     rows = [
         # Read: the structure of a subagent file is not modelled.
@@ -337,6 +467,9 @@ def test_only_a_changed_files_failed_read_is_a_gap() -> None:
         _row("HOST-CONFIG-PARSE-FAILED", ".cursor/mcp.json", kind="unknown_host_config_key"),
         # Not read, but git reports it unchanged.
         _row("HOST-CONFIG-PARSE-FAILED", ".vscode/mcp.json", kind="json_parse_failed"),
+        # The diff could not be turned back into text, but the reader read the
+        # file: not unread input on its own.
+        _row("HOST-CONFIG-PARSE-FAILED", ".mcp.json", kind="host_config_content_unresolved"),
         # Not read, and changed: one gap per path, naming the parser's error.
         _row(
             "BOUNDARY-INPUT-INCOMPLETE", SETTINGS,
@@ -346,28 +479,62 @@ def test_only_a_changed_files_failed_read_is_a_gap() -> None:
             "HOST-CONFIG-PARSE-FAILED", SETTINGS,
             kind="json_parse_failed", parser="JSONDecodeError", line=1,
         ),
-        _row("HOST-CONFIG-PARSE-FAILED", ".mcp.json", kind="host_config_content_unresolved"),
+        # The base side did not parse; the gap says so.
+        _row(
+            "HOST-CONFIG-PARSE-FAILED", ".cursor/cli.json",
+            kind="old_json_parse_failed", parser="JSONDecodeError", line=1,
+        ),
+        # A file the reader did not read, by the assessment's own record.
+        _row(
+            "BOUNDARY-INPUT-INCOMPLETE", "hooks/run.sh",
+            kind="boundary_input_unresolved", code="host_inventory_unsupported",
+        ),
     ]
-    gaps = unread_changed_input_gaps(SimpleNamespace(violations=rows), changed)
+    assessment = SimpleNamespace(
+        violations=rows,
+        unread_input_paths=frozenset({SETTINGS, "hooks/run.sh"}),
+        diagnostics=[],
+    )
+    gaps = unread_changed_input_gaps(assessment, changed)
 
     assert [(gap.source_ref, gap.policy_id) for gap in gaps] == [
         (".claude/settings.json", "SHIP-HOST-CONFIG-PARSE-FAILED"),
-        (".mcp.json", "SHIP-HOST-CONFIG-PARSE-FAILED"),
+        (".cursor/cli.json", "SHIP-HOST-CONFIG-PARSE-FAILED"),
+        ("hooks/run.sh", "SHIP-BOUNDARY-INPUT-INCOMPLETE"),
     ]
-    assert "(JSONDecodeError at line 1)" in gaps[0].why
+    assert "could not read its head version (JSONDecodeError at line 1)" in gaps[0].why
+    assert "could not read its base version" in gaps[1].why
+    assert "granted before the change" in gaps[1].why
     assert all(is_unread_changed_input_gap(gap) for gap in gaps)
     assert all(gap.kind == "unknown_policy_evidence" for gap in gaps)
     assert all(gap.next_action.authorable_by == "human" for gap in gaps)
 
 
-def test_a_change_that_makes_an_unreadable_config_readable_is_judged_on_its_rows(
-    tmp_path: Path,
-) -> None:
+def test_a_padded_base_made_readable_is_judged_on_its_rows(tmp_path: Path) -> None:
+    """The size bound is the inventory's; the diff carries the base's text whole."""
+
     unread_base = {SETTINGS: BASE_SETTINGS + " " * PAST_LIMIT}
     repo = _repository(tmp_path, {SETTINGS: WIDENED}, base=unread_base)
     verify, exit_code = _verify(repo)
     assert (verify["decision"], exit_code) == ("blocked", 20)
     assert _unread_gaps(verify) == []
+
+
+def test_an_unparseable_base_holds_a_readable_head_and_names_the_base(tmp_path: Path) -> None:
+    """A base the reader cannot parse leaves what the change did unknown.
+
+    The head reads, but whether its grants are new is not established, so no
+    row claims an addition: the change holds at `insufficient_evidence`, and
+    the gap names the base, not the head, as unread.
+    """
+
+    repo = _repository(tmp_path, {SETTINGS: WIDENED}, base={SETTINGS: "// base\n" + BASE_SETTINGS})
+    verify, exit_code = _verify(repo)
+    assert (verify["decision"], exit_code) == ("insufficient_evidence", 20)
+    assert verify["control"]["state"] == "human_review_required"
+    (gap,) = _unread_gaps(verify)
+    assert gap["source_ref"] == SETTINGS
+    assert "could not read its base version" in gap["why"]
 
 
 # --- Depth ------------------------------------------------------------------------
@@ -384,7 +551,7 @@ def _cli(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 def test_a_deeply_nested_config_is_a_typed_refusal_on_every_command(tmp_path: Path) -> None:
-    repo = _repository(tmp_path, {SETTINGS: _nest(WIDENED)})
+    repo = _repository(tmp_path, {SETTINGS: _nest(WIDENED, SETTINGS)})
     workspace = ["--workspace", str(repo)]
     runs = {
         "diff": _cli(repo, "diff", *workspace, "--base", "main", "--json"),
@@ -468,25 +635,54 @@ def test_shared_and_cyclic_structures_are_bounded() -> None:
 # --- The empty detached diff ----------------------------------------------------
 
 
-def test_an_empty_diff_reports_no_pass(tmp_path: Path) -> None:
-    repo = _repository(tmp_path, {SETTINGS: WIDENED})
-    empty = tmp_path / "empty.diff"
-    empty.write_text("", encoding="utf-8")
+@pytest.mark.parametrize(
+    "diff",
+    [
+        "",
+        "diff --git a/README.md b/README.md\nnew file mode 100644\n"
+        "--- /dev/null\n+++ b/README.md\n@@ -0,0 +1 @@\n+hello\n",
+    ],
+    ids=["empty", "readme_only"],
+)
+@pytest.mark.parametrize("adopted", [True, False], ids=["adopted", "unadopted"])
+def test_a_detached_diff_reports_no_pass(tmp_path: Path, diff: str, adopted: bool) -> None:
+    """A diff bound to no checkout establishes no change (#1154 scope item 5).
+
+    Its control already stopped for a human (#930), while `decision` said
+    `allow` and `input_coverage` said `complete`. Both now say what the
+    control says; the control itself is the stop it was.
+    """
+
+    if adopted:
+        repo = _repository(tmp_path, {SETTINGS: WIDENED})
+    else:
+        repo = tmp_path / "unadopted"
+        repo.mkdir()
+    supplied = tmp_path / "change.diff"
+    supplied.write_text(diff, encoding="utf-8")
     result = runner.invoke(
         app,
         [
-            "check", "--agent", "claude-code", "--workspace", str(repo), "--diff", str(empty),
+            "check", "--agent", "claude-code", "--workspace", str(repo), "--diff", str(supplied),
             "--format", "agent-boundary-json",
         ],
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    mcp = shipgate_check(workspace=str(repo), diff_text="")
+    mcp = shipgate_check(agent="claude-code", workspace=str(repo), diff_text=diff)
+    reason = (
+        "The supplied diff is not bound to a checkout state that verify can reconstruct."
+        if adopted
+        else "The supplied input does not establish an evaluated checkout state."
+    )
     for answer in (payload, mcp):
-        assert answer["decision"] != "allow"
-        assert answer["input_coverage"] != "complete"
-        assert "boundary_diff_empty" in answer["issues"]
+        assert answer["decision"] == "require_review"
+        assert answer["input_coverage"] == "unknown"
+        assert answer["issues"] == ["boundary_diff_unbound"]
+        assert answer["violations"] == []
         assert answer["control"]["state"] == "human_review_required"
+        assert answer["control"]["must_stop"] is True
+        assert answer["control"]["reason"].startswith(reason)
         assert not any(answer["control"]["permissions"].values())
         AgentBoundaryResultV1.model_validate(answer)
 
@@ -503,8 +699,10 @@ def test_a_bound_empty_change_is_still_an_evaluated_pass(tmp_path: Path) -> None
         ],
     )
     payload = json.loads(result.output)
-    assert "boundary_diff_empty" not in payload["issues"]
+    assert payload["issues"] == []
     assert payload["input_coverage"] == "complete"
+    assert payload["decision"] == "allow"
+    assert payload["control"]["must_stop"] is False
 
 
 def _boundary_payload(**overrides: object) -> dict:
@@ -550,7 +748,7 @@ def test_the_model_refuses_a_pass_on_input_not_completely_read(coverage: str) ->
 
 
 def test_decision_coverage_and_control_cannot_disagree() -> None:
-    """The model's three pairwise rules, each refused alone."""
+    """The model's pairwise rules, each refused alone."""
 
     complete = derive_agent_control(reason="Evaluated.", subject_evaluated=True)
     publishable = derive_agent_control(
@@ -559,6 +757,17 @@ def test_decision_coverage_and_control_cannot_disagree() -> None:
         human_review_required=True,
         publication_allowed=True,
     )
+    # A complete, evaluated pass is the one `allow` that validates.
+    AgentBoundaryResultV1.model_validate(
+        _boundary_payload(
+            decision="allow", risk_level="none", control=complete.model_dump(mode="json")
+        )
+    )
+    # decision vs control: no pass beside a control that stops (#1154).
+    with pytest.raises(ValidationError, match="allow decision cannot accompany a control that stops"):
+        AgentBoundaryResultV1.model_validate(
+            _boundary_payload(decision="allow", risk_level="none")
+        )
     # decision vs coverage: no pass on input not completely read.
     with pytest.raises(ValidationError, match="allow decision requires complete"):
         AgentBoundaryResultV1.model_validate(

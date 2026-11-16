@@ -922,9 +922,6 @@ UNEVALUATED_SUBJECT_REASON = (
     "The supplied input does not establish an evaluated checkout state. "
     "Re-run check against the intended worktree or with both --base and --head."
 )
-#: The input issue of a detached diff that names no change (#1154).
-EMPTY_DIFF_ISSUE = "boundary_diff_empty"
-
 
 def _control_for_result(
     *,
@@ -1056,23 +1053,6 @@ def _control_for_result(
             verify_required=True,
             publication_allowed=subject_evaluated,
             allowed_next_commands=[verify_command],
-        )
-
-    # An empty detached diff (#1154): its one row keeps a pass off a change
-    # nobody evaluated, and its stop is the unevaluated-subject stop the same
-    # input took before it had the row, named for the input, not for a change.
-    if (
-        not verification_replayable
-        and violations
-        and all(item.evidence.get("code") == EMPTY_DIFF_ISSUE for item in violations)
-    ):
-        why = UNEVALUATED_SUBJECT_REASON
-        return derive_agent_control(
-            reason=why,
-            next_action=HumanControlAction(kind="review", why=why),
-            human_review_required=True,
-            human_review_why=why,
-            stop_reason=why,
         )
 
     if decision in {"require_review", "block"} and not repair.safe_to_attempt:

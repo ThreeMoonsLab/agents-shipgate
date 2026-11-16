@@ -450,6 +450,21 @@ def _evaluate_mcp_file(diff_file, resolved, add) -> None:
     if pair is None:
         return
     old_data, new_data = pair
+    for kind, data in (("json_parse_failed", new_data), ("old_json_parse_failed", old_data)):
+        # A server map that is not an object is one no host reads servers
+        # from, and this reader would read it as no servers (#1154).
+        member = next(
+            (key for key in ("mcpServers", "servers")
+             if key in data and not isinstance(data[key], dict)),
+            None,
+        )
+        if member is not None:
+            add(
+                "HOST-CONFIG-PARSE-FAILED",
+                path=path,
+                evidence={"kind": kind, "parser": "NotAnObject", "member": member},
+            )
+            return
     old_servers = _server_map(old_data)
     new_servers = _server_map(new_data)
     for server_name in sorted(new_servers, key=str):
@@ -1277,7 +1292,10 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
 
     Returns ``(old_data, new_data)``; emits ``HOST-CONFIG-PARSE-FAILED``
     and returns ``None`` when either side cannot be parsed or the new
-    content cannot be resolved.
+    content cannot be resolved. Every host reads these files as one JSON
+    object, so a side whose top level is anything else did not parse as one
+    (#1154): the evaluators below read it as an object, and an array made
+    `check` fail with a traceback.
     """
 
     # VS Code reads `mcp.json` as JSON with comments (#659).
@@ -1296,8 +1314,8 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
         new_data = {}
     else:
         try:
-            new_data = bounded_parse(loads, resolved.new_text)
-        except (json.JSONDecodeError, NestingLimitExceeded) as exc:
+            new_data = _load_object(loads, resolved.new_text)
+        except (json.JSONDecodeError, NestingLimitExceeded, NotAnObject) as exc:
             add(
                 "HOST-CONFIG-PARSE-FAILED",
                 path=path,
@@ -1308,8 +1326,8 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
         old_data: Any = {}
     else:
         try:
-            old_data = bounded_parse(loads, resolved.old_text)
-        except (json.JSONDecodeError, NestingLimitExceeded) as exc:
+            old_data = _load_object(loads, resolved.old_text)
+        except (json.JSONDecodeError, NestingLimitExceeded, NotAnObject) as exc:
             add(
                 "HOST-CONFIG-PARSE-FAILED",
                 path=path,
@@ -1317,6 +1335,17 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
             )
             return None
     return old_data, new_data
+
+
+class NotAnObject(ValueError):
+    """A JSON host configuration whose top level is not an object (#1154)."""
+
+
+def _load_object(loads, text: str) -> dict[str, Any]:
+    value = bounded_parse(loads, text)
+    if not isinstance(value, dict):
+        raise NotAnObject(f"top level is {type(value).__name__}, not an object")
+    return value
 
 
 def _parser_error(kind: str, exc: Exception) -> dict[str, Any]:

@@ -257,6 +257,11 @@ class HostStaticParseCache:
         default_factory=dict, init=False, repr=False,
     )
     input_failures: dict[str, HostInputFailure] = field(default_factory=dict, init=False)
+    #: Issue ids of files read and parsed whose structure the reader cannot
+    #: interpret at all (a settings file whose `permissions` is not an object,
+    #: a hook file that is not one): input as unread as a file that does not
+    #: parse (#1154). Private, never published.
+    shape_refusal_issue_ids: set[str] = field(default_factory=set, init=False)
     terminal_failure: HostInputFailure | None = field(default=None, init=False)
 
     @property
@@ -1128,11 +1133,13 @@ def _load_structured(
             else None if isinstance(data, dict) else "a hook file must be an object"
         )
         if shape_error is not None:
-            issues.append(_inventory_issue(
+            issue = _inventory_issue(
                 kind="unsupported", host=host, source=source,
                 message=f"Cannot interpret Claude settings: {shape_error}; repair the field and rerun the audit.",
                 blocking=True,
-            ))
+            )
+            issues.append(issue)
+            cache.shape_refusal_issue_ids.add(issue["issue_id"])
             artifacts.append(_artifact(
                 host=host, scope=scope, source=source, kind=kind, status="unsupported",
                 resolved_through=resolved_through,

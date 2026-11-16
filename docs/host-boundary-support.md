@@ -1228,21 +1228,33 @@ The Claude Code settings in [the setting table](#claude-code-setting-ratings)
 are not unknown keys: `check` rates them by that table. A file that could not
 be parsed or resolved is `partial` and never authorizes publication.
 
-**A file the reader could not read is never judged more leniently than the
+**A file the reader did not read is never judged more leniently than the
 same file read (#1154).** A host configuration past the 1 MiB per-file bound,
-nested more than 64 levels, not parseable, or not resolvable from the diff is
-refused whole; the bound is not raised for a changed file. When the change
-edits that file, `verify` records it as a policy evidence gap
-(`unknown_policy_evidence`, `source_type: agent_boundary_input`): the release
-decision is `insufficient_evidence` (or `blocked`), `--ci-mode strict` exits
-`20`, and the control is `human_review_required`, as `check` says for the same
-refs with `require_review` and `partial` coverage. A gap is not a finding, so
-`checks.ignore`, a baseline or a severity override cannot clear it. A file git
-reports identical on both sides adds no gap: readable, it contributes no row,
-so its unread copy keeps the `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` review row
-and does not fail every pull request in the repository. `check --diff` on an
-empty file names no change, so it reports the input issue
-`boundary_diff_empty` with `partial` coverage, never `allow`.
+nested more than 64 levels, not parseable, of a structure the reader cannot
+interpret (a Claude Code settings or hook file whose shape it refuses, a JSON
+file whose top level is not an object, an MCP server map that is not one), a
+hook file of an enabled plugin it does not open, or an OpenShell document it
+refuses is unread input; the size bound is not raised for a changed file. When the change edits that file,
+`verify` records it as a policy evidence gap (`unknown_policy_evidence`,
+`source_type: agent_boundary_input`, naming the unread side): `--ci-mode
+strict` exits `20` and the control is `human_review_required`, as `check`
+says for the same refs with `require_review` and `partial` coverage. The
+decision is `insufficient_evidence`, or `blocked` beside a blocker, or
+`review_required` when an active high or critical review item outranks the
+gap. A gap is not a finding, so `checks.ignore`, a baseline or a severity
+override cannot clear it. A base that does not parse is not judged against
+a readable head, so no row claims what the change added. Not counted as
+unread: a file the reader read whose content it does not model (an
+instruction file's structure, an unknown settings key, a workflow text it
+does not compare), a row that says only that the diff could not be turned
+back into text, the gate's own boundary policy (an unparseable changed policy
+reads as its rules removed and blocks), and a manifest-declared policy pack
+(one that does not load stops the run). A file git reports identical on both
+sides adds no gap: readable, it contributes no row, so its unread copy keeps
+the `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` review row and does not fail every
+pull request in the repository. `check --diff` is bound to no checkout, so it
+never reports `allow`, and its coverage is `unknown` (issue
+`boundary_diff_unbound`) where it read every file it was given.
 
 ### Partial comparisons
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
@@ -33,7 +33,6 @@ from agents_shipgate.core.codex_boundary import (
     DEFAULT_RULES as CODEX_DEFAULT_RULES,
 )
 from agents_shipgate.core.codex_boundary import (
-    EMPTY_DIFF_ISSUE,
     UNEVALUATED_SUBJECT_REASON,
     CodexBoundaryPolicy,
     _affected_files_for,
@@ -129,6 +128,13 @@ class AgentBoundaryAssessment:
     host_settings_narrowed: frozenset[str] = frozenset()
     openshell_paths: frozenset[str] = frozenset()
     openshell_safe_paths: frozenset[str] = frozenset()
+    #: Paths of input issues whose file the reader did not read (#1154).
+    #: Private; `verify` holds its verdict on the ones the change edits.
+    unread_input_paths: frozenset[str] = frozenset()
+    #: Coverage of the files the input named, which a detached diff's
+    #: published ``input_coverage`` (``unknown``) does not state: whether the
+    #: rows of the files it names can be compared (#1154). Private.
+    diff_coverage: Literal["complete", "partial", "unknown"] = "complete"
 
 
 @dataclass(frozen=True)
@@ -327,28 +333,26 @@ def evaluate_agent_boundary(
             diff_text=diff_text,
         ),
     ]
-    if (
-        not input_issues
-        and not verification_replayable
-        and not changed_files
-        and not diff_text.strip()
-    ):
-        # A detached diff that names no file establishes no change at all, so
-        # nothing was evaluated and no pass can be reported on it (#1154). The
-        # bound counterpart, a worktree or ref range with no change, is an
-        # evaluated "nothing changed" and stays a pass; a non-empty diff with
-        # no file record is already `boundary_diff_unparseable`. An input issue
-        # already found keeps the result off a pass and stays the one named.
-        input_issues.append(
-            BoundaryInputIssue(
-                code=EMPTY_DIFF_ISSUE,
-                path="<diff>",
-                message=(
-                    "The supplied diff is empty: it names no changed file, so it "
-                    "establishes no change to evaluate."
-                ),
-            )
+    # The input issues whose file the reader did not read: a read or parse
+    # failure, a structure it cannot interpret, a hook file it does not open,
+    # an OpenShell document it refuses, or a binary file (#1154).
+    # Private: `verify` holds its verdict on these when the change edits them,
+    # while every input issue still keeps `check` from a pass.
+    unread_input_paths = {
+        issue.path.replace("\\", "/")
+        for issue in input_issues
+        if issue.code in _UNREAD_INPUT_CODES
+    }
+    unread_input_paths.update(
+        str(item.get("source") or "").replace("\\", "/")
+        for item in host_snapshot.inventory.get("issues", [])
+        if counted(item)
+        and (
+            item.get("kind") in {"parse_failed", "unreadable"}
+            or str(item.get("issue_id")) in host_snapshot.cache.shape_refusal_issue_ids
         )
+    )
+    unread_input_paths.update(plugin_unread_paths)
     policies = _load_policy_set(workspace=workspace, explicit=policy_path)
     resolved_text_cache = {}
     instruction_structure_unchanged: set[str] = set()
@@ -398,6 +402,7 @@ def evaluate_agent_boundary(
     host_violations.extend(openshell_violations)
     host_diagnostics.extend(openshell_diagnostics)
     input_issues.extend(openshell_issues)
+    unread_input_paths.update(issue.path.replace("\\", "/") for issue in openshell_issues)
     openshell_safe = {path for path in openshell_safe
         if trust_root_class_for(path) is None and not is_agent_boundary_path(path)
         and not is_configured_manifest(config_path, path, workspace=workspace)
@@ -638,6 +643,24 @@ def evaluate_agent_boundary(
         or any(item.status == "partial" for item in coverage)
         else "complete"
     )
+    published_issues = sorted(dict.fromkeys(issue_codes))
+    # Coverage of what the input named, before the detached rule below.
+    diff_coverage = input_coverage
+    if not verification_replayable:
+        # A detached diff (`check --diff`, MCP `diff_text`) is bound to no
+        # checkout, so it does not establish what changed: an empty one names
+        # nothing, and any other may be part of a change (#1154). Its control
+        # already stops for a human on every route (#930). Its `decision` and
+        # `input_coverage` say the same instead of a pass beside that stop:
+        # never `allow`, and coverage `unknown` where it read everything it
+        # was given. The control is derived before this and does not move.
+        if projected.decision == "allow":
+            projected = projected.model_copy(update={"decision": "require_review"})
+        if input_coverage == "complete":
+            # Named only where it is the reason: a partial read already says
+            # why coverage is not complete.
+            input_coverage = "unknown"
+            published_issues = sorted({*published_issues, UNBOUND_DIFF_ISSUE})
     completion_eligible = (
         input_coverage == "complete"
         and projected.control.state == "complete"
@@ -655,7 +678,7 @@ def evaluate_agent_boundary(
         diagnostics=tuple(diagnostics),
         policies=policies.records,
         policy_set_sha256=policies.digest,
-        issues=tuple(sorted(dict.fromkeys(issue_codes))),
+        issues=tuple(published_issues),
         completion_eligible=completion_eligible,
         host_snapshot=host_snapshot,
         legacy_result=projected,
@@ -663,6 +686,8 @@ def evaluate_agent_boundary(
         host_settings_narrowed=frozenset(host_settings_narrowed),
         openshell_paths=openshell.paths,
         openshell_safe_paths=frozenset(openshell_safe if not input_issues else set()),
+        unread_input_paths=frozenset(unread_input_paths),
+        diff_coverage=diff_coverage,
     )
 
 
@@ -771,14 +796,14 @@ def unread_changed_input_gaps(
 
     A host configuration this change edits, and that the static reader could
     not read — past the per-file size bound, nested past the depth bound, not
-    parseable, or content the diff could not resolve — is the answer's
-    missing input, not a finding about the change. Recording it as a policy
-    evidence gap holds the release decision at ``insufficient_evidence``
-    through the one decision engine, exactly as an unread tool input does, so
-    unread input can never earn a weaker verdict than the same input read: a
-    readable file that widens a grant blocks, and the unreadable one used to
-    leave only two medium review rows. A gap is not a finding, so a baseline,
-    a suppression or a severity override cannot clear it.
+    parseable, of a structure it cannot interpret, or a document it refuses —
+    is the answer's missing input, not a finding about the change. Recording
+    it as a policy evidence gap holds the release decision through the one
+    decision engine, exactly as an unread tool input does, so unread input can
+    never earn a weaker verdict than the same input read: a readable file that
+    widens a grant blocks, and the unreadable one used to leave only two
+    medium review rows. A gap is not a finding, so a baseline, a suppression
+    or a severity override cannot clear it.
 
     Only a path in the change set counts. A host configuration git reports
     identical on both sides contributes no row when it is readable, so its
@@ -791,11 +816,25 @@ def unread_changed_input_gaps(
     unread: dict[str, list[AgentResultViolatedRule]] = {}
     for item in assessment.violations:
         path = (item.path or "").replace("\\", "/")
-        if path in changed and _records_unread_file(item):
+        if path in changed and _records_unread_file(item, assessment.unread_input_paths):
             unread.setdefault(path, []).append(item)
+    # The reader's own words for an input issue, which its row does not carry.
+    messages = {
+        ((item.path or "").replace("\\", "/"), item.code): item.message
+        for item in assessment.diagnostics
+    }
     gaps: list[EvidenceGap] = []
     for path, rows in sorted(unread.items()):
-        item, detail = _unread_reason(rows)
+        item, detail = _unread_reason(rows, messages)
+        side = _unread_side(rows)
+        version = {"base": "its base version", "head": "its head version"}.get(
+            side, "its base and head versions"
+        )
+        grants = (
+            "What the file granted before the change is not established"
+            if side == "base"
+            else "What the edited file grants is not established"
+        )
         gaps.append(
             EvidenceGap(
                 kind="unknown_policy_evidence",
@@ -805,8 +844,8 @@ def unread_changed_input_gaps(
                 policy_id=item.check_id,
                 why=(
                     f"{item.check_id}: This change edits {path}, and the static reader "
-                    f"could not read it ({detail}). What the edited file grants is not "
-                    "established, so the change cannot be judged from it."
+                    f"could not read {version} ({detail}). {grants}, so the change "
+                    "cannot be judged from it."
                 ),
                 next_action=EvidenceGapAction(
                     kind="provide_policy_evidence",
@@ -816,9 +855,10 @@ def unread_changed_input_gaps(
                         "input, so the verdict holds until it is read."
                     ),
                     expects=(
-                        f"{path} readable by the static host reader: valid for its "
-                        f"format, at most {MAX_HOST_CONFIG_BYTES} bytes, and nested no "
-                        f"more than {MAX_HOST_CONFIG_DEPTH} levels deep. Then rerun verify."
+                        f"{path} readable by the static host reader on both sides of "
+                        "the change: valid for its format and its host's structure, at "
+                        f"most {MAX_HOST_CONFIG_BYTES} bytes, and nested no more than "
+                        f"{MAX_HOST_CONFIG_DEPTH} levels deep. Then rerun verify."
                     ),
                 ),
             )
@@ -826,36 +866,71 @@ def unread_changed_input_gaps(
     return gaps
 
 
-#: Incomplete-input codes that say the reader could not read or parse the
-#: file at the row's path, as the inventory reports it (#1154).
-_UNREAD_FILE_CODES = frozenset({"host_inventory_unreadable", "host_inventory_parse_failed"})
+#: Input-issue codes that say the file at the issue's path was not read: a
+#: read or parse failure, or a binary file (#1154). Inventory issues are
+#: classified from the inventory itself. A diff record with no content
+#: (`boundary_diff_content_missing`) is not one: it says what the supplied
+#: diff lacks, as `scan --changed-files` supplies names only, and the
+#: reader's own read of the file decides whether it was read.
+_UNREAD_INPUT_CODES = frozenset(
+    {
+        "host_inventory_unreadable",
+        "host_inventory_parse_failed",
+        "boundary_input_binary",
+    }
+)
+#: The issue a detached diff carries: it is bound to no checkout (#1154).
+UNBOUND_DIFF_ISSUE = "boundary_diff_unbound"
 
 
-def _records_unread_file(item: AgentResultViolatedRule) -> bool:
+def _records_unread_file(
+    item: AgentResultViolatedRule, unread_paths: Collection[str]
+) -> bool:
     """Whether a row says the bytes of the file at its path were not read (#1154).
 
-    A parse-failure row whose evidence kind does not say the file was read
-    (`check`'s own predicate, :func:`violation_records_unread_input`), or an
-    incomplete-input row raised by an inventory read or parse failure of
-    that file. Other incomplete-input rows keep their review route: an
-    instruction file whose structure is not modelled was read, a file renamed
-    out of a boundary path is a removed trust root, and a summary row names
-    no file of its own.
+    An incomplete-input row counts when the reader did not read that file
+    (``AgentBoundaryAssessment.unread_input_paths``): a read or parse
+    failure, a structure it cannot interpret, a hook file it does not open,
+    an OpenShell document it refuses. Other incomplete-input rows keep their
+    review route: an instruction file whose structure is not modelled was
+    read, a file renamed out of a boundary path is a removed trust root, and
+    a summary row names no file of its own.
+
+    A parse-failure row counts when its evidence kind does not say the file
+    was read (`check`'s own predicate, :func:`violation_records_unread_input`),
+    except a ``*_content_unresolved`` row: that says the diff could not be
+    turned back into the file's text, not that the file could not be read.
+    The reader read and parsed such a file unless the path is also unread
+    above.
     """
 
+    path = (item.path or "").replace("\\", "/")
     if item.id == "BOUNDARY-INPUT-INCOMPLETE":
-        return item.evidence.get("code") in _UNREAD_FILE_CODES
+        return item.evidence.get("kind") == "boundary_input_unresolved" and path in unread_paths
+    if str(item.evidence.get("kind", "")).endswith("_content_unresolved"):
+        return False
     return violation_records_unread_input(item)
+
+
+def _unread_side(rows: list[AgentResultViolatedRule]) -> str:
+    """Which side of the change the rows say was not read: base, head or both."""
+
+    sides = {
+        "base" if str(item.evidence.get("kind", "")).startswith("old_") else "head"
+        for item in rows
+    }
+    return sides.pop() if len(sides) == 1 else "both"
 
 
 def _unread_reason(
     rows: list[AgentResultViolatedRule],
+    messages: Mapping[tuple[str, str], str] | None = None,
 ) -> tuple[AgentResultViolatedRule, str]:
     """The row that best says why one path was not read, and that reason as text.
 
     The nesting bound first, then a read failure's own summary (it names the
     phase and the configured limits), then the parser's error, then the
-    row's title.
+    reader's message for the input issue, then the row's title.
     """
 
     for item in rows:
@@ -871,6 +946,12 @@ def _unread_reason(
         if isinstance(parser, str) and parser:
             where = f" at line {line}" if isinstance(line, int) else ""
             return item, f"{parser}{where}"
+    for item in rows:
+        message = (messages or {}).get(
+            ((item.path or "").replace("\\", "/"), str(item.evidence.get("code")))
+        )
+        if message:
+            return item, " ".join(message.split()).rstrip(".")
     return rows[0], " ".join(rows[0].title.split()).rstrip(".")
 
 
