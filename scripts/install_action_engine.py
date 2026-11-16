@@ -26,15 +26,25 @@ lock, so the installer does: ``pip check`` naming the engine is a version skew,
 refused at install rather than met as an ``ImportError`` in a later step.
 
 The Action passes ``--venv-parent "$RUNNER_TEMP"``. The engine and its locked
-closure then go into a virtual environment of their own, created there from the
+closure then go into a virtual environment of their own, created from the
 runner's Python, so the exact pins never move a package the caller installed
 into that Python. The step outputs name the environment's interpreter
 (``python``) and console-script directory (``bin``), which the Action's later
 steps call by path, and the ``agents-shipgate`` command (``cli``). Only a
 directory holding the ``agents-shipgate`` and ``shipgate`` entry points goes on
 ``GITHUB_PATH``, so the caller's later steps can run the CLI without finding
-this environment's ``python`` or ``pip``. Without the option, as the release
-engine smoke runs it, the installer installs into the interpreter running it.
+this environment's ``python`` or ``pip``.
+
+The environment is always ``<parent>/agents-shipgate/venv``, removed and
+created again on every run, never reused. Its path is part of the engine's
+identity: each console script a dependency installs names the environment's
+interpreter on its first line, the script's hash is in that dependency's
+``RECORD``, and ``RECORD`` is what ``dependency_set_sha256`` hashes. A random
+path gave every run a new ``engine_requirement_id``; one fixed path gives the
+same identity on every run, and lets the release engine smoke install its local
+half where the Action installs its own.
+
+Without the option, the installer installs into the interpreter running it.
 """
 
 from __future__ import annotations
@@ -144,16 +154,44 @@ class _EnvironmentBuilder(venv.EnvBuilder):
         self.created = Environment(python=context.env_exec_cmd, bin=Path(context.bin_path))
 
 
-def create_environment(parent: Path) -> Environment:
-    """A fresh virtual environment under ``parent``, from the interpreter running this.
+#: The one directory under ``--venv-parent`` the installer owns: the
+#: environment at ``venv/`` and the PATH directory at ``cli/``.
+ENVIRONMENT_DIRECTORY = "agents-shipgate"
 
-    Symlinked where `python -m venv` symlinks (everywhere but Windows), so the
-    interpreter finds its shared library exactly as the runner's does. pip
-    comes from the interpreter's own bundled `ensurepip`, which venv runs from
-    inside the new environment's directory, not the workspace.
+
+def environment_root(parent: str) -> Path:
+    """``<parent>/agents-shipgate``, for an existing absolute ``parent`` only.
+
+    An empty ``RUNNER_TEMP`` would otherwise be ``Path("")``, the current
+    directory, which in the Action is the pull request's checkout.
     """
 
-    root = Path(tempfile.mkdtemp(prefix="agents-shipgate-", dir=parent)).resolve()
+    if not parent or not os.path.isabs(parent):
+        raise ValueError(
+            f"--venv-parent must be an absolute directory such as $RUNNER_TEMP, not {parent!r}"
+        )
+    directory = Path(parent)
+    if not directory.is_dir():
+        raise ValueError(f"--venv-parent {parent!r} is not a directory")
+    return directory / ENVIRONMENT_DIRECTORY
+
+
+def create_environment(root: Path) -> Environment:
+    """A fresh virtual environment at ``root/venv``, from the interpreter running this.
+
+    Whatever ``root`` held, an earlier run's environment included, is removed
+    first: a stale environment is never reused. Symlinked where `python -m venv`
+    symlinks (everywhere but Windows), so the interpreter finds its shared
+    library exactly as the runner's does. pip comes from the interpreter's own
+    bundled `ensurepip`, which venv runs from inside the new environment's
+    directory, not the workspace.
+    """
+
+    if root.is_symlink() or root.is_file():
+        root.unlink()
+    elif root.exists():
+        shutil.rmtree(root)
+    root.mkdir()
     builder = _EnvironmentBuilder(with_pip=True, symlinks=os.name != "nt")
     builder.create(root / "venv")
     if builder.created is None:  # pragma: no cover - venv always calls post_setup
@@ -356,21 +394,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--venv-parent",
-        type=Path,
-        help="create the engine's own virtual environment under this directory",
+        help="create the engine's own environment at <this>/agents-shipgate/venv; absolute",
     )
     args = parser.parse_args(argv)
     version = os.environ.get("SHIPGATE_VERSION", "")
     wheel = os.environ.get("SHIPGATE_WHEEL", "")
     wheel_sha256 = os.environ.get("SHIPGATE_WHEEL_SHA256", "")
     environment: Environment | None = None
+    root: Path | None = None
 
     def prepare() -> str:
         nonlocal environment
-        if args.venv_parent is not None:
-            environment = create_environment(args.venv_parent)
-        else:
-            environment = current_environment()
+        environment = create_environment(root) if root is not None else current_environment()
         return environment.python
 
     def prepare_with_runtime() -> str:
@@ -379,6 +414,8 @@ def main(argv: list[str] | None = None) -> int:
         return python
 
     try:
+        if args.venv_parent is not None:
+            root = environment_root(args.venv_parent)
         if wheel or wheel_sha256:
             install_wheel(
                 workspace=Path(os.environ["GITHUB_WORKSPACE"]),
@@ -395,9 +432,8 @@ def main(argv: list[str] | None = None) -> int:
             install_source(prepare())
         assert environment is not None
         require_engine_requirements(environment.python)
-        if args.venv_parent is not None:
-            cli = expose_cli(environment, environment.bin.parent.parent / "cli")
-            publish(environment, cli)
+        if root is not None:
+            publish(environment, expose_cli(environment, root / "cli"))
     except (ValueError, OSError, KeyError, zipfile.BadZipFile, subprocess.CalledProcessError) as exc:
         print(f"Agents Shipgate install refused: {exc}", file=sys.stderr)
         return 1

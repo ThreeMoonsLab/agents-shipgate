@@ -353,13 +353,13 @@ def test_install_step_runs_pip_and_not_the_pull_requests_pip(
     # Then pip's own requirement check, read for lines naming the engine.
     assert calls == [*expected, ["check"]], calls
 
-    # Everything went into one fresh environment under RUNNER_TEMP, never into
-    # the interpreter that ran the step.
+    # Everything went into one fresh environment at the fixed path under
+    # RUNNER_TEMP, never into the interpreter that ran the step.
     published = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
     assert set(published) == {"python", "bin", "cli"}
     python, scripts, cli = (Path(published[key]) for key in ("python", "bin", "cli"))
-    [root] = list(checkout["runner_temp"].iterdir())
-    assert root.name.startswith("agents-shipgate-")
+    root = checkout["runner_temp"] / "agents-shipgate"
+    assert list(checkout["runner_temp"].iterdir()) == [root]
     assert python.parent == scripts == root / "venv" / "bin"
     assert (root / "venv" / "pyvenv.cfg").is_file()
     assert scripts != Path(sysconfig.get_path("scripts"))
@@ -480,6 +480,177 @@ def test_the_runtime_lock_is_a_gated_lock_with_every_pin_hashed() -> None:
     assert ("constraints/action-runtime.txt", "constraints/build-backend.txt") in CO_INSTALLED
     assert ("constraints/dev.txt", "constraints/action-runtime.txt") in CO_INSTALLED
     assert co_installed_problems() == []
+
+
+# --- the environment's path is part of the engine's identity ----------------
+
+
+def _console_script_wheel(directory: Path) -> Path:
+    """An offline stand-in for a locked dependency that installs a console script.
+
+    typer, pygments and markdown-it-py all do. pip writes the script's first
+    line from the installing interpreter's path and hashes the script into
+    RECORD, and `verification_identity._distribution_record_sha256` hashes
+    RECORD into `dependency_set_sha256`.
+    """
+
+    import base64
+
+    files = {
+        "demo_tool/__init__.py": b"def main():\n    return 0\n",
+        "demo_tool-1.0.dist-info/METADATA": b"Metadata-Version: 2.1\nName: demo-tool\nVersion: 1.0\n",
+        "demo_tool-1.0.dist-info/WHEEL": (
+            b"Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+        ),
+        "demo_tool-1.0.dist-info/entry_points.txt": b"[console_scripts]\ndemo = demo_tool:main\n",
+    }
+    record = []
+    for name, data in files.items():
+        digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+        record.append(f"{name},sha256={digest},{len(data)}")
+    record.append("demo_tool-1.0.dist-info/RECORD,,")
+    wheel = directory / "demo_tool-1.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        for name, data in files.items():
+            archive.writestr(name, data)
+        archive.writestr("demo_tool-1.0.dist-info/RECORD", "\n".join(record) + "\n")
+    return wheel
+
+
+def _record_sha256_after_install(root: Path, wheel: Path) -> str:
+    """Create the environment at ``root`` and install ``wheel`` with its real pip, offline."""
+
+    environment = installer.create_environment(root)
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(("PYTHON", "PIP_"))}
+    subprocess.run(
+        [environment.python, "-P", "-m", "pip", "install", "--no-index", "--no-deps",
+         "--disable-pip-version-check", "--quiet", str(wheel)],
+        check=True, env=env, cwd=root, timeout=300,
+    )
+    [record] = (root / "venv").glob("lib*/python*/site-packages/demo_tool-1.0.dist-info/RECORD")
+    text = record.read_text(encoding="utf-8")
+    assert "bin/demo," in text, text
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the POSIX layout of a virtual environment")
+def test_the_fixed_environment_path_gives_one_dependency_identity_per_install(
+    tmp_path: Path,
+) -> None:
+    """Recreated at the same path, the same wheel hashes to the same RECORD (#1032).
+
+    A random path per run gave every Action run, and the release engine smoke's
+    two halves, different `engine_requirement_id`s. The negative control
+    installs the same wheel under another parent and proves the RECORD really
+    does depend on the path, so the equality above is not vacuous.
+    """
+
+    wheel = _console_script_wheel(tmp_path)
+    parent = (tmp_path / "runner-temp").resolve()
+    parent.mkdir()
+    root = installer.environment_root(str(parent))
+    assert root == parent / "agents-shipgate"
+
+    first = _record_sha256_after_install(root, wheel)
+    (root / "venv" / "stale-marker").write_text("from the first run", encoding="utf-8")
+    second = _record_sha256_after_install(root, wheel)
+    assert first == second
+    assert not (root / "venv" / "stale-marker").exists(), "a stale environment was reused"
+
+    elsewhere = (tmp_path / "other-temp").resolve()
+    elsewhere.mkdir()
+    assert _record_sha256_after_install(installer.environment_root(str(elsewhere)), wheel) != first
+
+
+@pytest.mark.parametrize("parent", ["", "relative/temp", "."])
+def test_the_environment_parent_must_be_absolute(
+    parent: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """An empty RUNNER_TEMP would put the environment in the scanned checkout."""
+
+    with pytest.raises(ValueError, match="must be an absolute directory"):
+        installer.environment_root(parent)
+    with pytest.raises(ValueError, match="is not a directory"):
+        installer.environment_root(str(tmp_path / "missing"))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: pytest.fail("pip ran"))
+    monkeypatch.setenv("SHIPGATE_VERSION", "1.3.0")
+    monkeypatch.delenv("SHIPGATE_WHEEL", raising=False)
+    monkeypatch.delenv("SHIPGATE_WHEEL_SHA256", raising=False)
+    assert installer.main(["--venv-parent", parent]) == 1
+    assert list(tmp_path.iterdir()) == []
+
+
+@_BASH_STEPS
+def test_an_empty_runner_temp_refuses_the_install_step(
+    pull_request_checkout: dict[str, Path],
+) -> None:
+    checkout = pull_request_checkout
+    before = sorted(path.name for path in checkout["workspace"].iterdir())
+    result = _run_step(checkout, "Install Agents Shipgate", {**_INSTALL_ENV, "RUNNER_TEMP": ""})
+    assert result.returncode != 0
+    assert "--venv-parent must be an absolute directory" in result.stderr, result.stderr
+    assert sorted(path.name for path in checkout["workspace"].iterdir()) == before
+    assert not (checkout["markers"] / "trusted-pip").exists()
+
+
+@_BASH_STEPS
+def test_each_run_recreates_the_environment_at_the_same_path(
+    pull_request_checkout: dict[str, Path], tmp_path: Path,
+) -> None:
+    """Two Action runs, or two invocations in one job, publish the same paths."""
+
+    checkout = pull_request_checkout
+    root = checkout["runner_temp"] / "agents-shipgate"
+    published = []
+    for run in range(2):
+        output = tmp_path / f"github-output-{run}"
+        output.write_text("", encoding="utf-8")
+        result = _run_step(checkout, "Install Agents Shipgate",
+                           {**_INSTALL_ENV, "GITHUB_OUTPUT": str(output)})
+        assert result.returncode == 0, result.stdout + result.stderr
+        published.append(output.read_text(encoding="utf-8"))
+        if run == 0:
+            (root / "venv" / "stale-from-the-first-run").write_text("x", encoding="utf-8")
+            (root / "leftover").write_text("x", encoding="utf-8")
+    assert published[0] == published[1]
+    assert f"python={root / 'venv' / 'bin'}" in published[0]
+    # Recreated, not reused: nothing the first run left survives the second.
+    assert sorted(path.name for path in root.iterdir()) == ["cli", "venv"]
+    assert not (root / "venv" / "stale-from-the-first-run").exists()
+
+
+def test_direct_mode_installs_the_wheel_into_the_running_interpreter(
+    wheel: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """Without `--venv-parent`: the lock, the wheel, `pip check`, and nothing published."""
+
+    calls: list[list[str]] = []
+
+    def pip(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", pip)
+    output, path_file = tmp_path / "github-output", tmp_path / "github-path"
+    for handle in (output, path_file):
+        handle.write_text("", encoding="utf-8")
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(wheel.parent))
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    monkeypatch.setenv("GITHUB_PATH", str(path_file))
+    monkeypatch.setenv("SHIPGATE_VERSION", "")
+    monkeypatch.setenv("SHIPGATE_WHEEL", wheel.name)
+    monkeypatch.setenv("SHIPGATE_WHEEL_SHA256", hashlib.sha256(wheel.read_bytes()).hexdigest())
+
+    assert installer.main([]) == 0
+    pip_prefix = [sys.executable, "-P", "-m", "pip"]
+    assert [call[:4] for call in calls] == [pip_prefix] * 3
+    assert calls[0][4:] == _RUNTIME
+    assert calls[1][4:-1] == ["install", "--force-reinstall", "--no-deps", "--no-warn-script-location"]
+    assert Path(calls[1][-1]).name == wheel.name and Path(calls[1][-1]) != wheel
+    assert calls[2][4:] == ["check"]
+    assert output.read_text(encoding="utf-8") == "" and path_file.read_text(encoding="utf-8") == ""
 
 
 def test_the_action_calls_its_python_and_console_scripts_by_path() -> None:

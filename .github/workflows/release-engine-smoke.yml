@@ -71,18 +71,26 @@ jobs:
           path: .shipgate-smoke/wheels
       - name: Install dependencies from the reviewed lock
         run: python -m pip install --require-hashes -r constraints/dev.txt
+      # The local half installs where the Action installs: the same installer,
+      # the same base interpreter and the same RUNNER_TEMP/agents-shipgate/venv.
+      # A dependency's RECORD hashes its console scripts, whose first line names
+      # the environment's interpreter, so a different path would give the two
+      # halves different engine identities (#1032). The Action recreates that
+      # environment in its own install step, after `prepare` has run here.
       - name: Install the exact wheel for the local half
+        id: local
         env:
           SHIPGATE_WHEEL: .shipgate-smoke/wheels/${{ needs.candidate.outputs.wheel_filename }}
           SHIPGATE_WHEEL_SHA256: ${{ needs.candidate.outputs.wheel_sha256 }}
-        run: python scripts/install_action_engine.py
+        run: python scripts/install_action_engine.py --venv-parent "${RUNNER_TEMP}"
       - name: Exercise the installed CLI in a disposable adoption and PR workflow
         id: fixture
         env:
+          LOCAL_PYTHON: ${{ steps.local.outputs.python }}
           SOURCE_SHA: ${{ github.sha }}
           WHEEL_PATH: .shipgate-smoke/wheels/${{ needs.candidate.outputs.wheel_filename }}
         run: |
-          python scripts/release_engine_smoke.py prepare --disposable-checkout \
+          "${LOCAL_PYTHON}" scripts/release_engine_smoke.py prepare --disposable-checkout \
             --source-commit "${SOURCE_SHA}" --wheel "${WHEEL_PATH}"
       - name: Exercise the Action from the same immutable checkout
         uses: ./
@@ -98,7 +106,10 @@ jobs:
           check_annotations: "false"
           pr_comment: "false"
       - name: Require local and Action capability results to agree
-        run: python scripts/release_engine_smoke.py compare > .shipgate-smoke/distribution-evidence.json
+        env:
+          LOCAL_PYTHON: ${{ steps.local.outputs.python }}
+        run: |
+          "${LOCAL_PYTHON}" scripts/release_engine_smoke.py compare > .shipgate-smoke/distribution-evidence.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

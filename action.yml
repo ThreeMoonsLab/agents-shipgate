@@ -388,12 +388,13 @@ runs:
         # leaves it off. A script path puts the script's directory first, not
         # the workspace, and the installer passes `-P` to its own pip.
         #
-        # The installer creates a virtual environment under RUNNER_TEMP from
-        # this interpreter, installs constraints/action-runtime.txt into it
-        # with --require-hashes and then the engine with --no-deps (#1032),
-        # and writes its interpreter (`python`), scripts (`bin`) and CLI
-        # (`cli`). Only a directory holding `agents-shipgate` and `shipgate`
-        # goes on GITHUB_PATH.
+        # The installer recreates the virtual environment at the fixed path
+        # RUNNER_TEMP/agents-shipgate/venv from this interpreter (a fixed path
+        # keeps engine_requirement_id the same on every run), installs
+        # constraints/action-runtime.txt into it with --require-hashes and then
+        # the engine with --no-deps (#1032), and writes its interpreter
+        # (`python`), scripts (`bin`) and CLI (`cli`). Only a directory holding
+        # `agents-shipgate` and `shipgate` goes on GITHUB_PATH.
         "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/install_action_engine.py" --venv-parent "${RUNNER_TEMP}"
 
     - name: Validate Agents Shipgate check-run policy

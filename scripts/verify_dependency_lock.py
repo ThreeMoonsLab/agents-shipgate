@@ -210,8 +210,9 @@ CO_INSTALLED: tuple[tuple[str, ...], ...] = (
     ("constraints/dev.txt", "constraints/build-backend.txt"),
     # The Action's source route installs both into its own environment.
     ("constraints/action-runtime.txt", "constraints/build-backend.txt"),
-    # The release engine smoke runs the installer directly in a job Python that
-    # already holds dev.txt, and the Action must run the versions the suite ran.
+    # Not installed together any more (the Action installs into an environment
+    # of its own), but held to the same versions: the Action must run what the
+    # suite ran.
     ("constraints/dev.txt", "constraints/action-runtime.txt"),
 )
 

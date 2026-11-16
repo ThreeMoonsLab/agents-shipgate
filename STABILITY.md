@@ -706,14 +706,28 @@ an unlocked closure:
 - The comment steps update a prior comment only when its author is the `Bot`
   `github-actions[bot]`. Any other comment carrying a marker is left alone and
   the step posts its own.
-- Every install route creates a virtual environment under `RUNNER_TEMP` from
-  the `setup-python` interpreter, installs `constraints/action-runtime.txt`
+- Every install route creates a virtual environment at the fixed path
+  `$RUNNER_TEMP/agents-shipgate/venv` from the `setup-python` interpreter,
+  removing whatever was there first, installs `constraints/action-runtime.txt`
   into it with `--require-hashes`, then the engine with `--no-deps`. The
   source route also installs `constraints/build-backend.txt` and builds with
   `--no-build-isolation`. The lock is the runtime half of `constraints/dev.txt`,
   at the same versions and hashes. Nothing is installed into the runner's
   Python, so a package the caller's earlier steps installed there is never
-  upgraded or downgraded by the lock's exact pins.
+  upgraded or downgraded by the lock's exact pins. An empty or relative
+  `RUNNER_TEMP` is refused rather than letting the environment land in the
+  checkout.
+- The path is fixed because it is part of the engine's identity: a
+  dependency's console script names the environment's interpreter on its first
+  line, its hash is in that dependency's `RECORD`, and `dependency_set_sha256`
+  hashes `RECORD`. A path that changed per run would change
+  `engine_requirement_id`, and with it `request_id`, `decision_id` and the
+  receipt identities, on every run, breaking same-inputs-same-identities,
+  base-cache reuse and the authorized-execution engine check. On one runner
+  image the identity is the same from run to run. It differs from the identity
+  the same engine reports when installed into the runner's own Python, as it
+  did before for any two different interpreters. Release Engine Smoke installs
+  its local half at the same path, so its two halves still compare equal.
 - `setup-python` runs with `update-environment: false`. The Action's steps call
   the environment's interpreter and console scripts by path. Only a directory
   holding the `agents-shipgate` and `shipgate` commands is added to `PATH` for
@@ -755,6 +769,17 @@ the command.
 - A later step that ran `python` or `pip` and relied on the Action having set
   up 3.12 needs its own `actions/setup-python`. A later step that runs
   `agents-shipgate` or `shipgate` needs nothing.
+- A later step in a job that set up Python 3.12 itself, and then ran
+  `python -m agents_shipgate …` (the form `AGENTS.md` documents) or imported
+  `agents_shipgate`, found the engine the Action had installed into that same
+  Python. It now fails with `ModuleNotFoundError`, because the engine is in the
+  Action's own environment. Run the `agents-shipgate` command the Action put on
+  `PATH` (or the `cli_path` output) instead, or install the engine into that
+  Python yourself.
+- A record that compared an Action run's `engine_requirement_id` (and the
+  identities derived from it) with one from an earlier Action release, or with
+  `verify` run in the runner's own Python, sees a new value once: the engine
+  now runs in its own environment.
 - A workflow that installed packages into the runner's Python before the
   Action and expected the Action's engine to see them, such as check plugins
   enabled with `AGENTS_SHIPGATE_ENABLE_PLUGINS=1`, no longer has them loaded:
