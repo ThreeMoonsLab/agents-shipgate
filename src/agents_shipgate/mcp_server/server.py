@@ -273,9 +273,9 @@ _TOOL_DESCRIPTIONS = {
         "violations and advisory rows for only the host files the diff "
         "changes. Because the diff is bound to no checkout, every result stops "
         "for human routing (`control.state` `human_review_required`), "
-        "authorizes no verify command and grants no permission, and its "
-        "`decision` is never `allow` nor its `input_coverage` `complete`. It "
-        "runs no scan or verify and is not a release or merge verdict."
+        "authorizes no verify command and grants no permission; `decision` is "
+        "never `allow`. It runs no scan or verify and is not a release or "
+        "merge verdict."
     ),
     "shipgate.preflight": (
         "Before editing, route a planned change: does it touch a protected "

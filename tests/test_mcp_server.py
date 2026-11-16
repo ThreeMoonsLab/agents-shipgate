@@ -490,7 +490,7 @@ _REQUIRED_STATEMENTS = {
         "every result stops for human routing",
         "`human_review_required`",
         "authorizes no verify command and grants no permission",
-        "`decision` is never `allow` nor its `input_coverage` `complete`",
+        "`decision` is never `allow`",
         "runs no scan or verify and is not a release or merge verdict",
     ),
     "shipgate.preflight": (
