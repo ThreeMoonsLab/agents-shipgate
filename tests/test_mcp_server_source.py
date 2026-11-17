@@ -33,6 +33,7 @@ from agents_shipgate.inputs.mcp_server_source import (
     MAX_SCANNED_FILES,
     SOURCE_TYPE,
     MCPServerSourceAdapter,
+    _unread_reason,
     load_mcp_server_source,
 )
 from agents_shipgate.inputs.protocol import REGISTRY
@@ -402,6 +403,20 @@ def test_the_file_cap_is_reported_and_holds_every_surface_partial(
     for tool in loaded.tools:
         assert tool.extraction["surface"] == SURFACE_PARTIAL
         assert "walk_capped" in tool.extraction["surface_gaps"]
+
+
+def test_source_stat_failure_reports_unreadable_file(tmp_path, monkeypatch):
+    path = tmp_path / "server.ts"
+    path.write_text("// Source\n", encoding="utf-8")
+    original_stat = Path.stat
+
+    def cannot_stat_source(candidate, *args, **kwargs):
+        if candidate == path:
+            raise PermissionError("Cannot inspect this source file")
+        return original_stat(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", cannot_stat_source)
+    assert _unread_reason(path) == "unreadable_file"
 
 
 def test_a_file_too_large_to_read_holds_the_whole_source_partial(

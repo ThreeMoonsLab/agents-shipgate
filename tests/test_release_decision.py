@@ -1398,3 +1398,22 @@ def test_an_enabled_tool_comparison_that_withheld_absence_is_still_an_incomplete
     decision = _build(report, ci_mode="advisory", tools=[])
     assert not [gap for gap in decision.evidence_coverage.evidence_gaps if gap.source_ref == "--diff-from"]
 
+
+def test_unavailable_binding_base_leaves_an_unbound_tool_gap():
+    from agents_shipgate.schemas.bindings import AgentBindingGraphAssessment, BindingSurfaceDiff
+    from agents_shipgate.schemas.surfaces import ToolSurfaceDiff
+
+    report = _report(tools=[], summary_status="no_release_blockers_detected")
+    report.binding_surface_diff = BindingSurfaceDiff(base_comparison_requested=True)
+    report.tool_surface_diff = ToolSurfaceDiff(enabled=True)
+    report.binding_surface_facts = AgentBindingGraphAssessment(
+        status="structural", unbound_tool_ids=["tool:lookup"],
+    )
+
+    decision = _build(report, ci_mode="advisory", tools=[])
+
+    assert decision.decision == "insufficient_evidence"
+    [gap] = [gap for gap in decision.evidence_coverage.evidence_gaps if gap.source_ref == "--diff-from"]
+    assert gap.kind == "missing_binding_evidence"
+    assert "base comparison this run requested could not be performed" in gap.why
+

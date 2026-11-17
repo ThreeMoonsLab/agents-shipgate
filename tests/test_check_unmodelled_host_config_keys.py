@@ -37,7 +37,9 @@ rates them by the same table (``tests/test_prompt_disabling_settings.py``).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -219,6 +221,32 @@ def _check(tmp_path: Path, range_args: list[str], format_: str, agent: str = "cl
 def _no_merge_authority(permissions: dict[str, bool]) -> None:
     assert permissions["merge"] is False
     assert permissions["report_complete"] is False
+
+
+def test_check_fixtures_ignore_global_excludes(tmp_path: Path) -> None:
+    """Run both local-settings variants under a conflicting Git config."""
+    excludes = tmp_path / "ignore"
+    excludes.write_text("**/.claude/settings.local.json\n", encoding="utf-8")
+    config = tmp_path / "gitconfig"
+    subprocess.run(
+        ["git", "config", "--file", str(config), "core.excludesFile", str(excludes)],
+        check=True,
+    )
+    child_env = {**os.environ, "GIT_CONFIG_GLOBAL": str(config)}
+    for key in ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS", "SHIPGATE_TEST_SHARD", "SHIPGATE_TEST_SHARDS"):
+        child_env.pop(key, None)
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "pytest", "-q", str(Path(__file__).resolve()),
+            "-k", "test_check_answers_an_unmodelled_settings_key_in_every_format and local_settings_enabled_plugins",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env=child_env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize("mode", ["worktree", "git_range"])
