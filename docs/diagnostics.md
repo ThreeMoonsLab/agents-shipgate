@@ -458,9 +458,22 @@ unresolved-name recovery remains unchanged, and doctor does not offer a
 higher-cap retry it has no flag to consume. These facts describe the current
 invocation; they do not provide a verifier snapshot or release authority.
 
-Matching is on every segment, not the leaf, because `collect_placeholders` names
-a list item by its own text: a `CHANGE_ME` under `declared_purpose: [...]` is
-reported as `agent.declared_purpose.CHANGE_ME`.
+Ownership matching checks every segment of the field path.
+`collect_placeholders` reads paths from the parsed YAML nodes and reports the
+placeholder's 1-based source line. It uses zero-based indexes for list items.
+Both the block-style and flow-style forms below report
+`agent.declared_purpose[0]`, on line 3 and line 2 respectively.
+
+```yaml
+agent:
+  declared_purpose:
+    - CHANGE_ME
+```
+
+```yaml
+agent:
+  declared_purpose: [CHANGE_ME]
+```
 
 **One route reaches every field.** `next_action`, `next_actions[0]`, and
 `control.next_action` are all projections of the one selected route, so a
