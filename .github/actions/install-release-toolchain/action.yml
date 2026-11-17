@@ -120,7 +120,11 @@ runs:
         esac
 
         name_re='^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$'
-        version_re='^[A-Za-z0-9][A-Za-z0-9.!+_-]*$'
+        # A normalized PEP 440 public version, as uv writes it: no epoch, no
+        # local label, and nothing else. pip reads `uv==0.13.6.tar.gz` (or
+        # `.zip`, `.whl`) as a link to a local file rather than as a pin, so a
+        # looser pattern recorded `uv` for a requirement that is not one.
+        version_re='^[0-9]+(\.[0-9]+)*((a|b|rc)[0-9]+)?(\.post[0-9]+)?(\.dev[0-9]+)?$'
         # No `-`, because pip reads the rest of a requirement line as options
         # from the first word that starts with one; and no `#`, `\`, `$` or `;`.
         marker_re="^[A-Za-z0-9_.<>=!~()' \"]+\$"

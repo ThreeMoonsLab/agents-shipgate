@@ -3417,7 +3417,12 @@ def _pinned_names(lockfile: bytes) -> set[str]:
 
 
 def _pip_requirement_names(path: Path) -> set[str]:
-    """What pip itself reads from a requirements file, offline.
+    """What pip itself would install from a requirements file, read offline.
+
+    A requirement pip resolves on the index is its distribution name. One it
+    reads as a link instead, to a URL or a local file, is `<link: …>`, so a
+    comparison with the guard's names also fails when pip installs the right
+    name from the wrong place: `uv==0.13.6.tar.gz` is a file to pip, not `uv`.
 
     pip's parser is internal API, so this skips rather than fails when it is
     not importable; the guard's own tests do not depend on it.
@@ -3425,15 +3430,19 @@ def _pip_requirement_names(path: Path) -> set[str]:
 
     try:
         from pip._internal.network.session import PipSession
+        from pip._internal.req.constructors import install_req_from_parsed_requirement
         from pip._internal.req.req_file import parse_requirements
     except ImportError as exc:  # pragma: no cover - depends on the pip installed
         pytest.skip(f"pip's requirements-file parser is not importable: {exc}")
-    from packaging.requirements import Requirement
 
-    return {
-        _normalized(Requirement(parsed.requirement.strip()).name)
-        for parsed in parse_requirements(str(path), session=PipSession())
-    }
+    read = set()
+    for parsed in parse_requirements(str(path), session=PipSession()):
+        requirement = install_req_from_parsed_requirement(parsed)
+        if requirement.link is not None or not requirement.name:
+            read.add(f"<link: {parsed.requirement.strip()}>")
+        else:
+            read.add(_normalized(requirement.name))
+    return read
 
 
 _RELEASE_LOCKS = sorted(
@@ -3558,6 +3567,23 @@ def test_pip_installs_what_each_refused_lockfile_hides(tmp_path: Path, case: str
     assert _pip_requirement_names(path) == {"uv", "evilpkg"}
 
 
+@pytest.mark.parametrize("suffix", [".tar.gz", ".zip"])
+def test_pip_reads_an_archive_suffixed_version_as_a_file_not_a_pin(
+    tmp_path: Path, suffix: str
+) -> None:
+    """The guard used to record `uv` for `uv==0.13.6.tar.gz`; pip installs a
+    local file of that name instead of `uv` from the index."""
+
+    lockfile = f"uv==0.13.6{suffix} \\\n    --hash=sha256:aa\n".encode()
+    path = tmp_path / "requirements.txt"
+    path.write_bytes(lockfile)
+
+    assert _pip_requirement_names(path) == {f"<link: uv==0.13.6{suffix}>"}
+    code, output = _run_allowlist(tmp_path, lockfile)
+    assert code != 0
+    assert "not an exact name==version pin" in output
+
+
 def test_the_allowlist_accepts_valid_hash_continuations(tmp_path: Path) -> None:
     lockfile = (
         "# header — non-ASCII text is fine in a comment\n"
@@ -3622,6 +3648,13 @@ def test_the_allowlist_accepts_valid_hash_continuations(tmp_path: Path) -> None:
         ),
         ("uv==0.11.7 ; ${MARKER} \\\n    --hash=sha256:aa\n", "environment marker"),
         ("uv===0.11.7 \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
+        # pip reads a "version" ending in an archive suffix as a local file.
+        ("uv==0.11.7.tar.gz \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
+        ("uv==0.11.7.zip \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
+        ("uv==0.11.7.whl \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
+        # Only a normalized public version: no epoch, no local label.
+        ("uv==1!0.11.7 \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
+        ("uv==0.11.7+local \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
         ("uv[extra]==0.11.7 \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
         # Non-ASCII text is accepted in comments and nowhere else.
         ("uv—x==0.11.7 \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),

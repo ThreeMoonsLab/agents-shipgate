@@ -15,8 +15,9 @@ actions under `.github/actions/`, and hold each one to the rules:
   step output becomes shell syntax. Values reach a script through `env:`.
 * Every action and reusable workflow from another repository is pinned to a
   full commit SHA. A tag or branch can be moved to different code.
-* A credential (`secrets.*`, `github.token`) is given to a single step,
-  through that step's `env:` or `with:`, never to a whole job or workflow.
+* A credential (anything read from `secrets`, however it is spelled, or
+  `github.token`) is given to a single step, through that step's `env:` or
+  `with:`, never to a whole workflow, job, job container or service.
 * Every job that runs steps has a `timeout-minutes`.
 
 The last section holds the other half of #1033: in `ci.yml`, a failing
@@ -42,7 +43,10 @@ COMPOSITE_ACTIONS = sorted((REPO_ROOT / ".github/actions").glob("*/action.yml"))
 HARNESS = REPO_ROOT / ".github/workflows/adoption-harness.yml"
 
 _PINNED = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
-_CREDENTIAL = re.compile(r"\bsecrets\.|\bgithub\.token\b")
+# `secrets` as a word, so `secrets.X`, `secrets['X']` and `toJSON(secrets)` all
+# count.
+_CREDENTIAL = re.compile(r"\bsecrets\b|\bgithub\.token\b")
+_FROM_INPUTS = re.compile(r"\$\{\{\s*(github\.event\.)?inputs\.")
 _EXPRESSION = re.compile(r"\$\{\{")
 
 
@@ -117,10 +121,16 @@ def test_credentials_are_given_to_single_steps(path: Path) -> None:
     for name, job in (document.get("jobs") or {}).items():
         if _CREDENTIAL.search(str(job.get("env") or "")):
             broad.append(f"job {name!r} env")
+        container = job.get("container")
+        if isinstance(container, dict) and _CREDENTIAL.search(str(container.get("env") or "")):
+            broad.append(f"job {name!r} container env")
+        for service, definition in (job.get("services") or {}).items():
+            if isinstance(definition, dict) and _CREDENTIAL.search(str(definition.get("env") or "")):
+                broad.append(f"job {name!r} service {service!r} env")
 
     assert not broad, (
-        f"{_relative(path)}: a credential in a workflow or job environment reaches every "
-        f"step, and every process those steps start; give it to the one step that needs it: {broad}"
+        f"{_relative(path)}: a credential in a workflow, job, container or service environment "
+        f"reaches more than the step that needs it; give it to that one step: {broad}"
     )
 
 
@@ -148,12 +158,27 @@ def test_the_harness_api_key_reaches_only_the_step_that_runs_the_harness() -> No
     assert holders == ["job 'run', step 'Run harness'"]
     run_step = next(step for label, step in _steps(HARNESS) if label == holders[0])
     assert run_step["env"]["ANTHROPIC_API_KEY"] == "${{ secrets.ANTHROPIC_API_KEY }}"
-    # The dispatch inputs arrive as variables, and the script quotes every
-    # expansion of them.
-    for variable in ("MATRIX_FILE", "SHIPGATE_HARNESS_BUDGET_USD", "AGENT_FILTER"):
-        assert run_step["env"][variable].startswith("${{ inputs."), variable
-        assert re.search(rf'"\$\{{{variable}\}}"', run_step["run"]), variable
-        assert not re.search(rf'(?<!")\$\{{?{variable}\b(?!\}}")', run_step["run"]), variable
+
+
+def test_the_harness_expands_every_dispatch_input_only_inside_quotes() -> None:
+    """Whatever variable a step's `env:` fills from a dispatch input, its
+    script expands only as `"${NAME}"`, so an input is one argument and never
+    shell syntax. The variables are read from the workflow, so an input added
+    later is held to the same rule without a test edit."""
+
+    declared = set(_load(HARNESS)[True]["workflow_dispatch"]["inputs"])
+    used: set[str] = set()
+    for label, step in _steps(HARNESS):
+        for variable, value in (step.get("env") or {}).items():
+            match = _FROM_INPUTS.search(str(value))
+            if not match:
+                continue
+            used.add(str(value)[match.end() :].split()[0].rstrip("}"))
+            script = str(step.get("run", ""))
+            assert re.search(rf'"\$\{{{variable}\}}"', script), (label, variable)
+            assert not re.search(rf'(?<!")\$\{{?{variable}\b(?!\}}")', script), (label, variable)
+
+    assert used == declared
 
 
 def test_the_harness_installs_only_hash_locked_closures() -> None:
