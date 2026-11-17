@@ -2094,9 +2094,20 @@ class _SdkNames:
         return None
 
     def denotes(
-        self, spelling: str | None, node: ast.AST, symbol: str, defaults: frozenset[str]
+        self,
+        spelling: str | None,
+        node: ast.AST,
+        symbol: str,
+        defaults: frozenset[str],
+        *,
+        track_ambiguity: bool = False,
     ) -> bool | None:
-        """True for an SDK name, false for a foreign name, None for an ambiguous binding."""
+        """Read an SDK symbol, optionally retaining unresolved provenance.
+
+        Agent construction has a downstream ownership proof. Keep recognizing
+        candidates with a proven SDK import and a competing assignment there
+        so the ownership proof can show why the construction was withheld.
+        """
         if not spelling:
             return False
         head, _, rest = spelling.partition(".")
@@ -2104,7 +2115,9 @@ class _SdkNames:
         if bound is None:
             if spelling not in defaults:
                 return False
-            if self.sdk_wildcard and (self.foreign_wildcard or not self.direct_sdk_wildcard):
+            if track_ambiguity and self.sdk_wildcard and (
+                self.foreign_wildcard or not self.direct_sdk_wildcard
+            ):
                 return None
             return not self.foreign_wildcard
         matches = [
@@ -2114,8 +2127,11 @@ class _SdkNames:
                 and (f"{path}.{rest}" if rest else path).rsplit(".", 1)[-1] == symbol
             )
             for path in bound
+            if path is not None or track_ambiguity
         ]
-        return (True if all(matches) else None) if any(matches) else False
+        if matches and all(matches):
+            return True
+        return None if track_ambiguity and any(matches) else False
 
 
 def _is_sdk_path(path: str) -> bool:
@@ -2132,7 +2148,8 @@ def _function_tool_decorators(
             continue
         for decorator in node.decorator_list:
             match = names.denotes(
-                _decorator_name(decorator), decorator, "function_tool", DEFAULT_FUNCTION_TOOL_DECORATORS
+                _decorator_name(decorator), decorator, "function_tool", DEFAULT_FUNCTION_TOOL_DECORATORS,
+                track_ambiguity=True,
             )
             if match:
                 decorators.add(id(decorator))
@@ -2198,7 +2215,7 @@ def _sdk_context(node: ast.FunctionDef | ast.AsyncFunctionDef, names: _SdkNames)
     else:
         spelling = dotted_name(annotation.value if isinstance(annotation, ast.Subscript) else annotation)
     for symbol in ("RunContextWrapper", "ToolContext"):
-        if names.denotes(spelling, annotation, symbol, frozenset({symbol})):
+        if names.denotes(spelling, annotation, symbol, frozenset({symbol}), track_ambiguity=True):
             return positional[0]
     return None
 
