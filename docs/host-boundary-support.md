@@ -1247,9 +1247,11 @@ a readable head, so no row claims what the change added. Not counted as
 unread: a file the reader read whose content it does not model (an
 instruction file's structure, an unknown settings key, a workflow text it
 does not compare), a row that says only that the diff could not be turned
-back into text, the gate's own boundary policy (an unparseable changed policy
-reads as its rules removed and blocks), and a manifest-declared policy pack
-(one that does not load stops the run). A file git reports identical on both
+back into text, and a manifest-declared policy pack (one that does not load
+stops the run). The gate's own boundary policies
+(`policies/*-boundary.shipgate.yaml`) are counted as unread too, and an
+unparseable unified or Codex policy also reads as its rules removed and
+blocks with `SHIP-CODEX-BOUNDARY-POLICY-WEAKENED`. A file git reports identical on both
 sides adds no gap: readable, it contributes no row, so its unread copy keeps
 the `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` review row and does not fail every
 pull request in the repository. `check --diff` is bound to no checkout, so it

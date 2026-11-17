@@ -1139,7 +1139,13 @@ def _load_structured(
                 blocking=True,
             )
             issues.append(issue)
-            cache.shape_refusal_issue_ids.add(issue["issue_id"])
+            # Unread input only for a file Claude Code reads as settings or
+            # hooks: a settings layer, or a Claude hook file. Another file
+            # read under this host — a nested workflow or a Shipgate state
+            # file the shared adapter lists — is not one, and its refusal
+            # keeps the review route it had (#1154 review).
+            if kind == "hooks" or source in _CLAUDE_SETTINGS_RANK:
+                cache.shape_refusal_issue_ids.add(issue["issue_id"])
             artifacts.append(_artifact(
                 host=host, scope=scope, source=source, kind=kind, status="unsupported",
                 resolved_through=resolved_through,

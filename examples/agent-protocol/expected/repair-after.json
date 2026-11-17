@@ -3,36 +3,42 @@
   "agent": "codex",
   "tool": {
     "name": "agents-shipgate",
-    "version": "0.16.0b6"
+    "version": "1.3.0"
   },
   "subject": {
     "agent": "codex"
   },
-  "decision": "allow",
+  "decision": "require_review",
   "risk_level": "none",
-  "audit_id": "codex_boundary_40e6127aa64d7d270dff675d",
+  "audit_id": "agent_boundary_d40085f0da81a1192f6dea1e",
   "policy_version": "1",
-  "summary": "No Codex boundary changes require action.",
+  "summary": "The supplied input does not establish an evaluated checkout state. Re-run check against the intended worktree or with both --base and --head.",
   "changed_files": [
     ".codex/config.toml"
   ],
   "control": {
-    "state": "complete",
-    "reason": "No Codex boundary changes require action.",
-    "completion_allowed": true,
-    "must_stop": false,
+    "state": "human_review_required",
+    "reason": "The supplied input does not establish an evaluated checkout state. Re-run check against the intended worktree or with both --base and --head.",
+    "completion_allowed": false,
+    "must_stop": true,
     "verify_required": false,
-    "next_action": null,
+    "next_action": {
+      "actor": "human",
+      "kind": "review",
+      "command": null,
+      "expects": null,
+      "why": "The supplied input does not establish an evaluated checkout state. Re-run check against the intended worktree or with both --base and --head."
+    },
     "allowed_next_commands": [],
     "human_review": {
-      "required": false,
-      "why": null,
+      "required": true,
+      "why": "The supplied input does not establish an evaluated checkout state. Re-run check against the intended worktree or with both --base and --head.",
       "required_reviewers": []
     },
-    "stop_reason": null
+    "stop_reason": "The supplied input does not establish an evaluated checkout state. Re-run check against the intended worktree or with both --base and --head."
   },
   "repair": {
-    "actor": "coding_agent",
+    "actor": "human",
     "safe_to_attempt": false,
     "instructions": [],
     "forbidden_shortcuts": [
@@ -43,13 +49,14 @@
     ]
   },
   "policy": {
-    "id": "codex-boundary-default",
+    "id": "agent-boundary",
     "version": "1",
-    "source": "packaged_default",
-    "snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8",
+    "source": "workspace",
+    "snapshot_sha256": "480e1cecc5c13c7f7a9bdc9d341ea74453bfc1c8dfdaeb13a96c7ba86e2658e0",
     "discovery": [
-      "workspace_missing:policies/codex-boundary.shipgate.yaml",
-      "packaged_default"
+      "legacy_policy_compatibility",
+      "workspace:policies/codex-boundary.shipgate.yaml",
+      "workspace:policies/host-boundary.shipgate.yaml"
     ]
   },
   "violated_rules": [],
@@ -59,21 +66,21 @@
     }
   ],
   "required_reviewers": [],
-  "explanation": "No Codex boundary changes require action.",
+  "explanation": "The supplied input does not establish an evaluated checkout state. Re-run check against the intended worktree or with both --base and --head.",
   "suggested_fixes": [],
   "agent_repair_instructions": [],
   "diagnostics": [
     {
       "level": "info",
       "code": "content_source",
-      "message": "Evaluated Codex boundary file from diff_new_file.",
+      "message": "Evaluated coding-agent boundary file from diff_new_file.",
       "path": ".codex/config.toml"
     }
   ],
   "trace": [
     {
       "step": "policy_discovery",
-      "summary": "Loaded policy codex-boundary-default from packaged_default."
+      "summary": "Loaded 2 coding-agent boundary policy families."
     },
     {
       "step": "decision",
@@ -82,7 +89,9 @@
   ],
   "source_artifacts": {},
   "trigger": {
-    "schema_version": "0.1",
+    "schema_version": "0.4",
+    "input_status": "complete",
+    "evaluation_status": "evaluated",
     "should_run": true,
     "run_shipgate": true,
     "skip": false,
@@ -90,26 +99,35 @@
     "dry_run_recommended": false,
     "skip_reason": null,
     "stop_conditions_fired": false,
+    "stop_conditions_terminal": false,
     "stop_conditions_evaluated": false,
     "rationale": "1 run_shipgate rule(s) matched.",
     "matched_rules": [
       {
         "id": "TRIGGER-CODEX-BOUNDARY-CONFIG-CHANGED",
         "action": "run_shipgate",
+        "surface_class": "host_boundary",
         "rationale": "Repo-local Codex config controls sandboxing, network access, MCP approvals, hooks, and permission profiles; changes need a local boundary check.",
-        "command": "shipgate check --agent codex --workspace . --format codex-boundary-json"
+        "command": "shipgate check --agent codex --workspace . --format agent-boundary-json"
       }
     ],
     "changed_files": [
       ".codex/config.toml"
     ],
+    "surface_exclusions": {
+      "entries": [],
+      "total": 0,
+      "gated": 0,
+      "gap_backed": 0,
+      "truncated": false
+    },
     "diff_tokens": [],
     "next_action": {
       "kind": "command",
-      "command": "shipgate check --agent codex --workspace . --format codex-boundary-json",
+      "command": "shipgate check --agent codex --workspace . --format agent-boundary-json",
       "why": "This change looks agent-related; start with verify preview and adopt Shipgate if the preview routes setup."
     }
   },
   "finding_fingerprints": [],
-  "policy_snapshot_sha256": "83ea4e4afeee1b003310f4f3ae88dbf986e0b24f64c339aaf3045dcb2b7746e8"
+  "policy_snapshot_sha256": "480e1cecc5c13c7f7a9bdc9d341ea74453bfc1c8dfdaeb13a96c7ba86e2658e0"
 }

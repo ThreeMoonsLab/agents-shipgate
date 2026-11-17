@@ -372,7 +372,6 @@ def test_an_unreadable_variant_never_weakens_the_verdict(
     assert "RecursionError" not in json.dumps(unread)
 
 
-# A settings file the reader parses but cannot interpret.
 # A host configuration the reader parses but cannot interpret:
 # shape -> (path, base, head).
 SHAPES: dict[str, tuple[str, str, str]] = {
@@ -402,6 +401,83 @@ def test_a_shape_the_reader_cannot_interpret_is_unread(tmp_path: Path, shape: st
     # `check` answers too: a top-level array used to fail it with a traceback.
     assert (check["decision"], check["input_coverage"]) == ("require_review", "partial")
     assert check["control"]["state"] == "human_review_required"
+
+
+NESTED_WORKFLOW = "packages/web/.github/workflows/ci.yml"
+_NESTED_WORKFLOW_BASE = (
+    "name: ci\non: [push]\npermissions: read-all\njobs:\n  test:\n"
+    "    runs-on: ubuntu-latest\n    steps:\n      - run: npm test\n"
+)
+# Readable files the inventory also reads under the Claude Code host, through
+# the shared adapter, whose `permissions` is not a Claude settings object:
+# case -> (path, base or None for a new file, head).
+NOT_CLAUDE_SETTINGS: dict[str, tuple[str, str | None, str]] = {
+    "nested_workflow_edited": (
+        NESTED_WORKFLOW,
+        _NESTED_WORKFLOW_BASE,
+        _NESTED_WORKFLOW_BASE.replace("- run: npm test", "- run: npm ci\n      - run: npm test"),
+    ),
+    "nested_workflow_added": (NESTED_WORKFLOW, None, _NESTED_WORKFLOW_BASE),
+    "agent_contract_permissions_string": (
+        ".shipgate/agent-contract.json",
+        '{"version": 1}\n',
+        '{"version": 1, "permissions": "read"}\n',
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(NOT_CLAUDE_SETTINGS))
+def test_a_file_misread_as_claude_settings_is_not_unread_input(
+    tmp_path: Path, case: str
+) -> None:
+    """Only a Claude Code settings layer or hook file's shape refusal is unread input.
+
+    The inventory files a nested workflow as configuration for the shared
+    adapter's Claude Code host and refuses `permissions: read-all` as Claude
+    settings it cannot interpret (pre-existing, #1154 review). That refusal
+    keeps the review route it had on main; it must not hold the verdict.
+    """
+
+    path, base, head = NOT_CLAUDE_SETTINGS[case]
+    repo = _repository(
+        tmp_path, {path: head}, base={path: base} if base is not None else None,
+        empty_base=base is None,
+    )
+    verify, _exit = _verify(repo)
+
+    assert _unread_gaps(verify) == []
+    assert verify["decision"] != "insufficient_evidence"
+    assert _DECISION_RANK[verify["decision"]] >= _DECISION_RANK["review_required"]
+
+
+def test_only_a_claude_settings_or_hook_file_records_a_shape_refusal(tmp_path: Path) -> None:
+    """The inventory refuses all four shapes; only the Claude Code files are unread."""
+
+    from agents_shipgate.core.host_grants import build_host_boundary_snapshot
+
+    root = tmp_path / "tree"
+    files = {
+        SETTINGS: '{"permissions": "read"}\n',
+        ".claude/hooks/hooks.json": "[]\n",
+        NESTED_WORKFLOW: _NESTED_WORKFLOW_BASE,
+        ".agents-shipgate/state.json": "[]\n",
+    }
+    for path, text in files.items():
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text(text, encoding="utf-8")
+    snapshot = build_host_boundary_snapshot(root)
+    refused = {
+        issue["source"]
+        for issue in snapshot.inventory["issues"]
+        if "Cannot interpret Claude settings" in issue["message"]
+    }
+    recorded = {
+        issue["source"]
+        for issue in snapshot.inventory["issues"]
+        if issue["issue_id"] in snapshot.cache.shape_refusal_issue_ids
+    }
+    assert {NESTED_WORKFLOW, ".agents-shipgate/state.json", SETTINGS} <= refused
+    assert recorded == {SETTINGS, ".claude/hooks/hooks.json"}
 
 
 # --- What "changed" means -------------------------------------------------------

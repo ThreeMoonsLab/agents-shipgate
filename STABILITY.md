@@ -402,7 +402,9 @@ stopped, for an empty diff and for any other diff with no finding.
     only that the diff could not be turned back into text; or
   - a `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` row for a file the reader did not
     read: a read or parse failure, a structure it cannot interpret (a Claude
-    Code settings or hook file whose shape it refuses), a hook file of an
+    Code settings layer or hook file whose shape it refuses; another file the
+    inventory reads under that host, such as a nested workflow it files as
+    configuration, keeps its review route), a hook file of an
     enabled plugin it does not open (#809), an OpenShell document it refuses,
     or a binary file. A diff record with no content is not one: it says what
     the supplied diff lacks (`scan --changed-files` supplies names only).
@@ -449,7 +451,9 @@ stopped, for an empty diff and for any other diff with no finding.
   `unknown` where it read every file it was given, and `issues` then names
   `boundary_diff_unbound`; a partial read stays `partial`. The control is
   byte for byte the stop it was, and the rows of the files the diff names
-  still compare. The deprecated `codex-boundary-json` projection carries the
+  still compare. `risk_level` stays explanatory and the detached rule leaves
+  it alone: it reports what the rows found, `none` beside `require_review`
+  when they found nothing. The deprecated `codex-boundary-json` projection carries the
   same `decision`. `AgentBoundaryResultV1` refuses `decision: "allow"` with
   `input_coverage` other than `complete`, or beside a control that stops; the
   published `agent-boundary-result-schema.v3.json` keeps its pinned bytes.
