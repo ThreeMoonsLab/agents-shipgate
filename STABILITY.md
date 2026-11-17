@@ -7,6 +7,15 @@ Exact source-local SDK clones have their own bindings. Unknown receivers,
 constructor/handle changes and unread lists retain explicit uncertainty.
 See [the application contract](docs/application-comparison.md).
 
+Unreleased, #1146: application comparison `0.5` succeeds the released `0.4`.
+A binding whose compared meaning was read from what is bound and is the same
+on both sides is no longer a `not_established` row: `rows` is shorter for the
+same change, and its agent's optional top-level `read_same` names it once with
+its doubts (whether the agent holds it, or which file an import search
+reaches). A doubt about which definition or settings are bound keeps the row,
+with optional `doubts`. No published schema document exists for either
+version yet (#1044).
+
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
 New in 1.3.0, runtime contract v42: an empty preflight plan no longer mints
@@ -360,6 +369,20 @@ defaults. The stable/provisional inventory, the `1.x` rules and the migration
 from the shipped `v0.15.0` contract are in
 [`docs/report-1-0-contract.md`](docs/report-1-0-contract.md). Pin a version (or
 the Action tag) for reproducible CI.
+
+---
+
+<a id="capability-lock-plugin-opt-in-1062"></a>
+## Migration Note: Unreleased — verifier capability locks record effective plugin opt-in (#1062)
+
+`verify` records `source.plugins_enabled` as `false` when plugin opt-in is
+unset or `--no-plugins` is set, and `true` when opt-in takes effect. This
+matches `capability export`. A default opt-out run now has a different
+`hashes.source_set_hash` from one produced by the earlier verifier with the
+same inputs. `capability diff` copies this hash into its `base` and `head`
+references, and `attest` copies it into `capability_lock.source_set_hash`.
+Regenerate a pinned hash from the same source and plugin setting when
+updating the verifier.
 
 ---
 
