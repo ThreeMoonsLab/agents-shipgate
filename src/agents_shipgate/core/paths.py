@@ -1,8 +1,8 @@
 """Two path helpers every layer shares: showing a path, and finding a link in it.
 
-Both used to be copied into the modules that needed them — a ``display_path``
-in a dozen modules and the symlink-chain walk in six — and the copies had begun
-to differ in ways nobody chose (#1031). Each difference a caller depends on is
+Both used to be copied into the modules that needed them — a root-relative
+display path into seventeen modules and the symlink-chain walk into seven — and
+the copies had begun to differ in ways nobody chose (#1031). Each difference a caller depends on is
 now a named argument here, so a reader sees it at the call site.
 
 A leaf module: standard library only, so adapters, checks and the CLI can all
@@ -62,8 +62,9 @@ def first_symlink_in_chain(
     walk stops there. Each component is ``lstat``-ed; no link target is
     followed to decide what it is.
 
-    ``path`` is compared with ``root`` lexically, after resolving ``root``
-    only. A ``path`` not spelled under it cannot be walked, and ``outside``
+    ``path`` is compared with ``root`` lexically, as ``root`` is spelled and
+    as it resolves, and the components below it are walked from the resolved
+    root. A ``path`` spelled under neither cannot be walked, and ``outside``
     says what that means for the caller:
 
     * ``"refuse"`` (the default) returns ``path`` itself, so the caller refuses
@@ -77,9 +78,8 @@ def first_symlink_in_chain(
     """
 
     root_real = root.resolve()
-    try:
-        parts = path.relative_to(root_real).parts
-    except ValueError:
+    parts = _parts_under(path, root, root_real)
+    if parts is None:
         if outside == "refuse":
             return path
         try:
@@ -93,6 +93,17 @@ def first_symlink_in_chain(
             return current
         if not current.exists():
             return None
+    return None
+
+
+def _parts_under(path: Path, root: Path, root_real: Path) -> tuple[str, ...] | None:
+    """``path``'s components below ``root``, spelled under it as given or resolved."""
+
+    for anchor in (root, root_real):
+        try:
+            return path.relative_to(anchor).parts
+        except ValueError:
+            continue
     return None
 
 

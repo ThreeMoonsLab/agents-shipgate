@@ -4966,6 +4966,7 @@ def _build_verifier(
             report_path=resolved_report_path,
             repair_subject_available=repair_subject_available,
             configured_gate_introduced=configured_gate_introduced,
+            workspace=str(git_root),
         )
     )
     if fix_task is not None and durable_adoption_command is not None:

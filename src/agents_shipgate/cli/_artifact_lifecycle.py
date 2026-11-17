@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agents_shipgate.core.contained_write import remove_contained
 from agents_shipgate.core.errors import AgentsShipgateError
 
 # These files carry an actionable verifier route or the content-addressed
@@ -106,13 +107,10 @@ def clear_verifier_route_artifacts(out_dir: Path) -> None:
 
     for name in VERIFIER_ROUTE_ARTIFACT_NAMES:
         path = out_dir / name
-        if not (path.is_file() or path.is_symlink()):
-            continue
         try:
-            path.unlink()
-        except FileNotFoundError:
-            # Another lifecycle cleanup won the race; the invariant already
-            # holds, so the caller can continue.
-            continue
+            # A link or special file under one of these names is refused
+            # (``UnsafeOutputPathError``), never followed or silently dropped
+            # (#1031). A file another cleanup already removed is not an error.
+            remove_contained(path, root=out_dir)
         except OSError as exc:
             raise ArtifactLifecycleError(path, exc) from exc

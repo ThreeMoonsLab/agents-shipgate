@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -554,11 +555,34 @@ def test_unsupported_report_schema_cannot_mutate_manifest(tmp_path: Path, versio
     assert _agent_mode_payload(result)["next_actions"][0]["kind"] == "review"
 
 
-# --- Trusted roots (#1031) --------------------------------------------------
+# --- Trusted roots and targets (#1031) -------------------------------------
 #
-# ``manifest_dir`` arrives in the same report as the patches, so it cannot be
-# what bounds them. These reports are written by hand, as anyone handing over
-# a report could.
+# ``manifest_dir`` and every ``target_file`` arrive in the same report as the
+# patches, so neither can be what bounds them. These reports are written by
+# hand, as anyone handing over a report could.
+
+_MANIFEST = (
+    'version: "0.1"\n'
+    "project:\n"
+    "  name: p\n"
+    "agent:\n"
+    "  name: a\n"
+    "  declared_purpose:\n"
+    "    - do one thing\n"
+    "environment:\n"
+    "  target: local\n"
+    "tool_sources:\n"
+    "  - id: s\n"
+    "    type: mcp\n"
+    "    path: tools.json\n"
+)
+
+
+def _write_manifest(directory: Path) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    manifest = directory / "shipgate.yaml"
+    manifest.write_text(_MANIFEST, encoding="utf-8")
+    return manifest
 
 
 def _pointer_report(
@@ -588,7 +612,9 @@ def _pointer_patch(kind: str, target: Path, pointer: str, **extra) -> dict:
         "target_format": "json" if target.suffix == ".json" else "yaml",
         "confidence": "high",
         "rationale": "test",
-        "target_sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+        "target_sha256": (
+            hashlib.sha256(target.read_bytes()).hexdigest() if target.is_file() else "0" * 64
+        ),
         **extra,
     }
 
@@ -601,18 +627,12 @@ def test_apply_patches_refuses_target_outside_trusted_root(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     other = tmp_path / "other-repo"
-    target = other / ".claude" / "settings.json"
-    target.parent.mkdir(parents=True)
-    target.write_text('{"permissions": {"allow": []}}\n', encoding="utf-8")
+    target = _write_manifest(other)
     before = target.read_bytes()
     report = _pointer_report(
         workspace / "report.json",
         manifest_dir=other,
-        patches=[
-            _pointer_patch(
-                "append_pointer", target, "/permissions/allow", value="Bash(example:*)"
-            )
-        ],
+        patches=[_pointer_patch("set_pointer", target, "/project/name", value="changed")],
     )
     monkeypatch.chdir(workspace)
 
@@ -632,6 +652,50 @@ def test_apply_patches_refuses_target_outside_trusted_root(
     assert "untrusted" in payload["next_actions"][0]["why"]
 
 
+@pytest.mark.parametrize(
+    ("relative", "content", "pointer"),
+    [
+        (".claude/settings.json", '{"permissions": {"allow": []}}\n', "/permissions/allow"),
+        (".github/workflows/ci.yml", "on: push\njobs: {}\n", "/jobs"),
+        ("config/settings.json", '{"allow": []}\n', "/allow"),
+    ],
+    ids=["host-settings", "workflow", "other-json"],
+)
+def test_apply_patches_refuses_a_target_that_is_not_a_shipgate_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    relative: str,
+    content: str,
+    pointer: str,
+) -> None:
+    """Inside the repository too: a generated patch only ever edits the manifest."""
+
+    repository = tmp_path / "repository"
+    (repository / ".git").mkdir(parents=True)
+    _write_manifest(repository)
+    target = repository / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    before = target.read_bytes()
+    report = _pointer_report(
+        repository / "report.json",
+        manifest_dir=repository,
+        patches=[_pointer_patch("append_pointer", target, pointer, value="Bash(example:*)")],
+    )
+    monkeypatch.chdir(repository)
+
+    result = runner.invoke(
+        app,
+        ["apply-patches", "--from", str(report), "--apply"],
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+
+    assert result.exit_code == 5, result.output
+    assert target.read_bytes() == before
+    assert "not a Shipgate manifest" in result.output or "protected" in result.output
+    assert _agent_mode_payload(result)["error"] == "other_error"
+
+
 def test_apply_patches_refuses_a_declaration_placed_by_a_foreign_manifest_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -640,9 +704,7 @@ def test_apply_patches_refuses_a_declaration_placed_by_a_foreign_manifest_dir(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     other = tmp_path / "other-repo"
-    other.mkdir()
-    manifest = other / "shipgate.yaml"
-    manifest.write_text("version: '0.1'\n", encoding="utf-8")
+    manifest = _write_manifest(other)
     before = manifest.read_bytes()
     report = workspace / "report.json"
     report.write_text(
@@ -683,6 +745,8 @@ def test_apply_patches_refuses_a_declaration_placed_by_a_foreign_manifest_dir(
 
     assert result.exit_code == 5, result.output
     assert manifest.read_bytes() == before
+    # The refusal names the file the relative target_path resolves to.
+    assert f"shipgate.yaml -> {manifest.resolve()}" in result.output
 
 
 def test_apply_patches_writes_anywhere_in_the_repository_it_runs_in(
@@ -693,19 +757,141 @@ def test_apply_patches_writes_anywhere_in_the_repository_it_runs_in(
     repository = tmp_path / "repository"
     (repository / ".git").mkdir(parents=True)
     (repository / "docs").mkdir()
-    target = repository / "settings.json"
-    target.write_text('{"allow": ["a"]}\n', encoding="utf-8")
+    target = _write_manifest(repository / "services" / "agent")
     report = _pointer_report(
         repository / "report.json",
-        manifest_dir=repository,
-        patches=[_pointer_patch("set_pointer", target, "/allow/0", value="b")],
+        manifest_dir=target.parent,
+        patches=[_pointer_patch("set_pointer", target, "/project/name", value="q")],
     )
     monkeypatch.chdir(repository / "docs")
 
     result = runner.invoke(app, ["apply-patches", "--from", str(report), "--apply"])
 
     assert result.exit_code == 0, result.output
-    assert json.loads(target.read_text(encoding="utf-8")) == {"allow": ["b"]}
+    assert "name: q" in target.read_text(encoding="utf-8")
+
+
+def test_apply_patches_writes_under_the_workspace_it_is_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--workspace`` is typed by the operator, so it is trusted wherever the command runs."""
+
+    repository = tmp_path / "repository"
+    target = _write_manifest(repository)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    report = _pointer_report(
+        repository / "report.json",
+        manifest_dir=repository,
+        patches=[_pointer_patch("set_pointer", target, "/project/name", value="q")],
+    )
+    monkeypatch.chdir(elsewhere)
+
+    refused = runner.invoke(app, ["apply-patches", "--from", str(report), "--apply"])
+    assert refused.exit_code == 5, refused.output
+
+    result = runner.invoke(
+        app,
+        ["apply-patches", "--workspace", str(repository), "--from", str(report), "--apply"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "name: q" in target.read_text(encoding="utf-8")
+
+
+def test_apply_patches_ignores_a_git_entry_that_is_not_a_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stray ``.git`` file in an ancestor does not make that ancestor trusted."""
+
+    outer = tmp_path / "outer"
+    target = _write_manifest(outer)
+    (outer / ".git").write_text("not a repository\n", encoding="utf-8")
+    inner = outer / "inner"
+    inner.mkdir()
+    before = target.read_bytes()
+    report = _pointer_report(
+        inner / "report.json",
+        manifest_dir=outer,
+        patches=[_pointer_patch("set_pointer", target, "/project/name", value="q")],
+    )
+    monkeypatch.chdir(inner)
+
+    result = runner.invoke(app, ["apply-patches", "--from", str(report), "--apply"])
+
+    assert result.exit_code == 5, result.output
+    assert target.read_bytes() == before
+
+
+def test_owned_git_root_accepts_only_a_repository_this_user_owns(tmp_path: Path) -> None:
+    from agents_shipgate.core.agent_controls import owned_git_root_for
+
+    directory_repo = tmp_path / "directory-repo"
+    (directory_repo / ".git").mkdir(parents=True)
+    assert owned_git_root_for(directory_repo / "a" / "b") == directory_repo.resolve()
+
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / ".git").write_text("gitdir: /somewhere/.git/worktrees/w\n", encoding="utf-8")
+    assert owned_git_root_for(worktree) == worktree.resolve()
+
+    # The nearest entry decides: a stray file below a real repository answers
+    # None rather than widening to the repository above it.
+    stray = directory_repo / "nested"
+    stray.mkdir()
+    (stray / ".git").write_text("junk\n", encoding="utf-8")
+    assert owned_git_root_for(stray / "deeper") is None
+
+    if os.name == "posix":
+        linked = tmp_path / "linked"
+        linked.mkdir()
+        (linked / ".git").symlink_to(directory_repo / ".git", target_is_directory=True)
+        assert owned_git_root_for(linked) is None
+
+
+def test_apply_patches_reports_a_directory_target_without_a_traceback(
+    tmp_path: Path,
+) -> None:
+    """A target that is a directory is refused as a structured error, exit 5."""
+
+    _write_manifest(tmp_path)
+    report = _pointer_report(
+        tmp_path / "report.json",
+        manifest_dir=tmp_path,
+        patches=[_pointer_patch("set_pointer", tmp_path, "/project/name", value="q")],
+    )
+
+    result = runner.invoke(
+        app,
+        ["apply-patches", "--from", str(report), "--apply"],
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+
+    assert result.exit_code == 5, result.output
+    assert isinstance(result.exception, SystemExit)
+    assert "Traceback" not in result.output
+    assert "not a regular file" in result.output
+    assert _agent_mode_payload(result)["error"] == "other_error"
+
+
+def test_a_directory_target_is_an_error_row_when_applied_directly(tmp_path: Path) -> None:
+    from agents_shipgate.cli.apply_patches import _apply_one_file
+    from agents_shipgate.schemas.patches import SetPointerPatch
+
+    patch = SetPointerPatch(
+        target_file=str(tmp_path),
+        pointer="/x",
+        value=1,
+        target_format="yaml",
+        confidence="high",
+        rationale="r",
+        target_sha256="0" * 64,
+    )
+
+    outcome = _apply_one_file(tmp_path, [patch], apply=True)
+
+    assert outcome.status == "error"
+    assert "not a regular file" in (outcome.error or "")
 
 
 # --- Pointer validation (#1031) ---------------------------------------------
@@ -714,20 +900,20 @@ def test_apply_patches_writes_anywhere_in_the_repository_it_runs_in(
 @pytest.mark.parametrize(
     ("kind", "pointer", "extra"),
     [
-        ("set_pointer", "/allow/-", {"value": "x"}),
-        ("set_pointer", "/allow/01", {"value": "x"}),
-        ("set_pointer", "/allow/7", {"value": "x"}),
-        ("set_pointer", "/allow/-1", {"value": "x"}),
-        ("set_pointer", "/allow/0/key", {"value": "x"}),
-        ("set_pointer", "/name/key", {"value": "x"}),
+        ("set_pointer", "/tool_sources/-", {"value": "x"}),
+        ("set_pointer", "/tool_sources/01", {"value": "x"}),
+        ("set_pointer", "/tool_sources/7", {"value": "x"}),
+        ("set_pointer", "/tool_sources/-1", {"value": "x"}),
+        ("set_pointer", "/agent/declared_purpose/0/key", {"value": "x"}),
+        ("set_pointer", "/version/key", {"value": "x"}),
         ("set_pointer", "/a~2b", {"value": "x"}),
-        ("set_pointer", "allow", {"value": "x"}),
-        ("remove_pointer", "/allow/-", {}),
-        ("remove_pointer", "/allow/first", {}),
+        ("set_pointer", "project", {"value": "x"}),
+        ("remove_pointer", "/tool_sources/-", {}),
+        ("remove_pointer", "/tool_sources/first", {}),
         ("remove_pointer", "/missing/key", {}),
-        ("append_pointer", "/allow/7", {"value": "x"}),
-        ("append_pointer", "/allow/0", {"value": "x"}),
-        ("append_pointer", "/name", {"value": "x"}),
+        ("append_pointer", "/tool_sources/7", {"value": "x"}),
+        ("append_pointer", "/tool_sources/0", {"value": "x"}),
+        ("append_pointer", "/version", {"value": "x"}),
     ],
     ids=lambda value: value if isinstance(value, str) else "",
 )
@@ -736,8 +922,7 @@ def test_apply_patches_reports_a_pointer_that_does_not_fit_as_malformed(
 ) -> None:
     """Exit 2 and the malformed_patch envelope, never a traceback, nothing written."""
 
-    target = tmp_path / "settings.json"
-    target.write_text('{"allow": ["a"], "name": "n"}\n', encoding="utf-8")
+    target = _write_manifest(tmp_path)
     before = target.read_bytes()
     report = _pointer_report(
         tmp_path / "report.json",
@@ -763,17 +948,15 @@ def test_apply_patches_reports_a_pointer_that_does_not_fit_as_malformed(
 def test_a_malformed_pointer_in_one_file_leaves_every_file_unwritten(tmp_path: Path) -> None:
     """Files are planned before any is written, so no group is applied half-way."""
 
-    first = tmp_path / "a.json"
-    first.write_text('{"allow": ["a"]}\n', encoding="utf-8")
-    second = tmp_path / "b.json"
-    second.write_text('{"allow": ["a"]}\n', encoding="utf-8")
+    first = _write_manifest(tmp_path / "a")
+    second = _write_manifest(tmp_path / "b")
     before = (first.read_bytes(), second.read_bytes())
     report = _pointer_report(
         tmp_path / "report.json",
         manifest_dir=tmp_path,
         patches=[
-            _pointer_patch("set_pointer", first, "/allow/0", value="ok"),
-            _pointer_patch("set_pointer", second, "/allow/-", value="x"),
+            _pointer_patch("set_pointer", first, "/project/name", value="ok"),
+            _pointer_patch("set_pointer", second, "/tool_sources/-", value="x"),
         ],
     )
 
@@ -784,15 +967,19 @@ def test_a_malformed_pointer_in_one_file_leaves_every_file_unwritten(tmp_path: P
 
 
 def test_an_append_pointer_ending_in_dash_appends_to_that_list(tmp_path: Path) -> None:
-    target = tmp_path / "settings.json"
-    target.write_text('{"allow": ["a"]}\n', encoding="utf-8")
+    target = _write_manifest(tmp_path)
     report = _pointer_report(
         tmp_path / "report.json",
         manifest_dir=tmp_path,
-        patches=[_pointer_patch("append_pointer", target, "/allow/-", value="b")],
+        patches=[
+            _pointer_patch(
+                "append_pointer", target, "/agent/declared_purpose/-", value="do another thing"
+            )
+        ],
     )
 
     result = runner.invoke(app, ["apply-patches", "--from", str(report), "--apply"])
 
     assert result.exit_code == 0, result.output
-    assert json.loads(target.read_text(encoding="utf-8")) == {"allow": ["a", "b"]}
+    purposes = yaml.safe_load(target.read_text(encoding="utf-8"))["agent"]["declared_purpose"]
+    assert purposes == ["do one thing", "do another thing"]

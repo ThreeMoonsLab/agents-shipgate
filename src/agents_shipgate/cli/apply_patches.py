@@ -8,10 +8,12 @@ Per the v0.6 plan §4:
   the first write — see plan A1.)
 - Containment check (per C13): every ``target_file`` must resolve under
   ``report.manifest_dir`` *and* under a root this command trusts — the
-  working directory it was started in, or the git toplevel containing that
-  directory. Anything outside aborts with exit code 5. The report is
-  untrusted input: it supplies ``manifest_dir`` alongside the patches, so on
-  its own that value bounds nothing (#1031).
+  ``--workspace`` the operator names (default: the working directory), or
+  the git toplevel containing it — and must be a Shipgate manifest, the only
+  file a generated patch edits. Anything else aborts with exit code 5. The
+  report is untrusted input: it supplies ``manifest_dir`` and every
+  ``target_file`` alongside the patches, so on its own it bounds nothing
+  (#1031).
 - A JSON pointer that does not fit the document it edits — a token that is
   not an index into a list, ``-`` anywhere but the end of an append, a key
   under a scalar — is a malformed patch: exit 2, nothing written.
@@ -51,7 +53,8 @@ import typer
 from pydantic import ValidationError
 from ruamel.yaml import YAML
 
-from agents_shipgate.core.agent_controls import git_root_for
+from agents_shipgate.core.agent_controls import owned_git_root_for
+from agents_shipgate.core.errors import AgentsShipgateError
 from agents_shipgate.schemas.declaration_continuation import (
     DECLARATION_CONTINUATION_ARTIFACT_NAME,
     AppliedDeclaration,
@@ -105,6 +108,19 @@ def apply_patches(
         False,
         "--apply",
         help="Actually mutate files. Default is dry-run.",
+    ),
+    workspace: Path | None = typer.Option(
+        None,
+        "--workspace",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        help=(
+            "The repository the report's patches are for. Patches are written "
+            "only under this directory or the git repository containing it, "
+            "never under a directory the report names. Default: the current "
+            "directory."
+        ),
     ),
     json_output: bool = typer.Option(
         False,
@@ -279,25 +295,38 @@ def apply_patches(
     # ``manifest_dir`` comes from the same untrusted report as the patches, so
     # it can only narrow the boundary, never set it. Every target must also lie
     # under a root this run supplies itself (#1031).
-    trusted_roots = _trusted_roots()
-    violations: list[tuple[str, str]] = []
-    untrusted = False
+    trusted_roots = _trusted_roots(workspace)
+    #
+    # Inside those roots, a patch may edit only a Shipgate manifest: every
+    # patch the engine generates targets the manifest it was generated from,
+    # and a report naming any other file — an agent instruction file, a host
+    # settings file, a workflow — is not one this command applies (#1031).
+    violations: list[_Violation] = []
+    refusals: dict[Path, str | None] = {}
     for patch in typed_patches:
         spelled = _patch_target_spelling(patch)
         target = _resolve_target(patch, manifest_dir_resolved)
         if not _is_under(target, manifest_dir_resolved):
-            violations.append((spelled, str(manifest_dir_resolved)))
-        elif not any(_is_under(target, root) for root in trusted_roots):
-            untrusted = True
             violations.append(
-                (spelled, " or ".join(str(root) for root in trusted_roots))
+                _Violation(spelled, target, "manifest_dir", f"not under {manifest_dir_resolved}")
             )
+            continue
+        root = next((root for root in trusted_roots if _is_under(target, root)), None)
+        if root is None:
+            roots = " or ".join(str(root) for root in trusted_roots)
+            violations.append(_Violation(spelled, target, "trusted_root", f"not under {roots}"))
+            continue
+        if target not in refusals:
+            refusals[target] = _unpatchable_reason(target, root)
+        reason = refusals[target]
+        if reason is not None:
+            violations.append(_Violation(spelled, target, "not_manifest", reason))
     if violations:
         _refuse_containment_violations(
             from_path,
             violations,
             manifest_dir=manifest_dir_resolved,
-            trusted_roots=trusted_roots if untrusted else None,
+            trusted_roots=trusted_roots,
         )
 
     grouped: dict[str, list[Patch]] = defaultdict(list)
@@ -527,22 +556,100 @@ def _emit_malformed_patch_error(
     )
 
 
-def _trusted_roots() -> list[Path]:
+def _trusted_roots(workspace: Path | None) -> list[Path]:
     """The directories this run may write under, named by the run, not the report.
 
-    The working directory the command was started in, and the git toplevel
-    that contains it (found by its ``.git`` entry; no Git is run). A report
-    produced elsewhere names its own ``manifest_dir``, and the patches beside
-    it can point anywhere that value allows — which is why that value narrows
-    the boundary and these set it (#1031).
+    ``--workspace`` when the operator typed one, else the working directory,
+    and the git toplevel that contains it. A report produced elsewhere names
+    its own ``manifest_dir``, and the patches beside it can point anywhere that
+    value allows — which is why that value narrows the boundary and these set
+    it (#1031). The toplevel is accepted only when its ``.git`` is a directory
+    or a gitdir file owned by this user, so a stray ``.git`` in some ancestor
+    cannot widen the boundary to it.
     """
 
-    cwd = Path.cwd().resolve()
-    roots = [cwd]
-    toplevel = git_root_for(cwd)
-    if toplevel is not None and toplevel != cwd:
+    base = (workspace if workspace is not None else Path.cwd()).resolve()
+    roots = [base]
+    toplevel = owned_git_root_for(base)
+    if toplevel is not None and toplevel != base:
         roots.append(toplevel)
     return roots
+
+
+@dataclass(frozen=True)
+class _Violation:
+    """One patch target this run will not write, and why."""
+
+    spelled: str
+    target: Path
+    kind: str  # "manifest_dir" | "trusted_root" | "not_manifest"
+    detail: str
+
+    def line(self) -> str:
+        shown = (
+            str(self.target)
+            if self.spelled == str(self.target)
+            else f"{self.spelled} -> {self.target}"
+        )
+        return f"  - {shown} ({self.detail})"
+
+
+def _unpatchable_reason(target: Path, root: Path) -> str | None:
+    """Why ``target`` is not a file a patch may edit, or ``None`` when it is one.
+
+    Every patch kind the engine emits edits the manifest it was generated
+    from: the stale-entry removals and the scope append name that manifest's
+    ``target_file``, and ``declare_action`` is spelled relative to its
+    directory. So the target must load as a Shipgate manifest, and a
+    protected agent-boundary or trust-root file is refused by name even if it
+    happened to parse as one.
+    """
+
+    try:
+        relative = target.relative_to(root).as_posix()
+    except ValueError:  # pragma: no cover - the caller chose a containing root
+        return "not under a trusted root"
+    if _is_protected_non_manifest(relative):
+        return (
+            "a protected agent-boundary or trust-root file, which apply-patches "
+            "never edits"
+        )
+    if not target.is_file():
+        return "not a regular file"
+    from agents_shipgate.config.loader import load_manifest
+
+    try:
+        load_manifest(target)
+    except (AgentsShipgateError, OSError, UnicodeError, ValueError):
+        return (
+            "not a Shipgate manifest; apply-patches edits only the manifest a "
+            "scan generated its patches from"
+        )
+    return None
+
+
+def _is_protected_non_manifest(relative: str) -> bool:
+    from agents_shipgate.checks.verify import TRUST_ROOT_SURFACES
+    from agents_shipgate.core.boundary_registry import is_agent_boundary_path
+    from agents_shipgate.core.globbing import glob_match_ci
+    from agents_shipgate.core.preflight import forbidden_file_edits
+
+    if any(
+        glob_match_ci(pattern, relative)
+        for kind, pattern in TRUST_ROOT_SURFACES
+        if kind not in _MANIFEST_SURFACE_KINDS
+    ):
+        return True
+    if any(glob_match_ci(pattern, relative) for pattern in forbidden_file_edits()):
+        return True
+    return is_agent_boundary_path(relative) and not glob_match_ci(
+        "**/shipgate.yaml", relative
+    )
+
+
+#: The trust-root classes a patch may legitimately land in: the manifest, and
+#: Shipgate's own state directory, which holds nothing that loads as one.
+_MANIFEST_SURFACE_KINDS = frozenset({"manifest", "shipgate_state"})
 
 
 def _is_under(path: Path, root: Path) -> bool:
@@ -555,20 +662,63 @@ def _is_under(path: Path, root: Path) -> bool:
 
 def _refuse_containment_violations(
     from_path: Path,
-    violations: list[tuple[str, str]],
+    violations: list[_Violation],
     *,
     manifest_dir: Path,
-    trusted_roots: list[Path] | None,
+    trusted_roots: list[Path],
 ) -> NoReturn:
     """Report the targets outside the boundary and stop with exit 5; nothing is written.
 
-    ``trusted_roots`` is passed when at least one target lies inside the
-    report's ``manifest_dir`` but outside every directory this run trusts —
-    the case a report written elsewhere produces — so the recovery names
-    where to run the command from instead of asking for a different report.
+    The recovery depends on the worst kind present. A target outside every
+    directory this run trusts — the case a report written elsewhere produces —
+    names where to run the command from. A target inside them that is not a
+    Shipgate manifest names the file. Otherwise the report contradicts its own
+    ``manifest_dir``.
     """
 
-    if trusted_roots is None:
+    kinds = {violation.kind for violation in violations}
+    if "trusted_root" in kinds:
+        roots = " or ".join(str(root) for root in trusted_roots)
+        message = (
+            "Containment violation: refusing to apply patches outside the "
+            "workspace and the git repository containing it."
+        )
+        next_action = (
+            f"Review {from_path}; run apply-patches with --workspace naming the "
+            f"repository the report's patches are for. This run writes only "
+            f"under {roots}."
+        )
+        why = (
+            "The report names a patch target outside the workspace "
+            "apply-patches was given and the repository containing it. The "
+            "report is untrusted input, so its manifest_dir cannot widen "
+            "where apply-patches writes."
+        )
+        expects = (
+            "apply-patches is run with --workspace (or from inside) the "
+            "repository that holds every patch target_file, or the report is "
+            "regenerated there."
+        )
+    elif "not_manifest" in kinds:
+        message = (
+            "Containment violation: refusing to apply patches to a file that "
+            "is not a Shipgate manifest."
+        )
+        next_action = (
+            f"Review {from_path}; every generated patch edits the Shipgate "
+            "manifest it was generated from, and this report names another file."
+        )
+        why = (
+            "The report contains a patch whose target is not a Shipgate "
+            "manifest, or is a protected agent-boundary or trust-root file. "
+            "The report is untrusted input, and apply-patches edits only the "
+            "manifest."
+        )
+        expects = (
+            "Every non-manual patch target_file is the Shipgate manifest the "
+            "scan read; regenerate the report with scan --suggest-patches."
+        )
+    else:
         message = (
             "Containment violation: refusing to apply patches outside the "
             "manifest directory."
@@ -587,29 +737,9 @@ def _refuse_containment_violations(
             "All non-manual patch target_file values resolve "
             f"under {manifest_dir} before retrying."
         )
-    else:
-        roots = " or ".join(str(root) for root in trusted_roots)
-        message = (
-            "Containment violation: refusing to apply patches outside the "
-            "working directory and the git repository containing it."
-        )
-        next_action = (
-            f"Review {from_path}; run apply-patches from the repository the "
-            f"report's patches are for. This run writes only under {roots}."
-        )
-        why = (
-            "The report names a patch target outside the directory "
-            "apply-patches was started in and the repository containing it. "
-            "The report is untrusted input, so its manifest_dir cannot widen "
-            "where apply-patches writes."
-        )
-        expects = (
-            "apply-patches is run from inside the repository that holds every "
-            "patch target_file, or the report is regenerated there."
-        )
     typer.echo(f"{message.rstrip('.')}:", err=True)
-    for target, root in violations:
-        typer.echo(f"  - {target} (not under {root})", err=True)
+    for violation in violations:
+        typer.echo(violation.line(), err=True)
     _emit_input_error(
         "other_error",
         message,
@@ -791,6 +921,15 @@ def _plan_one_file(path: Path, patches: list[Patch]) -> _FilePlan:
                 status="error",
                 patches_in_group=len(patches),
                 error=f"target file does not exist: {path}",
+            ),
+        )
+    if not path.is_file():
+        return _FilePlan(
+            patches_in_group=len(patches),
+            outcome=_FileOutcome(
+                status="error",
+                patches_in_group=len(patches),
+                error=f"target is not a regular file: {path}",
             ),
         )
     # Hashed as **bytes**, because that is what the generator hashed. Reading
@@ -1094,11 +1233,13 @@ class MalformedPointer(ValueError):
     written, and reported as a malformed patch — exit 2 with the
     ``malformed_patch`` envelope — instead of escaping as a traceback.
 
-    RFC 6901 decides what a token may be. An index into a list is ``0`` or a
-    decimal without a leading zero, and names an element that exists. ``-``
-    names the position after the last element, so only an append may end
-    there. ``~`` is an escape and must be followed by ``0`` or ``1``. Nothing
-    descends into a scalar.
+    Tokens follow RFC 6901. An index into a list is ``0`` or a decimal
+    without a leading zero, and names an element that exists. ``-`` names the
+    position after the last element, so only an append may end there. ``~``
+    is an escape and must be followed by ``0`` or ``1``. Nothing descends into
+    a scalar. One spelling differs, deliberately and as before: the pointer
+    ``/`` names the whole document (which no patch may target), not RFC
+    6901's member with an empty name.
     """
 
 

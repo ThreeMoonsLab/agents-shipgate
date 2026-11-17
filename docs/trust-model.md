@@ -98,20 +98,37 @@ run prints carry `-P` for the same reason.
 ## Write Boundaries
 
 A repository under review is untrusted input, and so is a report produced from
-one. Neither may choose where Shipgate writes.
+one. Neither one widens where `scan` and `apply-patches` write: each writes
+only inside a directory the operator chose or the manifest's own directory, and
+only through plain directories to plain files. Other commands are not covered
+by this section; they write where their documented `--out` options say.
 
 - **`scan` reports.** `output.directory` in `shipgate.yaml` is a relative path
   inside the manifest's directory. The manifest schema rejects an absolute
-  path, a Windows drive or UNC path and any `..` component, and `scan` refuses
-  a directory that resolves outside the manifest's directory through a link,
-  before writing or clearing any report file. `scan --out` is typed by the
-  operator and may name any directory.
+  path, a Windows drive or UNC path and any `..` component. Every file `scan`
+  writes or clears — the Markdown, JSON and SARIF reports, the packet files,
+  the advisory scaffolds, the `current-control.json` pointer and the stale
+  verifier artifacts it removes — goes through one contained writer
+  (`core/contained_write.py`). Before anything is written or removed, it
+  refuses a destination reached through a symbolic link in any directory
+  below the trusted root, a link at the destination itself (even one that
+  stays inside the workspace), a special file, a hard link, and a spelling
+  that is not inside the root. Where the platform supports it, the file is
+  also opened with `O_NOFOLLOW` and re-checked from the open descriptor. The
+  trusted root is the manifest's directory for `output.directory`. For a
+  `scan --out` directory, which the operator typed, it is that directory
+  itself: the directories above it are the operator's choice, and the files
+  inside it are still checked.
 - **`apply-patches`.** The report is untrusted input: it carries its own
-  `manifest_dir` beside the patches. Every patch target must resolve under that
-  `manifest_dir` *and* under the directory `apply-patches` was started in or
-  the git toplevel containing it. A target outside either exits `5` with
-  nothing written. A pointer that does not fit its document exits `2` as a
-  malformed patch, and no file is written.
+  `manifest_dir` and every `target_file` beside the patches. A patch target
+  must resolve under that `manifest_dir`, *and* under the `--workspace` the
+  operator names (default: the directory `apply-patches` runs in) or the git
+  toplevel containing it. A toplevel counts only when its `.git` is a
+  directory, or a gitdir file, owned by the current user. The target must also
+  be a Shipgate manifest — the only file a generated patch edits — and never
+  a protected agent-boundary or trust-root file. Any other target exits `5`
+  with nothing written. A pointer that does not fit its document exits `2` as
+  a malformed patch, and no file is written.
 
 ## Privacy Boundary
 

@@ -367,44 +367,68 @@ the Action tag) for reproducible CI.
 
 ## Migration Note: Unreleased — writes stay inside roots the run chooses, and every Git child runs with one environment (#1031)
 
-**What was wrong.** Two write boundaries took their root from the input they
-were meant to contain. `apply-patches` compared each patch target with
-`manifest_dir`, which it read from the same report as the patches, so a report
-could name another directory as its own and patch a file there. `output.directory`
-in `shipgate.yaml`, which a pull request can change, was joined onto the
-manifest's directory unchecked, so an absolute or `..` value made `scan` write
-and clear report files outside the workspace. A `set_pointer` patch whose
-pointer ended in `-` stopped `apply-patches` with a traceback instead of the
-documented exit `2`. And the Git environment was written out by hand at five
-places that had drifted apart: discovery ran Git without `GIT_ALLOW_PROTOCOL`,
-`authorization execute` without `GIT_ATTR_NOSYSTEM`, `GIT_OPTIONAL_LOCKS` and
-`GIT_PAGER`, and `fixture run` with the operator's whole Git configuration.
+**What was wrong.** Write boundaries took their root from the input they were
+meant to contain, and nothing checked the files written inside them.
+
+- `apply-patches` compared each patch target with `manifest_dir`, which it
+  read from the same report as the patches. A report could name another
+  directory as its own and patch a file there, or name any YAML or JSON file of
+  the repository it ran in.
+- `output.directory` in `shipgate.yaml`, which a pull request can change, was
+  joined onto the manifest's directory unchecked, so an absolute or `..` value
+  made `scan` write and clear report files outside the workspace. Every report
+  writer also followed a link at its destination, so a committed link in the
+  reports directory, at a file or at a directory, carried a write outside it.
+- A `set_pointer` patch whose pointer ended in `-` stopped `apply-patches`
+  with a traceback instead of the documented exit `2`, and a target that was a
+  directory did the same.
+- The Git environment was written out by hand at five places that had drifted
+  apart: discovery ran Git without `GIT_ALLOW_PROTOCOL`; `authorization
+  execute` without `GIT_ATTR_NOSYSTEM`, `GIT_OPTIONAL_LOCKS` and `GIT_PAGER`;
+  and `fixture run` with the operator's whole Git configuration.
 
 **What changes.**
 
-- `apply-patches` writes only under the directory it is started in and the git
-  toplevel that contains it, found by its `.git` entry. The report's
-  `manifest_dir` still narrows the boundary but no longer sets it. A target
-  outside exits `5` (`other_error`, with a `review` action naming the report)
-  and nothing is written. `apply-patches` loads no manifest, so these two
-  directories are the roots it trusts.
-- A patch pointer that does not fit its document is a malformed patch: exit
-  `2`, `malformed_patch`, and no file is written. RFC 6901 decides. A list
-  index is `0` or a decimal without a leading zero, and names an existing
-  element. `-` may end only an `append_pointer`, which appends to that list.
-  `~` must be followed by `0` or `1`. Nothing descends into a scalar. An
+- **`apply-patches` targets.** A target must lie under the report's
+  `manifest_dir` *and* under a root the run names itself: the new
+  `--workspace <dir>` option, or else the directory it is started in, plus the
+  git toplevel containing that directory. A toplevel counts only when its
+  `.git` is a directory, or a file naming a `gitdir:`, owned by the current
+  user; anything else at the nearest `.git` narrows the roots instead of
+  widening them. The target must also load as a Shipgate manifest, the only
+  file a generated patch edits, and a protected agent-boundary or trust-root
+  file is refused by name. Anything else exits `5` (`other_error`, with a
+  `review` action naming the report and the resolved target) and nothing is
+  written. The `apply-patches` commands `verify` prints carry
+  `--workspace <repository>`, so they work from any directory.
+- **Pointers.** A patch pointer that does not fit its document is a malformed
+  patch: exit `2`, `malformed_patch`, and no file is written. Tokens follow
+  RFC 6901: a list index is `0` or a decimal without a leading zero, and names
+  an existing element; `-` may end only an `append_pointer`, which appends to
+  that list; `~` must be followed by `0` or `1`; nothing descends into a
+  scalar. One spelling differs from RFC 6901, as before: `/` names the whole
+  document, which no patch may target, not the member with an empty name. An
   `append_pointer` whose last token indexes a list element now appends to that
   element when it is a list, as a key does; it used to append to the parent
   list and ignore the index. Every file is planned before any is written, so a
   bad pointer in one file no longer leaves another rewritten.
-- `output.directory` must be a relative path with no `..` component. An
-  absolute path, a Windows drive or UNC path, or a `..` segment is a
+- **`output.directory`.** It must be a relative path with no `..` component.
+  An absolute path, a Windows drive or UNC path, or a `..` segment is a
   `config_error` (exit `2`) when the manifest loads, for every command that
-  loads it. `docs/manifest-v0.1.json` carries the rule as a `pattern`. `scan`
-  also refuses, before writing or clearing anything, an `output.directory`
-  that resolves outside the manifest's directory through a link. `scan --out`
-  is unchanged and is the way to write reports anywhere else.
-- Every Git child — discovery, `verify`'s plumbing, `fixture run`,
+  loads it. `docs/manifest-v0.1.json` carries the rule as a `pattern`.
+- **Every file `scan` writes or clears** — reports, packet files, the advisory
+  scaffolds, `current-control.json` and the stale verifier artifacts it
+  removes — goes through one contained writer. Before anything is written or
+  removed it refuses a symbolic link in any directory below the trusted root, a
+  link at the destination (one that stays inside the workspace included), a
+  special file, a hard link, and a spelling outside the root; where the
+  platform supports it, the file is opened with `O_NOFOLLOW` and re-checked.
+  The trusted root is the manifest's directory for `output.directory`, and the
+  directory itself for a `scan --out` the operator typed. A reports directory
+  that is itself a link is now refused even when it points inside the
+  workspace. `verify` clears stale verifier artifacts the same way, so a
+  linked one is refused instead of being removed.
+- **Git.** Every Git child — discovery, `verify`'s plumbing, `fixture run`,
   `authorization execute` and the Claude Code hook runner — runs with
   `agents_shipgate.core.git_env.hardened_git_env()`, which holds the union of
   the variables the copies set. The fixture also turns off hooks and commit
@@ -413,24 +437,30 @@ places that had drifted apart: discovery ran Git without `GIT_ALLOW_PROTOCOL`,
   from the same module. The zero-install `tools/shipgate-detect.py` cannot
   import the package, so it keeps a copy, now with `GIT_ALLOW_PROTOCOL`, that
   `tests/test_git_env.py` holds equal to the module.
-- The path shown for a file relative to a root has one implementation, and so
-  does the walk that refuses a symlink on the way to a file. On Windows, a path
-  outside its root, and the `generated_reports` and baseline paths of a scan,
-  now print with forward slashes, as every other path in a report already did.
-  Nothing changes on POSIX.
+- **Shared helpers.** The path shown for a file relative to a root has one
+  implementation, and so does the walk that refuses a symlink on the way to a
+  file. On Windows, a path outside its root, and the `generated_reports` and
+  baseline paths of a scan, now print with forward slashes, as every other path
+  in a report already did. Nothing changes on POSIX.
 
 **What does not change.** No schema version, contract version, check ID or
-exit-code meaning moves, and no report field is added or removed. Existing
-manifests with a relative `output.directory` and reports used from inside their
-repository behave as before.
+exit-code meaning moves, and no report field is added or removed. A manifest
+with a relative `output.directory` whose reports directory holds plain files,
+and a report applied from inside its repository, behave as before.
 
 **Who must act.**
 
 - A manifest whose `output.directory` is absolute or leaves its directory:
-  move the directory inside, or pass `scan --out`. `verify` passes its own
-  `--out`, but a base or head manifest holding such a value now fails to load.
+  remove `output.directory`, or make it a relative path inside the manifest's
+  directory. The value is refused when the manifest loads, so `--out` does not
+  rescue that run; to write reports elsewhere afterwards, pass `scan --out`.
+  `verify` passes its own `--out`, but a base or head manifest holding such a
+  value now fails to load.
+- A reports directory that is, or contains, a symbolic or hard link: replace
+  the link with a plain directory or file, or choose another `--out`.
 - A pipeline that runs `apply-patches` from outside the repository the patches
-  are for: run it from inside that repository. `bootstrap` already does.
+  are for: pass `--workspace <repository>`, or run it from inside. `bootstrap`
+  already runs it from the workspace.
 
 ---
 
@@ -6288,9 +6318,10 @@ inside the manifest's directory. An absolute path, a Windows drive or UNC path,
 or any `..` component is a `config_error` (exit 2) at manifest load, and
 `docs/manifest-v0.1.json` states the same rule as a `pattern` on
 `OutputConfig.directory`, held to the loader by
-`tests/test_manifest_schema_parity.py`. The manifest is repository content, so
-it does not choose where reports are written outside the repository;
-`scan --out` does. See the
+`tests/test_manifest_schema_parity.py`. Because the value is refused at load,
+the recovery is to remove it or make it relative; the manifest is repository
+content, so it does not choose where reports are written outside the
+repository, and `scan --out` does. See the
 [migration note](#write-containment-1031).
 
 `policies.control_pack` (`default` | `financial-strict` | `read-only-agent`)

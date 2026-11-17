@@ -30,7 +30,6 @@ import functools
 import hashlib
 import json
 import os
-import tempfile
 from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -38,6 +37,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, ParamSpec, TypeVar
 
+from agents_shipgate.core.contained_write import UnsafeOutputPathError, write_contained
 from agents_shipgate.core.errors import AgentsShipgateError
 from agents_shipgate.core.privacy import redact_text
 from agents_shipgate.core.verification_identity import (
@@ -1448,26 +1448,16 @@ def _publish(out_dir: Path, pointer: CurrentControlPointer) -> None:
         raise CurrentControlPublishError(
             path, "the existing pointer is a symlink and will not be followed"
         )
-    temporary: Path | None = None
     try:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        handle, name = tempfile.mkstemp(
-            dir=out_dir, prefix=f".{CURRENT_CONTROL_ARTIFACT_NAME}.", suffix=".tmp"
-        )
-        temporary = Path(name)
-        with os.fdopen(handle, "wb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        temporary = None
+        # The one contained writer every scan output goes through (#1031):
+        # written beside the pointer, synced, and renamed into place, after
+        # refusing a link, special file or hard link at the destination.
+        write_contained(path, payload, root=out_dir, atomic=True)
         _fsync_directory(out_dir)
+    except UnsafeOutputPathError as exc:
+        raise CurrentControlPublishError(path, exc.reason) from exc
     except OSError as exc:
         raise CurrentControlPublishError(path, str(exc)) from exc
-    finally:
-        if temporary is not None:
-            with contextlib.suppress(OSError):
-                temporary.unlink()
 
 
 def _fsync_directory(directory: Path) -> None:

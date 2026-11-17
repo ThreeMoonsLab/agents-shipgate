@@ -68,9 +68,13 @@ class OutputConfig(BaseModel):
     def _directory_stays_inside_the_manifest_directory(cls, value: str) -> str:
         escape = output_directory_escape(value)
         if escape is not None:
+            # The value is refused when the manifest loads, before any flag is
+            # read, so the recovery is an edit; ``--out`` is how to write
+            # elsewhere once the manifest loads again.
             raise ValueError(
                 f"output.directory must be a relative path inside the manifest's "
-                f"directory; {value!r} is {escape}. Pass `scan --out <dir>` to "
-                "write reports elsewhere."
+                f"directory; {value!r} is {escape}. Remove output.directory or "
+                "make it a relative path inside that directory; to write reports "
+                "elsewhere, pass `scan --out <dir>`."
             )
         return value

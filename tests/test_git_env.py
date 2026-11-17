@@ -52,31 +52,26 @@ FORMER_HARDENING = {
 }
 
 #: Every process spawn site in ``src/``, as ``<path>::<function>``, mapped to
-#: the function that builds the environment its Git child runs with, or to
-#: ``None`` for a spawn site that does not start Git. A new spawn site fails
+#: the functions whose result its Git child's ``env=`` must be, or to ``None``
+#: for a spawn site that does not start Git. A new spawn site fails
 #: ``test_every_spawn_site_is_classified`` until it is added here.
 SPAWN_SITES: dict[str, tuple[str, ...] | None] = {
     # Shipgate's own CLI (`bootstrap`) and the operator-pinned native prover.
     "cli/bootstrap.py::_run_step": None,
     "core/openshell_native.py::_execute": None,
-    "cli/discovery/artifacts.py::_git_candidate_files": (
-        "cli/discovery/artifacts.py::_git_candidate_files",
-    ),
+    "cli/discovery/artifacts.py::_git_candidate_files": ("hardened_git_env",),
     # Receives the environment `_git_candidate_files` built.
-    "cli/discovery/artifacts.py::_run_git_inventory_bounded": (
-        "cli/discovery/artifacts.py::_git_candidate_files",
-    ),
-    "cli/verify/git.py::_run_process": ("cli/verify/git.py::_git_object_environment",),
-    "cli/verify/git.py::_run_git_bounded_result": (
-        "cli/verify/git.py::_git_object_environment",
-    ),
-    "cli/fixture.py::_git": ("cli/fixture.py::_git",),
+    "cli/discovery/artifacts.py::_run_git_inventory_bounded": ("hardened_git_env",),
+    "cli/verify/git.py::_run_process": ("_git_object_environment",),
+    "cli/verify/git.py::_run_git_bounded_result": ("_git_object_environment",),
+    "cli/fixture.py::_git": ("hardened_git_env",),
     "core/authorization_execution.py::_run_process": (
-        "core/authorization_execution.py::_read_only_git_environment",
-        "core/authorization_execution.py::_sanitized_git_environment",
+        "_read_only_git_environment",
+        "_sanitized_git_environment",
+        "with_allowed_git_protocols",
     ),
     "core/authorization_execution.py::_run_bounded_stdout_process": (
-        "core/authorization_execution.py::_sanitized_git_environment",
+        "_sanitized_git_environment",
     ),
 }
 
@@ -226,15 +221,69 @@ def test_every_spawn_site_is_classified() -> None:
     )
 
 
-def test_every_git_spawn_site_passes_an_environment_built_by_the_helper() -> None:
-    """Each Git child gets an explicit ``env=``, built by a function that calls the helper."""
+#: Every builder ``SPAWN_SITES`` names. Each one defined outside
+#: ``core/git_env.py`` must call ``hardened_git_env``.
+ENV_BUILDERS = frozenset(
+    builder for builders in SPAWN_SITES.values() if builders for builder in builders
+)
+
+
+def _own_nodes(function: ast.AST):
+    """The nodes of ``function``'s own body, not those of functions nested in it."""
+
+    pending = list(ast.iter_child_nodes(function))
+    while pending:
+        node = pending.pop()
+        yield node
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            pending.extend(ast.iter_child_nodes(node))
+
+
+def _called_name(node: ast.AST) -> str | None:
+    if not isinstance(node, ast.Call):
+        return None
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
+def _first_argv_word(call: ast.Call) -> object:
+    if call.args and isinstance(call.args[0], (ast.List, ast.Tuple)) and call.args[0].elts:
+        first = call.args[0].elts[0]
+        if isinstance(first, ast.Constant):
+            return first.value
+    return None
+
+
+def test_a_spawn_site_classified_as_not_git_never_spells_git_first() -> None:
+    sites = _spawn_sites()
+    spelled = [
+        site
+        for site, builders in SPAWN_SITES.items()
+        if builders is None
+        for call in sites.get(site, [])
+        if _first_argv_word(call) == "git"
+    ]
+    assert not spelled, f"classified as not starting Git, yet spawn git: {spelled}"
+
+
+def test_every_git_environment_comes_from_a_listed_builder() -> None:
+    """Every ``env=`` in a module that starts Git is a builder's result, traced to it.
+
+    The value passed may be a builder call itself, a name bound from one in
+    the same function, or a parameter — and every call that supplies that
+    parameter in the module is checked by the same rule. The spawn helpers
+    are private, so no other module supplies one.
+    """
 
     sites = _spawn_sites()
-    functions: dict[str, ast.AST] = {}
-    for path in _sources():
-        for name, node in _functions(ast.parse(path.read_text(encoding="utf-8"))).items():
-            functions[f"{_relative(path)}::{name}"] = node
-
+    allowed: dict[str, set[str]] = {}
+    for site, builders in SPAWN_SITES.items():
+        if builders is not None:
+            allowed.setdefault(site.split("::")[0], set()).update(builders)
     problems: list[str] = []
     for site, builders in SPAWN_SITES.items():
         if builders is None:
@@ -242,11 +291,61 @@ def test_every_git_spawn_site_passes_an_environment_built_by_the_helper() -> Non
         for call in sites.get(site, []):
             if not any(keyword.arg == "env" for keyword in call.keywords):
                 problems.append(f"{site}: spawns without env=, inheriting the caller's")
-        for builder in builders:
-            if builder not in functions:
-                problems.append(f"{site}: environment builder {builder} does not exist")
-            elif not _calls_hardened_git_env(functions[builder]):
-                problems.append(f"{site}: {builder} does not call hardened_git_env()")
+        if not site.split("::")[1].startswith("_"):
+            problems.append(f"{site}: a public spawn helper could be handed any environment")
+
+    builder_bodies: dict[str, ast.AST] = {}
+    for path in _sources():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for name, function in _functions(tree).items():
+            if name in ENV_BUILDERS:
+                builder_bodies[f"{_relative(path)}::{name}"] = function
+        module_builders = allowed.get(_relative(path))
+        if module_builders is None:
+            continue
+        for name, function in _functions(tree).items():
+            parameters = {
+                argument.arg
+                for argument in (
+                    *function.args.posonlyargs,
+                    *function.args.args,
+                    *function.args.kwonlyargs,
+                )
+            }
+            bound = {
+                target.id: node.value
+                for node in _own_nodes(function)
+                if isinstance(node, ast.Assign)
+                for target in node.targets
+                if isinstance(target, ast.Name)
+            }
+            for node in _own_nodes(function):
+                if not isinstance(node, ast.Call):
+                    continue
+                for keyword in node.keywords:
+                    if keyword.arg != "env":
+                        continue
+                    value = keyword.value
+                    if _called_name(value) in module_builders:
+                        continue
+                    if isinstance(value, ast.Name) and (
+                        value.id in parameters
+                        or _called_name(bound.get(value.id)) in module_builders
+                    ):
+                        continue
+                    problems.append(
+                        f"{_relative(path)}::{name}:{node.lineno}: env={ast.unparse(value)} "
+                        "is not traced to a hardened Git environment"
+                    )
+    for location, function in builder_bodies.items():
+        name = location.split("::")[1]
+        if name in {"hardened_git_env", "with_allowed_git_protocols"}:
+            continue
+        if not _calls_hardened_git_env(function):
+            problems.append(f"{location} does not call hardened_git_env()")
+    assert {location.split("::")[1] for location in builder_bodies} >= ENV_BUILDERS, (
+        "an environment builder named here no longer exists"
+    )
     assert not problems, "\n".join(problems)
 
 
