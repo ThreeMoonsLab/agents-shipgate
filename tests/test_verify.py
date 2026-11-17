@@ -3741,6 +3741,39 @@ def test_build_verifier_preserves_trigger_state_but_scrubs_embedded_commands(
     assert verifier.trigger["matched_rules"][0]["command"] is None
 
 
+def test_verify_preview_resolves_local_main_when_no_remote_exists(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    subprocess.run(["git", "branch", "-M", "main"], cwd=repo, check=True)
+    subprocess.run(["git", "checkout", "-b", "review"], cwd=repo, check=True)
+    (repo / "agent.py").write_text("from agents import Agent\n", encoding="utf-8")
+    _commit_all(repo, "agent change")
+
+    result = runner.invoke(app, ["verify", "--workspace", str(repo), "--preview", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["base_ref"] == "main"
+    assert payload["changed_files"] == ["agent.py"]
+
+
+def test_verify_preview_names_unresolved_base_on_another_default_branch(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    subprocess.run(["git", "branch", "-M", "develop"], cwd=repo, check=True)
+
+    result = runner.invoke(app, ["verify", "--workspace", str(repo), "--preview", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["diff_status"]["completeness"] == "unavailable"
+    assert payload["diff_status"]["reason"] == "refs_missing"
+    assert "base_unresolved" in payload["diff_status"]["detail"]
+    assert payload["control"]["next_action"]["kind"] == "fetch_base"
+
+
 def test_verify_preview_missing_base_without_manifest_reports_the_missing_ref(
     tmp_path: Path,
 ) -> None:

@@ -226,7 +226,6 @@ from .git import (
     commit_date,
     commit_sha,
     detect_default_base,
-    detect_default_base_with_notes,
     ensure_git_workspace,
     git_path,
     merge_base_sha,
@@ -7386,12 +7385,12 @@ def run_preview(
     diff_text = ""
     notes: list[str] = []
     diff_input: DiffContext | None = None
-    if base is None and auto_base:
+    if base is None and auto_base and in_git:
         try:
-            detection = detect_default_base_with_notes(root, head or "HEAD")
-        except Exception:  # noqa: BLE001 - preview must never crash.
-            detection = None
-        if detection is not None:
+            detection = resolve_verify_base(root, head or "HEAD")
+        except Exception as exc:  # noqa: BLE001 - preview must never crash.
+            diff_input = _as_diff_context(exc)
+        else:
             notes.extend(detection.notes)
             if detection.base is not None:
                 base = detection.base
@@ -7399,6 +7398,12 @@ def run_preview(
                     f"Auto-detected base {detection.base!r} for diff context; "
                     "pass --base to override or --no-base to disable."
                 )
+            elif not detection.resolved:
+                status, _, _ = _base_unresolved_route()
+                diff_input = DiffContext(
+                    completeness="unavailable", reason=status.reason, detail=status.detail or "",
+                )
+                notes.append(diff_input.note)
     if base:
         try:
             git_root = ensure_git_workspace(root)
