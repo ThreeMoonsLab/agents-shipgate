@@ -6,6 +6,7 @@ from typing import Any
 
 from agents_shipgate.core.domain import ToolParameter
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.python_source import parse_python
 from agents_shipgate.inputs.common import load_text_file, schema_to_parameters
 
 SKIPPED_TOOL_PARAMETERS = {
@@ -22,7 +23,7 @@ SKIPPED_TOOL_PARAMETERS = {
 
 def parse_python_file(path: Path, *, label: str) -> ast.Module:
     try:
-        return ast.parse(load_text_file(path), filename=str(path))
+        return parse_python(load_text_file(path), filename=str(path))
     except SyntaxError as exc:
         raise InputParseError(f"Unable to parse {label} Python entrypoint {path}: {exc.msg}") from exc
 

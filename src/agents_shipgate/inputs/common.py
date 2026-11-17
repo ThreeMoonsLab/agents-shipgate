@@ -191,8 +191,7 @@ def load_structured_file(path: Path) -> Any:
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise InputParseError(f"Unable to read input file {path}: {exc}") from exc
     try:
-        stripped = text.lstrip()
-        if path.suffix.lower() == ".json" or stripped.startswith(("{", "[")):
+        if path.suffix.lower() == ".json":
             return json.loads(text)
         return yaml.safe_load(text)
     except (json.JSONDecodeError, yaml.YAMLError) as exc:
@@ -371,9 +370,7 @@ def load_structured_text_with_positions(
         raise InputParseError(
             f"Input file too large: {path}; maximum is {MAX_INPUT_FILE_BYTES} bytes"
         )
-    stripped = text.lstrip()
-    is_json = path.suffix.lower() == ".json" or stripped.startswith(("{", "["))
-    if is_json:
+    if path.suffix.lower() == ".json":
         try:
             return json.loads(text), _EMPTY_INDEX
         except json.JSONDecodeError as exc:
