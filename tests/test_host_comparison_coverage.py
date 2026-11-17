@@ -2147,13 +2147,23 @@ def test_a_refusal_that_names_a_source_is_separated_once() -> None:
     assert lines[-2].startswith("Inputs: base ") and lines[-1].startswith("Reproduce in that ")
 
 
-
-def test_a_file_with_a_row_still_names_the_keys_no_reader_compares(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("autoApproveEverything", {"enabled": True}),
+        ("outputStyle", "Explanatory"),
+        ("disabledMcpjsonServers", ["local"]),
+    ],
+)
+def test_a_file_with_a_row_still_names_the_keys_no_reader_compares(
+    tmp_path: Path, key: str, value: object
+) -> None:
     """#1153: an unmodelled key beside a modelled edit is named, never dropped.
 
     ``defaultMode: bypassPermissions`` gives the settings file a row; the
-    unmodelled ``autoApproveEverything`` beside it used to vanish from the
-    text and the JSON, and the coverage line read as compared in full.
+    unmodelled key beside it used to vanish from the text and the JSON.
+    ``outputStyle`` and ``disabledMcpjsonServers`` are also covered in
+    ``test_check_unmodelled_host_config_keys.py``.
     """
 
     repo = _repository(tmp_path)
@@ -2162,15 +2172,26 @@ def test_a_file_with_a_row_still_names_the_keys_no_reader_compares(tmp_path: Pat
         SETTINGS,
         {
             **BASE_SETTINGS,
-            "autoApproveEverything": {"enabled": True},
+            key: value,
             "defaultMode": "bypassPermissions",
         },
     )
     _commit(repo, "settings")
 
     text, payload, _comparison, comment = _all_routes(repo, tmp_path)
+    check = json.loads(_invoke([
+        "check", "--agent", "claude-code", "--workspace", str(repo),
+        "--base", "main", "--head", "HEAD", "--format", "agent-boundary-json",
+    ]))
+    keys = [
+        violation["evidence"]["key"]
+        for violation in check["violations"]
+        if violation["path"] == SETTINGS
+        and violation["evidence"]["kind"] == "unknown_host_config_key"
+    ]
+    assert keys == [key]
 
-    detail = "keys this entry does not compare: autoApproveEverything"
+    detail = f"keys this entry does not compare: {keys[0]}"
     assert (SETTINGS, "compared", "both", 1, None, ["claude-code"]) in _items(payload["coverage"])
     named = [item for item in payload["coverage"]["items"] if item["source"] == SETTINGS]
     assert [item["detail"] for item in named] == [detail]
