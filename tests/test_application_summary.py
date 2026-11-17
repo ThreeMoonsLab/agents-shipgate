@@ -29,7 +29,9 @@ from typer.testing import CliRunner
 import agents_shipgate.cli.application_diff as diff_module
 from agents_shipgate.cli.application_summary import (
     DETAIL_ROW_LIMIT,
+    MAX_TOOL_LINES,
     build_summary,
+    finding_lines,
     pattern_of,
     summary_lines,
 )
@@ -342,6 +344,56 @@ def _row(agent: str, tool: str, change: str, **fields) -> dict:
         "review_question": "q",
     }
     return {**row, **fields}
+
+
+def test_large_candidate_finding_names_the_specific_differences():
+    rows = [
+        _row(
+            "a", name, "not_established", candidate_change="changed",
+            before=_binding(name), after={**_binding(name), "binding_location": "agent.py:2"},
+        )
+        for name in (f"ambiguous_{index}" for index in range(7))
+    ]
+    rows.extend([
+        _row("a", "new_tool", "not_established", candidate_change="added", after=_binding("new_tool")),
+        _row(
+            "a", "edited", "not_established", candidate_change="changed",
+            before=_binding("edited"), after=_binding("edited", sha="b" * 64),
+        ),
+    ])
+    lines = summary_lines(build_summary(_payload(rows)))
+
+    assert any(line.startswith("  ?+new_tool (candidate, not established)") for line in lines)
+    assert any(
+        line.startswith("  ?~edited (candidate, not established): implementation changed")
+        for line in lines
+    )
+    assert sum(line.startswith("  ?") for line in lines) == 2
+    assert "  7 additional candidates: see --json summary.findings." in lines
+
+
+def test_pinned_crm_candidate_finding_keeps_tool_names_and_binding_caveat():
+    # CRM #5, dae503cc671c...0935d0931c58, read by fc8cbb6707.
+    # The fixture is the Wycena finding from the captured JSON summary.
+    path = ROOT / "tests" / "fixtures" / "application-summary-crm5.json"
+    finding = json.loads(path.read_text(encoding="utf-8"))
+    lines = finding_lines(finding)
+
+    assert lines[0].startswith("Wycena [partial]")
+    assert "not read beyond bots_pro/agenci.py:65" in lines[0]
+    assert any("binding graph is also incomplete" in line for line in lines)
+    details = [line for line in lines if line.startswith("  ?")]
+    assert len(details) == MAX_TOOL_LINES
+    assert details[0].startswith("  ?+wyslij_obraz (candidate, not established)")
+    edited = ("policz_wycene", "policz_wysylke", "znajdz_klienta")
+    for tool in edited:
+        assert any(
+            line.startswith(f"  ?~{tool} (candidate, not established): implementation changed")
+            for line in details
+        )
+    assert "  8 additional candidates: see --json summary.findings." in lines
+    [brief] = finding_lines(finding, full=False)
+    assert all(tool in brief for tool in ("wyslij_obraz", *edited))
 
 
 def test_text_never_obeys_a_control_character_in_a_name(capsys):

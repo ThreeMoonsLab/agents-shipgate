@@ -40,6 +40,7 @@ DETAIL_ROW_LIMIT = 10
 _KINDS = ("added", "removed", "changed", "not_established")
 _MARKS = {"added": "+", "removed": "-", "changed": "~", "not_established": "?"}
 _CANDIDATE_NOUN = {"added": "addition", "removed": "removal", "changed": "change"}
+_BINDING_DETAILS_CHANGED = "binding details changed"
 _CREDENTIAL_TARGETS = ("header", "auth", "query", "field", "userinfo", "keyword", "server_env")
 
 #: Libraries whose effect is named by a function, not a method on an object.
@@ -143,7 +144,7 @@ def _what_changed(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
             if identity_before.get(key) != identity_after.get(key)
         )
         changes.append("tool object changed" + (f" ({', '.join(keys)})" if keys else ""))
-    return changes or ["binding details changed"]
+    return changes or [_BINDING_DETAILS_CHANGED]
 
 
 def _reach_items(binding: dict[str, Any]) -> list[dict[str, Any]]:
@@ -309,6 +310,19 @@ def _reach_moved(entry: dict[str, Any]) -> bool:
 def _kind(entry: dict[str, Any]) -> str:
     change = entry["change"]
     return change if change != "not_established" else (entry["candidate_change"] or change)
+
+
+def _has_candidate_detail(entry: dict[str, Any]) -> bool:
+    """Whether a candidate names a specific difference for the reviewer."""
+
+    return (
+        _kind(entry) in {"added", "removed"}
+        or _reach_moved(entry)
+        or any(
+            fact["kind"] == "change" and fact["text"] != _BINDING_DETAILS_CHANGED
+            for fact in entry["facts"]
+        )
+    )
 
 
 def _mark(entry: dict[str, Any]) -> str:
@@ -629,11 +643,12 @@ def _tool_line(entry: dict[str, Any]) -> str:
     if len(reaches) > 2:
         parts.append(f"and {len(reaches) - 2} more reach{'es' if len(reaches) != 3 else ''}")
     if not reaches and not any(f["kind"] == "object" for f in entry["facts"]):
-        if entry["change"] == "changed":
+        kind = _kind(entry)
+        if kind == "changed":
             parts.append("no outbound call or library effect established, before or after")
-        elif entry["change"] == "added":
+        elif kind == "added":
             parts.append("no outbound call or library effect established")
-        elif entry["change"] == "removed":
+        elif kind == "removed":
             parts.append("no outbound call or library effect established before")
     hop = entry.get("unresolved")
     if hop:
@@ -660,6 +675,8 @@ def finding_lines(finding: dict[str, Any], *, qualify: bool = False, full: bool 
     entries = sorted(finding["tools"], key=_display_key)
     counts = finding["counts"]
     established = [e for e in entries if e["change"] != "not_established"]
+    large_candidate_finding = not established and len(entries) > MAX_TOOL_LINES
+    candidate_details = [e for e in entries if _has_candidate_detail(e)] if large_candidate_finding else []
     name = finding["agent"] + (f" ({finding['agent_source']})" if qualify else "")
     if len(entries) <= MAX_HEADER_TOOLS:
         what = _names([f"{_mark(e)}{e['tool']}" for e in entries], MAX_HEADER_TOOLS)
@@ -674,6 +691,9 @@ def finding_lines(finding: dict[str, Any], *, qualify: bool = False, full: bool 
             detail = ", ".join(
                 f"{n} candidate {_CANDIDATE_NOUN.get(kind, 'change')}s" for kind, n in sorted(candidates.items())
             )
+            if not full and candidate_details:
+                names = _names([f"{_mark(e)}{e['tool']}" for e in candidate_details], MAX_TOOL_LINES)
+                detail += f"; {names}"
             parts.append(f"{counts['not_established']} not established ({detail})")
         what = "; ".join(parts)
     notes: list[str] = []
@@ -702,20 +722,19 @@ def finding_lines(finding: dict[str, Any], *, qualify: bool = False, full: bool 
     lines = [f"{name} [{finding['status']}]: {what}" + (f" ({'; '.join(notes)})" if notes else "")]
     if not full:
         return lines
-    # A tool that reaches something gets its own line; the rest do too while
-    # the finding is small enough to read as a list.
-    # A candidate gets a line only when the finding has nothing established to
-    # show: beside established rows it is counted, and its cause is below.
-    candidates_too = not established
-    shown = (
-        [e for e in entries if e["change"] != "not_established" or (candidates_too and _has_capability(e))]
-        if len(entries) <= MAX_TOOL_LINES
-        else [e for e in entries if _reach_moved(e) and (candidates_too or e["change"] != "not_established")][
-            :MAX_TOOL_LINES
-        ]
-    )
+    if established:
+        shown = established if len(entries) <= MAX_TOOL_LINES else [
+            entry for entry in established if _reach_moved(entry)
+        ][:MAX_TOOL_LINES]
+    elif large_candidate_finding:
+        shown = candidate_details[:MAX_TOOL_LINES]
+    else:
+        shown = [entry for entry in entries if _has_capability(entry)]
     for entry in shown:
         lines.append("  " + _tool_line(entry))
+    if large_candidate_finding:
+        omitted = len(entries) - len(shown)
+        lines.append(f"  {_plural(omitted, 'additional candidate')}: see --json summary.findings.")
     rest = [e for e in established if e not in shown]
     if rest:
         groups = Counter(

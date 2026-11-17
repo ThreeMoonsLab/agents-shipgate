@@ -1,0 +1,236 @@
+{
+  "agent": "Wycena",
+  "agent_source": "integrations/chat_bridge/bots_pro/agenci.py",
+  "status": "partial",
+  "rows": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14
+  ],
+  "counts": {
+    "added": 0,
+    "removed": 0,
+    "changed": 0,
+    "not_established": 12
+  },
+  "first_unresolved": {
+    "kind": "binding",
+    "text": "The source initializer names 'oddaj_czlowiekowi', but its binding is not established: the constructor caller census is not established: 'zbuduj_agenta_wyceny' (bots_pro/agenci.py:65) may be reached through dynamic import machinery at _smoke.py:5; 'zbuduj_agenta_wyceny' (bots_pro/agenci.py:65) may be reached through a dynamic import at _smoke.py:14; OpenAI Agents SDK agent 'Wycena' at bots_pro/agenci.py:66 uses a dynamic tools expression; its binding graph is incomplete. Not read: `NARZEDZIA_WYCENY` may be changed in place in bots_pro/agenci.py (bots_pro/agenci.py:70).; the constructor identity is not established: the constructor caller census is not established: 'zbuduj_agenta_wyceny' (bots_pro/agenci.py:65) may be reached through dynamic import machinery at _smoke.py:5; 'zbuduj_agenta_wyceny' (bots_pro/agenci.py:65) may be reached through a dynamic import at _smoke.py:14",
+    "row": 3,
+    "at": "bots_pro/agenci.py:65"
+  },
+  "capabilities": [],
+  "changed_capabilities": [],
+  "unchanged_capabilities": [],
+  "tools": [
+    {
+      "row": 3,
+      "tool": "oddaj_czlowiekowi",
+      "change": "not_established",
+      "candidate_change": "changed",
+      "facts": [
+        {
+          "kind": "change",
+          "text": "binding details changed"
+        }
+      ],
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    },
+    {
+      "row": 4,
+      "tool": "pobierz_opcje",
+      "change": "not_established",
+      "candidate_change": "changed",
+      "facts": [
+        {
+          "kind": "change",
+          "text": "binding details changed"
+        }
+      ],
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    },
+    {
+      "row": 5,
+      "tool": "policz_wycene",
+      "change": "not_established",
+      "candidate_change": "changed",
+      "facts": [
+        {
+          "kind": "change",
+          "text": "implementation changed"
+        }
+      ],
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    },
+    {
+      "row": 6,
+      "tool": "policz_wysylke",
+      "change": "not_established",
+      "candidate_change": "changed",
+      "facts": [
+        {
+          "kind": "change",
+          "text": "implementation changed"
+        }
+      ],
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    },
+    {
+      "row": 7,
+      "tool": "popraw_wycene",
+      "change": "not_established",
+      "candidate_change": "changed",
+      "facts": [
+        {
+          "kind": "change",
+          "text": "binding details changed"
+        }
+      ],
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    },
+    {
+      "row": 8,
+      "tool": "potwierdz",
+      "change": "not_established",
+      "candidate_change": "changed",
+      "facts": [
+        {
+          "kind": "change",
+          "text": "binding details changed"
+        }
+      ],
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    },
+    {
+      "row": 9,
+      "tool": "przygotuj_zamowienie",
+      "change": "not_established",
+      "candidate_change": "changed",
+      "facts": [
+        {
+          "kind": "change",
+          "text": "binding details changed"
+        }
+      ],
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    },
+    {
+      "row": 10,
+      "tool": "wyslij_obraz",
+      "change": "not_established",
+      "candidate_change": "added",
+      "facts": [],
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    },
+    {
+      "row": 11,
+      "tool": "wyslij_podsumowanie",
+      "change": "not_established",
+      "candidate_change": "changed",
+      "facts": [
+        {
+          "kind": "change",
+          "text": "binding details changed"
+        }
+      ],
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    },
+    {
+      "row": 12,
+      "tool": "zapisz_pozycje",
+      "change": "not_established",
+      "candidate_change": "changed",
+      "facts": [
+        {
+          "kind": "change",
+          "text": "binding details changed"
+        }
+      ],
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    },
+    {
+      "row": 13,
+      "tool": "zapisz_wycene",
+      "change": "not_established",
+      "candidate_change": "changed",
+      "facts": [
+        {
+          "kind": "change",
+          "text": "binding details changed"
+        }
+      ],
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    },
+    {
+      "row": 14,
+      "tool": "znajdz_klienta",
+      "change": "not_established",
+      "candidate_change": "changed",
+      "facts": [
+        {
+          "kind": "change",
+          "text": "implementation changed"
+        }
+      ],
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    }
+  ],
+  "causes": [
+    1,
+    2,
+    3
+  ],
+  "questions": [],
+  "agent_limits": {
+    "count": 2,
+    "sides": [
+      "head"
+    ],
+    "first": "OpenAI Agents SDK agent 'Wycena' at bots_pro/agenci.py:84 uses a dynamic tools expression; its binding graph is incomplete. Not read: `NARZEDZIA_WYCENY` may be changed in place in bots_pro/agenci.py (bots_pro/agenci.py:91)."
+  }
+}
