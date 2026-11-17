@@ -157,12 +157,20 @@ _PIN = re.compile(
 
 @dataclass(frozen=True)
 class LockTarget:
-    """A committed lock and the declarations it must satisfy."""
+    """A committed lock and the declarations it must satisfy.
+
+    ``constraints`` names locks this one is installed after, in the same
+    environment. They are passed to the compiler as constraints, so a
+    distribution both pin resolves to the version already installed rather
+    than to whatever the index offers on the day; ``CO_INSTALLED`` then checks
+    that they still agree.
+    """
 
     lock: str
     source: str
     extras: tuple[str, ...] = ()
     purpose: str = ""
+    constraints: tuple[str, ...] = ()
 
 
 # `constraints/release-build.txt` is not a lock but a *source*: one
@@ -191,13 +199,22 @@ LOCK_TARGETS: tuple[LockTarget, ...] = (
         source="constraints/release-publish.in",
         purpose="the publication jobs' toolchain",
     ),
+    # After the two locks it is installed beside, so a full regeneration
+    # compiles it against their fresh versions.
+    LockTarget(
+        lock="constraints/harness.txt",
+        source="harness/requirements.txt",
+        purpose="the adoption harness, installed beside the development closure",
+        constraints=("constraints/dev.txt", "constraints/build-backend.txt"),
+    ),
 )
 
 # Locks installed into one environment. A shared distribution pinned at two
 # versions means the second `pip install` moves what the first one placed, so
-# the closure that was tested is not the closure that ends up installed.
+# the closure that was tested is not the closure that ends up installed. CI
+# installs the first two; the adoption harness installs all three.
 CO_INSTALLED: tuple[tuple[str, ...], ...] = (
-    ("constraints/dev.txt", "constraints/build-backend.txt"),
+    ("constraints/dev.txt", "constraints/build-backend.txt", "constraints/harness.txt"),
 )
 
 # The closure that must satisfy `[build-system]`.

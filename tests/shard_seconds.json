@@ -448,7 +448,8 @@
   "tests/test_declared_policy_pack_boundary.py": 44.3,
   "tests/test_packaged_default_policies.py": 0.2,
   "tests/test_workflow_directory_instructions.py": 50.6,
-  "tests/test_registry_drift_observation.py": 1.4
+  "tests/test_registry_drift_observation.py": 1.4,
+  "tests/test_workflow_hardening.py": 1.1
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -711,6 +712,17 @@
    },
    "case_count": 44,
    "command": "python -m pytest tests/test_registry_drift_observation.py --junitxml=registry-drift-observation.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "fc8cbb670766 with issue #1033 increment",
+   "report_sha256": "65f109882a626a841f8f8de62fa50e473718d28557b9d3f2a2e97facc35997e6",
+   "files": {
+    "tests/test_workflow_hardening.py": 1.1
+   },
+   "case_count": 60,
+   "command": "python -m pytest tests/test_workflow_hardening.py --junitxml=workflow-hardening.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

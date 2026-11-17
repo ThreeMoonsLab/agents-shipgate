@@ -53,42 +53,145 @@ runs:
         allowed="${allowed} sigstore-rekor-types tuf typing-extensions"
         allowed="${allowed} typing-inspection urllib3 uv"
 
-        # Every requirement line is classified, and anything that is not an
-        # exact `name==version` pin is rejected rather than skipped. Matching
-        # only `^name==` left a hole: pip installs `name @ https://...` and
-        # `--editable` requirements too, and a grep for `==` silently omitted
-        # them from the comparison — so a candidate could add a direct URL to
-        # the lockfile and have it installed, unreviewed, next to the token.
+        # The guard has to read the lockfile the way pip reads it, or a line it
+        # passes over is a line pip installs. Skipping every indented line as
+        # "a hash continuation" was that hole (#1033): pip joins a line onto the
+        # one above it only when that one ends with a backslash, so an indented
+        # `    evilpkg==1.0` below a finished requirement is a requirement of its
+        # own, and pip installed it next to the token.
+        #
+        # So nothing is skipped. First, the bytes must split into the same
+        # lines for pip as for this loop:
+        #
+        # - No control character but the newline, and no Unicode line or
+        #   paragraph separator. pip splits the file with `str.splitlines()`,
+        #   which also breaks at a carriage return, a form feed, the file,
+        #   group and record separators, NEL, U+2028 and U+2029; `read` breaks
+        #   at a newline alone. What uv writes needs none of them, and a tab is
+        #   refused with them. Other non-ASCII text, such as a dash in the
+        #   header, is accepted in comments only: every other line must match
+        #   an ASCII pattern below.
+        # - No encoding declaration. pip decodes the file with a PEP 263
+        #   `coding:` named in its first two lines, and under some codecs plain
+        #   ASCII decodes to a newline.
+        #
+        # Then every line is classified against the one shape uv writes, and
+        # anything else is refused rather than skipped:
+        #
+        #     name==version[ ; marker] \
+        #         --hash=sha256:<hex> \
+        #         --hash=sha256:<hex>
+        #         # via <parent>
+        #
+        # A requirement starts at the left margin. An indented line is accepted
+        # only as a single `--hash` token, and only on a line pip joins to the
+        # requirement above it: the line after one that ends in ` \`. Blank
+        # lines and comments, indented or not, are never continued, and they
+        # end any requirement continued onto them, as in pip.
+        #
+        # Classifying rather than grepping also closed an earlier hole: pip
+        # installs `name @ https://...` and `--editable` requirements too, and a
+        # grep for `==` silently omitted them from the comparison, so a
+        # candidate could add a direct URL to the lockfile and have it
+        # installed, unreviewed, next to the token.
+        export LC_ALL=C
+        lockfile=release-toolchain.txt
+        refuse() {
+          echo "::error::Release toolchain lockfile ${1}"
+          exit 1
+        }
+
+        controls="$(tr -d '\n\040-\176\200-\377' < "${lockfile}" | wc -c | tr -d '[:space:]')"
+        if [ "${controls}" != 0 ]; then
+          refuse "contains ${controls} control character(s) other than a newline (a tab, carriage return, form feed or NUL, for example). pip splits such text into lines this guard would not see, so the file is refused rather than read."
+        fi
+        # Read after the check above: a shell variable silently drops NUL.
+        content="$(cat "${lockfile}")"
+        case "${content}" in
+          *$'\x85'* | *$'\xe2\x80\xa8'* | *$'\xe2\x80\xa9'*)
+            refuse "contains a Unicode line or paragraph separator, or a 0x85 byte, which some encodings decode as one. pip splits lines there and this guard would not, so the file is refused rather than read."
+            ;;
+        esac
+        first_two_lines="$(head -n 2 "${lockfile}")"
+        case "${first_two_lines}" in
+          *coding:* | *coding=*)
+            refuse "declares a text encoding in its first two lines. pip decodes the whole file with it, so the requirements pip reads would not be the lines this guard reads."
+            ;;
+        esac
+
+        name_re='^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$'
+        version_re='^[A-Za-z0-9][A-Za-z0-9.!+_-]*$'
+        # No `-`, because pip reads the rest of a requirement line as options
+        # from the first word that starts with one; and no `#`, `\`, `$` or `;`.
+        marker_re="^[A-Za-z0-9_.<>=!~()' \"]+\$"
+        hash_re='^ +--hash=sha(256|384|512):[0-9a-f]+$'
+
         : > requested-toolchain.txt
+        number=0
+        continued=no
         while IFS= read -r line || [ -n "${line}" ]; do
-          # Blank lines, comments, hash continuations and pip options are not
-          # requirements.
-          case "${line}" in
-            ''|'#'*) continue ;;
+          number=$((number + 1))
+          indent="${line%%[! ]*}"
+          text="${line#"${indent}"}"
+
+          case "${text}" in
+            '' | '#'*)
+              continued=no
+              continue
+              ;;
           esac
+
+          # Whether pip joins the next line onto this one.
           case "${line}" in
-            [[:space:]]*) continue ;;
-            -*) echo "::error::Release toolchain lockfile contains a pip option (${line}); the publication jobs install a plain pinned closure only."; exit 1 ;;
-          esac
-          requirement="${line%%;*}"
-          requirement="${requirement%\\}"
-          requirement="$(echo "${requirement}" | tr -d '[:space:]')"
-          case "${requirement}" in
-            *'=='*)
-              name="${requirement%%==*}"
-              version="${requirement#*==}"
-              if [ -z "${name}" ] || [ -z "${version}" ]; then
-                echo "::error::Release toolchain lockfile has a malformed pin: ${line}"
-                exit 1
-              fi
+            *' \')
+              joins_next=yes
+              body="${line% \\}"
+              ;;
+            *'\')
+              refuse "line ${number} ends with a backslash that does not follow a space: ${line}"
               ;;
             *)
-              echo "::error::Release toolchain lockfile requests ${requirement}, which is not an exact name==version pin. Direct URLs, editable installs and ranges are refused in the jobs that can mint a token or rewrite a release."
-              exit 1
+              joins_next=no
+              body="${line}"
               ;;
           esac
+
+          if [ "${continued}" = yes ]; then
+            if ! [[ "${body}" =~ ${hash_re} ]]; then
+              refuse "line ${number} continues the requirement above it with something other than one --hash=sha256:<hex>: ${line}"
+            fi
+            continued="${joins_next}"
+            continue
+          fi
+
+          case "${line}" in
+            ' '*)
+              refuse "line ${number} is indented, but the line above it does not end with a backslash, so pip reads it as a line of its own and not as a hash: ${line}"
+              ;;
+            -*)
+              refuse "contains a pip option (${line}); the publication jobs install a plain pinned closure only."
+              ;;
+          esac
+
+          pin="${body%% ; *}"
+          if [ "${pin}" != "${body}" ]; then
+            marker="${body#* ; }"
+            if ! [[ "${marker}" =~ ${marker_re} ]]; then
+              refuse "line ${number} qualifies ${pin} with an environment marker this guard does not accept: ${marker}"
+            fi
+          fi
+          name="${pin%%==*}"
+          version="${pin#*==}"
+          if [ "${name}" = "${pin}" ] || ! [[ "${name}" =~ ${name_re} ]] || ! [[ "${version}" =~ ${version_re} ]]; then
+            refuse "requests ${pin}, which is not an exact name==version pin. Direct URLs, editable installs and ranges are refused in the jobs that can mint a token or rewrite a release."
+          fi
           printf '%s\n' "${name}" | tr 'A-Z_.' 'a-z--' >> requested-toolchain.txt
-        done < release-toolchain.txt
+          continued="${joins_next}"
+        done < "${lockfile}"
+
+        if [ "${continued}" = yes ]; then
+          refuse "ends with a backslash, continuing its last requirement into nothing."
+        fi
 
         sort -u -o requested-toolchain.txt requested-toolchain.txt
         if [ ! -s requested-toolchain.txt ]; then
