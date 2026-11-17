@@ -8,11 +8,11 @@ makes that a number someone else can reproduce, on two corpora:
   Reader issues are worked against these pull requests, so a count on them
   measures what was fixed. It does not predict how the next stranger's pull
   request will fare.
-- **Holdout**: at least 30 pull requests the [rule below](#holdout-selection-rule)
-  selects from a later window. The rule, and the repository pool it draws
-  from, were committed before any of the reader changes it is meant to judge
-  merged; the pins follow once the window holds enough pull requests. Members
-  are scored only when a release is cut, and never used to debug a reader.
+- **Holdout**: the 30 pull requests the [rule below](#holdout-selection-rule)
+  selects from a later window, pinned in [`holdout.json`](holdout.json) on
+  2026-11-17. The rule, and the repository pool it draws from, were committed
+  before any of the reader changes it is meant to judge merged. Members are
+  scored only when a release is cut, and never used to debug a reader.
 
 Both are development evidence for [#868](https://github.com/ThreeMoonsLab/agents-shipgate/issues/868),
 not a success rate, a market estimate or a qualification claim. Neither may be
@@ -187,6 +187,15 @@ ledger under [`results/`](results/), and records
 release in `docs/changelog/<version>.md`. While the holdout has no pins, that
 line says so instead of a number.
 
+The holdout was pinned on 2026-11-17 ([#1158](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1158)).
+Its `walk` record says how the window was listed, how many pull requests each
+step set aside, and how the rule was read where it needed reading. 768
+candidates were walked, in rule order, from 2026-10-02 to the 30th member on
+2026-10-05; every one is listed with its pins and its reason. Relevance was
+judged from source by one judge, a Claude Code agent, before any engine ran on
+a candidate (`judge`). The holdout has no ledger yet: it is scored at the next
+release.
+
 The [2026-11-08 development ledger](results/2026-11-08-04fc9ced.md)
 measures the 1.3.0 release build at `04fc9ced`: Q1 and Q2 are 0/49, down
 from 4/49 and 3/49, because no answer establishes a row. Every change
@@ -207,7 +216,7 @@ no pinned members or score in this measurement.
 | --- | --- |
 | [`development.json`](development.json) | The 49 development pull requests: repository, number, URL, title, state, created date, merge base, head, the `frameworks` the engine read and the search that admitted them. |
 | [`pool.json`](pool.json) | The holdout's recorded repository pool, with every code-search request that produced it. |
-| [`holdout.json`](holdout.json) | The holdout's record: the digests of the frozen definitions and rule and of the pool and, once generated, its members and every skipped candidate with the reason. |
+| [`holdout.json`](holdout.json) | The holdout's record: the digests of the frozen definitions and rule and of the pool, who judged relevance and how the walk was made (`judge`, `walk`), its 30 members and every skipped candidate, each with its pins and reason. |
 | [`pool.py`](pool.py) | How `pool.json` was recorded. Re-running it does not reproduce it. |
 | [`run.py`](run.py) | Clone, fetch and run one engine over a corpus. |
 | [`summarize.py`](summarize.py) | Count a run's statuses and rows, and join the hand scores that judged its answers. |

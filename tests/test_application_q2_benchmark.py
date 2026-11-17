@@ -277,21 +277,32 @@ def test_a_pinned_holdout_follows_its_rule() -> None:
     if HOLDOUT["status"] == "awaiting_window":
         assert HOLDOUT["members"] == [] and HOLDOUT["skipped"] == []
         return
+    assert HOLDOUT["status"] == "pinned"
     members = HOLDOUT["members"]
     assert len(members) == HOLDOUT["target_members"]
     development = {member["repository"] for member in DEVELOPMENT["members"]}
     walked = sorted([*members, *HOLDOUT["skipped"]], key=lambda item: (item["created_at"], item["url"]))
     assert [item["url"] for item in walked if item in members] == [item["url"] for item in members]
+    assert len({item["url"] for item in walked}) == len(walked)
+    # The walk stops at the 30th member (step 5): nothing after it was walked.
+    assert walked[-1] is members[-1]
+    assert HOLDOUT["walk"]["walked_through"] == members[-1]["created_at"]
+    assert HOLDOUT["walk"]["candidates_walked"] == len(walked)
     for item in walked:
         assert item["reason"].strip()
         assert item["created_at"] >= HOLDOUT["window_start"]
         assert item["repository"] in POOL["repositories"]
         assert item["repository"] not in development
+        assert item["url"].startswith("https://github.com/") and item["url"].endswith(f"/pull/{item['number']}")
     for member in members:
         if member.get("unavailable_reason"):
             assert member["merge_base"] is None and member["head"] is None
         else:
             assert SHA.match(member["merge_base"]) and SHA.match(member["head"])
+            assert member["merge_base"] != member["head"]
+    # Who judged relevance, and that it was judged before any engine output (#1158).
+    assert "no engine output was produced or seen" in HOLDOUT["judge"]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", HOLDOUT["generated"])
 
 
 def test_every_release_after_1_2_0_records_the_count() -> None:
