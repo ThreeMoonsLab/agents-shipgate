@@ -603,7 +603,7 @@ def coverage_item_text(
     if item.status == "script_not_resolved":
         where = "" if item.side == "both" else f"in {item.side} only, "
         return (
-            f"{where}a hook it declares runs a script this entry does not resolve, so a "
+            f"{where}a command it declares runs a script this entry does not resolve, so a "
             f"change to that script is not shown: {_text(item.detail or '', markdown=markdown)}"
         )
     if item.status == "changed_without_grant_change" and item.detail:
@@ -631,7 +631,7 @@ def coverage_item_text(
             f"unchanged{_redacted_values_note(item.source)}"
         )
     elif item.status == "changed_without_rows" and named_by_row:
-        finding = "changed; the row of the hook that runs it names this script"
+        finding = "changed; the row for its declaring command names this script"
     elif item.status == "changed_without_rows":
         finding = "changed, but no row is attributed to this path"
     elif item.rows:

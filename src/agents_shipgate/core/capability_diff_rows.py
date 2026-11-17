@@ -47,7 +47,6 @@ from agents_shipgate.core.host_grants import (
     agent_rule_gains,
     agent_rule_text,
     checkout_ref_key,
-    hook_dependency_only_change,
     hook_loading_basis,
     hook_runs_for_no_tool_call,
     host_grant_direction_unknown,
@@ -60,6 +59,7 @@ from agents_shipgate.core.host_grants import (
     published_workflow_label,
     pull_request_code_ref,
     reusable_call_target,
+    script_dependency_only_change,
     secret_mapping_key,
     step_action_key,
     workflow_widening_outside_agent_jobs,
@@ -1903,6 +1903,8 @@ def _command_setting_cell(value: str, grant: dict[str, Any] | None) -> str:
 def _command_setting_change(value: str, before: dict[str, Any], after: dict[str, Any]) -> str:
     """What changed in a command setting both sides declare, in its published facts (#1027)."""
 
+    if script_dependency_only_change(before, after):
+        return f"{value}: {_hook_dependency_change(before, after)}"
     old, new = before.get("command"), after.get("command")
     if isinstance(old, dict) and isinstance(new, dict):
         if old.get("sha256") != new.get("sha256"):
@@ -2102,7 +2104,7 @@ def _hook_change(event: str, before: dict[str, Any], after: dict[str, Any]) -> s
     it (#819 review, cycle 5).
     """
 
-    if hook_dependency_only_change(before, after):
+    if script_dependency_only_change(before, after):
         return f"{event}: {_hook_dependency_change(before, after)}"
     if "handlers" not in before or "handlers" not in after:
         return None
@@ -2511,16 +2513,25 @@ def capability_diff_rows(
             )
         ):
             why = rule_why
-        if hook_dependency_only_change(before_grant, after_grant):
+        if script_dependency_only_change(before_grant, after_grant):
             # The digests are the change cell (`_hook_change`); the why names
             # the scripts once, so the text does not print them twice.
             scripts = [path for path, _left, _right in _changed_hook_scripts(before_grant, after_grant)]
             named = ", ".join(scripts[:3]) + (f", {len(scripts) - 3} more" if len(scripts) > 3 else "")
             # A script the host runs changed: what that does to the agent's
             # authority is not established, and it is not silent (#820).
+            if kind == "command_setting":
+                selection = "the command setting"
+                if any(
+                    entry.get("basis") == "repository_root_relative"
+                    for entry in after_grant.get("script_inputs") or []
+                ):
+                    selection += " for a launch from the repository root"
+            else:
+                selection = hook_loading_basis(after_grant)
             why = (
                 f"{_HOOK_SCRIPT_WHY} {named}; "
-                f"declaration unchanged, selected by {hook_loading_basis(after_grant)}; "
+                f"declaration unchanged, selected by {selection}; "
                 "compares file bytes only, not permissions or runtime behavior; "
                 f"{DIRECTION_UNKNOWN}"
             )

@@ -795,8 +795,8 @@ def test_resolved_calls_validate_against_the_published_schemas(tmp_path):
     ]
     assert {call.get("callee_permissions") for call in calls} == {None, "read"}
     baseline = build_host_grants_baseline(inventory)
-    Draft202012Validator(json.loads((ROOT / "docs/host-grants-inventory-schema.v0.9.json").read_text())).validate(inventory)
-    Draft202012Validator(json.loads((ROOT / "docs/host-grants-baseline-schema.v0.9.json").read_text())).validate(baseline)
+    Draft202012Validator(json.loads((ROOT / "docs/host-grants-inventory-schema.v0.10.json").read_text())).validate(inventory)
+    Draft202012Validator(json.loads((ROOT / "docs/host-grants-baseline-schema.v0.10.json").read_text())).validate(baseline)
     # Saved and reloaded, the resolution is compared, not dropped.
     assert any("callee_write_scopes" in json.dumps(grant) for grant in baseline["inventory"]["grants"])
 

@@ -1462,9 +1462,15 @@ comment, `check`'s rows and `audit --host` name a change to one as a row:
   handler's is: the executable's name, a digest and a shape, never the text.
   A row reads `statusLine: curl sha256:… (runs curl, sh; 1 pipe)`; a changed
   command reads `apiKeyHelper command changed (k.sh sha256:… → curl sha256:…)`.
-  A script the command runs is not read, unlike a hook's
-  ([bounded script comparison](#hook-script-dependencies)): an edit only to
-  the script gives no row.
+  Host inventory and baseline `0.10` also record direct script dependencies
+  from repository settings using the [bounded script reader](#hook-script-dependencies).
+  For a launch from the repository root, a literal `./status.sh` names that
+  repository file. An absolute path inside the workspace also establishes a
+  direct reference. Changes to captured bytes produce a row on the declaring
+  setting, with no widening inferred. The reader skips interpreter wrappers
+  and paths whose working directory or shell expansion is unresolved. A
+  saved baseline created before script capture needs a fresh snapshot when a
+  current setting names a direct script.
 - **`env`** — an entry whose name sets where Claude Code, or a tool it starts,
   sends requests (any `*_BASE_URL`, an `OTEL_EXPORTER_OTLP_…ENDPOINT`,
   `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`), which TLS certificates

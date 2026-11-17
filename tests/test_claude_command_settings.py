@@ -82,6 +82,49 @@ def _inventory(root: Path) -> dict:
     return host_audit_inventory(root, snapshot=build_host_boundary_snapshot(root))
 
 
+def test_status_line_script_change_is_visible_on_all_review_routes(tmp_path: Path) -> None:
+    settings = {**BASE_SETTINGS, "statusLine": {"type": "command", "command": "./status.sh"}}
+    repo = _repository(tmp_path, {SETTINGS: settings, "status.sh": "echo 'first body'\n"})
+    baseline = build_host_grants_baseline(_inventory(repo))
+    _write(repo, "status.sh", "echo 'second body'\n")
+    _commit(repo, "change status line script")
+
+    text, payload, verify_text, _comparison, comment = _routes(repo, tmp_path)
+    [row] = payload["rows"]
+    assert (row["direction"], row["expands"]) == ("changed", False)
+    assert "selected script bytes changed: status.sh" in row["why"]
+    assert "launch from the repository root" in row["why"]
+    [change] = payload["review"]["changes"]
+    assert "statusLine: script status.sh bytes" in change["change"]
+    for rendered in (text, verify_text, comment, json.dumps(payload)):
+        assert "first body" not in rendered and "second body" not in rendered
+        assert "status.sh" in rendered
+
+    check = CliRunner().invoke(app, [
+        "check", "--agent", "codex", "--workspace", str(repo), "--base", "main",
+        "--head", "HEAD", "--format", "agent-boundary-json",
+    ])
+    assert check.exit_code in (0, 10, 20), check.output
+    control = json.loads(check.stdout)
+    assert any(
+        violation["path"] == "status.sh" and violation["evidence"].get("hook_script_hosts") == ["claude-code"]
+        for violation in control["violations"]
+    )
+
+    inventory = _inventory(repo)
+    grant = next(grant for grant in inventory["grants"] if grant["kind"] == "command_setting")
+    [script] = grant["script_inputs"]
+    assert (script["path"], script["basis"], script["limit"]) == ("status.sh", "repository_root_relative", None)
+    drift = build_host_drift_payload(baseline=baseline, inventory=inventory, baseline_file="b.json")
+    assert (drift["comparison_status"], drift["has_drift"], len(drift["changes"])) == ("comparable", True, 1)
+
+    baseline["host_grants_schema_version"] = "0.9"
+    for old in baseline["inventory"]["grants"]:
+        old.pop("script_inputs", None)
+    drift = build_host_drift_payload(baseline=baseline, inventory=inventory, baseline_file="legacy.json")
+    assert drift["incomparable_reasons"] == ["baseline_command_setting_script_inputs_unavailable"]
+
+
 @pytest.mark.parametrize("name", sorted(ADDITIONS))
 def test_an_added_command_or_endpoint_setting_is_a_high_row_on_every_route(tmp_path: Path, name: str) -> None:
     added, label, _kind = ADDITIONS[name]
