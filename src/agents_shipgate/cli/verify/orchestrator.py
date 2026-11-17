@@ -510,6 +510,7 @@ def run_verify(
     authorization: Path | None = None,
     openshell_proof_config: Path | None = None,
     openshell_proof_required: bool = False,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[VerifierArtifact, ReadinessReport | None, int]:
     if openshell_proof_config is not None:
         from agents_shipgate.core.openshell_native import external_path
@@ -1428,6 +1429,7 @@ def run_verify(
                 operation_callback=capture_base_operations,
                 engine_requirement_factory=engine_requirement,
                 run_report_dir=run_base_report_dir,
+                progress=progress,
             )
             base_notes.extend(cache_notes)
 
@@ -1468,6 +1470,8 @@ def run_verify(
         if archive_head:
             head_tmp = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-head-")
             head_tree_dir = Path(head_tmp.name) / "head"
+            if progress is not None:
+                progress("Preparing the head Git tree for verification...")
             archive_verification_tree(git_root, head, head_tree_dir)
             # Resolve once the tree exists. The snapshot matches paths lexically,
             # and on macOS the temporary directory is reached through /var while
@@ -1873,6 +1877,7 @@ def _prepare_base_report(
     operation_callback=None,
     engine_requirement_factory: Callable[[], VerificationEngineRequirement] | None = None,
     run_report_dir: Callable[[], Path] | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[
     VerifierBaseStatus,
     str | None,
@@ -1993,6 +1998,8 @@ def _prepare_base_report(
         tmp_root = Path(tmp)
         base_tree_dir = tmp_root / "base"
         base_out = tmp_root / "reports"
+        if progress is not None:
+            progress("Preparing the base Git tree for verification...")
         try:
             archive_verification_tree(git_root, base, base_tree_dir)
         except Exception as exc:  # noqa: BLE001 - optional base enrichment.

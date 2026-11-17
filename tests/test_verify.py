@@ -7,12 +7,14 @@ import subprocess
 import sys
 import unicodedata
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.cli.verify import command as verify_command
 from agents_shipgate.cli.verify import git as verify_git
 from agents_shipgate.cli.verify import orchestrator as verify_orchestrator
 from agents_shipgate.cli.verify.capability_review import build_capability_review
@@ -864,6 +866,44 @@ def test_verify_real_base_scan_enables_head_diff(tmp_path: Path) -> None:
     assert report_payload["tool_surface_diff"]["summary"]["tools_added"] == 0
     assert len(report_payload["tool_catalog"]) == 1
     assert report_payload["release_decision"]["decision"] == "insufficient_evidence"
+
+
+@pytest.mark.parametrize("format_", ["text", "json"])
+def test_verify_terminal_progress_precedes_git_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, format_: str,
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    events: list[str] = []
+    archive = verify_orchestrator.archive_verification_tree
+    progress = verify_command._terminal_progress
+
+    def record_archive(workspace: Path, ref: str, destination: Path) -> dict[str, str]:
+        events.append(f"archive {destination.name}")
+        return archive(workspace, ref, destination)
+
+    def record_progress(message: str) -> None:
+        events.append(message)
+        progress(message)
+
+    monkeypatch.setattr(verify_command, "sys", SimpleNamespace(stderr=SimpleNamespace(isatty=lambda: True)))
+    monkeypatch.setattr(verify_command, "_terminal_progress", record_progress)
+    monkeypatch.setattr(verify_orchestrator, "archive_verification_tree", record_archive)
+    result = runner.invoke(app, [
+        "verify", "--workspace", str(repo), "--base", "HEAD", "--head", "HEAD",
+        "--format", format_,
+    ])
+
+    assert result.exit_code == 0, result.output
+    base = "Preparing the base Git tree for verification..."
+    head = "Preparing the head Git tree for verification..."
+    if format_ == "text":
+        assert events == [base, "archive base", head, "archive head"]
+        assert base in result.stderr and head in result.stderr
+        assert base not in result.stdout and head not in result.stdout
+    else:
+        assert events == ["archive base", "archive head"]
+        assert base not in result.stderr and head not in result.stderr
+        assert json.loads(result.stdout)["base_status"] == "succeeded"
 
 
 def test_verify_text_projects_google_adk_primary_evidence_action(tmp_path: Path) -> None:
