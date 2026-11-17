@@ -821,6 +821,19 @@ reviews.
 
 ---
 
+## Migration Note: Unreleased — report fields in an attestation require a receipt (#1068)
+
+Every run without a receipt-bound report has `human_ack.satisfied: null`,
+empty `outstanding` and `acks` lists, a null `policy_snapshot_sha256`, and no
+report hash. A bound report without a `human_ack` block also leaves the
+acknowledgement unknown. `org bundle` publishes report provenance and privacy
+evidence only from a bound report. For review-required verdicts, a row with
+unknown acknowledgement can count as a bypass candidate in `registry report`,
+including when `--fail-on-bypass` is set. Consumers that need acknowledged
+policy evidence should use the terminal receipt and the report it binds.
+
+---
+
 <a id="drift-observations"></a>
 
 ## Migration Note: Unreleased — a scheduled drift comparison can be recorded in the ledger (registry `0.6`, #1119)
