@@ -519,14 +519,21 @@ def diff(
             "comparison runs from its merge base with HEAD."
         ),
     ),
-    application: bool = typer.Option(False, "--application", help="Compare source-observed application agent wiring without setup (SDK/ADK)."),
+    application: bool = typer.Option(
+        False,
+        "--application",
+        help=(
+            "Compare OpenAI Agents SDK or Google ADK wiring across committed refs. "
+            "No manifest required. Advisory comparison with no merge verdict."
+        ),
+    ),
     head: str | None = typer.Option(None, "--head", help="Application comparison head ref; defaults to committed HEAD."),
     scope: str | None = typer.Option(None, "--scope", help="Application directory relative to the repository; derived from the change when omitted."),
     base_scope: str | None = typer.Option(None, "--base-scope", help="Old application directory for an explicitly selected scope move."),
     max_python_files: int | None = typer.Option(None, "--max-python-files", min=1, help="Application discovery parse bound."),
     json_output: bool = typer.Option(False, "--json", help="Emit the rows as JSON."),
 ) -> None:
-    """Show what this change does to the agent's authority."""
+    """Review changed coding-agent grants or application-agent wiring."""
 
     if application:
         from agents_shipgate.cli.application_diff import run_application_diff
