@@ -12,7 +12,9 @@ from agents_shipgate.core.domain import (
 )
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import list_input_directory, resolve_input_path, stable_tool_id
+from agents_shipgate.inputs.list_expressions import AgentReads, ListExpressions
 from agents_shipgate.inputs.mcp import load_mcp_tools
+from agents_shipgate.inputs.python_imports import ScopeIndex, _module_bindings
 from agents_shipgate.inputs.python_static import (
     display_path,
     function_output_schema,
@@ -327,6 +329,33 @@ def unique_tools(tools: Iterable[Tool]) -> list[Tool]:
         unique.append(tool)
         seen.add(key)
     return unique
+
+
+def local_tool_lists(tree: ast.Module, source_ref: str, reads: AgentReads) -> ListExpressions:
+    return ListExpressions(
+        ref=source_ref,
+        tree=tree,
+        scopes=ScopeIndex(tree),
+        bindings=_module_bindings(tree)[0],
+        module=None,
+        resolver=None,
+        agent_reads=reads,
+    )
+
+
+def framework_tool_members(
+    lists: ListExpressions, expr: ast.AST
+) -> tuple[tuple[ast.expr, ...], str | None]:
+    # Preserve the adapters' existing coverage boundary for runtime calls
+    # and top-level expressions other than a literal list or a list name.
+    if not isinstance(expr, ast.Name | ast.List | ast.Tuple):
+        return (), dynamic_reason(expr)
+    resolution = lists.resolve(expr)
+    if not resolution.complete:
+        return (), ". ".join(dict.fromkeys(part.reason for part in resolution.unresolved))
+    if any(part.conditions for part in resolution.members):
+        return (), "tool list membership depends on a runtime condition"
+    return tuple(part.expr for part in resolution.members), None
 
 
 def dynamic_reason(node: ast.AST) -> str:

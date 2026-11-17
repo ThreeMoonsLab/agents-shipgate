@@ -12,10 +12,11 @@ from agents_shipgate.core.domain import (
 from agents_shipgate.inputs._python_framework import (
     assignment_call,
     assignment_target,
-    assignment_value,
     dynamic_reason,
     framework_function_tool,
+    framework_tool_members,
     load_python_framework_sources,
+    local_tool_lists,
     ordered_nodes,
     source_line,
     unique_tools,
@@ -92,7 +93,7 @@ class _LangChainExtractor:
         self.tool_decorators = self._tool_decorator_names()
         self.tool_vars: dict[str, Tool] = {}
         self.discovered_tools: list[Tool] = []
-        self.list_vars: dict[str, list[str] | None] = {}
+        self.tool_lists = local_tool_lists(tree, source_ref, _reads_tools)
         self.call_targets = {
             id(call): assignment_target(node)
             for node in ordered_nodes(self.tree, (ast.Assign, ast.AnnAssign))
@@ -105,8 +106,6 @@ class _LangChainExtractor:
             self._record_decorated_tool(node)
         for node in ordered_nodes(self.tree, (ast.Assign, ast.AnnAssign)):
             self._record_structured_tool(node)
-        for node in ordered_nodes(self.tree, (ast.Assign, ast.AnnAssign)):
-            self._record_list_assignment(node)
         for call in ordered_nodes(self.tree, (ast.Call,)):
             self._record_tool_surface(call)
         warnings = sorted(dict.fromkeys(self.warnings))
@@ -188,17 +187,6 @@ class _LangChainExtractor:
         target = assignment_target(node) or tool_name
         self._add_tool(target, tool, "structured_tools")
 
-    def _record_list_assignment(self, node: ast.Assign | ast.AnnAssign) -> None:
-        target = assignment_target(node)
-        value = assignment_value(node)
-        if target is None or value is None:
-            return
-        names = self._resolve_tool_names(value)
-        if names is not None:
-            self.list_vars[target] = names
-        elif isinstance(value, ast.List | ast.Tuple):
-            self.list_vars[target] = None
-
     def _record_tool_surface(self, call: ast.Call) -> None:
         call_kind = last_name(call.func)
         agent_name = self.call_targets.get(id(call)) or "root"
@@ -221,10 +209,16 @@ class _LangChainExtractor:
     ) -> None:
         if tools_expr is None:
             return
-        names = self._resolve_tool_names(tools_expr)
-        if names is None:
-            self._dynamic(kind, call.lineno, dynamic_reason(tools_expr), expr=tools_expr)
+        members, reason = framework_tool_members(self.tool_lists, tools_expr)
+        if reason is not None:
+            self._dynamic(kind, call.lineno, reason, expr=tools_expr)
             return
+        names = []
+        for member in members:
+            if not isinstance(member, ast.Name) or member.id not in self.tool_vars:
+                self._dynamic(kind, call.lineno, dynamic_reason(tools_expr), expr=tools_expr)
+                return
+            names.append(self.tool_vars[member.id].name)
         record = {
             "agent": agent_name,
             "source_id": self.source_id,
@@ -237,22 +231,6 @@ class _LangChainExtractor:
         else:
             record["kind"] = kind
             self.artifacts.agent_bindings.append(record)
-
-    def _resolve_tool_names(self, node: ast.AST) -> list[str] | None:
-        if isinstance(node, ast.Name):
-            if node.id in self.list_vars:
-                return self.list_vars[node.id]
-            if node.id in self.tool_vars:
-                return [self.tool_vars[node.id].name]
-            return None
-        if isinstance(node, ast.List | ast.Tuple):
-            names: list[str] = []
-            for element in node.elts:
-                if not isinstance(element, ast.Name) or element.id not in self.tool_vars:
-                    return None
-                names.append(self.tool_vars[element.id].name)
-            return names
-        return None
 
     def _schema_for_call(self, call: ast.Call | ast.Name, line: int) -> dict[str, Any] | None:
         if not isinstance(call, ast.Call):
@@ -311,6 +289,13 @@ class _LangChainExtractor:
         self.warnings.append(
             f"LangChain {kind} at {self.source_ref}:{line} has dynamic tool surface: {reason}."
         )
+
+
+def _reads_tools(call: ast.Call, keyword_name: str | None) -> bool:
+    # These are the same consumers whose list arguments the adapter records.
+    return keyword_name in {None, "tools"} and last_name(call.func) in {
+        *AGENT_BINDING_CALLS, "ToolNode", "bind_tools",
+    }
 
 
 def _function_tool(
