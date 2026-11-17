@@ -34,6 +34,7 @@ from agents_shipgate.core.pr_approval import (
     evaluate_pull_request_reviews,
 )
 from agents_shipgate.core.verification_identity import (
+    read_regular_file_beneath,
     sha256_bytes,
     validate_receipt_artifacts,
 )
@@ -158,7 +159,6 @@ def _attest_command(
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
         raise typer.Exit(3) from exc
-    report = _load_sibling_report(source, verifier)
     verify_run_path = _resolve_verify_run_path(source, verifier, explicit=verify_run)
     verify_run_payload = _load_optional_json_object(verify_run_path)
     verify_run_sha256 = (
@@ -169,6 +169,7 @@ def _attest_command(
     receipt_path = source.with_name("verification-receipt.json")
     try:
         receipt = load_verified_receipt(verifier, receipt_path, root=source.parent)
+        report = load_attested_report(source.parent, receipt)
     except (ValueError, OSError) as exc:
         raise receipt_failure(receipt_path, exc) from exc
     receipt_payload = receipt.model_dump(mode="json") if receipt is not None else None
@@ -556,10 +557,9 @@ def build_attestation_payload(
 ) -> dict[str, Any]:
     """Project a verify run onto a deterministic attestation dict.
 
-    ``report`` (the sibling ``report.json``) is optional: when present it adds
-    the declared ``human_ack`` state and a policy-snapshot hash; when absent the
-    attestation degrades gracefully (``human_ack.satisfied`` is ``null`` and
-    ``policy_snapshot_sha256`` is ``null``).
+    A report bound by the verified receipt adds the declared ``human_ack``
+    state and a policy-snapshot hash. Both fields use ``null`` for evidence
+    that the receipt did not establish.
     """
     verifier_version = verifier.get("verifier_schema_version")
     if verifier_version in {"0.1", "0.2", "0.3"}:
@@ -573,9 +573,13 @@ def build_attestation_payload(
     human_review = _obj(_obj(verifier.get("control")).get("human_review"))
     if not human_review:
         human_review = _obj(verifier.get("human_review"))
-    report = report or {}
     verify_run = verify_run or {}
     verification_receipt = verification_receipt or {}
+    bound_artifacts = _obj(_obj(verification_receipt.get("artifact_manifest")).get("artifacts"))
+    if "report_json" not in bound_artifacts:
+        report = None
+        artifacts = {key: value for key, value in artifacts.items() if key != "report_json"}
+    report = report or {}
     human_ack = _obj(report.get("human_ack"))
     effective_policy = report.get("effective_policy")
     org_context = _clean_org_context(org_context or {})
@@ -656,18 +660,21 @@ def _load_json_object(path: Path, label: str) -> dict[str, Any]:
     return data
 
 
-def _load_sibling_report(source: Path, verifier: dict[str, Any]) -> dict[str, Any] | None:
-    """Best-effort read of the report.json beside verifier.json (or named in its
-    artifacts map). Absence or a parse error is fine — enrichment is optional."""
-    artifacts = _obj(verifier.get("artifacts"))
-    name = Path(str(artifacts.get("report_json", "report.json"))).name or "report.json"
-    candidate = source.parent / name
-    if not candidate.is_file():
+def load_attested_report(
+    root: Path, receipt: VerificationReceipt | None
+) -> dict[str, Any] | None:
+    """Read the exact report named by a receipt that has already validated."""
+
+    ref = receipt.artifact_manifest.artifacts.get("report_json") if receipt is not None else None
+    if ref is None:
         return None
-    try:
-        return _load_json_object(candidate, "report.json")
-    except InputParseError:
-        return None
+    data = read_regular_file_beneath(root, ref.path, max_size=ref.size_bytes, label="attested report")
+    if len(data) != ref.size_bytes or sha256_bytes(data) != ref.sha256:
+        raise ValueError("report.json does not match the terminal verification receipt")
+    report = json.loads(data)
+    if not isinstance(report, dict):
+        raise ValueError("receipt-bound report.json must contain an object")
+    return report
 
 
 def _resolve_verify_run_path(
@@ -1028,6 +1035,7 @@ __all__ = [
     "ATTESTATION_SCHEMA_VERSION",
     "RECEIPT_IDENTITY_FIELDS",
     "build_attestation_payload",
+    "load_attested_report",
     "load_verified_receipt",
     "receipt_error_message",
     "receipt_failure",

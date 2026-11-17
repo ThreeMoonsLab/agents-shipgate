@@ -785,6 +785,17 @@ reviews.
 
 ---
 
+## Migration Note: Unreleased — report fields in an attestation require a receipt (#1068)
+
+An attestation uses `null` for `human_ack.satisfied` and
+`policy_snapshot_sha256` when a validated receipt does not bind a report.
+The report hash is also absent in this case. This applies to older
+verifiers that predate receipts and to previews that produced no report.
+Consumers that need acknowledged policy evidence should use the terminal
+receipt and the report it binds.
+
+---
+
 <a id="drift-observations"></a>
 
 ## Migration Note: Unreleased — a scheduled drift comparison can be recorded in the ledger (registry `0.6`, #1119)

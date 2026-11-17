@@ -12,6 +12,7 @@ from agents_shipgate import __version__
 from agents_shipgate.cli.attest import (
     RECEIPT_IDENTITY_FIELDS,
     build_attestation_payload,
+    load_attested_report,
     load_verified_receipt,
     receipt_failure,
 )
@@ -241,6 +242,7 @@ def org_bundle(
         verified_receipt = load_verified_receipt(
             verifier, receipt_path, root=verifier_path.parent
         )
+        attested_report = load_attested_report(verifier_path.parent, verified_receipt)
     except (ValueError, OSError) as exc:
         raise receipt_failure(receipt_path, exc) from exc
     receipt = verified_receipt.model_dump(mode="json") if verified_receipt is not None else None
@@ -252,7 +254,7 @@ def org_bundle(
             verifier,
             source=verifier_path,
             redacted=True,
-            report=report,
+            report=attested_report,
             verify_run=verify_run,
             verify_run_sha256=_file_sha256(verify_run_path),
             verification_receipt=receipt,
