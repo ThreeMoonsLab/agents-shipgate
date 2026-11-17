@@ -531,6 +531,7 @@ def run_verify(
             evaluated_ref=head,
         )
     )
+    archived_manifest_missing = archive_head and config_blob_at_head is False
     out_dir = _resolve_out_dir(
         git_root=git_root, requested_workspace=workspace.resolve(), out=out
     )
@@ -659,6 +660,9 @@ def run_verify(
     ) -> tuple[VerifierArtifact, None, int]:
         """Publish a run that stopped before any scan, on its one route (#1023)."""
 
+        unscanned_manifest_provenance = (
+            "absent" if archived_manifest_missing else configured_manifest_provenance
+        )
         verifier = _build_verifier(
             git_root=git_root,
             config_path=config_path,
@@ -669,7 +673,7 @@ def run_verify(
             trigger=evaluate(
                 paths=[],
                 diff_text="",
-                manifest_present=config_path.is_file(),
+                manifest_present=config_path.is_file() and not archived_manifest_missing,
                 user_requested=True,
                 input_status=INPUT_UNAVAILABLE,
             ),
@@ -682,7 +686,7 @@ def run_verify(
             head_status="failed",
             head_exit_code=2,
             out_dir=out_dir,
-            manifest_provenance_value=configured_manifest_provenance,
+            manifest_provenance_value=unscanned_manifest_provenance,
             ci_mode=ci_mode,
             headline_override=headline,
             first_next_action_override=action,
@@ -697,7 +701,7 @@ def run_verify(
             pr_comment_path,
             report=None,
             git_root=git_root,
-            manifest_provenance_value=configured_manifest_provenance,
+            manifest_provenance_value=unscanned_manifest_provenance,
             config_path=config_path,
             config_logical_path=config_relative.as_posix(),
             baseline_path=baseline_path,
@@ -709,9 +713,10 @@ def run_verify(
         )
         return verifier, None, 2
 
-    if not config_path.is_file() and ref_exists(git_root, head):
+    if (not config_path.is_file() or archived_manifest_missing) and ref_exists(git_root, head):
         # A deleted manifest is a removed gate, never first adoption, and a
-        # base that cannot be read cannot show which of the two this is.
+        # base that cannot be read cannot show which of the two this is. A
+        # checkout copy cannot replace a gate removed from an explicit head.
         removal = _probe_manifest_removal(
             git_root=git_root,
             config_relative=config_relative,
@@ -974,7 +979,7 @@ def run_verify(
     if tree_config_relative is not None:
         config_relative = tree_config_relative
 
-    overlay_worktree_manifest = archive_head and config_blob_at_head is False
+    overlay_worktree_manifest = archived_manifest_missing
     worktree_manifest_text: str | None = None
     if not archive_head or overlay_worktree_manifest:
         try:

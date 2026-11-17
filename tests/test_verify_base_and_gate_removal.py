@@ -25,6 +25,7 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
@@ -274,11 +275,13 @@ def _assert_manifest_removal_stop(result, payload: dict) -> None:
         assert misroute not in rendered
 
 
+@pytest.mark.parametrize("checkout_has_manifest", [False, True])
 def test_deleting_the_manifest_with_a_resolvable_base_is_a_human_stop(
-    tmp_path: Path,
+    tmp_path: Path, checkout_has_manifest: bool,
 ) -> None:
     origin, _, manifest_pr = _develop_origin(tmp_path)
-    ci = _ci_clone(origin, tmp_path / "ci", manifest_pr)
+    checkout = _git(origin, "rev-parse", "develop") if checkout_has_manifest else manifest_pr
+    ci = _ci_clone(origin, tmp_path / "ci", checkout)
 
     for mode in ("advisory", "strict"):
         out = tmp_path / f"out-{mode}"
@@ -291,6 +294,27 @@ def test_deleting_the_manifest_with_a_resolvable_base_is_a_human_stop(
         )
         _assert_manifest_removal_stop(result, payload)
         assert payload["base_ref"] == "origin/develop"
+        assert payload["head_exit_code"] == 2
+        assert payload["head_report_json"] is None
+        assert not payload["trigger"]["force_run"]
+        assert not (out / "report.json").exists()
+        assert not (out / "verification-receipt.json").exists()
+
+
+def test_explicit_head_can_use_a_provisional_manifest_when_the_base_never_had_it(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    _project(repo, branch="main")
+    _write(repo / "draft.yaml", MANIFEST)
+    out = tmp_path / "out"
+
+    result, payload = _verify(repo, "--base", "main", "--head", "HEAD", out=out, config="draft.yaml")
+
+    assert result.exit_code == 0, result.output
+    assert payload["head_status"] == "succeeded"
+    assert not payload["can_merge_without_human"]
+    assert (out / "report.json").is_file()
 
 
 def test_deleting_the_manifest_without_a_resolvable_base_fails_closed(
