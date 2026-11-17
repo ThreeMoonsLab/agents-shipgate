@@ -39,27 +39,30 @@ establish widening, narrowing, business impact or runtime behavior.
 The text opens with one **finding per changed agent**, then the rows. A finding
 names the tools the change added (`+`), removed (`-`) or changed (`~`); a
 leading `?` marks a candidate the comparison could not establish. Its first line
-stands alone. For [jpka/attest#3](https://github.com/jpka/attest/pull/3):
+stands alone. For [jpka/attest#3](https://github.com/jpka/attest/pull/3), whose
+two additions the comparison cannot establish, and whose four other tools read
+the same on both sides:
 
 ```text
-Findings: 1 changed agent, 2 rows (2 added); effect evidence 2 write (provisional: unknown effect).
-attest_orchestrator [partial]: +recall_firm_memory, +remember_firm_finding (reach: none established; not read beyond agents/attest_orchestrator/memory_bank.py:531)
-  Review: Should attest_orchestrator be able to call recall_firm_memory, remember_firm_finding? What they reach was not read in full.
-Detail:
+Findings: 1 changed agent, 2 rows (2 not established).
+attest_orchestrator [partial]: ?+recall_firm_memory, ?+remember_firm_finding (not read beyond agent.py:35)
+  4 bindings read the same on both sides (append_evidence, get_adv_ground_truth, list_covered_firms, score_answer); whether attest_orchestrator holds them is not established: Google ADK agent 'attest_orchestrator': its constructor identity is not established: a framework constructor or namespace is retained or used opaquely in agent.py:35.
+Not established: 2 rows share 2 causes.
 ```
 
-and for [MIS_TALENT#7](https://github.com/Tiendat2703/MIS_TALENT/pull/7), whose
-first finding line names a new database read before the rows that carry it:
+and for [MIS_TALENT#7](https://github.com/Tiendat2703/MIS_TALENT/pull/7), where
+a candidate addition still names the database read it would bring:
 
 ```text
-Finance_Agent_Preflight [partial]: +load_service_catalog, ~load_and_validate (new reach: database read; not read beyond app/tools/FinanceAgent/tools.py:39)
+Finance_Agent_Preflight [partial]: ?+load_service_catalog, ?~load_and_validate (not read beyond app/Agent/financeAgent.py:139)
+  ?+load_service_catalog (candidate, not established): reaches database read SELECT (postgresql, psycopg2 cursor.execute) at app/database/repository.py:80 [host aws-0-ap-southeast-1.pooler.supabase.com, env SUPABASE_DB_HOST; credential env SUPABASE_DB_PASSWORD, env SUPABASE_PASSWORD → keyword password]
 ```
 
 The committed goldens in
 [`benchmark/application-q2/goldens/`](../benchmark/application-q2/goldens/)
 hold the whole text of six real answers, among them these two and the 234-row
 [O.R.I.O.N#126](https://github.com/VidulaWickramasinghe/O.R.I.O.N/pull/126),
-which reads in 24 lines.
+which reads in 35 lines.
 
 What a finding states, and from where:
 
@@ -81,6 +84,31 @@ What a finding states, and from where:
   with a count, one example and the rows' number, however many tools and
   agents share it. Two reasons are one cause when they differ only in the names
   and places they quote. Limits no row states are one line, by agent.
+- **Bindings that read the same.** A binding whose compared meaning was read
+  from what is bound and is the same on both sides is not a change and is
+  never a row (#1146). When its only doubts are whether its agent holds it
+  (the agent's constructor or callers were not proved, its list is a refused
+  constructor's initializer, its construction was read in part) or which file
+  an import search reaches (a `sys`/`site` path change, an import-search
+  carrier the read does not follow, a retained `sys`/`site` namespace), the
+  agent's finding says so once, from `read_same`:
+  `2 bindings read the same on both sides (lookup_order, track_shipment);
+  whether support_agent holds them is not established: …`, or `… which files
+  an import search reaches for them is not established: …`, with the first
+  reason and its place. An agent with no row gets that statement under
+  `Read the same, not established:` instead, and the answer stays `partial`.
+  Equal meanings are no reading, and the binding stays a `not_established`
+  candidate as before, when the implementation was read on neither side
+  (`implementation not read on either side`), when which definition is bound
+  is not established (a name bound more than once, an import fallback, a lazy
+  `__getattr__`, code run first that could rebind it, an import the read does
+  not follow that could reassign it, a name bound by name only, a handoff or
+  sub-agent target bound more than once), when what a tool object is was read
+  only in part (an MCP server's URL, command or arguments the read cannot
+  name), when the agent's settings were not read or conflict, and for any
+  doubt no reader classified. The row's `doubts` names which, and its finding
+  says it: `reads the same on both sides, but which definition is bound is not
+  established`.
 - **A question specific to the change**: a new write, process, network or
   database reach ("should `agent` reach …?") with the credentials it sends and
   the arguments the model controls; the same call newly sending a credential or
@@ -88,8 +116,8 @@ What a finding states, and from where:
   changed ("arguments +units").
 
 The reading is presentation. It changes no row, status, direction, gap, scope
-or exit code, and states nothing a row does not: every finding, tool, cause and
-question names the `rows` it summarizes by index. The rows follow under
+or exit code, and states nothing a row or `read_same` does not: every finding,
+tool, cause and question names the `rows` it summarizes by index. The rows follow under
 `Detail:` for up to 10 of them. Above that the text says how many it did not
 print: `--json` always carries every row, with every reach limit.
 
@@ -98,11 +126,12 @@ print: `--json` always carries every row, with every reach limit.
 | Field | Meaning |
 | --- | --- |
 | `counts` | `total`, `added`, `removed`, `changed`, `not_established` over `rows`. |
-| `findings[]` | One per agent with a row, in row order: `agent`, `agent_source`, `status` (`compared` or `partial`), `rows` (indexes into `rows`), `counts`, `first_unresolved` (`kind` `binding`, `agent` or `reach`; `text`, `at`, `row`; `null` when nothing was left unread), `capabilities` (new reach), `changed_capabilities`, `unchanged_capabilities`, `tools[]`, `causes` (indexes into `summary.causes`), `questions[]` (`question`, `rows`) and, when the agent's graph has limits no row states, `agent_limits`. |
+| `findings[]` | One per agent with a row, in row order: `agent`, `agent_source`, `status` (`compared` or `partial`), `rows` (indexes into `rows`), `counts`, `first_unresolved` (`kind` `binding`, `agent` or `reach`; `text`, `at`, `row`; `null` when nothing was left unread), `capabilities` (new reach), `changed_capabilities`, `unchanged_capabilities`, `tools[]`, `causes` (indexes into `summary.causes`), `questions[]` (`question`, `rows`), when the agent's graph has limits no row states, `agent_limits` and, when bindings of the agent read the same on both sides but are not established, `read_same` (`count`, `tools`, `doubts`, `sides`, `reasons`, `first`, `at`). |
 | `findings[].tools[]` | `row`, `tool`, `change`, `candidate_change`, `facts[]`, `unresolved` (`at`, `why`, `count`) and `effect`. A fact is `change` (what differs), `object`, or one of `reaches`, `reaches_new`, `reaches_dropped`, `reaches_same`, `reaches_changed`, each with `target`, `short`, `at` and, when present, `host`, `credentials` and `model_supplied` (for `reaches_changed`, what is new, and `dropped` what is gone). |
 | `effects[]` | `effect`, `status` and `count` over established rows. |
 | `causes[]` | One per shared reason: `pattern`, an `example`, how many distinct `reasons` share it, the `rows`, `sides` and `agents`. |
 | `not_read[]` | Limits no row states, by `agent` (`null` when no single agent): `count`, `sides`, `first`. |
+| `read_same[]` | Present when an agent with no row has bindings that read the same on both sides but are not established: `agent`, `agent_source` and the fields of `findings[].read_same`. |
 | `question` | Present when a row is `not_established`. |
 
 `summary` is derived from the sanitized rows and digested into `comparison_id`
@@ -215,7 +244,7 @@ An absent side names the missing scope and suggests `--base-scope`/`--scope`
 for relocation. If neither selected directory exists, the command refuses with
 exit 2. A removal describes the selected source path, not the entire repository.
 
-`--json` emits `application_comparison_schema_version: "0.4"`, engine identity,
+`--json` emits `application_comparison_schema_version: "0.5"`, engine identity,
 requested and compared refs/tree IDs, per-side scope/coverage, rows, source
 correspondence, `scope_selection`, `comparisons` when a derived change spans
 more than one application, and a deterministic `comparison_id`. Version 0.2 adds
@@ -225,8 +254,22 @@ more than one application, and a deterministic `comparison_id`. Version 0.2 adds
 version 0.4 adds `object` and `object_evidence` (see
 [Tools bound as objects](#tools-bound-as-objects)), `reach.effects` (see
 [What a bound tool reaches beyond HTTP](#what-a-bound-tool-reaches-beyond-http))
-and the top-level `summary` (see [Findings first](#findings-first)); 0.4 is not
-yet released, so `summary` extends it rather than adding 0.5.
+and the top-level `summary` (see [Findings first](#findings-first)); 0.4 was
+not yet released then, so `summary` extended it rather than adding 0.5. A
+released version gets a successor instead: 1.3.0 published 0.4, so version
+0.5 (#1146) is the next. In 0.5 a binding that reads the same on both sides is
+no row (see [Findings first](#findings-first)), so `rows` is shorter than
+0.4's for the same change, and two optional fields are added. Top-level
+`read_same`, present only when such an agent exists, has one entry per agent
+whose bindings read the same but are not established: `agent`, `agent_source`
+(spelled as a row's), `tools`, `doubts` (`construction`, `import_search`) and
+per-side `uncertainty`. It claims that each named binding's compared meaning
+was read from what is bound and is equal on both sides, and that its only
+doubts are those two; it claims nothing about whether the agent holds it or
+how it behaves at runtime. A row's `doubts`, present only on a binding whose
+two sides read the same, names why that reading does not show it unchanged
+(`definition_identity`, `settings`, `unclassified`). Neither version has a
+published schema document yet (#1044).
 This is a separate advisory
 artifact from the existing host diff JSON and verifier receipt.
 
@@ -236,7 +279,10 @@ artifact from the existing host diff JSON and verifier receipt.
 - `partial`: a parse/discovery/binding gap remains. Gaps identify their source
   and agent where known. Only affected candidates become `change: not_established`
   rows, carrying `candidate_change` and per-side `uncertainty`; independent known
-  additions/removals remain visible. Unknown implementation evidence cannot hide
+  additions/removals remain visible. A binding that reads the same on both
+  sides, read from what is bound, is never a candidate: if its agent is
+  uncertain, its agent's `read_same` entry names it with the reasons, and the
+  comparison is `partial`. Unknown implementation evidence cannot hide
   an observed binding addition. Unattributed discovery bounds still cover the scope.
 - `not_established`: neither side established a supported application agent.
 - Exit 2: refs/materialization/input could not be read. This is not no change.
