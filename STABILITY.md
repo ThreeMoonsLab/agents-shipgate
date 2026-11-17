@@ -372,6 +372,20 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="capability-lock-plugin-opt-in-1062"></a>
+## Migration Note: Unreleased — verifier capability locks record effective plugin opt-in (#1062)
+
+`verify` records `source.plugins_enabled` as `false` when plugin opt-in is
+unset or `--no-plugins` is set, and `true` when opt-in takes effect. This
+matches `capability export`. A default opt-out run now has a different
+`hashes.source_set_hash` from one produced by the earlier verifier with the
+same inputs. `capability diff` copies this hash into its `base` and `head`
+references, and `attest` copies it into `capability_lock.source_set_hash`.
+Regenerate a pinned hash from the same source and plugin setting when
+updating the verifier.
+
+---
+
 <a id="held-restrictions-1036"></a>
 
 ## Migration Note: Unreleased — a tightened deny or ask rule is not a widening, and a lifted denial is rated by what it restricted (#1036)
