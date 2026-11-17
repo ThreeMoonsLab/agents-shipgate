@@ -728,12 +728,16 @@ changes nothing; one that needs definition changes reads the `v2` file.
 
 ---
 
+<a id="bundle-attestation-checks-1066"></a>
 ## Migration Note: Unreleased — organization bundles check supplied attestations (#1066)
 
-`org bundle` exits 3 when a supplied attestation is invalid or its verdict
-or capability summary disagrees with the verifier. The error names a
-disagreeing field when the input matches the schema. Regenerate the
-attestation from the same verification run before bundling it.
+`org bundle` exits `3` for a supplied attestation whose derived claims
+disagree with the verifier and its artifacts. The error identifies the
+field. An evaluated approval requires a receipt and must name its verified
+head commit. Review details still come from the supplied attestation.
+A legacy verifier without a receipt supports a consistency check against
+that verifier's own output. Regenerate mismatched attestations from the
+same verification run before bundling them.
 
 ---
 

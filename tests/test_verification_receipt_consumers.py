@@ -257,23 +257,57 @@ def test_org_bundle_accepts_the_attestation_attest_wrote(run: tuple[Path, Path])
 
 @pytest.mark.parametrize(
     ("section", "field", "value"),
-    [("verdict", "decision", "passed"), ("capability", "added", 900)],
+    [
+        ("verdict", "decision", "passed"),
+        ("capability", "added", 900),
+        ("human_ack", "satisfied", False),
+        ("capability_lock", "source_set_hash", "0" * 64),
+        (None, "head_tree_sha", "0" * 40),
+        (None, "policy_snapshot_sha256", "0" * 64),
+        (None, "run_id", "sha256:" + "0" * 64),
+    ],
 )
 def test_org_bundle_refuses_attestation_fields_that_disagree_with_a_valid_receipt(
-    run: tuple[Path, Path], section: str, field: str, value: object,
+    run: tuple[Path, Path], section: str | None, field: str, value: object,
 ) -> None:
     repo, out = run
     path = out / "attestation.json"
     assert _attest(out, path).exit_code == 0
     attestation = _json(path)
-    assert attestation[section][field] != value
-    attestation[section][field] = value
+    data = attestation[section] if section is not None else attestation
+    assert data[field] != value
+    data[field] = value
     path.write_text(json.dumps(attestation), encoding="utf-8")
 
     result = _bundle(repo, out)
 
     assert result.exit_code == 3
-    assert f"Attestation {section}.{field} does not match verifier.json" in result.output
+    field_path = f"{section}.{field}" if section else field
+    assert f"Attestation {field_path} does not match verifier.json" in result.output
+
+
+@pytest.mark.parametrize("receipt_backed", [False, True])
+def test_org_bundle_requires_approval_to_match_the_verified_head(tmp_path: Path, receipt_backed: bool) -> None:
+    repo = _repo(tmp_path)
+    out = tmp_path / "verify-out"
+    config = "shipgate.yaml" if receipt_backed else "missing.yaml"
+    assert _verify(repo, out, config=config) == (0 if receipt_backed else 2)
+    path = out / "attestation.json"
+    assert _attest(out, path).exit_code == 0
+    attestation = _json(path)
+    attestation["approval"] = {
+        "status": "not_approved",
+        "source": "github_pull_request_reviews",
+        "source_sha256": "0" * 64,
+        "pr_number": "42",
+        "pr_author": "test-author",
+        "head_sha": "0" * 40,
+    }
+    path.write_text(json.dumps(attestation), encoding="utf-8")
+    result = _bundle(repo, out)
+    assert result.exit_code == 3
+    expected = "does not match the receipt-bound head commit" if receipt_backed else "needs the verification receipt"
+    assert expected in result.output
 
 
 def test_org_bundle_reports_invalid_attestation_as_explicit_input_error(
