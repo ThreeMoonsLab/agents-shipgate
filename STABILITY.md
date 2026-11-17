@@ -707,8 +707,8 @@ an unlocked closure:
   `github-actions[bot]`. Any other comment carrying a marker is left alone and
   the step posts its own.
 - Every install route creates a virtual environment at the fixed path
-  `$RUNNER_TEMP/agents-shipgate/venv` from the `setup-python` interpreter,
-  removing whatever was there first, installs `constraints/action-runtime.txt`
+  `$RUNNER_TEMP/.agents-shipgate-action/venv` from the `setup-python`
+  interpreter, installs `constraints/action-runtime.txt`
   into it with `--require-hashes`, then the engine with `--no-deps`. The
   source route also installs `constraints/build-backend.txt` and builds with
   `--no-build-isolation`. The lock is the runtime half of `constraints/dev.txt`,
@@ -717,6 +717,11 @@ an unlocked closure:
   upgraded or downgraded by the lock's exact pins. An empty or relative
   `RUNNER_TEMP` is refused rather than letting the environment land in the
   checkout.
+- The installer owns `$RUNNER_TEMP/.agents-shipgate-action` and marks it with a
+  `CREATED-BY-AGENTS-SHIPGATE-ACTION` file. A directory carrying that marker,
+  from an earlier run, is removed and created again, so a stale environment is
+  never reused. Anything else at that path (a directory without the marker, a
+  file or a link) is refused with an error and left as it is, never deleted.
 - The path is fixed because it is part of the engine's identity: a
   dependency's console script names the environment's interpreter on its first
   line, its hash is in that dependency's `RECORD`, and `dependency_set_sha256`
@@ -784,6 +789,13 @@ the command.
   Action and expected the Action's engine to see them, such as check plugins
   enabled with `AGENTS_SHIPGATE_ENABLE_PLUGINS=1`, no longer has them loaded:
   the engine runs in its own environment, which holds only the locked closure.
+- Two `uses:` of the Action in one job share `$RUNNER_TEMP/.agents-shipgate-action`:
+  the second recreates the environment, so after it the first invocation's
+  `cli_path`, and the `PATH` entry both added, run the second invocation's
+  engine. A step that needs the first engine must run before the second
+  invocation.
+- A job that keeps its own files at `$RUNNER_TEMP/.agents-shipgate-action`
+  now fails the install step, with those files untouched: move them elsewhere.
 - A workflow that passes a `github_token` for a user or another app gets a new
   PR comment on every run, since only `github-actions[bot]`'s comment is
   updated in place.

@@ -69,14 +69,14 @@ jobs:
         with:
           name: unqualified-engine-wheel
           path: .shipgate-smoke/wheels
-      - name: Install dependencies from the reviewed lock
-        run: python -m pip install --require-hashes -r constraints/dev.txt
       # The local half installs where the Action installs: the same installer,
-      # the same base interpreter and the same RUNNER_TEMP/agents-shipgate/venv.
-      # A dependency's RECORD hashes its console scripts, whose first line names
-      # the environment's interpreter, so a different path would give the two
-      # halves different engine identities (#1032). The Action recreates that
-      # environment in its own install step, after `prepare` has run here.
+      # the same base interpreter and the same
+      # RUNNER_TEMP/.agents-shipgate-action/venv, with the locked runtime the
+      # installer puts there. A dependency's RECORD hashes its console scripts,
+      # whose first line names the environment's interpreter, so a different
+      # path would give the two halves different engine identities (#1032). The
+      # Action recreates that environment in its own install step, after
+      # `prepare` has run here.
       - name: Install the exact wheel for the local half
         id: local
         env:

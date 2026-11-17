@@ -240,7 +240,7 @@ source/Action SHA, installed version/contract, generated workflow and both
 capability results and engine identities. The two halves must agree and show
 the blocked result. The local half installs the wheel with
 `scripts/install_action_engine.py --venv-parent "$RUNNER_TEMP"`, into the same
-`$RUNNER_TEMP/agents-shipgate/venv` the Action recreates, and runs under that
+`$RUNNER_TEMP/.agents-shipgate-action/venv` the Action recreates, and runs under that
 environment's interpreter: the environment's path is part of
 `dependency_set_sha256`, so a local half anywhere else reports a different
 engine identity (#1032). A manual repetition must do the same. This is

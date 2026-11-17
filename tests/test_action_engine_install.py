@@ -358,7 +358,7 @@ def test_install_step_runs_pip_and_not_the_pull_requests_pip(
     published = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines())
     assert set(published) == {"python", "bin", "cli"}
     python, scripts, cli = (Path(published[key]) for key in ("python", "bin", "cli"))
-    root = checkout["runner_temp"] / "agents-shipgate"
+    root = checkout["runner_temp"] / ".agents-shipgate-action"
     assert list(checkout["runner_temp"].iterdir()) == [root]
     assert python.parent == scripts == root / "venv" / "bin"
     assert (root / "venv" / "pyvenv.cfg").is_file()
@@ -553,7 +553,7 @@ def test_the_fixed_environment_path_gives_one_dependency_identity_per_install(
     parent = (tmp_path / "runner-temp").resolve()
     parent.mkdir()
     root = installer.environment_root(str(parent))
-    assert root == parent / "agents-shipgate"
+    assert root == parent / ".agents-shipgate-action"
 
     first = _record_sha256_after_install(root, wheel)
     (root / "venv" / "stale-marker").write_text("from the first run", encoding="utf-8")
@@ -605,7 +605,7 @@ def test_each_run_recreates_the_environment_at_the_same_path(
     """Two Action runs, or two invocations in one job, publish the same paths."""
 
     checkout = pull_request_checkout
-    root = checkout["runner_temp"] / "agents-shipgate"
+    root = checkout["runner_temp"] / ".agents-shipgate-action"
     published = []
     for run in range(2):
         output = tmp_path / f"github-output-{run}"
@@ -619,9 +619,96 @@ def test_each_run_recreates_the_environment_at_the_same_path(
             (root / "leftover").write_text("x", encoding="utf-8")
     assert published[0] == published[1]
     assert f"python={root / 'venv' / 'bin'}" in published[0]
-    # Recreated, not reused: nothing the first run left survives the second.
-    assert sorted(path.name for path in root.iterdir()) == ["cli", "venv"]
+    # Recreated, not reused: nothing the first run left survives the second,
+    # because the first run marked the directory as the installer's own.
+    assert sorted(path.name for path in root.iterdir()) == sorted(
+        [installer.OWNER_MARKER, "cli", "venv"]
+    )
     assert not (root / "venv" / "stale-from-the-first-run").exists()
+
+
+def _unowned(parent: Path, kind: str) -> tuple[Path, Path]:
+    """Something at the environment's path that the installer did not create."""
+
+    root = parent / installer.ENVIRONMENT_DIRECTORY
+    keep = parent / "baseline.json"
+    keep.write_text('{"kept": true}\n', encoding="utf-8")
+    if kind == "directory":
+        root.mkdir()
+        keep = root / "baseline.json"
+        keep.write_text('{"kept": true}\n', encoding="utf-8")
+    elif kind == "forged-marker":
+        root.mkdir()
+        (root / installer.OWNER_MARKER).write_text("not the installer's text\n", encoding="utf-8")
+        keep = root / "baseline.json"
+        keep.write_text('{"kept": true}\n', encoding="utf-8")
+    elif kind == "linked-marker":
+        root.mkdir()
+        (root / installer.OWNER_MARKER).symlink_to(keep)
+        keep = root / "baseline.json"
+        keep.write_text('{"kept": true}\n', encoding="utf-8")
+    elif kind == "file":
+        root.write_text("a caller's file\n", encoding="utf-8")
+        keep = root
+    else:  # a link to a caller's directory
+        target = parent / "callers-directory"
+        target.mkdir()
+        (target / "baseline.json").write_text('{"kept": true}\n', encoding="utf-8")
+        root.symlink_to(target, target_is_directory=True)
+        keep = target / "baseline.json"
+    return root, keep
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX symlinks")
+@pytest.mark.parametrize(
+    "kind", ["directory", "forged-marker", "linked-marker", "file", "symlink"]
+)
+def test_a_path_the_installer_did_not_create_is_refused_not_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str,
+) -> None:
+    """A caller's `$RUNNER_TEMP/.agents-shipgate-action`, whatever it holds, survives."""
+
+    parent = tmp_path.resolve()
+    root, keep = _unowned(parent, kind)
+    before = keep.read_bytes()
+    with pytest.raises(ValueError, match="this installer"):
+        installer.create_environment(root)
+    assert keep.read_bytes() == before
+    assert not (root / "venv").exists()
+
+    # The same refusal through the installer's entry point, before pip runs.
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: pytest.fail("pip ran"))
+    monkeypatch.setenv("SHIPGATE_VERSION", "1.3.0")
+    monkeypatch.delenv("SHIPGATE_WHEEL", raising=False)
+    monkeypatch.delenv("SHIPGATE_WHEEL_SHA256", raising=False)
+    assert installer.main(["--venv-parent", str(parent)]) == 1
+    assert keep.read_bytes() == before
+
+
+def test_a_marked_directory_is_recreated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The installer's own directory from an earlier run is removed, marker and all."""
+
+    root = tmp_path.resolve() / installer.ENVIRONMENT_DIRECTORY
+    root.mkdir()
+    (root / installer.OWNER_MARKER).write_text(installer._OWNER_MARKER_TEXT, encoding="utf-8")
+    (root / "stale").write_text("x", encoding="utf-8")
+
+    class Builder:
+        created = None
+
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def create(self, directory: Path) -> None:
+            directory.mkdir()
+            self.created = installer.Environment(python="python", bin=directory / "bin")
+
+    monkeypatch.setattr(installer, "_EnvironmentBuilder", Builder)
+    environment = installer.create_environment(root)
+    assert environment.bin == root / "venv" / "bin"
+    assert sorted(path.name for path in root.iterdir()) == sorted([installer.OWNER_MARKER, "venv"])
+    marker = (root / installer.OWNER_MARKER).read_text(encoding="utf-8")
+    assert marker == installer._OWNER_MARKER_TEXT
 
 
 def test_direct_mode_installs_the_wheel_into_the_running_interpreter(

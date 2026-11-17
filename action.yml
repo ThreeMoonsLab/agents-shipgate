@@ -389,7 +389,7 @@ runs:
         # the workspace, and the installer passes `-P` to its own pip.
         #
         # The installer recreates the virtual environment at the fixed path
-        # RUNNER_TEMP/agents-shipgate/venv from this interpreter (a fixed path
+        # RUNNER_TEMP/.agents-shipgate-action/venv from this interpreter (a fixed path
         # keeps engine_requirement_id the same on every run), installs
         # constraints/action-runtime.txt into it with --require-hashes and then
         # the engine with --no-deps (#1032), and writes its interpreter

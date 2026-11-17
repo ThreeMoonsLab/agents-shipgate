@@ -107,7 +107,7 @@ When `shipgate_version` is empty the action installs the CLI from the action sou
 
 Unreleased (#1032), on `main` until the next release tag:
 
-- On every route the Action recreates a virtual environment of its own at `$RUNNER_TEMP/agents-shipgate/venv` (a fixed path, so the engine identity a run records is the same from run to run), installs its hash-locked `constraints/action-runtime.txt` there with `--require-hashes`, then the engine with `--no-deps`. Its dependencies no longer resolve when the job runs, and nothing the job installed into its own Python is upgraded or downgraded.
+- On every route the Action recreates a virtual environment of its own at `$RUNNER_TEMP/.agents-shipgate-action/venv` (a fixed path, so the engine identity a run records is the same from run to run), installs its hash-locked `constraints/action-runtime.txt` there with `--require-hashes`, then the engine with `--no-deps`. Its dependencies no longer resolve when the job runs, and nothing the job installed into its own Python is upgraded or downgraded.
 - Later steps can still run `agents-shipgate` and `shipgate`: only a directory holding those two commands is added to `PATH`, and the new `cli_path` output names the command. The Action's Python 3.12 is no longer on `PATH`, so a later step that ran `python` relying on it needs its own `actions/setup-python`.
 - `shipgate_version` must name one exact release, `1.0.0` or later. A range or wildcard such as `1.*`, `1.3.*` or `1.3.0,<2` fails the install step ("must name one exact release"), and an older release fails it as a version skew instead of failing the outputs step after the scan.
 - `check_run_policy` accepts only `advisory`, `blocked-fails` and `require-mergeable`, and the last two require `verify_mode: verify`.

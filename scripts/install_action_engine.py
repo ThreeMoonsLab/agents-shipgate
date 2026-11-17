@@ -35,8 +35,11 @@ directory holding the ``agents-shipgate`` and ``shipgate`` entry points goes on
 ``GITHUB_PATH``, so the caller's later steps can run the CLI without finding
 this environment's ``python`` or ``pip``.
 
-The environment is always ``<parent>/agents-shipgate/venv``, removed and
-created again on every run, never reused. Its path is part of the engine's
+The environment is always ``<parent>/.agents-shipgate-action/venv``, removed
+and created again on every run, never reused. The installer marks that
+directory as its own and removes only a directory carrying its marker: one it
+did not create, such as a caller's own files there, is refused, never deleted.
+Its path is part of the engine's
 identity: each console script a dependency installs names the environment's
 interpreter on its first line, the script's hash is in that dependency's
 ``RECORD``, and ``RECORD`` is what ``dependency_set_sha256`` hashes. A random
@@ -155,12 +158,21 @@ class _EnvironmentBuilder(venv.EnvBuilder):
 
 
 #: The one directory under ``--venv-parent`` the installer owns: the
-#: environment at ``venv/`` and the PATH directory at ``cli/``.
-ENVIRONMENT_DIRECTORY = "agents-shipgate"
+#: environment at ``venv/`` and the PATH directory at ``cli/``. Named for the
+#: Action rather than the project, so a caller's own `agents-shipgate/` there
+#: (a downloaded baseline, say) is not mistaken for it.
+ENVIRONMENT_DIRECTORY = ".agents-shipgate-action"
+#: Written into that directory when the installer creates it. Only a directory
+#: holding this exact file is removed and recreated; any other is refused.
+OWNER_MARKER = "CREATED-BY-AGENTS-SHIPGATE-ACTION"
+_OWNER_MARKER_TEXT = (
+    "Created by scripts/install_action_engine.py for the Agents Shipgate Action.\n"
+    "Removed and recreated on every run of the Action's install step.\n"
+)
 
 
 def environment_root(parent: str) -> Path:
-    """``<parent>/agents-shipgate``, for an existing absolute ``parent`` only.
+    """``<parent>/.agents-shipgate-action``, for an existing absolute ``parent`` only.
 
     An empty ``RUNNER_TEMP`` would otherwise be ``Path("")``, the current
     directory, which in the Action is the pull request's checkout.
@@ -179,19 +191,33 @@ def environment_root(parent: str) -> Path:
 def create_environment(root: Path) -> Environment:
     """A fresh virtual environment at ``root/venv``, from the interpreter running this.
 
-    Whatever ``root`` held, an earlier run's environment included, is removed
-    first: a stale environment is never reused. Symlinked where `python -m venv`
-    symlinks (everywhere but Windows), so the interpreter finds its shared
-    library exactly as the runner's does. pip comes from the interpreter's own
-    bundled `ensurepip`, which venv runs from inside the new environment's
-    directory, not the workspace.
+    An earlier run's ``root``, recognised by :data:`OWNER_MARKER`, is removed
+    first: a stale environment is never reused. Anything else at ``root`` (a
+    file, a link, or a directory without the marker) was not created here and
+    is refused, never deleted. Symlinked where `python -m venv` symlinks
+    (everywhere but Windows), so the interpreter finds its shared library
+    exactly as the runner's does. pip comes from the interpreter's own bundled
+    `ensurepip`, which venv runs from inside the new environment's directory,
+    not the workspace.
     """
 
-    if root.is_symlink() or root.is_file():
-        root.unlink()
-    elif root.exists():
+    if root.is_symlink() or (root.exists() and not root.is_dir()):
+        raise ValueError(
+            f"{root} exists and is not a directory this installer created; "
+            "move it, it is not deleted"
+        )
+    if root.exists():
+        marker = root / OWNER_MARKER
+        if marker.is_symlink() or not marker.is_file() or (
+            marker.read_text(encoding="utf-8", errors="replace") != _OWNER_MARKER_TEXT
+        ):
+            raise ValueError(
+                f"{root} exists but this installer did not create it (no {OWNER_MARKER}); "
+                "move it, its contents are not deleted"
+            )
         shutil.rmtree(root)
     root.mkdir()
+    (root / OWNER_MARKER).write_text(_OWNER_MARKER_TEXT, encoding="utf-8")
     builder = _EnvironmentBuilder(with_pip=True, symlinks=os.name != "nt")
     builder.create(root / "venv")
     if builder.created is None:  # pragma: no cover - venv always calls post_setup
@@ -394,7 +420,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--venv-parent",
-        help="create the engine's own environment at <this>/agents-shipgate/venv; absolute",
+        help="create the engine's own environment at <this>/.agents-shipgate-action/venv; absolute",
     )
     args = parser.parse_args(argv)
     version = os.environ.get("SHIPGATE_VERSION", "")

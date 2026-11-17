@@ -228,7 +228,7 @@ def test_smoke_workflow_declares_its_checkout_disposable() -> None:
 
 
 def test_the_smoke_installs_its_local_half_where_the_action_installs(tmp_path: Path) -> None:
-    """Both halves run in RUNNER_TEMP/agents-shipgate/venv, so `compare` can hold
+    """Both halves run in RUNNER_TEMP/.agents-shipgate-action/venv, so `compare` can hold
     their engine identities equal (#1032).
 
     A dependency's RECORD hashes its console scripts, whose first line names
@@ -249,7 +249,14 @@ def test_the_smoke_installs_its_local_half_where_the_action_installs(tmp_path: P
     assert action_install["run"].rstrip().endswith(
         'scripts/install_action_engine.py" --venv-parent "${RUNNER_TEMP}"'
     )
-    assert environment_root(str(tmp_path)) == tmp_path / "agents-shipgate"
+    assert environment_root(str(tmp_path)) == tmp_path / ".agents-shipgate-action"
+    # The local half installs nothing into the runner's own Python: everything
+    # it runs comes from the shared environment.
+    installs = [
+        step for step in steps
+        if "pip install" in step.get("run", "") or "install_action" in step.get("run", "")
+    ]
+    assert installs == [local]
     # Both halves of the comparison run under that environment's interpreter.
     for operation in ("prepare", "compare"):
         step = next(s for s in steps if f"release_engine_smoke.py {operation}" in s.get("run", ""))
