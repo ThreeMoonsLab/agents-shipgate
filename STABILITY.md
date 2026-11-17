@@ -1035,6 +1035,15 @@ and the capability delta attestation) stays unredacted, as before, pending
 
 ---
 
+## Migration Note: Unreleased — manifest-free previews clear earlier scan artifacts (#1067)
+
+A manifest-free verification preview removes older scan reports, evidence
+packets, and capability locks from its output directory. The preview publishes
+its own verifier artifacts after that cleanup succeeds. Use distinct
+`--out` directories to retain the earlier scan artifacts alongside a preview.
+
+---
+
 <a id="verify-pr-controlled-inputs-1024"></a>
 
 ## Migration Note: 1.3.0 — `verify` reads PR-controlled inputs from the base (#1024)

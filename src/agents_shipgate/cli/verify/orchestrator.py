@@ -24,7 +24,10 @@ from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
 from agents_shipgate.checks.verify_policy import touched_policy_surfaces
 from agents_shipgate.ci.exit_policy import effective_fail_on
 from agents_shipgate.ci.release_decision import SUGGESTED_DECLARATIONS_FILENAME
-from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
+from agents_shipgate.cli._artifact_lifecycle import (
+    ArtifactLifecycleError,
+    clear_verifier_route_artifacts,
+)
 from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.current_workspace import (
     DEFAULT_REPORTS_DIR,
@@ -5174,7 +5177,7 @@ def _artifact_paths(
     }
 
 
-def _remove_scan_artifacts(out_dir: Path) -> None:
+def _remove_scan_artifacts(out_dir: Path, *, strict: bool = False) -> None:
     for name in (
         "report.md",
         "report.json",
@@ -5196,9 +5199,15 @@ def _remove_scan_artifacts(out_dir: Path) -> None:
         SUGGESTED_DECLARATIONS_FILENAME,
     ):
         path = out_dir / name
-        if path.is_file() or path.is_symlink():
-            with contextlib.suppress(OSError):
-                path.unlink()
+        if not strict and not (path.is_file() or path.is_symlink()):
+            continue
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            if strict:
+                raise ArtifactLifecycleError(path, exc) from exc
 
 
 def _apply_authorization_overlay(
@@ -7381,6 +7390,8 @@ def run_preview(
     agent_handoff_path = out_dir / "agent-handoff.json"
     pr_comment_path = out_dir / "pr-comment.md"
     manifest_present = config_path.is_file()
+    if not manifest_present:
+        _remove_scan_artifacts(out_dir, strict=True)
 
     changed_files: list[str] = []
     diff_text = ""

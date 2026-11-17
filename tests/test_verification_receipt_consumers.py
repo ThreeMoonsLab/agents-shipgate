@@ -505,13 +505,7 @@ def test_a_run_that_states_no_outcome_owes_no_receipt(tmp_path: Path, route: str
 def test_the_host_route_ignores_an_earlier_runs_report(
     run: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Review C2-1: the host route leaves an earlier run's report.json in place.
-
-    A real verify run's output directory, then a manifest-free host verify into
-    the same directory: it removes the receipt but keeps the earlier
-    ``report.json``. The step must publish the host run, not refuse it for a
-    receipt nothing owes, and must not publish the earlier report's verdict.
-    """
+    """The Action ignores a stale report restored after the host run's cleanup."""
 
     _sample_repo, out = run
     earlier = _json(out / "report.json")
@@ -527,7 +521,8 @@ def test_the_host_route_ignores_an_earlier_runs_report(
     assert verifier["head_report_json"] is None
     assert "report_json" not in verifier["artifacts"]
     assert not (out / RECEIPT).exists()
-    assert _json(out / "report.json") == earlier
+    assert not (out / "report.json").exists()
+    (out / "report.json").write_text(json.dumps(earlier), encoding="utf-8")
 
     summary = tmp_path / "summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
