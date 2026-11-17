@@ -29,6 +29,7 @@ from agents_shipgate.core.org_governance import (
     host_grant_drift_payload,
     render_org_status_markdown,
 )
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.schemas.attestation import (
     ATTESTATION_SCHEMA_VERSION,
     ATTESTATION_SCHEMA_VERSIONS_UPGRADED_ON_READ,
@@ -510,13 +511,6 @@ def _canonical_sha256(payload: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-
-
-def _display_path(path: Path, root: Path) -> str:
-    try:
-        return path.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return str(path)
 
 
 def _obj(value: Any) -> dict[str, Any]:

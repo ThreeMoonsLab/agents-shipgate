@@ -89,6 +89,7 @@ from agents_shipgate.core.manifest_provenance import (
     provisional_manifest_note,
 )
 from agents_shipgate.core.operation_attribution import ReconstructedOperationBase
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.core.static_inputs import (
     StaticInputSnapshot,
     activate_static_input_snapshot,
@@ -816,7 +817,7 @@ def run_verify(
             input_status=INPUT_UNAVAILABLE,
         )
         message = (
-            f"Shipgate config not found at {_display_path(config_path, git_root)}. "
+            f"Shipgate config not found at {_display_path(config_path, git_root, resolve=False)}. "
             "Correct --config, or run `agents-shipgate verify --preview --json` before "
             "initializing."
         )
@@ -1399,7 +1400,7 @@ def run_verify(
             assert static_diff_from_path is not None
             base_report = static_diff_from_path
             base_notes.append(
-                f"Using explicit diff reference: {_display_path(base_report, git_root)}"
+                f"Using explicit diff reference: {_display_path(base_report, git_root, resolve=False)}"
             )
         elif base_reference is not None:
             base_status = "diff_from_provided"
@@ -2473,7 +2474,7 @@ def _base_cache_entry(
         "config": config_relative.as_posix(),
         "baseline": {
             "path": (
-                _display_path(baseline_path.resolve(), git_root)
+                _display_path(baseline_path.resolve(), git_root, resolve=False)
                 if baseline_path is not None
                 else None
             ),
@@ -2481,7 +2482,7 @@ def _base_cache_entry(
         },
         "policy_packs": [
             {
-                "path": _display_path(path.resolve(), git_root),
+                "path": _display_path(path.resolve(), git_root, resolve=False),
                 "sha256": _static_input_sha256(path),
             }
             for path in policy_packs
@@ -3034,13 +3035,13 @@ def _rerun_options(
     if fail_on:
         options.extend(["--fail-on", shlex.quote(",".join(fail_on))])
     if baseline_path is not None:
-        options.extend(["--baseline", shlex.quote(_display_path(baseline_path, git_root))])
+        options.extend(["--baseline", shlex.quote(_display_path(baseline_path, git_root, resolve=False))])
     if baseline_mode and baseline_mode != "new-findings":
         options.extend(["--baseline-mode", shlex.quote(baseline_mode)])
     if diff_from is not None:
-        options.extend(["--diff-from", shlex.quote(_display_path(diff_from, git_root))])
+        options.extend(["--diff-from", shlex.quote(_display_path(diff_from, git_root, resolve=False))])
     for pack in policy_pack_paths or []:
-        options.extend(["--policy-pack", shlex.quote(_display_path(pack, git_root))])
+        options.extend(["--policy-pack", shlex.quote(_display_path(pack, git_root, resolve=False))])
     if plugins_enabled is False:
         options.append("--no-plugins")
     if strict_plugins:
@@ -4959,12 +4960,13 @@ def _build_verifier(
             base_ref=base,
             head_ref=head,
             manifest_introduced=manifest_introduced,
-            config=_display_path(config_path, git_root),
+            config=_display_path(config_path, git_root, resolve=False),
             worktree=worktree,
             rerun_options=rerun_options,
             report_path=resolved_report_path,
             repair_subject_available=repair_subject_available,
             configured_gate_introduced=configured_gate_introduced,
+            workspace=str(git_root),
         )
     )
     if fix_task is not None and durable_adoption_command is not None:
@@ -5019,7 +5021,7 @@ def _build_verifier(
         capability_review=capability_review,
         manifest_introduced=manifest_introduced,
         pure_adoption_review=pure_adoption_review,
-        configured_manifest=_display_path(config_path, git_root),
+        configured_manifest=_display_path(config_path, git_root, resolve=False),
         # Order is the whole point of passing both, because ``_fit_sentences``
         # keeps a *prefix* of whole sentences: whichever is second is the one a
         # long blocker title deletes. Provenance stays first. Its clause names
@@ -5061,7 +5063,7 @@ def _build_verifier(
         ),
         manifest_introduced=manifest_introduced,
         pure_adoption_review=pure_adoption_review,
-        configured_manifest=_display_path(config_path, git_root),
+        configured_manifest=_display_path(config_path, git_root, resolve=False),
         # Only a working-tree run can hold an uncommitted declaration, and only
         # that run's comparison ref carries the manifest the receipt was
         # written against. A ref-bound run evaluates committed objects and has
@@ -5072,7 +5074,7 @@ def _build_verifier(
     return VerifierArtifact(
         declaration_continuation=declaration_continuation,
         workspace=str(git_root),
-        config=_display_path(config_path, git_root),
+        config=_display_path(config_path, git_root, resolve=False),
         base_ref=base,
         head_ref=head,
         changed_files=changed_files,
@@ -5118,7 +5120,7 @@ def _build_verifier(
         fix_task=fix_task,
         forbidden_file_edits=list(PROTECTED_FILE_EDITS),
         conditional_file_edits=conditional_instruction_edits(
-            workspace=git_root, config=_display_path(config_path, git_root), canonical=True,
+            workspace=git_root, config=_display_path(config_path, git_root, resolve=False), canonical=True,
         ),
         forbidden_actions=list(FORBIDDEN_SHORTCUTS),
         artifacts=artifacts,
@@ -5156,7 +5158,7 @@ def _artifact_paths(
             **candidates,
         }
     return {
-        key: _display_path(path.resolve(), git_root)
+        key: _display_path(path.resolve(), git_root, resolve=False)
         for key, path in candidates.items()
         if key
         in {
@@ -5457,6 +5459,7 @@ def _write_artifacts(
         logical_base_report = _display_path(
             portable_diff_from_path.resolve(),
             git_root,
+            resolve=False,
         )
         verifier.artifacts["verification_base_report_json"] = logical_base_report
         verifier.base_report_json = logical_base_report
@@ -5606,7 +5609,7 @@ def _write_artifacts(
     logical_config = config_logical_path or (
         config_path.resolve().relative_to(resolved_input_root).as_posix()
         if resolved_input_root in config_path.resolve().parents
-        else _display_path(config_path.resolve(), git_root)
+        else _display_path(config_path.resolve(), git_root, resolve=False)
     )
     resolved_date = evaluation_date or commit_date(git_root, verifier.head_ref)
     base_commit = commit_sha(git_root, verifier.base_ref) if verifier.base_ref else None
@@ -5714,7 +5717,7 @@ def _write_artifacts(
         native_evidence = NativeEvidence.model_validate({"observation": plan.inputs.options["openshell_native"],
             "request_id": plan.request_id, "subject": plan.subject.model_dump(mode="json")})
         native_path.write_text(json.dumps(native_evidence.model_dump(mode="json"), indent=2, sort_keys=True), encoding="utf-8")
-        verifier.artifacts["openshell_native_json"] = _display_path(native_path, git_root)
+        verifier.artifacts["openshell_native_json"] = _display_path(native_path, git_root, resolve=False)
     unit_result = build_unit_result(
         plan=plan,
         status=("succeeded" if verifier.execution in {"succeeded", "skipped"} else "failed"),
@@ -5752,7 +5755,7 @@ def _write_artifacts(
             encoding="utf-8",
         )
         verifier.artifacts["human_review_request_json"] = _display_path(
-            review_request_path.resolve(), git_root
+            review_request_path.resolve(), git_root, resolve=False
         )
     _write_capability_delta_attestation(
         verifier=verifier,
@@ -5792,7 +5795,7 @@ def _write_artifacts(
             encoding="utf-8",
         )
         verifier.artifacts["human_authorization_json"] = _display_path(
-            authorization_artifact.resolve(), git_root
+            authorization_artifact.resolve(), git_root, resolve=False
         )
     if report is not None:
         report.request_id = plan.request_id
@@ -6428,7 +6431,7 @@ def _write_capability_delta_attestation(
                 f"Capability delta attestation{label} unavailable: {exc}"
             )
             continue
-        verifier.artifacts[artifact_key] = _display_path(path.resolve(), git_root)
+        verifier.artifacts[artifact_key] = _display_path(path.resolve(), git_root, resolve=False)
 
 
 def _load_base_capability_lock(
@@ -6608,7 +6611,7 @@ def _reject_symlink_components(
     issue = inspect_lexical_path_identity(root, relative)
     if issue is None:
         return
-    requested = _display_path(issue.requested, root)
+    requested = _display_path(issue.requested, root, resolve=False)
     if issue.kind == "symlink":
         raise ConfigError(f"{label} must not contain symlink components: {requested}")
     if issue.kind == "alias":
@@ -6621,7 +6624,7 @@ def _reject_symlink_components(
             # same-entry relationship and therefore remains fail-closed.
             return
         actual = (
-            _display_path(issue.actual, root)
+            _display_path(issue.actual, root, resolve=False)
             if issue.actual is not None
             else "a differently spelled filesystem entry"
         )
@@ -6752,13 +6755,6 @@ def _stable_archive_error(
     return detail
 
 
-def _display_path(path: Path, root: Path) -> str:
-    try:
-        return path.relative_to(root).as_posix()
-    except ValueError:
-        return str(path)
-
-
 def _write_portable_static_input(
     path: Path,
     *,
@@ -6795,7 +6791,7 @@ def _reject_output_input_overlap(
             continue
         raise ConfigError(
             f"Verifier --out overlaps the {label} input at "
-            f"{_display_path(candidate, git_root)}."
+            f"{_display_path(candidate, git_root, resolve=False)}."
         )
 
 
@@ -6876,7 +6872,7 @@ def _reject_output_directory_content(
     if refusal is None:
         return
     default = is_default_reports_dir(workspace, out_dir)
-    shown = _display_path(out_dir, git_root)
+    shown = _display_path(out_dir, git_root, resolve=False)
     subject = (
         f"Verifier --out {shown}"
         if explicit
@@ -7756,7 +7752,7 @@ def run_preview(
     )
     verifier = VerifierArtifact(
         workspace=str(root),
-        config=_display_path(config_path, root),
+        config=_display_path(config_path, root, resolve=False),
         base_ref=base,
         head_ref=head or "HEAD",
         changed_files=changed_files,
@@ -7778,14 +7774,14 @@ def run_preview(
         headline=headline,
         forbidden_file_edits=list(PROTECTED_FILE_EDITS),
         conditional_file_edits=conditional_instruction_edits(
-            workspace=root, config=_display_path(config_path, root), canonical=True,
+            workspace=root, config=_display_path(config_path, root, resolve=False), canonical=True,
         ),
         forbidden_actions=list(FORBIDDEN_SHORTCUTS),
         artifacts={
-            "verifier_json": _display_path(verifier_path.resolve(), root),
-            "verify_run_json": _display_path(verify_run_path.resolve(), root),
-            "agent_handoff_json": _display_path(agent_handoff_path.resolve(), root),
-            "pr_comment": _display_path(pr_comment_path.resolve(), root),
+            "verifier_json": _display_path(verifier_path.resolve(), root, resolve=False),
+            "verify_run_json": _display_path(verify_run_path.resolve(), root, resolve=False),
+            "agent_handoff_json": _display_path(agent_handoff_path.resolve(), root, resolve=False),
+            "pr_comment": _display_path(pr_comment_path.resolve(), root, resolve=False),
         },
     )
     _write_artifacts(

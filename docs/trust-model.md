@@ -69,7 +69,7 @@ runner, which `install-hooks --target claude-code` writes into a repository.
 | `cli/discovery/artifacts.py::_run_git_inventory_bounded` | `git ls-files`, drained under byte and wall-clock bounds. | workspace discovery in `detect` and auto-init |
 | `cli/verify/git.py::_run_process` | Local Git plumbing: ref and merge-base resolution, `pack-objects`, `index-pack` and `fsck` into an isolated object store, and `cat-file` reads of that store. It never fetches. | every command that reads Git state, among them `verify`, `check`, `diff` and `trigger` |
 | `cli/verify/git.py::_run_git_bounded_result` | Bounded Git reads: diffs, changed paths, attributes and inventories. | the same commands |
-| `cli/fixture.py::_git` | `git init`, `config`, `add`, `commit` and `update-ref` in a temporary copy of a bundled fixture. | `fixture run ai_generated_refund_pr` |
+| `cli/fixture.py::_git` | `git init`, `config`, `add`, `commit` and `update-ref` in a temporary copy of a bundled fixture, with hooks and signing disabled. | `fixture run ai_generated_refund_pr` |
 | `core/authorization_execution.py::_run_process` | The host-protected `/usr/bin/git`, including the one network-capable process: an exact `--force-with-lease` HTTPS `git push` of an externally signed commit graph. | `authorization execute` only |
 | `core/authorization_execution.py::_run_bounded_stdout_process` | `git pack-objects`, streamed into the isolated graph snapshot under output and time bounds. | `authorization execute` only |
 | `core/openshell_native.py::_execute` | The operator-pinned native containment prover, copied into a private directory and run with a minimal environment, bounded output and a bounded process-group lifetime. | `verify --openshell-proof-config` only |
@@ -77,11 +77,58 @@ runner, which `install-hooks --target claude-code` writes into a repository.
 | `.claude/hooks/agents-shipgate.py::_run` | Git, and Shipgate's `verify`, `diff`, `trigger` and `org policy-packs` the same way. `org policy-packs` reads a private copy of the configured manifest, from the working tree or `--base`, to learn which policy packs it declares, and runs only when that manifest can name one. | Claude Code hook events, after `install-hooks` |
 | `.claude/hooks/agents-shipgate.py::_run_git_bounded` | Bounded Git reads, among them the configured manifest as `--base` holds it. | Claude Code hook events, after `install-hooks` |
 
+Every Git child above runs with one environment, built by
+`core/git_env.py::hardened_git_env()`: every inherited `GIT_*` variable is
+dropped, global and system configuration and attributes are ignored, no
+transport protocol is allowed (`GIT_ALLOW_PROTOCOL=""`, so no read can reach a
+remote, and a partial clone's missing object fails instead of being fetched),
+and no prompt, pager, optional lock or replace ref is used. The hook runner
+cannot import Shipgate, so `install-hooks` writes the same values into it. The
+one widening is the `authorization execute` push, which may use `https` and
+nothing else. `fixture run` also disables hooks and commit signing for the
+history it writes. `tests/test_git_env.py` fails when a Git child is added
+without this environment or a hardening variable is spelled anywhere else.
+
 `AGENTS_SHIPGATE_CLI` is used as written. If you set it to a `python -m`
 spelling, include `-P` (`python3 -P -m agents_shipgate`): the hooks run it from
 the repository root, where plain `python -m` would import a package of the same
 name committed there first. Recovery commands that a `python -m agents_shipgate`
 run prints carry `-P` for the same reason.
+
+## Write Boundaries
+
+A repository under review is untrusted input, and so is a report produced from
+one. Neither one widens where `scan` and `apply-patches` write: each writes
+only inside a directory the operator chose or the manifest's own directory, and
+only through plain directories to plain files. Other commands are not covered
+by this section; they write where their documented `--out` options say.
+
+- **`scan` reports.** `output.directory` in `shipgate.yaml` is a relative path
+  inside the manifest's directory. The manifest schema rejects an absolute
+  path, a Windows drive or UNC path and any `..` component. Every file `scan`
+  writes or clears — the Markdown, JSON and SARIF reports, the packet files,
+  the advisory scaffolds, the `current-control.json` pointer and the stale
+  verifier artifacts it removes — goes through one contained writer
+  (`core/contained_write.py`). Before anything is written or removed, it
+  refuses a destination reached through a symbolic link in any directory
+  below the trusted root, a link at the destination itself (even one that
+  stays inside the workspace), a special file, a hard link, and a spelling
+  that is not inside the root. Where the platform supports it, the file is
+  also opened with `O_NOFOLLOW` and re-checked from the open descriptor. The
+  trusted root is the manifest's directory for `output.directory`. For a
+  `scan --out` directory, which the operator typed, it is that directory
+  itself: the directories above it are the operator's choice, and the files
+  inside it are still checked.
+- **`apply-patches`.** The report is untrusted input: it carries its own
+  `manifest_dir` and every `target_file` beside the patches. A patch target
+  must resolve under that `manifest_dir`, *and* under the `--workspace` the
+  operator names (default: the directory `apply-patches` runs in) or the git
+  toplevel containing it. A toplevel counts only when its `.git` is a
+  directory, or a gitdir file, owned by the current user. The target must also
+  be a Shipgate manifest — the only file a generated patch edits — and never
+  a protected agent-boundary or trust-root file. Any other target exits `5`
+  with nothing written. A pointer that does not fit its document exits `2` as
+  a malformed patch, and no file is written.
 
 ## Privacy Boundary
 

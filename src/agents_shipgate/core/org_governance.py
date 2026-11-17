@@ -15,6 +15,7 @@ from agents_shipgate.core.host_grants import (
     host_audit_inventory,
     load_host_grants_baseline,
 )
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest, PolicyPackConfig
 from agents_shipgate.schemas.org_governance import (
     ExceptionRecordV1,
@@ -482,13 +483,6 @@ def _clean(value: str | None) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
-
-
-def _display_path(path: Path, root: Path) -> str:
-    try:
-        return path.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return str(path)
 
 
 __all__ = [

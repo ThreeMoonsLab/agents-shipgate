@@ -11,10 +11,10 @@ from agents_shipgate.core.domain import (
     Tool,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.paths import display_path
 from agents_shipgate.inputs.common import list_input_directory, resolve_input_path, stable_tool_id
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.python_static import (
-    display_path,
     function_output_schema,
     function_signature,
     parse_python_file,

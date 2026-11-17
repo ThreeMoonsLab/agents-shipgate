@@ -4,12 +4,12 @@ import logging
 import os
 from pathlib import Path
 
+from agents_shipgate.core.paths import display_path
 from agents_shipgate.core.privacy import RedactionStats, redact_data
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 from .models import _OutputPlan
 from .output_helpers import _planned_generated_paths, _resolve_packet_format_set
-from .path_helpers import _relative_display_path
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ def _plan_outputs(
     *,
     manifest: AgentsShipgateManifest,
     base_dir: Path,
+    operator_out: bool = False,
 ) -> _OutputPlan:
     """Phase 6: resolve output dir + planned file paths + packet format
     set (filtering PDF if weasyprint is missing). Initialize the
@@ -48,7 +49,7 @@ def _plan_outputs(
     privacy_stats = RedactionStats()
     generated_report_refs = redact_data(
         {
-            key: _relative_display_path(path, base_dir)
+            key: display_path(path, base_dir, outside="resolved")
             for key, path in generated_paths.items()
         },
         stats=privacy_stats,
@@ -59,6 +60,10 @@ def _plan_outputs(
         output_surfaces.append("github_step_summary")
     return _OutputPlan(
         out_dir=out_dir,
+        # A manifest-named directory is held to the manifest's directory; an
+        # operator-typed --out is trusted as typed, and only what is inside it
+        # is checked.
+        write_root=out_dir if operator_out else base_dir.resolve(),
         generated_paths=generated_paths,
         packet_format_set=packet_format_set,
         output_surfaces=output_surfaces,

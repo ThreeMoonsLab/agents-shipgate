@@ -15,6 +15,7 @@ from agents_shipgate.core.domain import (
     ToolkitScopeBound,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.paths import display_path
 from agents_shipgate.core.python_source import parse_python
 from agents_shipgate.inputs.agent_construction_identity import (
     construction_identities,
@@ -68,7 +69,6 @@ from agents_shipgate.inputs.python_imports import (
     reference_spelling,
 )
 from agents_shipgate.inputs.python_static import (
-    display_path,
     dotted_name,
     function_input_schema,
     function_output_schema,

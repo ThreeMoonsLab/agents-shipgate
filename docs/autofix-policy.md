@@ -182,9 +182,34 @@ So in v0.7 with the default flags:
   ManualPatch is filtered out.
 - Everything else with a ManualPatch is **never** applied.
 
-`apply-patches` enforces a **containment check**: every patch's
-`target_file` must resolve under `report.manifest_dir`. Anything
-outside aborts with exit code 5 before any SHA verification.
+`apply-patches` enforces a **containment check** before any SHA
+verification. **The report is untrusted input**: it may have been produced
+on another machine or edited by hand, and it supplies its own
+`manifest_dir` and every `target_file` beside the patches. So neither one
+sets the boundary:
+
+- Every patch's target must resolve under `report.manifest_dir` *and* under
+  the repository `apply-patches` works on: the `--workspace` you name
+  (default: the directory it runs in), or the git toplevel containing it. A
+  toplevel counts only when its `.git` is a directory, or a gitdir file,
+  owned by you.
+- The target must be a Shipgate manifest. Every patch the engine generates
+  edits the manifest it was generated from, so any other file — an agent
+  instruction file, a host settings file, a workflow — is refused, and a
+  protected agent-boundary or trust-root file is refused by name.
+
+Anything else aborts with exit code 5 and nothing is written. The commands
+`verify` prints name the repository with `--workspace`, so they work from any
+directory.
+
+A patch whose JSON pointer does not fit the document it edits is a
+malformed patch: exit code 2 with the `malformed_patch` error, and no file
+is written. Tokens follow RFC 6901: a list index is `0` or a decimal without
+a leading zero and names an existing element, `-` (the position after a
+list's last element) may only end an `append_pointer`, `~` must be followed
+by `0` or `1`, and nothing descends into a scalar. One spelling differs from
+RFC 6901: the pointer `/` names the whole document, as it always has here,
+not the member with an empty name.
 
 ---
 
