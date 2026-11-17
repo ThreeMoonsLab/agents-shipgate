@@ -85,6 +85,7 @@ from agents_shipgate.cli.discovery.scope import (
     project_marker,
 )
 from agents_shipgate.core.errors import DiscoveryError, InputParseError
+from agents_shipgate.core.python_source import parse_python
 from agents_shipgate.core.surface_exclusions import build_detect_exclusions
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 from agents_shipgate.inputs.conductor import conductor_agent_task_types
@@ -794,47 +795,44 @@ def _walk_scoped(tree: ast.AST) -> _ScopeMap:
         )
         return inner
 
-    def visit(node: ast.AST, scope: int, conditional: bool) -> None:
+    pending = [(tree, _MODULE_SCOPE, False)]
+    while pending:
+        node, scope, conditional = pending.pop()
         scopes.nodes.append((node, scope, conditional))
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             inner = open_scope(node, scope, conditional)
-            for header in _definition_header(node):
-                visit(header, scope, conditional)
-            for arg in _argument_nodes(node.args):
-                visit(arg, inner, False)
             body = node.body if isinstance(node.body, list) else [node.body]
-            for statement in body:
-                visit(statement, inner, False)
-            return
-        if isinstance(node, ast.ClassDef):
+            children = [
+                *((header, scope, conditional) for header in _definition_header(node)),
+                *((arg, inner, False) for arg in _argument_nodes(node.args)),
+                *((statement, inner, False) for statement in body),
+            ]
+        elif isinstance(node, ast.ClassDef):
             inner = open_scope(node, scope, conditional)
             scopes.class_scopes.add(inner)
-            for header in _definition_header(node):
-                visit(header, scope, conditional)
-            for statement in node.body:
-                visit(statement, inner, False)
-            return
-        if isinstance(node, _COMPREHENSION_NODES):
+            children = [
+                *((header, scope, conditional) for header in _definition_header(node)),
+                *((statement, inner, False) for statement in node.body),
+            ]
+        elif isinstance(node, _COMPREHENSION_NODES):
             inner = open_scope(node, scope, conditional)
             generators = node.generators
+            children = []
             if generators:
                 # Only the outermost iterable is evaluated eagerly, in the
                 # enclosing scope; everything else runs per item, if at all.
-                visit(generators[0].iter, scope, conditional)
+                children.append((generators[0].iter, scope, conditional))
             for index, generator in enumerate(generators):
-                visit(generator.target, inner, False)
+                children.append((generator.target, inner, False))
                 if index:
-                    visit(generator.iter, inner, True)
-                for guard in generator.ifs:
-                    visit(guard, inner, True)
-            for element in _comprehension_elements(node):
-                visit(element, inner, True)
-            return
-        inner_conditional = conditional or isinstance(node, _BRANCH_NODES)
-        for child in ast.iter_child_nodes(node):
-            visit(child, scope, inner_conditional)
+                    children.append((generator.iter, inner, True))
+                children.extend((guard, inner, True) for guard in generator.ifs)
+            children.extend((element, inner, True) for element in _comprehension_elements(node))
+        else:
+            inner_conditional = conditional or isinstance(node, _BRANCH_NODES)
+            children = [(child, scope, inner_conditional) for child in ast.iter_child_nodes(node)]
+        pending.extend(reversed(children))
 
-    visit(tree, _MODULE_SCOPE, False)
     return scopes
 
 
@@ -898,8 +896,8 @@ class _Write:
 
 def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
     try:
-        source = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        source = path.read_bytes()
+    except OSError:
         return None
     return _python_facts_from_source(source, path, _relative(path, workspace))
 
@@ -919,9 +917,9 @@ def application_frameworks(rel_path: str, source: str) -> frozenset[str]:
     return frozenset(name for name, state in scores.items() if state.candidate_files)
 
 
-def _python_facts_from_source(source: str, path: Path, rel_path: str) -> _PyFacts | None:
+def _python_facts_from_source(source: str | bytes, path: Path, rel_path: str) -> _PyFacts | None:
     try:
-        tree = ast.parse(source, filename=str(path))
+        tree = parse_python(source, filename=str(path))
     except (SyntaxError, ValueError, RecursionError):
         return None
 

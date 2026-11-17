@@ -207,15 +207,9 @@ def _load_bounded_json(text: str) -> Any:
 
 
 def load_structured_file(path: Path) -> Any:
-    if not path.exists():
-        raise InputParseError(f"Input file not found: {path}")
+    text = load_text_file(path).removeprefix("\ufeff")
     try:
-        text = read_static_input_text(path, max_bytes=MAX_INPUT_FILE_BYTES)
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise InputParseError(f"Unable to read input file {path}: {exc}") from exc
-    try:
-        stripped = text.lstrip()
-        if path.suffix.lower() == ".json" or stripped.startswith(("{", "[")):
+        if path.suffix.lower() == ".json":
             return _load_bounded_json(text)
         return yaml.load(text, Loader=BoundedSafeLoader)
     except (ValueError, yaml.YAMLError, RecursionError) as exc:
@@ -372,13 +366,7 @@ def load_structured_file_with_positions(path: Path) -> tuple[Any, PositionIndex]
     callers can still build pointers (e.g. ``/tools/3``) without a line
     number, which is strictly better than today's nothing.
     """
-    if not path.exists():
-        raise InputParseError(f"Input file not found: {path}")
-    try:
-        text = read_static_input_text(path, max_bytes=MAX_INPUT_FILE_BYTES)
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise InputParseError(f"Unable to read input file {path}: {exc}") from exc
-    return load_structured_text_with_positions(text, source=path)
+    return load_structured_text_with_positions(load_text_file(path), source=path)
 
 
 def load_structured_text_with_positions(
@@ -393,9 +381,8 @@ def load_structured_text_with_positions(
         raise InputParseError(
             f"Input file too large: {path}; maximum is {MAX_INPUT_FILE_BYTES} bytes"
         )
-    stripped = text.lstrip()
-    is_json = path.suffix.lower() == ".json" or stripped.startswith(("{", "["))
-    if is_json:
+    text = text.removeprefix("\ufeff")
+    if path.suffix.lower() == ".json":
         try:
             return _load_bounded_json(text), _EMPTY_INDEX
         except (ValueError, RecursionError) as exc:

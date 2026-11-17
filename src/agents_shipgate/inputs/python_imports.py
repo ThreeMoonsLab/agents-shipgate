@@ -45,6 +45,7 @@ from types import MappingProxyType
 from typing import Any
 
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.python_source import parse_python
 from agents_shipgate.inputs.common import list_input_directory, load_text_file
 
 #: Stable reason codes. The sentence that goes with each one is
@@ -860,7 +861,7 @@ class ImportResolver:
         self._parsed += 1
         try:
             text = load_text_file(path)
-            tree = ast.parse(text, filename=str(path))
+            tree = parse_python(text, filename=str(path))
         except (InputParseError, SyntaxError, ValueError, RecursionError):
             stop = _Stop(UNREADABLE_MODULE, f"{ref} could not be read or parsed")
             self._modules[path] = stop
@@ -1783,7 +1784,7 @@ class ImportResolver:
             text = self._layout.read(path)
             if text is not None:
                 try:
-                    tree = ast.parse(text, filename=path)
+                    tree = parse_python(text, filename=path)
                 except (SyntaxError, ValueError, RecursionError):
                     tree = None
                 if tree is not None:
@@ -1954,7 +1955,7 @@ class ImportResolver:
         ref = self.ref(path)
         try:
             text = load_text_file(path)
-            tree = ast.parse(text, filename=str(path))
+            tree = parse_python(text, filename=str(path))
         except (InputParseError, SyntaxError, ValueError, RecursionError):
             stop = _Stop(UNREADABLE_MODULE, f"{ref} could not be read or parsed")
             self._scanned[path] = stop
@@ -3108,7 +3109,7 @@ _SOURCE_PATCHES_LIMIT = 8192
 
 
 def _module(path: Path, ref: str, tree: ast.Module, text: str, *, parsed: bool = False) -> PythonModule:
-    """``parsed``: the caller made ``tree`` as ``ast.parse(text)``, so the
+    """``parsed``: the caller made ``tree`` as ``parse_python(text)``, so the
     syntax-only patch map may come from :data:`_SOURCE_PATCHES`."""
     bindings, star_import = _module_bindings(tree)
     sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
