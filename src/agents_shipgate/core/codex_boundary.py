@@ -2537,6 +2537,9 @@ def _display_path(path: Path, workspace: Path) -> str:
 
 def _parser_error(kind: str, exc: Exception) -> dict[str, Any]:
     evidence: dict[str, Any] = {"kind": kind, "parser": type(exc).__name__}
+    if isinstance(exc, tomllib.TOMLDecodeError):
+        # Python 3.14 added position attributes to this exception.
+        return evidence
     line = getattr(exc, "lineno", None)
     column = getattr(exc, "colno", None)
     if isinstance(line, int) and line > 0:
