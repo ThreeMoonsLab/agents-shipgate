@@ -792,7 +792,7 @@ def run_verify(
                 host_comparison = host_comparison_failure(git_root, head if archive_head else None, exc)
         if host_comparison is not None:
             host_review = None
-            if base is not None or auto_base:
+            if host_comparison.comparison_status == "comparable" and (base is not None or auto_base):
                 host_review = _host_only_review_action(
                     workspace=workspace, git_root=git_root, config=config_relative,
                     base=base, head=head if archive_head else None,

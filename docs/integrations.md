@@ -18,8 +18,8 @@ covers those, permissions, forks, pinning and what each comment means. The
 recipes below apply to a repository with a `shipgate.yaml`.
 
 Manifest-free `verify` keeps `merge_verdict: unknown` because no application
-release policy was evaluated. It uses the boundary review rules from `check`
-to route a change that requires human review. Inspect the reported
+release policy was evaluated. For a comparable result it uses the boundary
+review rules from `check` to route a change that requires human review. Inspect the reported
 `control.human_review` before acting on the comparison. Use advisory mode for
 host-only review.
 
