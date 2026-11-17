@@ -32,6 +32,13 @@ An incomparable, failed, timed-out or unparsed comparison is never a success, wh
 - **Selection rule.** The `selection.json` header records the rule: exact root file, public, not a fork or archived, at least two commits touching the file in the 90 days before the selection date. Head is the newest such non-merge commit; base is its parent. The population is not re-chosen after a run, and failed or unsupported cases stay in the denominator.
 - **Expected changes cover the selected file only.** Rows on other files the commit touched are counted and reported, not scored.
 
+A changed `disabledMcpjsonServers` list is kept as an unsupported capability
+change. Claude Code uses it to reject named project MCP servers, and the
+Shipgate support matrix lists it among the keys the host-grant reader
+cannot compare. A changed `enabledMcpjsonServers` entry is still scored as
+a named approval. Cases with only unsupported changes stay in the changed-case
+count. [Shipgate support matrix](../../docs/host-boundary-support.md#known-unread-surfaces), [Claude Code settings reference](https://code.claude.com/docs/en/settings-reference#disabledmcpjsonservers)
+
 ## Replaying, and what replay does not measure
 
 `tests/test_cold_start_replay.py` rebuilds each vendored case as a two-commit repository that holds **only the selected file**, runs the same comparison offline, and fails whenever a case's outcome differs from its committed `replay.json`.

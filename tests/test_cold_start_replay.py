@@ -36,6 +36,30 @@ replay = _module("replay")
 CASES = replay.case_dirs()
 
 
+def test_unsupported_project_mcp_rejection_remains_a_changed_case() -> None:
+    oracle = _module("expected")
+    scorer = _module("score")
+    expectation = oracle.claude_settings("{}", '{"disabledMcpjsonServers":["docs"]}')
+
+    outcome = scorer.score_record({
+        "case": "reject-project-mcp",
+        "repo": "fixture",
+        "kind": ".claude/settings.json",
+        "base_sha": "base",
+        "head_sha": "head",
+        "expectation": expectation,
+        "payload": {"rows": []},
+        "stop_point": "comparison_comparable",
+        "commands": [{"exit": 0}],
+        "comparison_seconds": 1,
+    })
+
+    assert outcome["scope"] == "unsupported"
+    assert outcome["changed_case"] is True
+    assert outcome["expected_changes"] == 0
+    assert outcome["success"] is False
+
+
 def test_the_population_is_the_frozen_selection() -> None:
     accepted = json.loads((ROOT / "selection.json").read_text(encoding="utf-8"))["accepted"]
 
