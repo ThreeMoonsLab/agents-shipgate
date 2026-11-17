@@ -1390,6 +1390,17 @@ def test_a_workspace_whose_servers_live_in_another_hosts_file_does_not_pass(
         "VS Code MCP config '.vscode/mcp.json'",
     ]
     assert report.release_decision.decision != "passed"
+    actions = [
+        gap.next_action
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "source_warning" and gap.subject in unread
+    ]
+    assert [action.path for action in actions] == [".cursor/mcp.json", ".vscode/mcp.json"]
+    for action in actions:
+        assert action.kind == "review_warning"
+        assert "#663" in action.why
+        assert "narrow the codex_config entry's path" in action.expects
+        assert "move the file outside that entry's path" in action.expects
 
     # The same workspace without the other hosts' files is the one that passed,
     # so the warnings are what moved the decision.

@@ -316,6 +316,15 @@ def duplicate_mcp_server_declaration_warning(
     )
 
 
+_UNREAD_HOST_MCP_DETAIL = (
+    " was not read: a codex_config entry in shipgate.yaml#tool_sources[] reads only "
+)
+_UNREAD_HOST_MCP_TAIL = (
+    ", so an MCP server declared only in that file is missing from this scan. "
+    "Review that file's servers before relying on this result."
+)
+
+
 def unread_host_mcp_config_warning(
     path: str, host: str, read_files: Sequence[str]
 ) -> str:
@@ -329,11 +338,23 @@ def unread_host_mcp_config_warning(
     quoted = [f"`{name}`" for name in read_files]
     read = " and ".join([_join(quoted[:-1]), quoted[-1]] if len(quoted) > 1 else quoted)
     return (
-        f"{host} MCP config {path!r} was not read: a codex_config entry in "
-        f"shipgate.yaml#tool_sources[] reads only {read}, so an MCP server "
-        "declared only in that file is missing from this scan. Review that "
-        "file's servers before relying on this result."
+        f"{host} MCP config {path!r}{_UNREAD_HOST_MCP_DETAIL}{read}{_UNREAD_HOST_MCP_TAIL}"
     )
+
+
+def unread_host_mcp_config_path(warning: str) -> str | None:
+    """Return the file named by the other-host reader coverage warning."""
+
+    host, _, remainder = warning.partition(" MCP config ")
+    if host not in {"Cursor", "VS Code"}:
+        return None
+    literal = _read_string_literal(remainder, 0)
+    if literal is None:
+        return None
+    path, end = literal
+    if remainder.startswith(_UNREAD_HOST_MCP_DETAIL, end) and remainder.endswith(_UNREAD_HOST_MCP_TAIL):
+        return path
+    return None
 
 
 def ambiguous_inventory_merge_warning(
@@ -782,6 +803,7 @@ __all__ = [
     "unbound_inventory_duplicate_warning",
     "unknown_inventory_source_warning",
     "unmatched_binding_member",
+    "unread_host_mcp_config_path",
     "unread_host_mcp_config_warning",
     "unresolved_adk_tool_symbols",
     "withdraw_completed_adk_tool_warnings",

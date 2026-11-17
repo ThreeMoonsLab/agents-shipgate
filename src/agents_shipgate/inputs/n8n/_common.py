@@ -85,7 +85,7 @@ def _string_values(value: Any) -> list[str]:
 
 
 def _top_level_string(value: dict[str, Any], keys: set[str]) -> str | None:
-    for key in keys:
+    for key in sorted(keys):
         item = value.get(key)
         if isinstance(item, str) and item.strip():
             return item.strip()
@@ -235,7 +235,7 @@ def _node_kind(node_type: str) -> str:
     compact = lower.replace("-", "").replace("_", "")
     if "mcptrigger" in compact:
         return "mcp_server_trigger"
-    if "toolmcp" in compact or "mcpclient" in compact:
+    if lower.rsplit(".", 1)[-1] in {"toolmcp", "mcpclienttool"}:
         return "mcp_client_tool"
     if "toolworkflow" in compact:
         return "workflow_tool"
