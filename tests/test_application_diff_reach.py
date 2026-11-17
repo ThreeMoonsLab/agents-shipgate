@@ -74,8 +74,10 @@ def test_python_link_to_an_input_already_read_is_not_read_twice(repo):
     result = run(repo, base, head, "--scope", ".")
     _assert_unread_caller_link(result, "helper.py")
     assert [(r["agent_source"], r["tool"], r["change"]) for r in result["rows"]] == [
-        ("real/helper.py", "execute", "not_established"), ("real/helper.py", "lookup", "not_established"),
+        ("real/helper.py", "execute", "not_established"),
     ]
+    # `lookup` reads the same on both sides: named once for its agent (#1146).
+    assert [(e["agent_source"], e["tools"]) for e in result["read_same"]] == [("real/helper.py", ["lookup"])]
     assert result["head"]["sources"] == [{"type": "openai_agents_sdk", "path": "real/helper.py"}]
 
 

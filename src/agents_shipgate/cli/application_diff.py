@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -40,7 +41,13 @@ from agents_shipgate.cli.verify.git import (
 from agents_shipgate.core.adopter_text import DUPLICATE_TOOL_IN_SOURCE
 from agents_shipgate.core.agent_bindings import adk_unnamed_sub_agents, resolve_agent_binding_graph
 from agents_shipgate.core.artifacts import ArtifactBag
-from agents_shipgate.core.domain import ANY_TOOL
+from agents_shipgate.core.domain import (
+    ANY_TOOL,
+    DOUBT_CONSTRUCTION,
+    DOUBT_DEFINITION_IDENTITY,
+    DOUBT_IMPORT_SEARCH,
+    DOUBT_SETTINGS,
+)
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.privacy import sanitize_report_payload
 from agents_shipgate.core.semantic_assessment import (
@@ -70,7 +77,13 @@ from agents_shipgate.inputs.tool_reach import read_tool_reach
 from agents_shipgate.schemas.manifest import ToolSourceConfig
 
 SUPPORTED = frozenset({"openai_agents_sdk", "google_adk"})
-SCHEMA_VERSION = "0.4"
+SCHEMA_VERSION = "0.5"
+#: Doubts about whether an agent holds a binding, or which file an import
+#: search reaches, never about what the binding read is: a binding that reads
+#: the same on both sides with only these is no candidate change (#1146).
+AGENT_DOUBTS = frozenset({DOUBT_CONSTRUCTION, DOUBT_IMPORT_SEARCH})
+#: A reason no reader classified: it keeps the binding a candidate (#1146).
+DOUBT_UNCLASSIFIED = "unclassified"
 MAX_PYTHON_BYTES = 2_000_000
 
 
@@ -108,6 +121,12 @@ class Observations:
     #: Test files under the scope, which never establish the application
     #: (#876): a test double's agent is not the application's agent.
     excluded_tests: list[str] = field(default_factory=list)
+    #: What a gap's reason doubts (``DOUBT_*``), as the code that recorded it
+    #: said, by ``(source, agent, tool, reason)`` (#1146). Not published; a gap
+    #: without an entry doubts something unclassified.
+    doubts: dict[tuple[str | None, str | None, str | None, str], frozenset[str]] = field(
+        default_factory=dict
+    )
 
     def gap(
         self,
@@ -117,6 +136,7 @@ class Observations:
         agent: str | None = None,
         tool: str | None = None,
         affects: str = "binding_presence",
+        doubts: Iterable[str] = (),
     ) -> None:
         self.limits.append(message)
         self.status = "partial"
@@ -129,6 +149,13 @@ class Observations:
         }
         if item not in self.coverage_gaps:
             self.coverage_gaps.append(item)
+        key = (source, agent, tool, message)
+        kinds = frozenset(doubts)
+        if not kinds:
+            # Once recorded without a kind, it stays unclassified (fail closed).
+            self.doubts[key] = frozenset()
+        elif self.doubts.get(key, kinds):
+            self.doubts[key] = self.doubts.get(key, frozenset()) | kinds
 
     def absence_gaps(
         self, key: tuple[str, str, str], moves: dict[str, str] | None = None
@@ -150,16 +177,32 @@ class Observations:
     def tool_gaps(self, key: tuple[str, str, str]) -> list[str]:
         """Gaps naming this one binding, which even a present binding carries."""
 
-        return sorted(
-            {
-                gap["reason"]
-                for gap in self.coverage_gaps
-                if gap["affects"] == "binding_presence"
+        return sorted(self.tool_gap_doubts(key))
+
+    def tool_gap_doubts(self, key: tuple[str, str, str]) -> dict[str, frozenset[str]]:
+        """Each of :meth:`tool_gaps`'s reasons, with what it doubts (#1146).
+
+        A reason recorded anywhere without a kind has none: unclassified.
+        """
+
+        found: dict[str, frozenset[str]] = {}
+        for gap in self.coverage_gaps:
+            if not (
+                gap["affects"] == "binding_presence"
                 and gap["tool"] == key[2]
                 and gap["agent"] in (None, key[1])
                 and (gap["source"] is None or key[0] == gap["source"])
-            }
-        )
+            ):
+                continue
+            reason = gap["reason"]
+            kinds = self.doubts.get((gap["source"], gap["agent"], gap["tool"], reason), frozenset())
+            if reason in found:
+                # The same reason recorded twice: every kind either said, and
+                # unclassified if either said none.
+                known = found[reason]
+                kinds = known | kinds if known and kinds else frozenset()
+            found[reason] = kinds
+        return found
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -842,10 +885,15 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                 bag.set("google_adk", artifacts)
     attributed = set()
     constructed, handoff_targets = set(), set()
+    #: ``(path, agent) -> {target name: why}``: a handoff target the reader
+    #: named on a guess or could not identify (#1146 review).
+    guessed_handoffs: dict[tuple[str, str], dict[str, str]] = {}
     for item in loaded:
         for observation in item.binding_observations:
             path = _source_path(root, observation.source)
             constructed.add((path, observation.agent))
+            if observation.handoff_issues:
+                guessed_handoffs.setdefault((path, observation.agent), {}).update(observation.handoff_issues)
             if observation.source_identity_fallback:
                 result.identity_fallbacks.add((path, observation.agent))
             if observation.source_construction_labels:
@@ -871,6 +919,7 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                     source=_source_path(root, observation.source),
                     agent=observation.agent,
                     tool=None if tool_name == ANY_TOOL else tool_name,
+                    doubts=observation.tool_issue_doubts.get(tool_name, ()),
                 )
                 attributed.add(message)
         for warning in item.warnings:
@@ -963,6 +1012,11 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "location": agent.source_pointer,
         }
     for record in artifacts.sub_agents if artifacts is not None else []:
+        if record.get("guessed_sub_agents") and isinstance(record.get("agent_name"), str):
+            # A Google ADK sub-agent named on a guess (#1146 review).
+            guessed_handoffs.setdefault(
+                (_source_path(root, str(record.get("source_ref") or "")), record["agent_name"]), {}
+            ).update(record["guessed_sub_agents"])
         if "unread" in record and isinstance(record.get("agent_name"), str):
             # A sub-agent list read only in part: a limit on its agent, at its
             # construction, not on every agent of the file (#909 review).
@@ -1071,6 +1125,7 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                 source=key[0],
                 agent=key[1],
                 tool=tool.name,
+                doubts=(DOUBT_DEFINITION_IDENTITY,),
             )
             result.bindings.pop(binding_key)
             ambiguous_bindings.add(binding_key)
@@ -1110,6 +1165,7 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                         source=key[0],
                         agent=key[1],
                         tool=name,
+                        doubts=(DOUBT_DEFINITION_IDENTITY,),
                     )
                     result.bindings.pop(binding_key)
                     ambiguous_bindings.add(binding_key)
@@ -1123,12 +1179,25 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         if not edge.complete:
             # A readable candidate survives an incomplete construction. Its
             # uncertainty belongs to this binding even when both sides list
-            # the same handoff, so the comparator cannot call it unchanged.
+            # the same handoff. On its own it doubts only whether the agent
+            # holds it: the construction or its list was read in part.
             result.gap(
                 "This handoff binding was read from an incomplete construction.",
                 source=source[0],
                 agent=source[1],
                 tool=key[2],
+                doubts=(DOUBT_CONSTRUCTION,),
+            )
+        guessed = guessed_handoffs.get(source, {}).get(target[1])
+        if guessed:
+            # Which agent the target is was guessed or refused: the target's
+            # identity, so equal readings are no evidence (#1146 review).
+            result.gap(
+                guessed,
+                source=source[0],
+                agent=source[1],
+                tool=key[2],
+                doubts=(DOUBT_DEFINITION_IDENTITY,),
             )
         result.bindings[key] = {
             "agent": source[1],
@@ -1160,12 +1229,12 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                 settings_by_agent[key] = observation.agent_settings
     for key, binding in result.bindings.items():
         for message in sorted(settings_issues.get(key[:2], ())):
-            result.gap(message, source=key[0], agent=key[1], tool=key[2])
+            result.gap(message, source=key[0], agent=key[1], tool=key[2], doubts=(DOUBT_SETTINGS,))
         settings = settings_by_agent.get(key[:2])
         if key[:2] in settings_by_agent and settings is None:
             result.gap(
                 "Conflicting constructions supply different declared agent settings.",
-                source=key[0], agent=key[1], tool=key[2],
+                source=key[0], agent=key[1], tool=key[2], doubts=(DOUBT_SETTINGS,),
             )
         if settings:
             binding["agent_settings"] = dict(settings)
@@ -1264,6 +1333,7 @@ def _canonical_tools(
                 "definition an agent binds is not established.",
                 source=source.path,
                 tool=name,
+                doubts=(DOUBT_DEFINITION_IDENTITY,),
             )
 
 
@@ -1348,10 +1418,91 @@ def _meaning(binding: dict[str, Any]) -> dict[str, Any]:
     } | {"implementation_sha256": binding.get("definition", {}).get("implementation_sha256")}
 
 
+def _compared_meanings(
+    before: dict[str, Any], after: dict[str, Any], target_moves: dict[str, str] | None = None
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Both sides' compared meanings; a handoff target moved by the change is read at its new path."""
+
+    before_meaning = _meaning(before)
+    if "target_source" in before_meaning:
+        path = before_meaning["target_source"]
+        before_meaning["target_source"] = (target_moves or {}).get(path, path)
+    return before_meaning, _meaning(after)
+
+
+def _differs(
+    before: dict[str, Any], after: dict[str, Any], target_moves: dict[str, str] | None = None
+) -> bool:
+    """Whether a binding read on both sides reads differently: the one test of a difference.
+
+    Anything that tiers candidates asks this, so a row and a tier never
+    disagree on what differs (#1146).
+    """
+
+    before_meaning, after_meaning = _compared_meanings(before, after, target_moves)
+    return before_meaning != after_meaning
+
+
+def _unread_implementation(binding: dict[str, Any]) -> bool:
+    """A callable whose implementation was not read: its missing digest is no reading."""
+
+    return "definition" in binding and binding["definition"].get("implementation_sha256") is None
+
+
+def _kept_doubts(reasons: Iterable[frozenset[str]]) -> set[str]:
+    """What the reasons doubt beyond whether the agent holds the binding.
+
+    Each item is one reason's kinds; a reason with none is unclassified. A
+    doubt about which definition or setting is bound means the meaning was
+    not read from what is bound, so equal meanings are no evidence (#1146).
+    """
+
+    kept: set[str] = set()
+    for kinds in reasons:
+        kept |= (kinds - AGENT_DOUBTS) if kinds else {DOUBT_UNCLASSIFIED}
+    return kept
+
+
+def _reads_the_same(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    target_moves: dict[str, str] | None = None,
+    reasons: Iterable[frozenset[str]] = (),
+) -> bool:
+    """Both sides were read from what is bound, and read the same (#1146).
+
+    ``reasons`` holds the kinds of each reason that makes the binding
+    uncertain. Such a binding is not a candidate change, and not a row, only
+    when every reason doubts no more than whether its agent holds it or which
+    file an import search reaches (``AGENT_DOUBTS``); that is said once, for
+    the agent, in ``read_same``. Equal meanings are no reading when the
+    implementation was read on neither side, or a reason doubts which
+    definition or settings are bound or is unclassified: the binding stays a
+    candidate row.
+    """
+
+    return not (
+        _differs(before, after, target_moves)
+        or _unread_implementation(before)
+        or _unread_implementation(after)
+        or _kept_doubts(reasons)
+    )
+
+
 def compare(
     base: Observations, head: Observations, *, target_moves: dict[str, str] | None = None
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The rows, and per agent the bindings that read the same but are not established.
+
+    A binding that reads the same on both sides (``_reads_the_same``) is never
+    a row. When a reason makes it uncertain, which is every binding of an agent
+    whose construction or callers were not read in full, it is named in the
+    second list, one entry per agent with every such tool and the union of
+    their reasons, so the doubt is stated once and not as a change per tool.
+    """
+
     rows = []
+    same: dict[tuple[str, str], dict[str, Any]] = {}
     moves = target_moves or {}
     old_agents = {(moves.get(path, path), name) for path, name in base.agents}
     new_agents = set(head.agents)
@@ -1378,6 +1529,7 @@ def compare(
     for key in sorted(base.bindings.keys() | head.bindings.keys()):
         before, after = base.bindings.get(key), head.bindings.get(key)
         uncertainty = {}
+        doubts: list[str] | None = None
         kind = "added" if before is None else "removed" if after is None else "changed"
         if (before is None and key[:2] in ambiguous_new) or (after is None and key[:2] in ambiguous_old):
             uncertainty["base" if before is None else "head"] = [identity_reason]
@@ -1405,20 +1557,18 @@ def compare(
             if present:
                 uncertainty["base"] = present
         else:
-            before_meaning = _meaning(before)
-            if "target_source" in before_meaning:
-                path = before_meaning["target_source"]
-                before_meaning["target_source"] = (target_moves or {}).get(path, path)
+            before_meaning, after_meaning = _compared_meanings(before, after, target_moves)
+            differs = _differs(before, after, target_moves)
             for side, value in (("base", before), ("head", after)):
                 if "definition" in value and value["definition"]["implementation_sha256"] is None:
                     uncertainty[side] = ["The bound callable's implementation could not be read."]
             # Only the condition it is bound under changed (#909): a change,
             # stated as one, whose direction is not established.
-            only_condition = before_meaning != _meaning(after) and (
-                {**before_meaning, "bound_when": None} == {**_meaning(after), "bound_when": None}
+            only_condition = differs and (
+                {**before_meaning, "bound_when": None} == {**after_meaning, "bound_when": None}
             )
-            only_settings = before_meaning != _meaning(after) and (
-                {**before_meaning, "agent_settings": None} == {**_meaning(after), "agent_settings": None}
+            only_settings = differs and (
+                {**before_meaning, "agent_settings": None} == {**after_meaning, "agent_settings": None}
             )
             if only_condition:
                 # A part of the list that was not read may hold the tool some
@@ -1427,19 +1577,50 @@ def compare(
                     reasons = observed.absence_gaps(key, side_moves)
                     if reasons:
                         uncertainty.setdefault(side, []).extend(reasons)
-            if before_meaning != _meaning(after):
+            if differs:
                 # A factory value this read cannot name moved with the code
                 # around it: a candidate change, not an established one.
                 for side, value in (("base", before), ("head", after)):
                     reason = value.get("definition", {}).get("unestablished")
                     if reason:
                         uncertainty.setdefault(side, []).append(reason)
+            kinds: list[frozenset[str]] = []
             for side, observed in (("base", base), ("head", head)):
-                reasons = observed.tool_gaps(key)
-                if reasons:
-                    uncertainty.setdefault(side, []).extend(reasons)
-            if before_meaning == _meaning(after) and not uncertainty:
+                doubted = observed.tool_gap_doubts(key)
+                if doubted:
+                    uncertainty.setdefault(side, []).extend(sorted(doubted))
+                    kinds.extend(doubted.values())
+            if not differs and uncertainty:
+                # What the binding is was read only in part (an object's
+                # endpoint, a factory value): equal readings of it are no
+                # evidence it is unchanged (#1146 review).
+                for side, value in (("base", before), ("head", after)):
+                    reason = value.get("definition", {}).get("unestablished")
+                    if reason:
+                        uncertainty.setdefault(side, []).append(reason)
+                        kinds.append(frozenset({DOUBT_DEFINITION_IDENTITY}))
+            if not uncertainty and _reads_the_same(before, after, target_moves):
                 continue
+            if _reads_the_same(before, after, target_moves, kinds):
+                # It reads the same on both sides, and its only doubt is
+                # whether the agent holds it: no candidate change, so no row
+                # (#1146). The doubt is kept once, for the agent.
+                entry = same.setdefault(
+                    key[:2],
+                    {"agent": key[1], "agent_source": key[0], "tools": [], "doubts": set(), "uncertainty": {}},
+                )
+                entry["tools"].append(key[2])
+                entry["doubts"] |= set().union(*kinds)
+                for side, reasons in uncertainty.items():
+                    known = entry["uncertainty"].setdefault(side, [])
+                    known.extend(reason for reason in reasons if reason not in known)
+                continue
+            if not differs:
+                # Equal meanings that are no reading: say why it stays a
+                # candidate (#1146).
+                kept = _kept_doubts(kinds)
+                if kept:
+                    doubts = sorted(kept)
         candidate_change = kind
         if uncertainty:
             kind = "not_established"
@@ -1451,6 +1632,9 @@ def compare(
                 "change": kind,
                 "candidate_change": candidate_change if uncertainty else None,
                 "uncertainty": uncertainty,
+                # Only on a binding whose two sides read the same: what keeps
+                # that reading from showing it unchanged (#1146).
+                **({"doubts": doubts} if doubts else {}),
                 "before": before,
                 "after": after,
                 "why": (
@@ -1483,7 +1667,17 @@ def compare(
                 ),
             }
         )
-    return rows
+    read_same = [
+        {
+            **entry,
+            "doubts": sorted(entry["doubts"]),
+            "uncertainty": {
+                side: entry["uncertainty"][side] for side in ("base", "head") if side in entry["uncertainty"]
+            },
+        }
+        for entry in same.values()
+    ]
+    return rows, read_same
 
 
 def _align_exact_moves(
@@ -2124,11 +2318,13 @@ def _compare_scopes(
         _unobserved_agent_gaps(
             old, new, scratch / "base" / old_scope, scratch / "head" / scope, target_moves
         )
-        rows = compare(old, new, target_moves=target_moves)
+        rows, read_same = compare(old, new, target_moves=target_moves)
         for row in rows:
             row["before"] = _published_binding(row["before"], old_scope)
             row["after"] = _published_binding(row["after"], scope)
-    status = "partial" if "partial" in {old.status, new.status} else "compared"
+    # A binding that reads the same but is not established is not a no-change
+    # result for its agent (#1146).
+    status = "partial" if "partial" in {old.status, new.status} or read_same else "compared"
     if not old.agents and not new.agents and status == "compared":
         status = "not_established"
     return {
@@ -2143,6 +2339,9 @@ def _compare_scopes(
         "options": {"max_python_files": max_python_files, "max_python_bytes": MAX_PYTHON_BYTES},
         "source_correspondence": moves,
         "rows": rows,
+        # Present only when an agent has such bindings, so an answer without
+        # them is the one it was.
+        **({"read_same": read_same} if read_same else {}),
         "limits": list(_LIMITS),
     }
 
@@ -2216,6 +2415,12 @@ def _combined(
             ),
         }
 
+    # Spelled from the repository root, as the combined rows are.
+    read_same = [
+        {**entry, "agent_source": _location(item["head"]["scope"], entry["agent_source"])}
+        for item in comparisons
+        for entry in item.get("read_same", [])
+    ]
     return {
         "application_comparison_schema_version": SCHEMA_VERSION,
         "comparison_status": status,
@@ -2240,6 +2445,7 @@ def _combined(
             for item in comparisons
             for row in item["rows"]
         ],
+        **({"read_same": read_same} if read_same else {}),
         "comparisons": comparisons,
         "scope_selection": scope_selection,
         "limits": list(_LIMITS),
