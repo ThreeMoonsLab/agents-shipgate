@@ -11,6 +11,66 @@ from agents_shipgate.core.errors import ConfigError
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 
 
+def test_small_yaml_aliases_retain_data_and_source_positions(tmp_path):
+    from agents_shipgate.inputs.common import load_structured_file_with_positions
+
+    source = tmp_path / "source.yaml"
+    source.write_text("catalog:\n  first: &record {name: lookup}\n  second: *record\n", encoding="utf-8")
+
+    data, positions = load_structured_file_with_positions(source)
+
+    assert data["catalog"]["second"] == {"name": "lookup"}
+    assert positions.lookup("/catalog/second") == (3, 3)
+
+
+@pytest.mark.parametrize("with_positions", [False, True])
+def test_structured_yaml_counts_alias_expansion_against_its_budget(tmp_path, monkeypatch, with_positions):
+    from agents_shipgate.core import yaml_limits
+    from agents_shipgate.core.errors import InputParseError
+    from agents_shipgate.inputs.common import (
+        load_structured_file,
+        load_structured_file_with_positions,
+    )
+
+    source = tmp_path / "source.yaml"
+    source.write_text("catalog:\n  first: &record [lookup, score]\n  second: *record\n", encoding="utf-8")
+    monkeypatch.setattr(yaml_limits, "MAX_YAML_NODES", 9)
+    load = load_structured_file_with_positions if with_positions else load_structured_file
+
+    with pytest.raises(InputParseError, match="expanded YAML exceeds the 9-node limit"):
+        load(source)
+
+
+@pytest.mark.parametrize("with_positions", [False, True])
+def test_structured_json_reports_nesting_as_an_input_error(tmp_path, monkeypatch, with_positions):
+    from agents_shipgate.core.errors import InputParseError
+    from agents_shipgate.inputs import common
+
+    source = tmp_path / "source.json"
+    source.write_text('{"one": {"two": {"three": {"item": "lookup"}}}}', encoding="utf-8")
+    monkeypatch.setattr(common, "MAX_JSON_DEPTH", 3)
+    load = common.load_structured_file_with_positions if with_positions else common.load_structured_file
+
+    with pytest.raises(InputParseError, match="JSON exceeds the nesting limit of 3"):
+        load(source)
+
+
+def test_scan_reports_yaml_nesting_as_a_config_error(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+    from agents_shipgate.core import yaml_limits
+
+    config = tmp_path / "shipgate.yaml"
+    config.write_text("agent: {metadata: {category: support}}\n", encoding="utf-8")
+    monkeypatch.setattr(yaml_limits, "MAX_YAML_DEPTH", 3)
+
+    result = CliRunner().invoke(app, ["scan", "-c", str(config)])
+
+    assert result.exit_code == 2, result.output
+    assert "YAML exceeds the nesting limit of 3" in result.output
+
+
 def test_scan_reports_a_non_utf8_manifest_as_a_config_error(tmp_path):
     from typer.testing import CliRunner
 

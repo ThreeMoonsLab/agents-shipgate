@@ -8,6 +8,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.yaml_limits import BoundedSafeLoader
 from agents_shipgate.inputs.common import (
     PositionIndex,
     load_structured_file_with_positions,
@@ -88,8 +89,8 @@ def load_yaml_file(path: Path) -> dict[str, Any]:
     except UnicodeDecodeError as exc:
         raise ConfigError(f"Config file must be UTF-8: {path}") from exc
     try:
-        data = yaml.safe_load(text)
-    except yaml.YAMLError as exc:
+        data = yaml.load(text, Loader=BoundedSafeLoader)
+    except (yaml.YAMLError, RecursionError) as exc:
         raise ConfigError(f"Invalid YAML in {path}: {exc}") from exc
     return _parsed_manifest_mapping(data, text, path)
 
@@ -109,8 +110,8 @@ def load_manifest_text(
 
     config_path = Path(source)
     try:
-        data = yaml.safe_load(text)
-    except yaml.YAMLError as exc:
+        data = yaml.load(text, Loader=BoundedSafeLoader)
+    except (yaml.YAMLError, RecursionError) as exc:
         raise ConfigError(f"Invalid YAML in {config_path}: {exc}") from exc
     return _validate_manifest_data(
         _parsed_manifest_mapping(data, text, config_path), config_path

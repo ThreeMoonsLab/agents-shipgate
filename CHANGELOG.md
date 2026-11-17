@@ -27,6 +27,7 @@
 ### Structured inputs
 
 - VS Code MCP configuration accepts a leading UTF-8 BOM and comments between a trailing comma and its closing delimiter. JSONL trace and validation readers preserve Unicode separators inside strings. Codex MCP declarations report invalid server arguments as an input error, and manifests that cannot be decoded as UTF-8 report a config error. (Refs #1043)
+- The shared YAML reader checks node expansion and nesting before construction. JSON source nesting and YAML path indexing also have limits. (Refs #1043)
 
 ## 1.3.0 - 2026-11-08
 
