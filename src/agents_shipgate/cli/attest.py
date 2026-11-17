@@ -557,9 +557,10 @@ def build_attestation_payload(
 ) -> dict[str, Any]:
     """Project a verify run onto a deterministic attestation dict.
 
-    A report bound by the verified receipt adds the declared ``human_ack``
-    state and a policy-snapshot hash. Both fields use ``null`` for evidence
-    that the receipt did not establish.
+    If passing a report, use the result of :func:`load_attested_report` with
+    the same verified receipt. It supplies the declared ``human_ack`` state
+    and policy snapshot. Unknown acknowledgement and policy evidence use
+    ``null``.
     """
     verifier_version = verifier.get("verifier_schema_version")
     if verifier_version in {"0.1", "0.2", "0.3"}:
@@ -576,10 +577,16 @@ def build_attestation_payload(
     verify_run = verify_run or {}
     verification_receipt = verification_receipt or {}
     bound_artifacts = _obj(_obj(verification_receipt.get("artifact_manifest")).get("artifacts"))
-    if "report_json" not in bound_artifacts:
+    report_ref = _obj(bound_artifacts.get("report_json"))
+    if not report_ref:
         report = None
-        artifacts = {key: value for key, value in artifacts.items() if key != "report_json"}
     report = report or {}
+    artifact_hashes = _artifact_hashes(
+        {key: value for key, value in artifacts.items() if key != "report_json"},
+        base_dir=source.parent,
+    )
+    if report_digest := _clean_str(report_ref.get("sha256")):
+        artifact_hashes["report_json"] = report_digest.removeprefix("sha256:")
     human_ack = _obj(report.get("human_ack"))
     effective_policy = report.get("effective_policy")
     org_context = _clean_org_context(org_context or {})
@@ -644,7 +651,7 @@ def build_attestation_payload(
             _canonical_sha256(effective_policy) if effective_policy is not None else None
         ),
         "policy_packs": _verify_run_policy_packs(verify_run),
-        "artifact_sha256": _artifact_hashes(artifacts, base_dir=source.parent),
+        "artifact_sha256": artifact_hashes,
     }
 
 
@@ -668,7 +675,12 @@ def load_attested_report(
     ref = receipt.artifact_manifest.artifacts.get("report_json") if receipt is not None else None
     if ref is None:
         return None
-    data = read_regular_file_beneath(root, ref.path, max_size=ref.size_bytes, label="attested report")
+    if os.open in os.supports_dir_fd:
+        data = read_regular_file_beneath(root, ref.path, max_size=ref.size_bytes, label="attested report")
+    else:
+        # Platforms without dir_fd still hash and parse the same bounded bytes.
+        with (root / ref.path).open("rb") as stream:
+            data = stream.read(ref.size_bytes + 1)
     if len(data) != ref.size_bytes or sha256_bytes(data) != ref.sha256:
         raise ValueError("report.json does not match the terminal verification receipt")
     report = json.loads(data)

@@ -223,14 +223,12 @@ def org_bundle(
         typer.echo(str(exc), err=True)
         raise typer.Exit(3) from exc
 
-    report_path = _artifact_path(verifier_path, verifier, "report_json", "report.json")
     verify_run_path = _artifact_path(
         verifier_path,
         verifier,
         "verify_run_json",
         "verify-run.json",
     )
-    report = _load_optional_json_object(report_path)
     verify_run = _load_optional_json_object(verify_run_path)
     receipt_path = _artifact_path(
         verifier_path,
@@ -242,11 +240,13 @@ def org_bundle(
         verified_receipt = load_verified_receipt(
             verifier, receipt_path, root=verifier_path.parent
         )
-        attested_report = load_attested_report(verifier_path.parent, verified_receipt)
+        report = load_attested_report(verifier_path.parent, verified_receipt)
     except (ValueError, OSError) as exc:
         raise receipt_failure(receipt_path, exc) from exc
     receipt = verified_receipt.model_dump(mode="json") if verified_receipt is not None else None
     receipt_sha256 = _file_sha256(receipt_path) if verified_receipt is not None else None
+    report_ref = verified_receipt.artifact_manifest.artifacts.get("report_json") if verified_receipt else None
+    report_path = verifier_path.parent / report_ref.path if report_ref is not None else None
     attestation_path = _resolve_attestation_path(verifier_path, attestation)
     attestation_payload = _load_optional_json_object(attestation_path)
     if attestation_payload is None:
@@ -254,7 +254,7 @@ def org_bundle(
             verifier,
             source=verifier_path,
             redacted=True,
-            report=attested_report,
+            report=report,
             verify_run=verify_run,
             verify_run_sha256=_file_sha256(verify_run_path),
             verification_receipt=receipt,
@@ -309,12 +309,15 @@ def org_bundle(
     artifacts = _bundle_artifacts(
         {
             "verifier": verifier_path,
-            "report": report_path,
             "verify_run": verify_run_path,
             "attestation": attestation_path,
             "verification_receipt": receipt_path,
         }
     )
+    if report_ref is not None:
+        artifacts["report"] = OrgEvidenceBundleArtifactRef(
+            path=str(report_path), sha256=report_ref.sha256.removeprefix("sha256:"),
+        )
     if out is not None:
         artifacts["org_evidence_bundle"] = OrgEvidenceBundleArtifactRef(
             path=str(out),
@@ -332,7 +335,7 @@ def org_bundle(
         source_verifier=_display_path(verifier_path, root),
         source_report=(
             _display_path(report_path, root)
-            if report_path is not None and report_path.is_file()
+            if report_path is not None
             else None
         ),
         source_verify_run=(

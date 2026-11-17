@@ -182,7 +182,9 @@ def test_human_ack_and_policy_hash_from_report() -> None:
         source=Path("verifier.json"),
         redacted=True,
         report=report,
-        verification_receipt={"artifact_manifest": {"artifacts": {"report_json": {}}}},
+        verification_receipt={
+            "artifact_manifest": {"artifacts": {"report_json": {"sha256": "sha256:" + "0" * 64}}}
+        },
     )
     assert att["human_ack"] == {
         "required": True,
