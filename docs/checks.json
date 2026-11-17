@@ -2840,7 +2840,7 @@
         "prohibited_action",
         "risk_tags"
       ],
-      "fires_when": "A tool's name and description share two words with a prohibited action, one of them the action's leading verb or a listed action verb (after an explicit synonym table), or its risk tags match one, without a mitigating policy. A tool named for the safeguard a \"without\" clause names does not match. The match is lexical, so it is published as a non-blocking advisory finding and never moves the verdict.",
+      "fires_when": "A clause of the tool (its name's verb and what it acts on, or its description's leading verb and object) shares a prohibited action's verb and a word of its direct object, or the tool's risk tags match the action, without a mitigating policy. A tool whose name contains every word of the action's \"without\" clause is that safeguard and is not compared by words. The match is lexical, so it is published as a non-blocking advisory finding and never moves the verdict.",
       "floor_severity": "medium",
       "id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
       "mvp_tier": "core",

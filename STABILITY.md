@@ -708,15 +708,34 @@ surface and is absent from `docs/checks.json`.
 - **Safeguard removal.** It blocks only when the action's effect can drive
   hard controls. Otherwise it is a `medium` advisory under the same rule. A
   removed `rollback` is `critical` only when `destructive` is established.
-- **Prohibited actions.** The match compares whole-word stems and needs two
-  shared words, one of them the prohibited action's leading verb or a listed
-  action verb, after an explicit synonym table (delete/purge/remove,
-  update/modify/edit/change, buy/purchase, …) and joining "shut down" and
-  "e-mail". More connectives (`or`, `in`, `of`, `on`, `by`, `never`, …) are
-  stopwords, and a tool named for the safeguard a `without` clause names
-  (`send_email_preview` against "send external email without preview") does
-  not match. A match is a `medium`, non-blocking advisory finding
-  (`default_severity` `high` → `medium`) and never an evidence gap.
+- **Prohibited actions.** The match compares whole-word stems, never
+  substrings. One tool clause must share the action's verb *and* a word of its
+  direct object. A tool clause is either the verb in the tool's name with the
+  words that verb acts on, or the leading verb of the description's first
+  sentence with the head of its object.
+  - **The action's verb.** The listed action verbs it contains, joined by
+    "or"/"and". Failing that, a noun that names one ("customer data
+    deletion"). Failing that, its leading word ("tweet").
+  - **The direct object** ends at a preposition ("run reports *for*
+    customers"). With no direct object, the destination ("deploy *to*
+    production") may match any tool word.
+  - **Synonyms** come from an explicit verb-to-verb table, applied only in
+    verb position: delete/purge/remove/erase/wipe/destroy,
+    update/modify/edit/change, buy/purchase, execute/run, terminate/close,
+    create/issue/make, send/email/message, share/disclose. "shut down" reads as
+    `shutdown`.
+  - **More connectives are stopwords:** `or`, `in`, `of`, `on`, `by`, `never`,
+    and others.
+  - **Qualifier clauses.** Words after `without`, `unless`, `except` or
+    `outside` are not part of the action. When a tool's name contains *every*
+    word of a `without` clause, the tool is that safeguard, and the word
+    comparison is skipped for it: `send_email_preview` against "send external
+    email without preview". The risk-tag rules still run for it. A tool that
+    shares only part of the clause is still compared:
+    `crm.send_customer_email` against "send email without customer consent".
+
+  A match is a `medium`, non-blocking advisory finding (`default_severity`
+  `high` → `medium`), never an evidence gap.
 - **Advisory framing.** A lexical advisory is labelled
   `Advisory (lexical evidence, does not gate)` in its `misalignments[]` entry,
   which is listed after every gating one, suggests no scenario, and is no
@@ -732,11 +751,18 @@ surface and is absent from `docs/checks.json`.
 
 **What does not change.** No check ID is added, removed or renamed. The
 blocking conditions only narrow, as [Check IDs](#check-ids) allows. The
-prohibited-action matcher both narrows and widens: it drops substring false
-matches and catches some inflections and synonyms the substring match missed
-(`cancel orders` against `cancel_order`, `terminate accounts` against
-`terminate_account`, `delete customer data` against a tool that purges it),
-and every match it adds is an advisory that cannot move the verdict. A
+prohibited-action matcher both narrows and widens.
+
+- **It narrows.** It drops substring false matches. It also drops matches
+  where the tool's own clause acts on another object. Usually that is right
+  (`close_ticket` for "close customer accounts"), but it also drops a few true
+  ones: `export_records` ("Export customer records") for "delete or export
+  customer data".
+- **It widens.** It catches inflections and synonyms the substring match
+  missed: `cancel orders` against `cancel_order`, `terminate accounts` against
+  `terminate_account`, `issue refunds` against `stripe.create_refund`.
+
+Every match it adds is an advisory that cannot move the verdict. A
 policy-eligible escalation blocks as before, with the same evidence, support
 and fingerprint. No schema, contract or control state moves.
 

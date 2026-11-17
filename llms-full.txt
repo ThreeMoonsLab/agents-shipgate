@@ -3694,28 +3694,41 @@ A write-capable tool contradicts a read-only declared purpose. Remove the tool o
 
 A tool appears to overlap with a manifest `prohibited_actions` entry. Remove or narrow the tool, or revise policy/scope text.
 
-The match compares whole words, never substrings (#1035). The tool's name
-(split on punctuation and camelCase) and description must share at least two
-words with the prohibited action, and one of them must be a verb: the
-prohibited action's own leading word ("**buy** stock", "**withdraw** funds"),
-or a listed action verb such as `delete`, `export`, `send` or `refund`. A
-shared subject alone — "customer", "data" — is not the prohibited action.
+The match compares whole words, never substrings (#1035). A tool clause must
+share the prohibited action's **verb** and a word of its **direct object**:
+"buy stock" matches `broker.buy_stock`. A tool clause is the verb in the
+tool's name (split on punctuation and camelCase) with the words it acts on, or
+the leading verb of the description's first sentence with the head of its
+object. A shared subject alone — "customer", "data" — is not the prohibited
+action, and `close_ticket` ("Close a customer's support ticket") acts on a
+ticket, so it is not "close customer accounts".
 
-- Inflections meet (`deletes`, `refunds`, `cancelled`), "shut down" meets
-  `shutdown` and "e-mail" meets `email`.
-- A small explicit synonym table, applied to both sides, joins spellings of one
-  action: delete/purge/remove/erase/wipe/destroy, update/modify/edit/change,
-  buy/purchase, execute/run, terminate/close, create/issue/make, approve/approval,
-  pay/payment. Nothing else is fuzzy.
-- Connectives such as `or`, `in`, `of`, `on`, `by`, `never` and `don't` are
-  ignored, so "priority", "order" or "for a customer" no longer match
+- **The action's verb** is the listed action verbs it contains (`delete`,
+  `export`, `send`, `refund`, …, joined by "or"/"and"). Failing that, a noun
+  that names one ("customer data deletion"); failing that, its leading word.
+  "Customer data must never be exported" is about `export`.
+- **The direct object** ends at a preposition: "run reports *for* customers"
+  is about reports. An action with only a destination ("deploy to
+  production") matches a tool that names it anywhere.
+- **Spelling.** Inflections meet (`deletes`, `refunds`, `cancelled`), "shut
+  down" meets `shutdown`, and "e-mail" meets `email`.
+- **Synonyms.** An explicit verb-to-verb table, applied only to a word in verb
+  position on either side, joins spellings of one action:
+  delete/purge/remove/erase/wipe/destroy, update/modify/edit/change,
+  buy/purchase, execute/run, terminate/close, create/issue/make,
+  send/email/message, share/disclose. The issue in `github.create_issue` stays
+  a noun. Nothing else is fuzzy.
+- **Connectives** such as `or`, `in`, `of`, `on`, `by`, `never` and `don't`
+  are ignored, so "priority", "order" or "for a customer" no longer match
   "delete or export customer data".
-- Words after `without`, `unless`, `except` or `outside` qualify the action and
-  never count towards the overlap. A tool *named* for the safeguard a
-  `without` clause names is that safeguard: `send_email_preview` does not
-  match "send external email without preview".
-- Risk tags still match `email`/`external`, `refund` and `cancel` actions as
-  before.
+- **Qualifier clauses.** Words after `without`, `unless`, `except` or
+  `outside` qualify the action and are not part of it. When a tool's name
+  contains *every* word of a `without` clause, the tool is that safeguard and
+  the word comparison is skipped: `send_email_preview` for "send external
+  email without preview". `send_customer_email` is still compared against
+  "send email without customer consent".
+- **Risk tags** still match `email`/`external`, `refund` and `cancel` actions
+  as before, for every tool.
 
 The match is lexical, so it is a **medium, non-blocking advisory** that never
 moves the release verdict (#1055, Option A): it is published in `report.json`,

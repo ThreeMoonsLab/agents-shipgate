@@ -8,7 +8,7 @@ from agents_shipgate.checks.manifest_scope import (
     _tool_matches_prohibited_action,
 )
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.domain import Tool, ToolRiskHint
 
 
 def test_purpose_read_only_detection_uses_tokens_not_substrings():
@@ -62,13 +62,61 @@ def test_word_overlap_without_a_shared_action_verb_does_not_match(name, descript
         ("export customer data", "export_records", ""),
         ("send email", "email.read", "Read email."),
         ("send email", "email_search", "Search sent email."),
-        # A tool named for the safeguard the prohibited action lacks is that
-        # safeguard: the preview, not the unpreviewed send.
+        # A tool named for the whole safeguard the prohibited action lacks is
+        # that safeguard: the preview, not the unpreviewed send.
         ("send external email without preview", "send_email_preview", "Render an email."),
+        # Noun-first phrasing: the listed verb is the verb, not the leading
+        # noun, so a shared subject alone does not match (#1035 review 2).
+        (
+            "Customer data must never be exported",
+            "tickets.add_comment",
+            "Add a comment with customer data.",
+        ),
+        ("customer data deletion", "update_customer_data", "Update customer data."),
+        # Synonyms apply in verb position only: the issue in
+        # ``github.create_issue`` is a noun.
+        ("issue refunds", "github.create_issue", "Create a GitHub issue about refunds."),
+        ("issue refunds", "jira.comment_on_issue", "Comment on a Jira issue about a refund."),
+        (
+            "create user accounts",
+            "jira.comment_on_issue",
+            "Comment on a Jira issue for a user account.",
+        ),
+        # The verb and the object come from one tool clause: these tools act
+        # on a label, a comment, a draft and a ticket, whatever else their
+        # descriptions mention.
+        ("remove users", "remove_label", "Remove a label from a user's ticket."),
+        ("wipe devices", "delete_comment", "Delete a comment on a device ticket."),
+        ("purge backups", "delete_draft", "Delete a draft note about backups."),
+        ("terminate employees", "close_ticket", "Close an HR ticket for an employee."),
+        ("close customer accounts", "close_ticket", "Close a customer's support ticket."),
+        # The direct object ends at a preposition: these are about reports.
+        ("run reports for customers", "execute_customer_payment", ""),
+        ("make payments", "make_appointment", "Book an appointment."),
     ],
 )
 def test_other_non_matches(prohibited, name, description):
     assert not _tool_matches_prohibited_action(_tool(name, description), prohibited)
+
+
+def test_the_risk_tag_rules_still_run_for_a_tool_named_for_the_safeguard():
+    """Only the word comparison is skipped for ``send_email_preview``."""
+
+    tool = _tool("send_email_preview", "Render an email.").model_copy(
+        update={
+            "risk_hints": [
+                ToolRiskHint(
+                    tag="customer_communication",
+                    source="keyword",
+                    confidence="high",
+                    basis="inferred_keyword",
+                    provenance_kind="keyword_heuristic",
+                )
+            ]
+        }
+    )
+
+    assert _tool_matches_prohibited_action(tool, "send external email without preview")
 
 
 @pytest.mark.parametrize(
@@ -124,6 +172,18 @@ def test_other_non_matches(prohibited, name, description):
         ("loan_approval", "", "approve loan applications"),
         ("send_customer_email", "", "Do not e-mail customers"),
         ("crm.delete_customer_record", "", "Never delete customer records"),
+        # A clause after "without" names a safeguard; a tool sharing only part
+        # of it is still the prohibited action (#1035 review 2).
+        ("send_customer_email", "", "send email without customer consent"),
+        ("crm.delete_customer_data", "", "delete customer data without customer approval"),
+        ("export_data", "", "export data without a data processing agreement"),
+        ("send_user_email", "", "send emails without user confirmation"),
+        ("refund_order", "", "refund orders without a refund reason"),
+        ("issue_refund", "", "issue refunds unless the order is under $50"),
+        # Noun-first phrasing still matches the tool that does it.
+        ("export_customer_data", "Export customer data.", "Customer data must never be exported"),
+        ("share_pii", "Share PII with a third party.", "PII disclosure to third parties"),
+        ("deploy_production", "", "deploy to production except during a change window"),
     ],
 )
 def test_a_shared_write_verb_and_a_second_word_match(name, description, prohibited):
@@ -308,6 +368,31 @@ def test_a_genuine_word_match_is_a_published_advisory_that_raises_no_gap(tmp_pat
         if item.check_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
     )
     assert filtered.release_decision.decision == report.release_decision.decision
+
+
+def test_a_partial_safeguard_word_in_the_tool_name_does_not_hide_the_action(tmp_path):
+    """#1035 review 2: ``crm.send_customer_email`` against "send email without
+    customer consent". main raised a gap; the second cut published nothing,
+    because the tool name shared "customer" with the safeguard clause.
+    """
+
+    report = _scan(
+        _workspace(
+            tmp_path / "consent",
+            tool="crm.send_customer_email",
+            description="Send an email to a customer.",
+            prohibited="send email without customer consent",
+        )
+    )
+
+    finding = next(
+        item for item in report.findings if item.check_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
+    )
+    assert finding.blocks_release is False
+    assert not any(
+        gap.policy_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
+        for gap in report.policy_evidence_gaps
+    )
 
 
 def test_a_prohibited_action_with_an_unlisted_verb_is_still_published(tmp_path):
