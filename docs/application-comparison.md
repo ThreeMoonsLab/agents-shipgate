@@ -78,6 +78,12 @@ What a finding states, and from where:
   first place reading stopped (`not read beyond …`) and, per tool, how many
   more there are. `comparison_status` is unchanged and still speaks of
   bindings only, so a `compared` answer can carry a `partial` finding.
+- **Candidate details.** A finding with more than four candidates lists up to
+  four candidate changes. A finding with four candidates and bindings in
+  `read_same` also shows candidate details. Changed reach comes first, followed
+  by additions and removals, then other specific differences. Additional
+  candidates are counted with a pointer to `--json summary.findings`. A large
+  finding with established rows also points to the candidate details in JSON.
 - **Effect evidence** is counted once for the whole answer instead of repeated
   per row.
 - **Shared causes.** `not_established` rows with the same reason are one line
@@ -127,7 +133,7 @@ print: `--json` always carries every row, with every reach limit.
 | --- | --- |
 | `counts` | `total`, `added`, `removed`, `changed`, `not_established` over `rows`. |
 | `findings[]` | One per agent with a row, in row order: `agent`, `agent_source`, `status` (`compared` or `partial`), `rows` (indexes into `rows`), `counts`, `first_unresolved` (`kind` `binding`, `agent` or `reach`; `text`, `at`, `row`; `null` when nothing was left unread), `capabilities` (new reach), `changed_capabilities`, `unchanged_capabilities`, `tools[]`, `causes` (indexes into `summary.causes`), `questions[]` (`question`, `rows`), when the agent's graph has limits no row states, `agent_limits` and, when bindings of the agent read the same on both sides but are not established, `read_same` (`count`, `tools`, `doubts`, `sides`, `reasons`, `first`, `at`). |
-| `findings[].tools[]` | `row`, `tool`, `change`, `candidate_change`, `facts[]`, `unresolved` (`at`, `why`, `count`) and `effect`. A fact is `change` (what differs), `object`, or one of `reaches`, `reaches_new`, `reaches_dropped`, `reaches_same`, `reaches_changed`, each with `target`, `short`, `at` and, when present, `host`, `credentials` and `model_supplied` (for `reaches_changed`, what is new, and `dropped` what is gone). |
+| `findings[].tools[]` | `row`, `tool`, `change`, `candidate_change`, `facts[]`, `unresolved` (`at`, `why`, `count`) and `effect`. A changed candidate has `specific_change: true` when its compared binding fields differ. A fact is `change` (what differs), `object`, or one of `reaches`, `reaches_new`, `reaches_dropped`, `reaches_same`, `reaches_changed`, each with `target`, `short`, `at` and, when present, `host`, `credentials` and `model_supplied` (for `reaches_changed`, what is new, and `dropped` what is gone). |
 | `effects[]` | `effect`, `status` and `count` over established rows. |
 | `causes[]` | One per shared reason: `pattern`, an `example`, how many distinct `reasons` share it, the `rows`, `sides` and `agents`. |
 | `not_read[]` | Limits no row states, by `agent` (`null` when no single agent): `count`, `sides`, `first`. |
