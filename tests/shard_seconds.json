@@ -448,7 +448,9 @@
   "tests/test_declared_policy_pack_boundary.py": 44.3,
   "tests/test_packaged_default_policies.py": 0.2,
   "tests/test_workflow_directory_instructions.py": 50.6,
-  "tests/test_registry_drift_observation.py": 1.4
+  "tests/test_registry_drift_observation.py": 1.4,
+  "tests/test_git_env.py": 13.5,
+  "tests/test_output_directory_containment.py": 0.5
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -711,6 +713,18 @@
    },
    "case_count": 44,
    "command": "python -m pytest tests/test_registry_drift_observation.py --junitxml=registry-drift-observation.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "issue #1031 write containment and hardened Git environment increment",
+   "report_sha256": "489e945f095229055aff996d675da6b31806ea60557fff4bd72f3dbfb6ca7645",
+   "files": {
+    "tests/test_git_env.py": 13.5,
+    "tests/test_output_directory_containment.py": 0.5
+   },
+   "case_count": 37,
+   "command": "python -m pytest tests/test_git_env.py tests/test_output_directory_containment.py --junitxml=write-containment.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

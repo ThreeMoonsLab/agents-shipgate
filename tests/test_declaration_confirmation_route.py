@@ -11,6 +11,7 @@ surface an agent actually reads.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import subprocess
@@ -23,6 +24,17 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.main import app
 
 runner = CliRunner()
+
+
+def _apply_patches(root: Path, args: list[str], **kwargs):
+    """``apply-patches`` as an operator runs it: from the repository it edits.
+
+    It writes only under the working directory and the git toplevel holding
+    it, never under a directory the report names (#1031).
+    """
+
+    with contextlib.chdir(root):
+        return runner.invoke(app, ["apply-patches", *args], **kwargs)
 
 _AGENT_SOURCE = '''
 from google.adk.agents import LlmAgent
@@ -1001,10 +1013,9 @@ def test_the_loop_ends_with_the_agent_out_of_moves_and_a_named_residue(
     owed = [q for q in envelope["next_action"]["questions"] if q["authorable_by"] == "human"]
     assert [q["dimension"] for q in owed] == ["authority"]
 
-    result = runner.invoke(
-        app,
+    result = _apply_patches(
+        repo,
         [
-            "apply-patches",
             "--from",
             str(repo / "sg-out" / "report.json"),
             "--kinds",
@@ -1100,10 +1111,9 @@ def test_the_control_this_route_publishes_is_superseded_by_its_own_command(
 
     assert _read().pointer.control.state == "agent_action_required"
 
-    result = runner.invoke(
-        app,
+    result = _apply_patches(
+        repo,
         [
-            "apply-patches",
             "--from",
             str(reports / "report.json"),
             "--kinds",
@@ -1201,10 +1211,9 @@ def test_a_ref_bound_run_never_publishes_an_archive_path(tmp_path: Path) -> None
 
 
 def _apply(repo: Path) -> None:
-    result = runner.invoke(
-        app,
+    result = _apply_patches(
+        repo,
         [
-            "apply-patches",
             "--from",
             str(repo / "sg-out" / "report.json"),
             "--kinds",
@@ -1531,10 +1540,9 @@ def test_the_continuation_survives_a_scoped_manifest(tmp_path: Path) -> None:
         return json.loads(result.output[result.output.index("{") :])
 
     assert _run()["next_action"]["kind"] == "confirm_declarations"
-    applied = runner.invoke(
-        app,
+    applied = _apply_patches(
+        repo,
         [
-            "apply-patches",
             "--from",
             str(repo / "sg-out" / "report.json"),
             "--kinds",

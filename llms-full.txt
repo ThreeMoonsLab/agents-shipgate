@@ -5256,9 +5256,22 @@ So in v0.7 with the default flags:
   ManualPatch is filtered out.
 - Everything else with a ManualPatch is **never** applied.
 
-`apply-patches` enforces a **containment check**: every patch's
-`target_file` must resolve under `report.manifest_dir`. Anything
-outside aborts with exit code 5 before any SHA verification.
+`apply-patches` enforces a **containment check** before any SHA
+verification. **The report is untrusted input**: it may have been produced
+on another machine or edited by hand, and it supplies its own
+`manifest_dir` beside the patches. So that value only narrows the boundary.
+Every patch's target must resolve under `report.manifest_dir` *and* under
+the directory `apply-patches` was started in, or the git toplevel that
+contains it. Anything outside aborts with exit code 5 and nothing is
+written. Run `apply-patches` from the repository the report's patches are
+for.
+
+A patch whose JSON pointer does not fit the document it edits is a
+malformed patch: exit code 2 with the `malformed_patch` error, and no file
+is written. That includes a list index that is not `0` or a decimal without
+a leading zero, an index past the end of the list, a key under a scalar,
+and `-` (the position after a list's last element) anywhere except the end
+of an `append_pointer`.
 
 ---
 

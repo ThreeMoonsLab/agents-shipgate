@@ -63,13 +63,36 @@ def _prepare_scan(
         manifest.output.packet.formats = packet_formats
     if baseline_mode != "new-findings":
         raise ConfigError("--baseline-mode supports only new-findings")
+    base_dir = (
+        config_path.resolve().parent
+        if manifest_text is None
+        else config_path.parent.resolve()
+    )
+    if not output_dir:
+        _require_output_directory_inside(manifest.output.directory, base_dir)
     return _ResolvedManifest(
         manifest=manifest,
         manifest_positions=manifest_positions,
         declared_ci=declared_ci,
-        base_dir=(
-            config_path.resolve().parent
-            if manifest_text is None
-            else config_path.parent.resolve()
-        ),
+        base_dir=base_dir,
     )
+
+
+def _require_output_directory_inside(directory: str, base_dir: Path) -> None:
+    """Refuse a manifest ``output.directory`` that resolves outside the manifest's directory.
+
+    The manifest schema already rejects absolute and ``..`` spellings; this is
+    the same boundary checked on the filesystem, so a directory that is a link
+    out of the workspace is refused too, before any report is written or
+    cleared (#1031). ``--out`` is chosen by the operator, not the repository,
+    and is not checked here.
+    """
+
+    base = base_dir.resolve()
+    out_dir = (base / directory).resolve()
+    if out_dir != base and base not in out_dir.parents:
+        raise ConfigError(
+            f"output.directory {directory!r} resolves to {out_dir}, outside the "
+            f"manifest directory {base}. Point it at a directory inside {base}, "
+            "or pass `scan --out <dir>` to write reports elsewhere."
+        )

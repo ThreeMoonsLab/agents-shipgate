@@ -20,6 +20,7 @@ from agents_shipgate.core.control_packs import (
     manifest_control_pack_block,
 )
 from agents_shipgate.core.errors import DiscoveryError
+from agents_shipgate.core.git_env import hardened_git_env
 
 OPENAPI_PATTERNS = (
     "*openapi*.yaml",
@@ -570,23 +571,7 @@ def _candidate_files(workspace: Path) -> list[Path]:
 
 
 def _git_candidate_files(workspace: Path) -> list[Path] | None:
-    env = {
-        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
-    }
-    env.update(
-        {
-            "GIT_ATTR_NOSYSTEM": "1",
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_CONFIG_SYSTEM": os.devnull,
-            "GIT_NO_LAZY_FETCH": "1",
-            "GIT_NO_REPLACE_OBJECTS": "1",
-            "GIT_OPTIONAL_LOCKS": "0",
-            "GIT_PAGER": "cat",
-            "GIT_PROTOCOL_FROM_USER": "0",
-            "GIT_TERMINAL_PROMPT": "0",
-        }
-    )
+    env = hardened_git_env()
     try:
         root_result = subprocess.run(
             [
