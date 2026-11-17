@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import json
-import os
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -73,6 +72,7 @@ from agents_shipgate.core.verification_input_currency import (
 from agents_shipgate.packet.json_packet import load_packet_json, write_packet_json
 from agents_shipgate.report.json_report import report_json_payload
 from agents_shipgate.schemas.current_control import RECEIPT_ARTIFACT_KEY
+from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.report import ReadinessReport
 from agents_shipgate.schemas.verification_identity import (
     VerificationPlan,
@@ -153,21 +153,24 @@ def prepare(
         )
         changed, diff_text = worktree_overlay_paths, overlay_diff
     resolved_date = evaluation_date or commit_date(root, head_ref)
-    config_relative = _under(root, config).relative_to(root)
-    policy_paths = [_under(root, path) for path in policy_packs or []]
-    baseline_path = _under(root, baseline) if baseline is not None else None
-    diff_from_path = (
-        _under(root, diff_from, follow_symlinks=base is None) if diff_from is not None else None
-    )
+    config_relative = Path("shipgate.yaml")
     git_identity = _git_identity(root, base, head_ref)
 
     # A manifest whose inputs cannot be read, or that declares one the plan
     # cannot bind, is the caller's to fix — route it like every other input
     # failure instead of surfacing a traceback out of the identity builder.
     try:
+        from agents_shipgate.cli.verify.orchestrator import _resolve_static_input_path
+
+        config_relative = _under(root, config).relative_to(root)
+        policy_paths = [_under(root, path) for path in policy_packs or []]
+        baseline_path = _under(root, baseline) if baseline is not None else None
+        diff_from_path = (
+            _resolve_static_input_path(root, diff_from, label="--diff-from") if diff_from is not None else None
+        )
         with contextlib.ExitStack() as stack:
             diff_from_base: dict[str, str] | None = None
-            if base is not None and diff_from_path is not None:
+            if base is not None and diff_from_path is not None and diff_from_path.is_relative_to(root):
                 relative = diff_from_path.relative_to(root)
                 base_commit = git_identity["base_commit_sha"]
                 reference = regular_file_at_ref(
@@ -176,7 +179,8 @@ def prepare(
                 if reference.data is None or base_commit is None:
                     detail = reference.reason or "no regular file at the base ref"
                     raise InputParseError(
-                        f"Cannot read --diff-from {relative.as_posix()!r} at {base!r}: {detail}"
+                        f"Cannot read --diff-from {relative.as_posix()!r} at {base!r}: {detail}",
+                        details={"base_diff_from": relative.as_posix()},
                     )
                 directory = stack.enter_context(
                     tempfile.TemporaryDirectory(prefix="agents-shipgate-plan-base-reference-")
@@ -219,7 +223,15 @@ def prepare(
             "input_parse_error",
             message=exc,
             exit_code=3,
-            action=input_parse_recovery(exc, manifest_path=root / config_relative)[0],
+            action=(
+                NextAction(
+                    kind="review",
+                    why="Use a regular report committed at the base ref, supply a report outside the repository, or omit --diff-from.",
+                    expects="A readable comparison report at the base ref or a frozen external report.",
+                )
+                if "base_diff_from" in exc.details
+                else input_parse_recovery(exc, manifest_path=root / config_relative)[0]
+            ),
             details=exc.details or None,
         )
         raise typer.Exit(3) from exc
@@ -839,9 +851,8 @@ def _write_model(path: Path, value: Any) -> None:
     )
 
 
-def _under(root: Path, path: Path, *, follow_symlinks: bool = True) -> Path:
-    candidate = root / path
-    candidate = candidate.resolve() if follow_symlinks else Path(os.path.abspath(candidate))
+def _under(root: Path, path: Path) -> Path:
+    candidate = (root / path).resolve()
     if candidate != root and root not in candidate.parents:
         raise ConfigError(f"Path escapes workspace: {path}")
     return candidate
