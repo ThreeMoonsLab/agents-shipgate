@@ -530,11 +530,6 @@ outside the agent's authority.
 
 ## Time and GitHub Actions
 
-Repositories with a normalized origin use that locator. In a local Git
-repository with commit history, the locator uses the root commit instead of
-the checkout directory name. Refresh older local verification artifacts to
-pick up this identity.
-
 The plan's `evaluation_date` is content-bound provenance, derived from the
 evaluated head commit unless explicitly declared during plan preparation. It
 is not authority to extend reviewer-owned trust. Baseline exceptions, severity

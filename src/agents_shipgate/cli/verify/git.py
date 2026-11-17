@@ -751,15 +751,7 @@ def repository_identity(workspace: Path) -> str:
     remote = _run_git(workspace, ["remote", "get-url", "origin"], check=False)
     value = remote.stdout.strip() if remote.returncode == 0 else ""
     normalized = _normalize_repository_url(value)
-    if normalized is not None:
-        return normalized
-    root = _run_git_bounded_output(
-        workspace, ["rev-list", "--max-parents=0", "--max-count=1", "HEAD"],
-        max_output_bytes=128,
-    )
-    if root:
-        return f"local:root-{root[:12].decode('ascii')}"
-    return f"local:{workspace.name}"
+    return normalized or f"local:{workspace.name}"
 
 
 def resolve_git_push_endpoint(workspace: Path, selector: str) -> GitPushEndpoint:

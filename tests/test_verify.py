@@ -306,18 +306,6 @@ def test_verify_accepts_absolute_config_under_direct_nested_workspace_alias(
     assert (nested / "agents-shipgate-reports" / "report.json").is_file()
 
 
-def test_repository_identity_survives_renaming_a_remote_less_checkout(tmp_path: Path) -> None:
-    from agents_shipgate.cli.verify.git import repository_identity
-
-    repo = _repo_with_manifest(tmp_path)
-    root = subprocess.check_output(["git", "rev-list", "--max-parents=0", "HEAD"], cwd=repo, text=True).strip()
-    expected = f"local:root-{root[:12]}"
-    assert repository_identity(repo) == expected
-    moved = tmp_path / "renamed-checkout"
-    repo.rename(moved)
-    assert repository_identity(moved) == expected
-
-
 def test_diff_context_retains_both_sides_of_a_rename(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     policy = repo / "policies" / "review.yml"
