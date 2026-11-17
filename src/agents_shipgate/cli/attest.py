@@ -283,7 +283,10 @@ def _approval_from_reviews(
             + ", ".join(missing)
         )
     assert event_head is not None
-    verified_head = _verified_head_commit(receipt, root=source.parent)
+    try:
+        verified_head = verified_head_commit(receipt, root=source.parent)
+    except ValueError as exc:
+        raise _reviews_failure(str(exc), why=_VERIFY_THE_HEAD) from exc
     if event_head.lower() != verified_head:
         raise _reviews_failure(
             f"verify evaluated commit {verified_head}, but the pull request's head is "
@@ -335,9 +338,8 @@ _VERIFY_THE_HEAD = (
 )
 
 
-def _verified_head_commit(receipt: VerificationReceipt | None, *, root: Path) -> str:
-    """The commit the receipt-bound verify run evaluated, or exit 3 naming why
-    no review can be recorded against it.
+def verified_head_commit(receipt: VerificationReceipt | None, *, root: Path) -> str:
+    """The commit the receipt-bound verify run evaluated, or a ValueError.
 
     ``load_verified_receipt`` has validated the receipt's closure, its plan
     included. The plan is read again here only from bytes that hash to what
@@ -345,38 +347,33 @@ def _verified_head_commit(receipt: VerificationReceipt | None, *, root: Path) ->
     """
 
     if receipt is None:
-        raise _reviews_failure(
-            "--reviews needs the verification receipt of the verify run beside "
-            "verifier.json: only its plan says which commit was verified",
-            why=_VERIFY_THE_HEAD,
+        raise ValueError(
+            "Recording approval needs the verification receipt of the verify run beside "
+            "verifier.json because its plan identifies the verified commit"
         )
     ref = receipt.artifact_manifest.artifacts.get("verification_plan_json")
     if ref is None:  # pragma: no cover - validate_receipt_artifacts requires it
-        raise _reviews_failure("the verification receipt binds no verification plan")
+        raise ValueError("the verification receipt binds no verification plan")
     path = Path(ref.path)
     try:
         raw = (path if path.is_absolute() else root / path).read_bytes()
     except OSError as exc:
-        raise _reviews_failure(f"the verification plan could not be read: {exc}") from exc
+        raise ValueError(f"the verification plan could not be read: {exc}") from exc
     if sha256_bytes(raw) != ref.sha256:
-        raise _reviews_failure("the verification plan changed after its receipt was validated")
+        raise ValueError("the verification plan changed after its receipt was validated")
     plan = VerificationPlan.model_validate_json(raw)
     if plan.subject.subject_id != receipt.subject_id:  # pragma: no cover - validated
-        raise _reviews_failure("the verification plan is not the receipt's")
+        raise ValueError("the verification plan is not the receipt's")
     git = plan.subject.git
     if git.worktree_overlay_sha256 is not None or plan.inputs.options.get(
         "worktree_overlay_paths"
     ):
-        raise _reviews_failure(
+        raise ValueError(
             "verify evaluated uncommitted working-tree changes on top of "
-            f"{git.head_commit_sha}; a review approves a commit, not a working tree",
-            why=_VERIFY_THE_HEAD,
+            f"{git.head_commit_sha}; approval requires a committed head"
         )
     if git.head_commit_sha is None:
-        raise _reviews_failure(
-            "the verify run names no head commit, so no review can be bound to it",
-            why=_VERIFY_THE_HEAD,
-        )
+        raise ValueError("the verify run names no head commit, so no review can be bound to it")
     return git.head_commit_sha
 
 
@@ -1051,4 +1048,5 @@ __all__ = [
     "load_verified_receipt",
     "receipt_error_message",
     "receipt_failure",
+    "verified_head_commit",
 ]
