@@ -567,7 +567,7 @@ Action also publishes `report.json`'s decision, so it owes a receipt whenever
 `verifier.json` names a `report.json` as its own (`head_report_json` or
 `artifacts.report_json`), which `verify` does only for a run whose head scan
 ran. A `report.json` the verifier does not name is another run's (the
-manifest-free host route leaves an earlier run's in place): the Action
+manifest-backed preview can leave an earlier run's in place). The Action
 publishes nothing from it and owes nothing for it. A `0.1`–`0.4` label on a
 payload that carries an identity field verifier `0.5` introduced
 (`request_id`, `decision_id` and the like) is read as receipt-era. A receipt

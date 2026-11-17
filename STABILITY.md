@@ -1058,6 +1058,17 @@ and the capability delta attestation) stays unredacted, as before, pending
 
 ---
 
+<a id="manifest-free-artifact-cleanup-1067"></a>
+## Migration Note: Unreleased — manifest-free verification clears earlier scan artifacts (#1067)
+
+Manifest-free `verify` and `verify --preview` remove older scan reports,
+evidence packets, capability locks, and suggested declarations and inventories
+from their output directory before comparing host configuration. If an
+artifact cannot be removed, the command exits `4` and publishes no new
+verifier. Use distinct `--out` directories to retain the earlier scan artifacts.
+
+---
+
 <a id="verify-pr-controlled-inputs-1024"></a>
 
 ## Migration Note: 1.3.0 — `verify` reads PR-controlled inputs from the base (#1024)
@@ -1395,7 +1406,7 @@ the Action exported four empty identities and the receipt's path unchecked.
   or `artifacts.report_json`). `verify` names one only for a run whose head
   scan ran, which it closes with a receipt, so a named report owes one. A
   report the verifier does not name belongs to another run (the
-  manifest-free host route leaves an earlier run's in place); the step
+  manifest-backed preview can leave an earlier run's in place); the step
   publishes nothing from it and owes nothing for it. A
   `0.1`–`0.4` label is believed only on a payload with none of the identity
   fields verifier `0.5` introduced with receipts (`request_id`, `subject_id`,
