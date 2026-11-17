@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from pydantic import ValidationError
 
 from agents_shipgate import __version__
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
 from agents_shipgate.cli.attest import (
     RECEIPT_IDENTITY_FIELDS,
     build_attestation_payload,
@@ -34,6 +36,7 @@ from agents_shipgate.schemas.attestation import (
     ATTESTATION_SCHEMA_VERSIONS_UPGRADED_ON_READ,
     ReleaseAttestationV1,
 )
+from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.org_evidence_bundle import (
     OrgEvidenceBundleArtifactRef,
     OrgEvidenceBundleV1,
@@ -246,9 +249,8 @@ def org_bundle(
     receipt = verified_receipt.model_dump(mode="json") if verified_receipt is not None else None
     receipt_sha256 = _file_sha256(receipt_path) if verified_receipt is not None else None
     attestation_path = _resolve_attestation_path(verifier_path, attestation)
-    attestation_payload = _load_optional_json_object(attestation_path)
-    if attestation_payload is None:
-        attestation_payload = build_attestation_payload(
+    try:
+        expected_attestation = build_attestation_payload(
             verifier,
             source=verifier_path,
             redacted=True,
@@ -259,9 +261,18 @@ def org_bundle(
             verification_receipt_sha256=receipt_sha256,
             org_context=_org_context_from_manifest(manifest),
         )
-    attestation_model = ReleaseAttestationV1.model_validate(
-        _normalize_attestation_payload(attestation_payload)
-    )
+        attestation_payload = (
+            _load_json_object(attestation_path, "attestation")
+            if attestation is not None or attestation_path.exists() or attestation_path.is_symlink()
+            else expected_attestation
+        )
+        attestation_model = ReleaseAttestationV1.model_validate(
+            _normalize_attestation_payload(attestation_payload)
+        )
+    except ValidationError as exc:
+        raise _bundle_attestation_failure("does not match the release attestation schema.") from exc
+    except (ValueError, OSError) as exc:
+        raise _bundle_attestation_failure("could not be read or projected from verifier.json.") from exc
     # Every identity the bundle publishes (top level, embedded attestation and
     # registry row) is the attestation's, so it must be the validated
     # receipt's, or absent when no receipt was validated.
@@ -281,6 +292,12 @@ def org_bundle(
             )
             raise typer.Exit(3)
     attestation_json = attestation_model.model_dump(mode="json")
+    for section in ("verdict", "capability"):
+        for field, value in expected_attestation[section].items():
+            if attestation_json[section][field] != value:
+                raise _bundle_attestation_failure(
+                    f"{section}.{field} does not match verifier.json."
+                )
     registry_row = _row_from_attestation(
         attestation_json,
         repo=(
@@ -379,6 +396,22 @@ def _artifact_path(
     artifacts = _obj(verifier.get("artifacts"))
     name = Path(str(artifacts.get(key, default_name))).name or default_name
     return verifier_path.parent / name
+
+
+def _bundle_attestation_failure(detail: str) -> typer.Exit:
+    message = f"Attestation {detail}"
+    typer.echo(message, err=True)
+    emit_agent_mode_error_action(
+        "input_parse_error",
+        message=message,
+        exit_code=3,
+        action=NextAction(
+            kind="review",
+            why="Regenerate the attestation with agents-shipgate attest from the same verifier, then rerun org bundle.",
+            expects="An attestation whose verdict and capabilities agree with verifier.json.",
+        ),
+    )
+    return typer.Exit(3)
 
 
 def _resolve_attestation_path(verifier_path: Path, explicit: Path | None) -> Path:

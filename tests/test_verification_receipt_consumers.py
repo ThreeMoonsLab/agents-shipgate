@@ -255,6 +255,43 @@ def test_org_bundle_accepts_the_attestation_attest_wrote(run: tuple[Path, Path])
     assert bundle["source_attestation"]
 
 
+@pytest.mark.parametrize(
+    ("section", "field", "value"),
+    [("verdict", "decision", "passed"), ("capability", "added", 900)],
+)
+def test_org_bundle_refuses_attestation_fields_that_disagree_with_a_valid_receipt(
+    run: tuple[Path, Path], section: str, field: str, value: object,
+) -> None:
+    repo, out = run
+    path = out / "attestation.json"
+    assert _attest(out, path).exit_code == 0
+    attestation = _json(path)
+    assert attestation[section][field] != value
+    attestation[section][field] = value
+    path.write_text(json.dumps(attestation), encoding="utf-8")
+
+    result = _bundle(repo, out)
+
+    assert result.exit_code == 3
+    assert f"Attestation {section}.{field} does not match verifier.json" in result.output
+
+
+def test_org_bundle_reports_invalid_attestation_as_explicit_input_error(
+    run: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    repo, out = run
+    (out / "attestation.json").write_text('{"verdict": []}', encoding="utf-8")
+
+    result = _bundle(repo, out)
+
+    assert result.exit_code == 3
+    assert "does not match the release attestation schema" in result.output
+    error = json.loads(result.stderr.splitlines()[-1])
+    assert error["error"] == "input_parse_error"
+    assert error["next_actions"][0]["kind"] == "review"
+
+
 @pytest.mark.parametrize("field", ["receipt_id", "decision_id"])
 def test_org_bundle_refuses_a_forged_receipt_identity(
     run: tuple[Path, Path], field: str
@@ -567,6 +604,25 @@ def test_a_no_outcome_run_cannot_carry_a_forged_attestation_identity(
 
     assert result.exit_code == 3
     assert "Attestation request_id names a verification receipt" in result.output
+
+
+def test_org_bundle_refuses_a_release_outcome_from_a_run_that_stated_none(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    out = tmp_path / "verify-out"
+    assert _verify(repo, out, config="missing.yaml") == 2
+    assert not (out / RECEIPT).exists()
+    path = out / "attestation.json"
+    assert _attest(out, path).exit_code == 0
+    attestation = _json(path)
+    attestation["verdict"].update(
+        merge_verdict="mergeable", decision="passed", can_merge_without_human=True,
+    )
+    path.write_text(json.dumps(attestation), encoding="utf-8")
+
+    result = _bundle(repo, out)
+
+    assert result.exit_code == 3
+    assert "Attestation verdict.merge_verdict does not match verifier.json" in result.output
 
 
 # --- the predicate ----------------------------------------------------------

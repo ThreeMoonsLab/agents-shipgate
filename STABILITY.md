@@ -728,6 +728,15 @@ changes nothing; one that needs definition changes reads the `v2` file.
 
 ---
 
+## Migration Note: Unreleased — organization bundles check supplied attestations (#1066)
+
+`org bundle` exits 3 when a supplied attestation is invalid or its verdict
+or capability summary disagrees with the verifier. The error names a
+disagreeing field when the input matches the schema. Regenerate the
+attestation from the same verification run before bundling it.
+
+---
+
 <a id="attestation-approval"></a>
 
 ## Migration Note: 1.3.0 — an attestation can record who approved the change (attestation `0.6`, registry `0.5`, #1118)
