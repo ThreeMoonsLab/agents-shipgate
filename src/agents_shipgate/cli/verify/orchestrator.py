@@ -791,11 +791,17 @@ def run_verify(
             except (OSError, ValueError, RuntimeError, ConfigError) as exc:
                 host_comparison = host_comparison_failure(git_root, head if archive_head else None, exc)
         if host_comparison is not None:
+            host_review = None
+            if base is not None or auto_base:
+                host_review = _host_only_review_action(
+                    workspace=workspace, git_root=git_root, config=config_relative,
+                    base=base, head=head if archive_head else None,
+                )
             return run_preview(
                 workspace=workspace, config=config, base=base,
                 head=head if archive_head else None, out=out,
                 pr_comment_style=pr_comment_style, auto_base=auto_base,
-                _host_comparison=host_comparison, _operation="verify",
+                _host_comparison=host_comparison, _host_review=host_review, _operation="verify",
             )
         preview_command = _preview_verify_command(
             workspace=git_root,
@@ -820,6 +826,8 @@ def run_verify(
             "Correct --config, or run `agents-shipgate verify --preview --json` before "
             "initializing."
         )
+        if ci_mode == "strict":
+            message += " For a host-only comparison, rerun verify in advisory mode."
         verifier = _build_verifier(
             git_root=git_root,
             config_path=config_path,
@@ -7305,6 +7313,38 @@ def _without_github_step_summary():
             os.environ["GITHUB_STEP_SUMMARY"] = prior
 
 
+def _host_only_review_action(
+    *, workspace: Path, git_root: Path, config: Path, base: str | None, head: str | None,
+) -> HumanControlAction | None:
+    """Check review obligations on the same Git subject as a host-only run."""
+    from agents_shipgate.cli.agent_result import (
+        build_agent_boundary_result,
+        git_boundary_change_set,
+    )
+
+    try:
+        changes = git_boundary_change_set(
+            workspace=workspace, base=base, head=head, config_path=git_root / config,
+        )
+        result = build_agent_boundary_result(
+            workspace=git_root, requested_workspace=workspace, config=git_root / config,
+            diff_text=changes.diff_text, policy=None, input_mode=changes.mode,
+            input_issues=list(changes.issues), changed_files_override=list(changes.changed_paths),
+            base=changes.resolved_base, head=changes.resolved_head,
+            manifest_text_snapshot=changes.manifest_text_snapshot,
+        )
+    except (OSError, ValueError, RuntimeError, AgentsShipgateError):
+        return HumanControlAction(
+            kind="stop", why="The host boundary could not be checked on this Git comparison.",
+        )
+    if result.control.human_review.required or result.decision in {"block", "require_review"}:
+        return HumanControlAction(
+            kind="stop" if result.control.must_stop else "review",
+            why=result.control.human_review.why or result.control.reason,
+        )
+    return None
+
+
 @owns_current_control("preview")
 def run_preview(
     *,
@@ -7316,6 +7356,7 @@ def run_preview(
     pr_comment_style: str = "capability-review",
     auto_base: bool = False,
     _host_comparison=None,
+    _host_review: HumanControlAction | None = None,
     _operation: str = "preview",
 ) -> tuple[VerifierArtifact, None, int]:
     """Lightweight relevance check for ``agents-shipgate verify --preview``.
@@ -7672,6 +7713,8 @@ def run_preview(
                 kind="fetch_base", expects="complete Git history",
                 why="The checkout is shallow. Run git fetch --unshallow (or use fetch-depth: 0 in CI), then rerun the same comparison.",
             )
+        elif _host_review is not None:
+            next_action = _host_review
         headline = (
             f"{len(host_comparison.rows)} repository-declared host capability row(s). "
             "Advisory comparison only; no application release policy configured."
