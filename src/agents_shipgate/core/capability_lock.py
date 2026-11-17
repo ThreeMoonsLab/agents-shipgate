@@ -58,8 +58,9 @@ def build_capability_lock(
     # Redacted here, where the lock is assembled, and before any lock-level
     # digest is taken: everything downstream - the lock file, both lock-diff
     # files and the delta attestations - is built from these values, so every
-    # string the family publishes is redacted and every digest it publishes
-    # describes the redacted text (#1079).
+    # string the family publishes is redacted and every digest computed from
+    # here on is taken over the redacted text (#1079). The readers' own
+    # ``tool_v2_``/``obs_v1_`` ids stay digests of the source text.
     facts = redacted_capability_facts(
         build_capability_facts(manifest, agent_id=agent.id, tools=tools)
     )

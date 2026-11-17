@@ -141,9 +141,14 @@ Every string a lock, lock diff or delta attestation publishes is redacted by
 the shared privacy rules before any of these hashes is taken, both when a lock
 is built and when one is read, so each hash covers the text a reader sees and
 recomputes from it (#1079). `schema_hash` and `definition` cover text no lock
-publishes and are taken over the source. When redaction would give two facts
-one id, each keeps the identity hash of its source text, so no capability is
-merged into another.
+publishes and are taken over the source. The ids an adapter derives when it
+reads a tool, `identity.tool_id` (`tool_v2_…`) and the observation ids under
+`semantic_assessment.identity` (`obs_v1_…`), are digests of source text the
+lock does not show: a reader cannot recompute them, and anyone who can guess
+the redacted text can confirm the guess against them by dictionary. When
+redaction would give two facts one id, each keeps the identity hash of its
+source text, so no capability is merged into another; only a caller with
+name-derived tool ids reaches that, and its diff rows are best effort.
 
 Runtime trace evidence is intentionally excluded from capability locks and
 semantic lock hashes.

@@ -883,6 +883,147 @@ def test_reader_source_text_is_redacted_before_it_is_cut():
     assert len(shown) <= 160
 
 
+_STRADDLE_KEY = "sk-" + "A1b2C3d4E5f6G7h8I9j0K1l2"
+
+
+@pytest.mark.parametrize("source", ["openai", "anthropic", "adk"])
+def test_instruction_preview_is_redacted_before_it_is_cut(source):
+    # #1079 review: each prompt source was cut to 500 characters before the
+    # report redacted it, so a key across the cut published its head.
+    from agents_shipgate.cli.scan.agent_builder import (
+        INSTRUCTIONS_PREVIEW_CHARS,
+        _build_agent,
+    )
+    from agents_shipgate.core.artifact_models import (
+        AnthropicArtifacts,
+        GoogleAdkArtifacts,
+        OpenAIApiArtifacts,
+    )
+    from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+
+    text = "x" * (INSTRUCTIONS_PREVIEW_CHARS - 9) + " " + _STRADDLE_KEY + " tail"
+    assert text.index(_STRADDLE_KEY) + 8 == INSTRUCTIONS_PREVIEW_CHARS
+    manifest = AgentsShipgateManifest.model_validate(
+        {
+            "version": "0.1",
+            "project": {"name": "preview"},
+            "agent": {"name": "agent", "declared_purpose": ["answer questions"]},
+            "environment": {"target": "local"},
+            "tool_sources": [{"id": "tools", "type": "mcp", "path": "tools.json"}],
+        }
+    )
+    artifacts = {
+        "openai": {"api_artifacts": OpenAIApiArtifacts(prompt_text=text)},
+        "anthropic": {"anthropic_artifacts": AnthropicArtifacts(prompt_text=text)},
+        "adk": {
+            "adk_artifacts": GoogleAdkArtifacts(agents=[{"instruction_preview": text}])
+        },
+    }[source]
+
+    agent = _build_agent(manifest, [], **artifacts)
+
+    preview = agent.instructions["value_preview"]
+    assert _STRADDLE_KEY[:6] not in preview
+    assert preview == "x" * (INSTRUCTIONS_PREVIEW_CHARS - 9) + " "
+    # A key wholly inside the bound is shown redacted.
+    short = {"openai": "api_artifacts", "anthropic": "anthropic_artifacts", "adk": "adk_artifacts"}
+    inside = f"use {_STRADDLE_KEY} here"
+    artifacts[short[source]] = (
+        GoogleAdkArtifacts(agents=[{"instruction_preview": inside}])
+        if source == "adk"
+        else type(artifacts[short[source]])(prompt_text=inside)
+    )
+    agent = _build_agent(manifest, [], **artifacts)
+    assert agent.instructions["value_preview"] == "use [REDACTED:openai_api_key] here"
+
+
+def test_a_prompt_file_key_across_the_preview_cut_is_not_published(tmp_path):
+    project = tmp_path / "project"
+    reports = tmp_path / "reports"
+    shutil.copytree(Path("samples/simple_openai_api_agent"), project)
+    inside = f"Use key {_STRADDLE_KEY} for lookups.\n"
+    prompt = inside + "x" * (500 - len(inside) - 9) + " " + _STRADDLE_KEY + " tail\n"
+    (project / "prompts" / "support_refund.md").write_text(prompt, encoding="utf-8")
+
+    run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=reports,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=True,
+        packet_formats=["json"],
+    )
+
+    for name in ("report.json", "packet.json"):
+        # ``sk-A1b2C`` is what a cut-first preview published.
+        assert _STRADDLE_KEY[:6] not in (reports / name).read_text(encoding="utf-8"), name
+    report_json = json.loads((reports / "report.json").read_text(encoding="utf-8"))
+    assert report_json["agent"]["instructions"]["value_preview"].startswith(
+        "Use key [REDACTED:openai_api_key] for lookups."
+    )
+    # Pinned, not endorsed (#586). The preview is redacted when the agent
+    # record is built, so the report-time pass finds markers and counts
+    # nothing for ``agent.instructions.value_preview``: the two counted
+    # redactions are the prompt text itself. When read-time redactions join
+    # the final audit (#586, PR #1141), this pin changes.
+    audit = report_json["privacy_audit"]
+    assert {row["path"]: row["count"] for row in audit["redacted_paths"]} == {
+        "api_artifacts.prompt_text": 2
+    }
+    assert audit["redacted_occurrence_count"] == 2
+
+
+def test_reader_caveat_redactions_are_not_yet_counted_in_the_privacy_audit(tmp_path):
+    project = tmp_path / "project"
+    reports = tmp_path / "reports"
+    shutil.copytree(Path("samples/openai_agents_sdk_agent"), project)
+    (project / "agents" / "root.py").write_text(
+        "from agents import Agent\n"
+        "from case_tools import lookup_case\n"
+        "from reply_tools import render_reply\n\n"
+        "flag = 1\n"
+        "support_assistant = Agent(\n"
+        '    name="support-sdk-assistant",\n'
+        f'    tools=[lookup_case, render_reply] + f"{{flag}}{_STRADDLE_KEY}",\n'
+        ")\n",
+        encoding="utf-8",
+    )
+
+    run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=reports,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    text = (reports / "report.json").read_text(encoding="utf-8")
+    assert _STRADDLE_KEY not in text
+    assert "[REDACTED:openai_api_key]" in text
+    # Pinned, not endorsed (#586). The SDK reader redacts the expression in
+    # its caveat when it writes it (#1079), so the report-time pass sees only
+    # markers and the audit counts none of these redactions (it counted 3
+    # before #1079). When read-time redactions join the final audit (#586,
+    # PR #1141), this pin changes.
+    assert json.loads(text)["privacy_audit"]["redacted_occurrence_count"] == 0
+
+
+def test_git_diagnostic_is_redacted_before_it_is_bounded():
+    from agents_shipgate.cli.verify.git import _GIT_STDERR_EXCERPT_CHARS, _decode_git_stderr
+
+    token = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+    lead = "fatal: unable to access remote with header "
+    stderr = lead + "y" * (_GIT_STDERR_EXCERPT_CHARS - len(lead) - 11) + " " + token + " end"
+
+    shown = _decode_git_stderr(stderr.encode("utf-8"))
+
+    assert token[:6] not in shown
+    assert shown.endswith("…")
+    assert len(shown) <= _GIT_STDERR_EXCERPT_CHARS + 1
+    assert _decode_git_stderr(f"fatal: header {token}".encode()) == (
+        "fatal: header [REDACTED:github_token]"
+    )
+
+
 def test_rules_version_is_bumped_and_recorded_in_the_privacy_audit():
     audit = build_privacy_audit(RedactionStats(), output_surfaces=["json"])
 
@@ -1167,7 +1308,7 @@ def _assert_lock_family_shows_the_redactions(reports: Path) -> None:
     """Each place the #1077 review found a planted key now holds a marker.
 
     Redacted, not dropped: the lock still names every tool and owner, and the
-    digests it publishes are digests of what it shows, so the stdlib reference
+    digests it computes are taken over what it shows, so the stdlib reference
     consumer accepts both attestations.
     """
 

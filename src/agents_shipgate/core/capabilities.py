@@ -329,10 +329,14 @@ def redacted_capability_fact(fact: CapabilityFactV1) -> CapabilityFactV1:
     tags and semantic assessment goes through :func:`redact_data`, the rule
     set ``report.json`` uses. Each digest whose input redaction changed is
     recomputed over the redacted value by the recipe above, and the id follows
-    ``identity_hash``, so every published digest describes the published text:
-    a consumer that recomputes ``subject.key`` or a set digest from the payload
-    agrees with it. A digest whose input redaction left alone keeps its stored
-    value, byte for byte, so a fact with nothing to redact - including one read
+    ``identity_hash``, so every digest computed here describes the published
+    text: a consumer that recomputes ``subject.key`` or a set digest from the
+    payload agrees with it. Ids a reader derived from source text before this
+    point, ``identity.tool_id`` (``tool_v2_…``) and the observation ids under
+    ``semantic_assessment.identity`` (``obs_v1_…``), are not recomputed: they
+    are the identity every other surface carries, so they stay digests of text
+    the lock does not show. A digest whose input redaction left alone keeps its
+    stored value, byte for byte, so a fact with nothing to redact - including one read
     from an older lock whose digests came from an older recipe - is returned
     unchanged. ``schema_hash`` and ``definition`` are digests of text no lock
     publishes (the input schema, description, output schema and annotations),
@@ -395,13 +399,23 @@ def redacted_capability_fact(fact: CapabilityFactV1) -> CapabilityFactV1:
 def redacted_capability_facts(facts: Iterable[CapabilityFactV1]) -> list[CapabilityFactV1]:
     """:func:`redacted_capability_fact` over a set, never merging two facts.
 
-    Redaction is many-to-one: two tools whose names differ only inside a
+    Redaction is many-to-one: two tools whose identities differ only inside a
     credential redact to one identity, and so to one id. A diff keys facts by
     id, so publishing both under it would silently drop one of them from every
     comparison. When redaction makes two ids equal, each fact in that group
-    keeps the identity digest and id of its source, the one exception to the
-    published-digest rule above: the lock then shows two indistinguishable
-    names, but two capabilities, and a change to either is still a row.
+    keeps the identity digest and id of its source, which do not describe the
+    published text: the lock then shows two indistinguishable names, but two
+    capabilities.
+
+    Only a caller whose ``tool_id`` is taken from the name reaches this. The
+    shipped readers' ``tool_v2_…`` ids hash the raw observation, so two tools
+    never share a redacted identity, and ``action_surface`` rejects duplicate
+    selectors. The diff rows this path produces are best effort, not correct:
+    a fact's id is its source digest while a twin exists and its redacted
+    digest when it is alone, and lineage pairing runs on the redacted
+    ``tool_name`` and ``tool_id``, which the twins share. A twin arriving or
+    leaving can therefore show as a ``reidentified`` row, or as an owner
+    change attributed to the wrong twin.
     """
 
     sources = list(facts)

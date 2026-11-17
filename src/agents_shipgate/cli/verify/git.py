@@ -19,7 +19,7 @@ import yaml
 from agents_shipgate import _perf
 from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.privacy import redact_text
+from agents_shipgate.core.privacy import redact_text, truncate_redacted
 from agents_shipgate.core.trust_roots import trust_root_class_for
 from agents_shipgate.core.workspace_input import workspace_input_error
 from agents_shipgate.schemas.human_authorization import canonical_https_git_endpoint
@@ -3546,8 +3546,12 @@ def _decode_git_stderr(payload: bytes | bytearray) -> str:
             character if character.isprintable() else " " for character in text
         ).split()
     )
+    # Redacted, then bounded (#1079): Git can echo a remote URL or a header,
+    # and this text is published as a diagnostic's detail. It used to be
+    # bounded and never redacted.
+    collapsed = redact_text(collapsed) or ""
     if len(collapsed) > _GIT_STDERR_EXCERPT_CHARS:
-        collapsed = collapsed[:_GIT_STDERR_EXCERPT_CHARS].rstrip() + "…"
+        collapsed = truncate_redacted(collapsed, _GIT_STDERR_EXCERPT_CHARS).rstrip() + "…"
     return collapsed
 
 

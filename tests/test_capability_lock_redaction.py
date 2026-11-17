@@ -1,4 +1,4 @@
-"""The capability-lock family publishes redacted text and digests of it (#1079).
+"""The capability-lock family publishes redacted text and digests taken over it (#1079).
 
 ``capabilities.lock.json``, both lock-diff files and the delta attestations
 are built from the lock's facts, so redaction happens where the lock is
@@ -191,7 +191,10 @@ def test_the_lock_publishes_no_credential_and_marks_each_one() -> None:
     assert clean == clean_fact
 
 
-def test_every_published_digest_describes_the_published_text() -> None:
+def test_every_digest_the_lock_computes_describes_the_published_text() -> None:
+    # Not ``identity.tool_id`` or the ``obs_v1_`` observation ids: the readers
+    # derive those from the source text, and every surface carries them as
+    # they are. Everything recomputed below is taken over the published text.
     rendered = render_capability_lock_json(_lock(_secret_tools()))
     # Read without the loader, which would redact again: these are the bytes.
     published = CapabilityLockFileV1.model_validate_json(rendered)
@@ -248,7 +251,9 @@ def test_a_lock_with_nothing_to_redact_reads_back_byte_for_byte() -> None:
 
 def test_redaction_never_merges_two_capabilities_into_one() -> None:
     # Two tools whose names differ only inside a credential redact to one
-    # identity. Both must stay in the lock, under distinct ids.
+    # identity. Both must stay in the lock, under distinct ids. Only this
+    # test's name-derived ``tool:<name>`` ids reach the path; the shipped
+    # readers' ``tool_v2_…`` ids hash the raw observation.
     first = _tool(f"lookup {_OPENAI}")
     second = _tool(f"lookup {_OPENAI_OTHER}")
     base = _lock([first])
@@ -259,9 +264,12 @@ def test_redaction_never_merges_two_capabilities_into_one() -> None:
     assert names == {"lookup [REDACTED:openai_api_key]"}
     assert len({fact.id for fact in head.capabilities}) == 2
     diff = diff_capability_locks(base, head)
-    # The second tool is a row of the diff, not silently folded into the first.
-    # The first keeps its source digest only while the two collide, so it
-    # reads as reidentified once: over-reporting, the safe direction.
+    # What this pins is that the second tool is a row of the diff, not
+    # silently folded into the first. The rest of the diff is best effort,
+    # not correct: the first tool keeps its source digest only while the two
+    # collide, and pairing runs on the redacted names they share, so the
+    # unchanged first tool also reads as a ``reidentified`` row that did not
+    # happen.
     assert diff.summary.added == 1
     assert diff.summary.removed == 0
     assert diff.summary.reidentified == 1
