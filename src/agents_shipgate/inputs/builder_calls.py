@@ -3793,7 +3793,7 @@ class BuilderCalls:
                         limits.append(f"{where} is used as a value at {caller.ref}:{node.lineno}")
                 elif not (self._elsewhere(caller, node, resolution) or self._agent_instance_attribute(caller, node)):
                     limits.append(
-                        f"{where} has an unresolved reference at {caller.ref}:{node.lineno}: {resolution.detail}"
+                        f"{where} has an unresolved reference at {caller.ref}:{node.lineno}: {_unresolved_detail(resolution)}"
                     )
         if not sites and not allow_empty:
             limits.append(f"no direct caller of {where} is established in the read scope")
@@ -3961,6 +3961,11 @@ class BuilderCalls:
         if resolution.reason != MODULE_NOT_FOUND:
             return False
         head = spelling.split(".", 1)[0]
+        scopes = self.scopes(module)
+        local = scopes.enclosing_bindings(evaluation_site(scopes, expr), head)
+        if local:
+            # The resolver followed this enclosing binding, not the module's.
+            return self._local_library_import(module, scopes, local, head)
         bindings = module.bindings.get(head, [])
         return bool(bindings) and all(
             isinstance(item.node, ast.alias)
@@ -3968,6 +3973,47 @@ class BuilderCalls:
             and self.another_library(item.statement, item.node)
             for item in bindings
         )
+
+    def _local_library_import(
+        self, module: PythonModule, scopes: ScopeIndex, local: list[ast.AST], head: str
+    ) -> bool:
+        """A function's own import of another library: ``from agents import
+        Runner`` or ``import uvicorn`` inside a function, not this builder.
+
+        The module-level rule for the same reference, read where the resolver
+        read it: the function's one binding of ``head`` is that import. In a
+        function a name with one binding can hold nothing else (an unexecuted
+        import leaves it unbound; there is no module or builtin fallback),
+        so the import may sit under ``try``/``if``. Fail closed on anything
+        else: a second binding, a class-body binding (which falls back to the
+        module), ``nonlocal``/``global`` of the name in any scope nested in
+        the function, a relative import, a top-level package any file in the
+        read scope provides (the failure may be deeper in local code), or a
+        module the repository holds outside the scope.
+        """
+        if len(local) != 1 or not isinstance(alias := local[0], ast.alias):
+            return False
+        statement = scopes.statement_of(alias)
+        if not isinstance(statement, ast.Import | ast.ImportFrom):
+            return False
+        owner = scopes.parents.get(statement)
+        while owner is not None and not isinstance(owner, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            owner = scopes.parents.get(owner)
+        if not isinstance(owner, ast.FunctionDef | ast.AsyncFunctionDef):
+            return False
+        if any(
+            isinstance(node, ast.Nonlocal | ast.Global) and head in node.names
+            for node in ast.walk(owner)
+        ):
+            return False
+        if not self.another_library(statement, alias):
+            return False
+        dotted = statement.module if isinstance(statement, ast.ImportFrom) else alias.name
+        try:
+            self.resolver._absolute(module, (dotted or "").split(".", 1)[0])
+        except _Stop as exc:
+            return exc.reason == MODULE_NOT_FOUND
+        return False
 
     def _agent_instance_attribute(self, module: PythonModule, node: ast.expr) -> bool:
         """``assistant.run`` where ``assistant = Agent(...)`` is bound once.
@@ -4588,6 +4634,28 @@ def single_return(function: Function) -> ast.expr | None:
             returns.append(node)
         pending.extend(ast.iter_child_nodes(node))
     return returns[0].value if len(returns) == 1 and function.body[-1] is returns[0] else None
+
+
+def _unresolved_detail(resolution: Resolution) -> str:
+    """Why a census reference is not established, in words; never ``None``.
+
+    A resolver stop carries its sentence in ``detail``. A reference that
+    reaches a definition is still not established when code that runs first
+    could reassign it; those caveats are then the reason.
+    """
+    if resolution.detail is not None:
+        return resolution.detail
+    reached = (
+        f" reaches its definition at {resolution.module.ref}:{resolution.definition.lineno}, but"
+        if resolution.module is not None and resolution.definition is not None
+        else " is not resolved:"
+    )
+    reasons = "; ".join(resolution.caveats) or (
+        f"the resolver stopped ({resolution.reason.replace('_', ' ')}) without a recorded detail"
+        if resolution.reason
+        else "the resolver recorded no reason"
+    )
+    return f"{resolution.reference!r}{reached} {reasons}"
 
 
 def _has_yield(function: Function) -> bool:

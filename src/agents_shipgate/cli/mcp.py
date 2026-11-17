@@ -25,6 +25,7 @@ from agents_shipgate.core.codex_boundary import (
     resolve_changed_file_text,
 )
 from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.wheel_layout import packaged_path
 from agents_shipgate.inputs.mcp_manifest import (
     NormalizedMcpServer,
     normalize_codex_config_mcp_servers,
@@ -223,9 +224,9 @@ def _load_mcp_policy(
 
 
 def _load_packaged_default_mcp_policy() -> dict[str, Any] | None:
-    candidate = (
-        Path(__file__).resolve().parents[1] / "_meta" / "policies" / "mcp-permissions.shipgate.yaml"
-    )
+    # The wheel's packaged copy, or in a source checkout the repository file
+    # it is built from: `./shipgate` and the wheel evaluate one default.
+    candidate = packaged_path("_meta/policies/mcp-permissions.shipgate.yaml")
     try:
         if candidate.is_file():
             loaded = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}

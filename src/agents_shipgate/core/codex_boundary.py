@@ -65,6 +65,7 @@ from agents_shipgate.core.trust_roots import (
     read_absolute_identity_bound_text,
     trust_root_class_for,
 )
+from agents_shipgate.core.wheel_layout import packaged_path
 from agents_shipgate.invocation import render_command, retarget_command
 from agents_shipgate.schemas.agent_control import (
     CodingAgentCommandAction,
@@ -410,7 +411,7 @@ DEFAULT_RULES: dict[str, CodexBoundaryRule] = {
         title="Codex boundary policy was weakened",
         action="block",
         risk_level="critical",
-        recommendation="Do not weaken Shipgate policy to pass the gate; restore the stricter policy or get human approval.",
+        recommendation="Restore the stricter policy or get human approval before weakening the local boundary gate.",
     ),
     "CODEX-HOOK-COMMAND-CHANGED": CodexBoundaryRule(
         id="CODEX-HOOK-COMMAND-CHANGED",
@@ -2472,9 +2473,9 @@ def _load_packaged_default_policy() -> dict[str, Any] | None:
 
 
 def _packaged_policy_text() -> str | None:
-    candidate = (
-        Path(__file__).resolve().parents[1] / "_meta" / "policies" / "codex-boundary.shipgate.yaml"
-    )
+    # The wheel's packaged copy, or in a source checkout the repository file
+    # it is built from: `./shipgate` and the wheel evaluate one default.
+    candidate = packaged_path("_meta/policies/codex-boundary.shipgate.yaml")
     try:
         if candidate.is_file():
             return candidate.read_text(encoding="utf-8")

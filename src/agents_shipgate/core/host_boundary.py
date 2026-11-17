@@ -73,6 +73,7 @@ from agents_shipgate.core.permission_lattice import (
     whole_tool_risk,
 )
 from agents_shipgate.core.trust_roots import read_absolute_identity_bound_text
+from agents_shipgate.core.wheel_layout import packaged_path
 from agents_shipgate.schemas.agent_result_v1 import (
     AgentResultDiagnostic,
     AgentResultRiskLevel,
@@ -282,7 +283,7 @@ def evaluate_host_boundary(
                     message=(
                         "This host settings change only narrows permissions: every "
                         "added allow rule is covered by a rule the file already had, "
-                        "and no deny or ask rule was removed. It needs no human review."
+                        "and no deny or ask restriction is lifted. It needs no human review."
                     ),
                     path=diff_file.path,
                 )
@@ -583,7 +584,8 @@ def _evaluate_claude_settings(diff_file, resolved, add) -> None:
         )
     old_deny = _string_entries(old_permissions.get("deny"))
     new_deny = _string_entries(permissions.get("deny"))
-    for rule in _claude_removed_restrictions(old_deny, new_deny):
+    restrictions = {"deny": new_deny, "ask": _string_entries(permissions.get("ask"))}
+    for rule in _claude_removed_restrictions(old_deny, new_deny, "deny", restrictions):
         add(
             "HOST-PERMISSION-DENY-REMOVED",
             path=path,
@@ -846,14 +848,22 @@ def _claude_allow_widens(rule: str, old_allow) -> bool:
     return not unconsulted_path_rule(rule) and covering_rule(rule, old_allow) is None
 
 
-def _claude_removed_restrictions(old_rules: list[str], new_rules: list[str]) -> list[str]:
-    """Claude Code deny or ask rules whose removal lifts a restriction (#938, #974, #918).
+def _claude_removed_restrictions(
+    old_rules: list[str], new_rules: list[str], disposition: str,
+    restrictions: dict[str, list[str]],
+) -> list[str]:
+    """Claude Code deny or ask rules whose removal lifts a restriction (#938, #974, #918, #1036).
 
-    Not one: a path-scoped rule Claude Code never consults, a `!` carve-out
-    (removing one restricts more), or a rule the list still holds spelled
-    another way. The rule model is ``core.claude_permission_rules``, which the
-    drift comparator reads too.
+    ``old_rules`` and ``new_rules`` are one file's ``disposition`` list, and
+    ``restrictions`` its deny and ask lists at the head. Not one: a
+    path-scoped rule Claude Code never consults, a `!` carve-out (removing one
+    restricts more), a rule the list still holds spelled another way, or a
+    rule a deny rule, or for an ask rule a deny or ask rule, of the same file
+    still matches entirely. The rule model is ``core.claude_permission_rules``,
+    which the drift comparator reads too.
     """
+
+    from agents_shipgate.core.claude_permission_rules import restriction_holder
 
     kept = set(new_rules)
     return sorted(
@@ -862,6 +872,7 @@ def _claude_removed_restrictions(old_rules: list[str], new_rules: list[str]) -> 
             unconsulted_path_rule(rule)
             or is_carve_out(rule)
             or any(same_spelling(rule, other) for other in kept)
+            or restriction_holder(rule, disposition, restrictions) is not None
         )
     )
 
@@ -886,7 +897,9 @@ def settings_change_only_narrows(resolved: ResolvedFileText, *, cursor: bool) ->
 
     True when the old and new JSON agree on everything except the rule lists,
     every added allow rule is subsumed by an old allow rule (a decided lattice
-    ``True``), and no deny rule, nor for Claude Code an ask rule, was removed.
+    ``True``), and no deny rule, nor for Claude Code an ask rule, was removed —
+    for Claude Code, unless the rule model says the removal lifts nothing, as
+    for a rule a wider deny rule of the file still holds (#1036).
     Anything else is not a narrowing: a hook or any other key that changed, a
     rule list that is not a list of rule strings, a deleted or unresolved
     file, or an added rule the lattice cannot decide.
@@ -923,8 +936,9 @@ def settings_change_only_narrows(resolved: ResolvedFileText, *, cursor: bool) ->
         return False
     if cursor:
         return all(set(old_rules[key]) <= set(new_rules[key]) for key in keys if key != "allow")
+    restrictions = {key: new_rules[key] for key in ("deny", "ask")}
     return not any(
-        _claude_removed_restrictions(old_rules[key], new_rules[key])
+        _claude_removed_restrictions(old_rules[key], new_rules[key], key, restrictions)
         or _claude_widening_carve_outs(old_rules[key], new_rules[key])
         for key in keys if key != "allow"
     )
@@ -978,9 +992,14 @@ def _is_wildcard_allow(rule: str) -> bool:
     every file (#969; https://code.claude.com/docs/en/permissions#read-and-edit).
     Only a pattern made of nothing but ``*`` and ``/`` (``*``, ``**``,
     ``**/*``, ``/**``), after an optional ``./``, is every path.
+
+    ``WebFetch(domain:*)`` "matches every domain" and is one too, read by
+    the lattice that compares it (#1036).
     """
+    from agents_shipgate.core.permission_lattice import parse_rule
+
     stripped = rule.strip()
-    if stripped == "*":
+    if stripped == "*" or parse_rule(stripped).every_domain:
         return True
     open_paren = stripped.find("(")
     if open_paren == -1:
@@ -1314,12 +1333,9 @@ def _parser_error(kind: str, exc: Exception) -> dict[str, Any]:
 
 
 def _load_packaged_default_policy() -> dict[str, Any] | None:
-    candidate = (
-        Path(__file__).resolve().parents[1]
-        / "_meta"
-        / "policies"
-        / "host-boundary.shipgate.yaml"
-    )
+    # The wheel's packaged copy, or in a source checkout the repository file
+    # it is built from: `./shipgate` and the wheel evaluate one default.
+    candidate = packaged_path("_meta/policies/host-boundary.shipgate.yaml")
     try:
         if candidate.is_file():
             loaded = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}

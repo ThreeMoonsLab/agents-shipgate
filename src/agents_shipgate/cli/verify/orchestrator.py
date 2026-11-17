@@ -105,6 +105,7 @@ from agents_shipgate.core.trust_roots import (
     conditional_instruction_edits,
     inspect_lexical_path_identity,
     is_configured_manifest,
+    manifest_policy_pack_paths,
     read_identity_bound_bytes,
     read_identity_bound_text,
 )
@@ -1590,16 +1591,24 @@ def run_verify(
                     fail_on=fail_on,
                 )
                 base_notes.extend(ci_notes)
+                judged_against = (
+                    base_manifest,
+                    _manifest_from_text(scan_manifest_text, source=config_relative),
+                )
                 configured_input_roots = _configured_input_trust_roots(
                     git_root,
                     policy_packs=policy_pack_paths or [],
                     baseline=baseline_path,
                     diff_from=static_diff_from_path,
                     config_relative=config_relative,
-                    manifests=(
-                        base_manifest,
-                        _manifest_from_text(scan_manifest_text, source=config_relative),
-                    ),
+                    manifests=judged_against,
+                )
+                # The same packs reach the boundary assessment, which then
+                # routes a vendored pack as `check` routes it.
+                declared_policy_packs = manifest_policy_pack_paths(
+                    judged_against,
+                    repository_root=git_root,
+                    config_relative=config_relative,
                 )
                 report, head_exit_code = run_scan(
                     config_path=head_config_path,
@@ -1647,6 +1656,7 @@ def run_verify(
                         base_comparison_unavailable=base_status
                         in _BASE_COMPARISON_FAILURES,
                         configured_trust_root_inputs=configured_input_roots,
+                        manifest_policy_packs=list(declared_policy_packs),
                         enabled_plugin_hooks=enabled_plugin_hooks,
                         enabled_plugin_hook_issues=tuple(enabled_plugin_hook_issues),
                         openshell_native=native_observation,
@@ -2773,13 +2783,14 @@ def _configured_input_trust_roots(
         (diff_from, "shipgate_state"),
     ):
         add(path, trust_root_class)
-    manifest_dir = git_root / config_relative.parent
     for manifest in manifests:
         if manifest is None:
             continue
-        for pack in manifest.checks.policy_packs:
-            if pack.path.strip():
-                add(_lexical_path(manifest_dir / pack.path), "policy")
+        # The resolution `check` shares, so the two cannot bind different files.
+        for pack in manifest_policy_pack_paths(
+            (manifest,), repository_root=git_root, config_relative=config_relative
+        ):
+            roots.setdefault(pack, "policy")
         if baseline is not None and manifest.baseline.integrity_mode != "off":
             add(
                 _lexical_path(_resolve_audit_log_path(manifest, baseline)),

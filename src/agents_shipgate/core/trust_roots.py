@@ -14,14 +14,18 @@ from __future__ import annotations
 import os
 import posixpath
 import stat
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
 from agents_shipgate.core.globbing import glob_match, glob_match_ci
 from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.instruction_structure import ConditionalInstructionEditRule
+
+if TYPE_CHECKING:
+    from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 
 # Ordered (class, glob) classification of a repo's release trust roots —
 # the surfaces that define the gate in any repo that has adopted
@@ -990,6 +994,64 @@ def configured_input_trust_root(context: object, path: str) -> tuple[str, str] |
     return None
 
 
+def manifest_policy_pack_paths(
+    manifests: Iterable[AgentsShipgateManifest | None],
+    *,
+    repository_root: Path,
+    config_relative: Path,
+) -> tuple[str, ...]:
+    """The in-repository files the ``manifests`` bind as policy packs (#1075, #1128).
+
+    Each ``checks.policy_packs[].path`` is the gate's policy wherever it lives:
+    ``**/policies/**`` does not reach the ``vendor/shipgate-policies/
+    org-release.yaml`` that ``docs/organization.md`` recommends. A path
+    resolves as the scan resolves it, against the directory of the manifest at
+    ``config_relative`` (relative to ``repository_root``), and lexically:
+    ``.`` and ``..`` collapse and no link is followed. A path outside the
+    repository is the operator's, and an empty one names nothing.
+
+    ``manifests`` are the versions of the manifest at ``config_relative`` a
+    change is judged against, such as the base's and the head's; ``None``
+    stands for one that is absent or did not validate, and declares nothing.
+
+    This is the one resolution: ``verify`` classifies these files as the
+    ``policy`` trust root, and ``check`` routes an edit to one to a human.
+    Repository-relative POSIX paths, in declaration order, each once.
+    """
+
+    manifest_dir = repository_root / config_relative.parent
+    paths: dict[str, None] = {}
+    for manifest in manifests:
+        if manifest is None:
+            continue
+        for pack in manifest.checks.policy_packs:
+            if not pack.path.strip():
+                continue
+            lexical = Path(os.path.normpath(os.fspath(manifest_dir / pack.path)))
+            try:
+                relative = lexical.relative_to(repository_root)
+            except ValueError:
+                continue
+            if relative.parts:
+                paths.setdefault(relative.as_posix(), None)
+    return tuple(paths)
+
+
+def is_manifest_policy_pack(path: str, packs: Collection[str]) -> bool:
+    """Whether a changed path is one of ``packs``, as verify matches inputs.
+
+    Both sides are normalized and ASCII case variants match, exactly as
+    :func:`configured_input_trust_root` matches the paths a verify run was
+    pointed at, so ``check`` and ``verify`` cannot disagree on which changed
+    file is a declared pack.
+    """
+
+    candidate = _normalized(path).casefold()
+    return bool(candidate) and any(
+        _normalized(pack).casefold() == candidate for pack in packs
+    )
+
+
 def is_context_configured_manifest(context: object, path: str) -> bool:
     """Match a changed path against the best identity carried by a scan."""
 
@@ -1093,7 +1155,9 @@ __all__ = [
     "inspect_lexical_path_identity",
     "is_context_configured_manifest",
     "is_configured_manifest",
+    "is_manifest_policy_pack",
     "is_portable_repo_path",
+    "manifest_policy_pack_paths",
     "read_absolute_identity_bound_text",
     "read_identity_bound_bytes",
     "read_identity_bound_text",

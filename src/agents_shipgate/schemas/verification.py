@@ -69,6 +69,12 @@ class VerificationContext(BaseModel):
     # the trust-root glob table cannot see them; a change that edits one
     # touches a trust root (#1024).
     configured_trust_root_inputs: dict[str, str] = Field(default_factory=dict)
+    # Repository-relative paths the base or head manifest binds as policy packs
+    # (``checks.policy_packs[].path``, #1075), resolved by
+    # ``core.trust_roots.manifest_policy_pack_paths``. They are also in
+    # ``configured_trust_root_inputs``. Kept apart so the boundary assessment
+    # verify publishes routes an edit to one as ``check`` does. Run-private.
+    manifest_policy_packs: list[str] = Field(default_factory=list, exclude=True, repr=False)
     # The files that hold hooks of a plugin the repository's project settings
     # enable, read from both compared sides (an ``EnabledPluginHookFiles``),
     # and the input issues from reading them (``BoundaryInputIssue``s), as

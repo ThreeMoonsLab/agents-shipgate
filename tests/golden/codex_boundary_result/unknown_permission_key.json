@@ -10,7 +10,7 @@
   },
   "decision": "require_review",
   "risk_level": "medium",
-  "audit_id": "agent_boundary_a0e673974b41fe0c295c4c82",
+  "audit_id": "agent_boundary_a409f2e940a1b0d23d85a2e3",
   "policy_version": "1",
   "summary": "The supplied diff is not bound to a checkout state that verify can reconstruct. Re-run check against the intended worktree or with both --base and --head before following a verification command.",
   "changed_files": [
@@ -54,7 +54,7 @@
     "id": "agent-boundary",
     "version": "1",
     "source": "packaged_default",
-    "snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a",
+    "snapshot_sha256": "480e1cecc5c13c7f7a9bdc9d341ea74453bfc1c8dfdaeb13a96c7ba86e2658e0",
     "discovery": [
       "packaged_default:agent-boundary"
     ]
@@ -150,5 +150,5 @@
   "finding_fingerprints": [
     "fp_b75e128442b5e376"
   ],
-  "policy_snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a"
+  "policy_snapshot_sha256": "480e1cecc5c13c7f7a9bdc9d341ea74453bfc1c8dfdaeb13a96c7ba86e2658e0"
 }

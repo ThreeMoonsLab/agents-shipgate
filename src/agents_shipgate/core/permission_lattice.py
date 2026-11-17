@@ -45,13 +45,24 @@ class Rule:
 
     @property
     def whole_tool(self) -> bool:
-        """True when the rule grants the tool without narrowing it."""
+        """True when the rule grants the tool without narrowing it.
 
-        return self.argument is None or self.argument.strip() in {"*", "**"}
+        `WebFetch(domain:*)` is one (#1036): it "matches every domain", and
+        reading it as a scoped argument called `WebFetch` -> `WebFetch(domain:*)`
+        a narrowing and rated it below the bare tool.
+        """
+
+        return self.argument is None or self.argument.strip() in {"*", "**"} or self.every_domain
 
     @property
     def everything(self) -> bool:
         return self.raw.strip() == "*"
+
+    @property
+    def every_domain(self) -> bool:
+        """`WebFetch(domain:*)`: every domain, which is not the bare tool (#1036)."""
+
+        return _is_webfetch(self) and self.argument == f"{_DOMAIN_PREFIX}*"
 
 
 def parse_rule(raw: str) -> Rule:
@@ -91,6 +102,54 @@ _SHELL_TOOL = "bash"
 
 def _is_shell(rule: Rule) -> bool:
     return rule.tool.strip().lower() == _SHELL_TOOL
+
+
+#: The one tool whose argument the permissions page documents as a pattern
+#: over hostnames ("WebFetch", https://code.claude.com/docs/en/permissions,
+#: read 2026-11-08): `WebFetch(domain:example.com)`, `domain:*.example.com`,
+#: and `domain:*`, which "matches every domain. It isn't the same as a bare
+#: `WebFetch` rule". A trailing star is not a text prefix there: "In any
+#: position other than a leading `*.` or a bare `*`, the wildcard matches
+#: only the text between two dots", so `example.*` matches `example.org`
+#: and not `example.evil.com`. And "only the `domain:` form also adds its
+#: domain to the sandbox's allowed or denied domain list", which a bare
+#: `WebFetch` rule leaves alone, so neither form covers the other (#1036).
+#: Wildcard matching needs Claude Code v2.1.172 and a bare `*` in the
+#: sandbox v2.1.186, both older than the v2.1.210 this model already reads
+#: path rules for (#938).
+_WEBFETCH_TOOL = "webfetch"
+_DOMAIN_PREFIX = "domain:"
+
+
+def _is_webfetch(rule: Rule) -> bool:
+    return rule.tool.strip().lower() == _WEBFETCH_TOOL
+
+
+def _domain_rule(rule: Rule) -> bool:
+    return _is_webfetch(rule) and (rule.argument or "").startswith(_DOMAIN_PREFIX)
+
+
+def _domain_subsumes(wider: Rule, narrower: Rule) -> bool | None:
+    """A WebFetch pair where at least one side is a `domain:` rule (#1036).
+
+    Decided: `domain:*` covers every other domain rule, nothing else covers
+    `domain:*`, two literal domains never cover each other, and one domain
+    never covers the bare tool. Every other pair — a domain wildcard, or a
+    domain rule beside the bare tool or an argument the page does not
+    document for WebFetch — is undecided.
+    """
+
+    if _domain_rule(wider) and _domain_rule(narrower):
+        if narrower.every_domain:
+            return False
+        if wider.every_domain:
+            return True
+        if "*" in (wider.argument or "") or "*" in (narrower.argument or ""):
+            return None
+        return False
+    if _domain_rule(wider) and not wider.every_domain and narrower.argument is None:
+        return False
+    return None
 
 
 def _shell_argument(argument: str) -> str | None:
@@ -225,7 +284,9 @@ def subsumes(wider: str, narrower: str) -> bool | None:
 
     Undecided (``None``): a Bash pair holding shell syntax, an exec wrapper
     or a leading assignment, a path-tool `!` negation, and a path prefix
-    whose `*` would have to cross a `/` (#918, #941, #969, #974).
+    whose `*` would have to cross a `/` (#918, #941, #969, #974); a bare
+    `WebFetch` beside a `domain:` rule, and a domain wildcard other than
+    `domain:*` (#1036).
     """
 
     left, right = parse_rule(wider), parse_rule(narrower)
@@ -251,6 +312,8 @@ def subsumes(wider: str, narrower: str) -> bool | None:
         # Different tools are incomparable, not equal and not wider. Saying
         # so is a claim this lattice can make soundly.
         return False
+    if _domain_rule(left) or _domain_rule(right):
+        return _domain_subsumes(left, right)
     if left.whole_tool:
         return not right.whole_tool
     if right.whole_tool:

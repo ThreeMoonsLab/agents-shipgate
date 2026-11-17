@@ -10,7 +10,7 @@
   },
   "decision": "require_review",
   "risk_level": "high",
-  "audit_id": "agent_boundary_81171befe09a848fcb17dbb3",
+  "audit_id": "agent_boundary_292128b80561c01a3d322695",
   "policy_version": "1",
   "summary": "1 coding-agent boundary change(s) require human review.",
   "changed_files": [
@@ -56,7 +56,7 @@
     "id": "agent-boundary",
     "version": "1",
     "source": "packaged_default",
-    "snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a",
+    "snapshot_sha256": "480e1cecc5c13c7f7a9bdc9d341ea74453bfc1c8dfdaeb13a96c7ba86e2658e0",
     "discovery": [
       "packaged_default:agent-boundary"
     ]
@@ -155,5 +155,5 @@
   "finding_fingerprints": [
     "fp_97b6fa25c1f62073"
   ],
-  "policy_snapshot_sha256": "5ad04b64bfccf46ef42e7fe3602a5ead6b50bce8f31a51b6d3b43910e493260a"
+  "policy_snapshot_sha256": "480e1cecc5c13c7f7a9bdc9d341ea74453bfc1c8dfdaeb13a96c7ba86e2658e0"
 }

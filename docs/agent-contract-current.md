@@ -812,7 +812,7 @@ Downstream repos generated with
 `init --agent-instructions=default` get the minimal local copy at
 `.shipgate/agent-contract.json`.
 
-- Latest release: `v1.2.0`
+- Latest release: `v1.3.0`
 - In-tree runtime: `1.3.0` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `42` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
@@ -836,7 +836,7 @@ Downstream repos generated with
 - Current capability delta attestation: `shipgate.capability_delta_attestation/v1`, predicate type `https://threemoonslab.com/agents-shipgate/capability-delta/v1` — [`docs/capability-delta-attestation-schema.v1.json`](capability-delta-attestation-schema.v1.json), specified in [`docs/capability-delta-attestation.md`](capability-delta-attestation.md)
 - Capability payload and delta attestation v2, emitted beside v1: `shipgate.capability_payload/v2` — [`docs/capability-payload-schema.v2.json`](capability-payload-schema.v2.json) — and `shipgate.capability_delta_attestation/v2`, predicate type `https://threemoonslab.com/agents-shipgate/capability-delta/v2` — [`docs/capability-delta-attestation-schema.v2.json`](capability-delta-attestation-schema.v2.json). v2 adds each tool's definition digests; v1 is unchanged.
 - Current attestation schema: `0.6` — [`docs/attestation-schema.v0.6.json`](attestation-schema.v0.6.json)
-- Current registry schema: `0.5` — [`docs/registry-schema.v0.5.json`](registry-schema.v0.5.json)
+- Current registry schema: `0.6` — [`docs/registry-schema.v0.6.json`](registry-schema.v0.6.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
 - Current host-grants inventory, baseline, and drift schemas: `0.9` — [`inventory`](host-grants-inventory-schema.v0.9.json), [`baseline`](host-grants-baseline-schema.v0.9.json), [`drift`](host-grants-drift-schema.v0.9.json). Version 0.9 adds explicit local OpenShell composition, provider profile provenance and effective-snapshot metadata, and, on a reusable workflow call whose permission ceiling holds a write scope and whose target is in the same repository, `callee_permissions` and `callee_write_scopes` (#921); historical host schemas remain frozen. See [OpenShell support](openshell-support.md) and [workflow token scopes](host-boundary-support.md#workflow-token-scopes).
 - Optional OpenShell native trust/evidence schemas: `1` — [`trust`](openshell-native-trust-schema.v1.json), [`evidence`](openshell-native-evidence-schema.v1.json). Only explicit external trust inputs enable local execution; the default remains static. Native containment never grants merge authority. See [OpenShell support](openshell-support.md#optional-native-containment).

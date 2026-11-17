@@ -2396,7 +2396,7 @@ Downstream repos generated with
 `init --agent-instructions=default` get the minimal local copy at
 `.shipgate/agent-contract.json`.
 
-- Latest release: `v1.2.0`
+- Latest release: `v1.3.0`
 - In-tree runtime: `1.3.0` — see [pyproject.toml](../pyproject.toml)
 - Runtime contract: `42` (minimum control contract: `21`)
 - Current report schema: `1.0`, frozen, superseding `0.43` — [`docs/report-schema.v1.0.json`](report-schema.v1.0.json); the `1.x` rules are in [`docs/report-1-0-contract.md`](report-1-0-contract.md)
@@ -2420,7 +2420,7 @@ Downstream repos generated with
 - Current capability delta attestation: `shipgate.capability_delta_attestation/v1`, predicate type `https://threemoonslab.com/agents-shipgate/capability-delta/v1` — [`docs/capability-delta-attestation-schema.v1.json`](capability-delta-attestation-schema.v1.json), specified in [`docs/capability-delta-attestation.md`](capability-delta-attestation.md)
 - Capability payload and delta attestation v2, emitted beside v1: `shipgate.capability_payload/v2` — [`docs/capability-payload-schema.v2.json`](capability-payload-schema.v2.json) — and `shipgate.capability_delta_attestation/v2`, predicate type `https://threemoonslab.com/agents-shipgate/capability-delta/v2` — [`docs/capability-delta-attestation-schema.v2.json`](capability-delta-attestation-schema.v2.json). v2 adds each tool's definition digests; v1 is unchanged.
 - Current attestation schema: `0.6` — [`docs/attestation-schema.v0.6.json`](attestation-schema.v0.6.json)
-- Current registry schema: `0.5` — [`docs/registry-schema.v0.5.json`](registry-schema.v0.5.json)
+- Current registry schema: `0.6` — [`docs/registry-schema.v0.6.json`](registry-schema.v0.6.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
 - Current host-grants inventory, baseline, and drift schemas: `0.9` — [`inventory`](host-grants-inventory-schema.v0.9.json), [`baseline`](host-grants-baseline-schema.v0.9.json), [`drift`](host-grants-drift-schema.v0.9.json). Version 0.9 adds explicit local OpenShell composition, provider profile provenance and effective-snapshot metadata, and, on a reusable workflow call whose permission ceiling holds a write scope and whose target is in the same repository, `callee_permissions` and `callee_write_scopes` (#921); historical host schemas remain frozen. See [OpenShell support](openshell-support.md) and [workflow token scopes](host-boundary-support.md#workflow-token-scopes).
 - Optional OpenShell native trust/evidence schemas: `1` — [`trust`](openshell-native-trust-schema.v1.json), [`evidence`](openshell-native-evidence-schema.v1.json). Only explicit external trust inputs enable local execution; the default remains static. Native containment never grants merge authority. See [OpenShell support](openshell-support.md#optional-native-containment).
@@ -4082,6 +4082,13 @@ the path is a gate-governing trust root (manifest, policy, CI gate, or
 `.agents-shipgate/` state), the coding agent may finish its turn with the
 obligation carried in `pending_review[]` rather than stopping.
 
+A policy pack the base or head manifest declares in `checks.policy_packs` is a
+policy surface wherever it lives, resolved as `verify` resolves it (#1128). A
+change to one fires this rule in `check` and in `verify`, as a change under
+`policies/**` does. Where the trust-root table does not classify the path, the
+row records `trust_root_class: policy`, as it records `manifest` for a
+custom-named manifest, so the row stays out of the graded band.
+
 ### SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED
 
 An adapter marked experimental observed a boundary change. Experimental
@@ -4149,6 +4156,13 @@ A file tool's path pattern is a wildcard grant only when it is nothing but
 stars (`*`, `**`, `**/*`): `Edit(**/.env.example)` names `.env.example` files
 and raises `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` when it is new
 authority (#969).
+
+`WebFetch(domain:*)` "matches every domain" and raises this check, as a bare
+`WebFetch` does; it raised `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED`
+before #1036. It is not the bare tool, since only the `domain:` form opens the
+sandbox's domain list: replacing `WebFetch` with it raises this check, and
+adding `WebFetch(domain:example.com)` beside an allowed `WebFetch` raises
+`SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED`.
 
 A wildcard grant over a read tool — `Read(**)`, `Glob`, `Grep(**)` — raises
 `SHIP-HOST-BOUNDARY-PERMISSION-ALLOW-EXPANDED` instead. It is still an
@@ -4227,8 +4241,17 @@ Have a human confirm the removed deny rule is no longer needed.
 It does not fire for a path-scoped `Write(...)` (or `NotebookEdit`, `Glob`,
 `MultiEdit`) rule, which Claude Code accepts and never consults (#938) — a bare
 `Write` deny still fires — for a `!` carve-out, whose removal restricts more,
-or for a rule the list still holds in its other documented spelling
-(`Bash(rm:*)` / `Bash(rm *)`). It also fires, with evidence kind
+for a rule the list still holds in its other documented spelling
+(`Bash(rm:*)` / `Bash(rm *)`), or for a rule another deny rule of the same
+file still matches entirely, such as `Bash(git push *)` replaced by
+`Bash(git *)` (#1036). A removed `ask` rule that a deny or ask rule of the file
+still matches entirely, such as `Bash(git push *)` moved from `ask` to `deny`,
+is likewise not a lifted restriction, so the file is not routed to a human for
+it. A rule moved to the other project settings file still fires: a cloud
+session reads `.claude/settings.json` and not `.claude/settings.local.json`,
+and a session started in a subdirectory reads each from a different directory.
+The [permission-rule model](host-boundary-support.md#claude-code-permission-rules)
+decides each, as it does for `diff`. It also fires, with evidence kind
 `permission_deny_carved_out`, when a `Read(!…)` or `Edit(!…)` deny rule now
 follows an earlier relative-path rule of the same tool the file already
 denied: Claude Code carves the paths it matches out of the rules listed
