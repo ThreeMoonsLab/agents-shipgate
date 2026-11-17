@@ -1653,6 +1653,21 @@ def test_a_baseline_with_a_redacted_action_helper_requires_a_fresh_snapshot(tmp_
     assert drift["comparison_status"] == "incomparable"
     assert drift["incomparable_reasons"] == ["baseline_workflow_api_key_helper_unavailable"]
 
+    # A freshly captured malformed command is distinguishable from a legacy
+    # shape that threw away its evidence. Sensitive nested text stays private.
+    settings = json.dumps({"apiKeyHelper": {"command": "synthetic-invalid-helper"}})
+    _write(tmp_path, {SOURCE: _yaml(_workflow(_agent(settings=settings)))})
+    current = host_audit_inventory(tmp_path)
+    baseline = build_host_grants_baseline(current)
+    assert '"apiKeyHelper":"<invalid-command>"' in next(
+        setting["value"]
+        for grant in baseline["inventory"]["grants"] if grant["kind"] == "workflow"
+        for launch in grant["agent_launches"]
+        for setting in launch["settings"] if setting["name"] == "settings"
+    )
+    assert "synthetic-invalid-helper" not in json.dumps(baseline)
+    assert build_host_drift_payload(baseline=baseline, inventory=current, baseline_file="b.json")["has_drift"] is False
+
 
 @pytest.mark.parametrize("name", ["settings", "mcp_config"])
 def test_a_json_or_path_input_that_is_neither_publishes_only_a_digest(name):

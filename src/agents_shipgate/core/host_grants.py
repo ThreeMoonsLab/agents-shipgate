@@ -3225,8 +3225,8 @@ def _json_shape(
             key_text = str(key)
             if key_text == "policyHelper":
                 shaped[key_text] = "<excluded-dynamic-helper>"
-            elif claude_settings and not path and key_text == "apiKeyHelper" and isinstance(inner, str):
-                shaped[key_text] = _withheld_string(inner)
+            elif claude_settings and not path and key_text == "apiKeyHelper":
+                shaped[key_text] = _withheld_string(inner) if isinstance(inner, str) else "<invalid-command>"
             elif _is_secret_key(key_text) or parent in _CREDENTIAL_CONTAINER_KEYS:
                 shaped[key_text] = "<redacted>"
             elif key_text in _CONFIG_WITHHELD_KEYS and isinstance(inner, dict):
