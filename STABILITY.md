@@ -7,6 +7,15 @@ Exact source-local SDK clones have their own bindings. Unknown receivers,
 constructor/handle changes and unread lists retain explicit uncertainty.
 See [the application contract](docs/application-comparison.md).
 
+Unreleased, #1146: application comparison `0.5` succeeds the released `0.4`.
+A binding whose compared meaning was read from what is bound and is the same
+on both sides is no longer a `not_established` row: `rows` is shorter for the
+same change, and its agent's optional top-level `read_same` names it once with
+its doubts (whether the agent holds it, or which file an import search
+reaches). A doubt about which definition or settings are bound keeps the row,
+with optional `doubts`. No published schema document exists for either
+version yet (#1044).
+
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
 New in 1.3.0, runtime contract v42: an empty preflight plan no longer mints
@@ -360,6 +369,20 @@ defaults. The stable/provisional inventory, the `1.x` rules and the migration
 from the shipped `v0.15.0` contract are in
 [`docs/report-1-0-contract.md`](docs/report-1-0-contract.md). Pin a version (or
 the Action tag) for reproducible CI.
+
+---
+
+<a id="capability-lock-plugin-opt-in-1062"></a>
+## Migration Note: Unreleased — verifier capability locks record effective plugin opt-in (#1062)
+
+`verify` records `source.plugins_enabled` as `false` when plugin opt-in is
+unset or `--no-plugins` is set, and `true` when opt-in takes effect. This
+matches `capability export`. A default opt-out run now has a different
+`hashes.source_set_hash` from one produced by the earlier verifier with the
+same inputs. `capability diff` copies this hash into its `base` and `head`
+references, and `attest` copies it into `capability_lock.source_set_hash`.
+Regenerate a pinned hash from the same source and plugin setting when
+updating the verifier.
 
 ---
 
@@ -1048,6 +1071,17 @@ and the capability delta attestation) stays unredacted, as before, pending
 
 ---
 
+<a id="manifest-free-artifact-cleanup-1067"></a>
+## Migration Note: Unreleased — manifest-free verification clears earlier scan artifacts (#1067)
+
+Manifest-free `verify` and `verify --preview` remove older scan reports,
+evidence packets, capability locks, and suggested declarations and inventories
+from their output directory before comparing host configuration. If an
+artifact cannot be removed, the command exits `4` and publishes no new
+verifier. Use distinct `--out` directories to retain the earlier scan artifacts.
+
+---
+
 <a id="verify-pr-controlled-inputs-1024"></a>
 
 ## Migration Note: 1.3.0 — `verify` reads PR-controlled inputs from the base (#1024)
@@ -1385,7 +1419,7 @@ the Action exported four empty identities and the receipt's path unchecked.
   or `artifacts.report_json`). `verify` names one only for a run whose head
   scan ran, which it closes with a receipt, so a named report owes one. A
   report the verifier does not name belongs to another run (the
-  manifest-free host route leaves an earlier run's in place); the step
+  manifest-backed preview can leave an earlier run's in place); the step
   publishes nothing from it and owes nothing for it. A
   `0.1`–`0.4` label is believed only on a payload with none of the identity
   fields verifier `0.5` introduced with receipts (`request_id`, `subject_id`,
