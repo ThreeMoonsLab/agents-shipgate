@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -999,8 +1000,7 @@ def test_a_base_side_parse_failure_is_named_on_the_base(tmp_path: Path) -> None:
     assert "- ` .mcp.json ` (claude-code): parse_failed in base" in comment
 
 
-def test_the_incomparable_next_action_is_not_rerouted_in_this_slice(tmp_path: Path) -> None:
-    """Coverage is evidence beside the control; the control route stays as it was."""
+def test_verify_routes_incomparable_evidence_to_the_same_boundary_check(tmp_path: Path) -> None:
 
     repo = _repository(tmp_path, {".mcp.json": "{not json\n"})
     _write(repo, ".mcp.json", {"mcpServers": {}})
@@ -1008,9 +1008,16 @@ def test_the_incomparable_next_action_is_not_rerouted_in_this_slice(tmp_path: Pa
 
     verifier, comment = _verify(repo, tmp_path / "out")
 
-    assert verifier["host_comparison"]["coverage"]["items"]
-    assert "audit --host" in str(verifier["control"]["next_action"].get("command"))
-    assert "- Next command: `agents-shipgate audit --host" in comment
+    comparison = verifier["host_comparison"]
+    assert comparison["comparison_status"] == "incomparable"
+    assert comparison["coverage"]["items"]
+    action = verifier["control"]["next_action"]
+    assert action["kind"] == "verify"
+    argv = shlex.split(action["command"])
+    assert argv[argv.index("--workspace") - 1] == "check"
+    assert argv[argv.index("--base") + 1] == comparison["base_commit"]
+    assert argv[argv.index("--head") + 1] == comparison["head_commit"]
+    assert f"- Next command: `{action['command']}`" in comment
 
 
 # --- limits already named, the cap, and the empty answer ----------------------
