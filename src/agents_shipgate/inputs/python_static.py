@@ -36,14 +36,16 @@ def display_path(path: Path, base_dir: Path) -> str:
 
 
 def dotted_name(node: ast.AST | None) -> str | None:
+    parts: list[str] = []
+    while isinstance(node, (ast.Attribute, ast.Call)):
+        if isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        else:
+            node = node.func
     if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        prefix = dotted_name(node.value)
-        return f"{prefix}.{node.attr}" if prefix else node.attr
-    if isinstance(node, ast.Call):
-        return dotted_name(node.func)
-    return None
+        parts.append(node.id)
+    return ".".join(reversed(parts)) or None
 
 
 def last_name(node: ast.AST | None) -> str | None:

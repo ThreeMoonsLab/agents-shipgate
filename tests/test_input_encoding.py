@@ -4,7 +4,10 @@ import ast
 import warnings
 from pathlib import Path
 
-from agents_shipgate.inputs.common import load_structured_file
+import pytest
+
+from agents_shipgate.core.python_source import decode_python_source
+from agents_shipgate.inputs.common import load_structured_file, load_structured_file_with_positions
 from agents_shipgate.inputs.mcp_manifest import load_codex_config_mcp_sources
 from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
 from agents_shipgate.schemas.manifest import ToolSourceConfig
@@ -16,12 +19,37 @@ def test_structured_reader_accepts_bom_and_uses_declared_format(tmp_path):
     yaml_path = tmp_path / "input.yaml"
     yaml_path.write_text("{enabled: true}", encoding="utf-8")
     assert load_structured_file(json_path) == load_structured_file(yaml_path) == {"enabled": True}
+    odd_suffix = tmp_path / "input.txt"
+    odd_suffix.write_text('{\n\t"maximum": 1e6\n}', encoding="utf-8")
+    assert load_structured_file(odd_suffix) == {"maximum": 1e6}
+    assert load_structured_file_with_positions(odd_suffix)[0] == {"maximum": 1e6}
 
     config = tmp_path / ".codex" / "config.toml"
     config.parent.mkdir()
     config.write_bytes(b'\xef\xbb\xbf[mcp_servers.lookup]\nurl = "https://example.test/mcp"\n')
     loaded = load_codex_config_mcp_sources(tmp_path, tmp_path)
     assert [tool.name for source in loaded for tool in source.tools] == ["lookup.*"]
+
+
+@pytest.mark.parametrize("codec", ["rot13", "base64", "hex"])
+def test_python_encoding_cookie_requires_a_text_codec(codec):
+    with pytest.raises(UnicodeError, match="not a text encoding"):
+        decode_python_source(f"# coding: {codec}\nvalue = 1\n".encode())
+
+
+def test_static_python_scan_loads_a_tool_with_a_deep_call_chain(tmp_path):
+    path = tmp_path / "agent.py"
+    path.write_text(
+        "from agents import Agent, function_tool\n"
+        "@function_tool\n"
+        "def normalize(value: str) -> str:\n"
+        f"    return value{'.strip()' * 600}\n"
+        "agent = Agent(name='normalize', tools=[normalize])\n",
+        encoding="utf-8",
+    )
+    source = ToolSourceConfig(id="normalize", type="openai_agents_sdk", path=path.name)
+    loaded = load_openai_sdk_static_tools(source, None, tmp_path)
+    assert [tool.name for tool in loaded.tools] == ["normalize"]
 
 
 def test_static_python_scan_does_not_inherit_interpreter_warning_filters(tmp_path, capsys):

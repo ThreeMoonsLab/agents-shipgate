@@ -14,9 +14,9 @@ def decode_python_source(data: bytes) -> str:
     """Read a PEP 263 encoding cookie or BOM under Python's source rules."""
     try:
         encoding, _ = tokenize.detect_encoding(io.BytesIO(data).readline)
-    except SyntaxError as exc:
+        return data.decode(encoding)
+    except (SyntaxError, LookupError) as exc:
         raise UnicodeError(str(exc)) from exc
-    return data.decode(encoding)
 
 
 @overload

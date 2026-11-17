@@ -90,10 +90,11 @@ def test_application_reads_python_source_encoding(repo, encoding, header):
     assert [(row['tool'], row['change']) for row in result['rows']] == [('execute', 'added')]
 
 
-def test_application_names_a_file_with_unreadable_encoding(repo):
+@pytest.mark.parametrize("invalid_input", [b"# bad encoding \xff\n", b"# coding: rot13\n"])
+def test_application_names_a_file_with_unreadable_encoding(repo, invalid_input):
     initial = SDK.replace('TOOLS', '[lookup]')
     base = commit(repo, {'agent.py': initial})
-    head = commit(repo, {'agent.py': initial.encode() + b'# bad encoding \xff\n'})
+    head = commit(repo, {'agent.py': invalid_input + initial.encode()})
 
     result = run(repo, base, head)
 

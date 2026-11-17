@@ -6,10 +6,11 @@
 
 - Read Python source using its UTF-8 BOM or PEP 263 encoding, and report
   undecodable application files as coverage gaps. Static parsing ignores
-  interpreter warnings about invalid string escapes. Deep expressions no
-  longer crash discovery or application comparisons, which record any
-  implementation they cannot compare. JSON and TOML adapter inputs accept a
-  UTF-8 BOM, and the declared YAML format controls flow-style YAML parsing.
+  interpreter warnings about invalid string escapes. Discovery and scoped
+  traversal walk expressions iteratively, including dotted names in chained
+  calls. Application comparisons report implementations they cannot read.
+  JSON adapter inputs and Codex TOML configuration accept a UTF-8 BOM.
+  `.yaml` and `.yml` inputs use YAML parsing, including flow-style mappings.
   Baseline evidence requires its canonical encoding. (#1042)
 
 ### Host comparison
