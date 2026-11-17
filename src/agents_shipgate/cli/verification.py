@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -28,6 +29,7 @@ from agents_shipgate.cli.verify.git import (
     ensure_git_workspace,
     merge_base_sha,
     ref_exists,
+    regular_file_at_ref,
     repository_identity,
     require_merge_base_sha,
     resolve_source_head_identity,
@@ -64,6 +66,7 @@ from agents_shipgate.core.verification_identity import (
     worktree_overlay,
 )
 from agents_shipgate.core.verification_input_currency import (
+    MAX_CURRENCY_INPUT_BYTES,
     auxiliary_input_origin,
     write_portable_input,
 )
@@ -153,32 +156,55 @@ def prepare(
     config_relative = _under(root, config).relative_to(root)
     policy_paths = [_under(root, path) for path in policy_packs or []]
     baseline_path = _under(root, baseline) if baseline is not None else None
-    diff_from_path = _under(root, diff_from) if diff_from is not None else None
+    diff_from_path = (
+        _under(root, diff_from, follow_symlinks=base is None) if diff_from is not None else None
+    )
     git_identity = _git_identity(root, base, head_ref)
 
     # A manifest whose inputs cannot be read, or that declares one the plan
     # cannot bind, is the caller's to fix — route it like every other input
     # failure instead of surfacing a traceback out of the identity builder.
     try:
-        plan = _build_plan(
-            root=root,
-            head=head,
-            head_ref=head_ref,
-            base=base,
-            config_relative=config_relative,
-            baseline_path=baseline_path,
-            diff_from_path=diff_from_path,
-            policy_paths=policy_paths,
-            changed=changed,
-            diff_text=diff_text,
-            resolved_date=resolved_date,
-            git_identity=git_identity,
-            ci_mode=ci_mode,
-            no_plugins=no_plugins,
-            no_heuristics=no_heuristics,
-            worktree_overlay_paths=worktree_overlay_paths,
-            artifacts_root=out.parent,
-        )
+        with contextlib.ExitStack() as stack:
+            diff_from_base: dict[str, str] | None = None
+            if base is not None and diff_from_path is not None:
+                relative = diff_from_path.relative_to(root)
+                base_commit = git_identity["base_commit_sha"]
+                reference = regular_file_at_ref(
+                    root, base_commit or base, relative, max_bytes=MAX_CURRENCY_INPUT_BYTES,
+                )
+                if reference.data is None or base_commit is None:
+                    detail = reference.reason or "no regular file at the base ref"
+                    raise InputParseError(
+                        f"Cannot read --diff-from {relative.as_posix()!r} at {base!r}: {detail}"
+                    )
+                directory = stack.enter_context(
+                    tempfile.TemporaryDirectory(prefix="agents-shipgate-plan-base-reference-")
+                )
+                diff_from_path = Path(directory).resolve() / relative.name
+                diff_from_path.write_bytes(reference.data)
+                diff_from_base = {"path": relative.as_posix(), "commit_sha": base_commit}
+
+            plan = _build_plan(
+                root=root,
+                head=head,
+                head_ref=head_ref,
+                base=base,
+                config_relative=config_relative,
+                baseline_path=baseline_path,
+                diff_from_path=diff_from_path,
+                diff_from_base=diff_from_base,
+                policy_paths=policy_paths,
+                changed=changed,
+                diff_text=diff_text,
+                resolved_date=resolved_date,
+                git_identity=git_identity,
+                ci_mode=ci_mode,
+                no_plugins=no_plugins,
+                no_heuristics=no_heuristics,
+                worktree_overlay_paths=worktree_overlay_paths,
+                artifacts_root=out.parent,
+            )
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
         # One resolver across scan, verify, and the assembly path, so a
@@ -261,6 +287,7 @@ def _build_plan(
     no_heuristics: bool,
     worktree_overlay_paths: list[str] | None = None,
     artifacts_root: Path | None = None,
+    diff_from_base: dict[str, str] | None = None,
 ) -> VerificationPlan:
     """Build the worktree or committed-tree plan for ``prepare``."""
 
@@ -269,6 +296,8 @@ def _build_plan(
         "no_heuristics": no_heuristics,
         "plugins_enabled": not no_plugins,
     }
+    if diff_from_base is not None:
+        options["diff_from_base"] = diff_from_base
     if head is None:
         with _captured_inputs(
             config_path=root / config_relative,
@@ -810,8 +839,9 @@ def _write_model(path: Path, value: Any) -> None:
     )
 
 
-def _under(root: Path, path: Path) -> Path:
-    candidate = path.resolve() if path.is_absolute() else (root / path).resolve()
+def _under(root: Path, path: Path, *, follow_symlinks: bool = True) -> Path:
+    candidate = root / path
+    candidate = candidate.resolve() if follow_symlinks else Path(os.path.abspath(candidate))
     if candidate != root and root not in candidate.parents:
         raise ConfigError(f"Path escapes workspace: {path}")
     return candidate

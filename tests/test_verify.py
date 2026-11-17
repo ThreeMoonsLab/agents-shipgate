@@ -324,6 +324,72 @@ def test_diff_context_retains_both_sides_of_a_rename(tmp_path: Path) -> None:
     assert changed_files == ["policies/review.yml", "retired.txt"]
 
 
+@pytest.mark.parametrize("committed_head", [False, True])
+def test_prepare_reads_explicit_comparison_report_from_base(tmp_path: Path, committed_head: bool) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    reference = repo / "comparison.json"
+    base_report = b'{"version":"base"}\n'
+    reference.write_bytes(base_report)
+    _commit_all(repo, "base comparison report")
+    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    reference.write_bytes(b'{"version":"head"}\n')
+    if committed_head:
+        _commit_all(repo, "change comparison report")
+    plan_path = tmp_path / "reports" / "verification-plan.json"
+
+    result = runner.invoke(app, [
+        "verification", "prepare", "--workspace", str(repo), "--base", base,
+        "--diff-from", reference.name, "--out", str(plan_path),
+        *(["--head", "HEAD"] if committed_head else []),
+    ])
+
+    assert result.exit_code == 0, result.output
+    inputs = json.loads(plan_path.read_text(encoding="utf-8"))["inputs"]
+    assert (plan_path.parent / inputs["diff_from"]["path"]).read_bytes() == base_report
+    assert inputs["options"]["diff_from_base"] == {"path": reference.name, "commit_sha": base}
+
+
+def test_prepare_rejects_comparison_report_present_only_in_head(tmp_path: Path) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    reference = repo / "comparison.json"
+    reference.write_bytes(b'{"version":"head"}\n')
+    plan_path = tmp_path / "reports" / "verification-plan.json"
+
+    result = runner.invoke(app, [
+        "verification", "prepare", "--workspace", str(repo), "--base", "HEAD",
+        "--diff-from", reference.name, "--out", str(plan_path),
+    ])
+
+    assert result.exit_code == 3, result.output
+    assert "Cannot read --diff-from 'comparison.json' at 'HEAD'" in result.stderr
+    assert not plan_path.exists()
+
+
+def test_verify_accepts_a_file_that_replaced_a_directory(tmp_path: Path) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    replaced = repo / "notes"
+    replaced.mkdir()
+    (replaced / "before.txt").write_text("previous notes\n", encoding="utf-8")
+    _commit_all(repo, "original directory")
+    (replaced / "before.txt").unlink()
+    replaced.rmdir()
+    replaced.write_text("current notes\n", encoding="utf-8")
+    _commit_all(repo, "replace directory")
+
+    result = runner.invoke(app, [
+        "verify", "--workspace", str(repo), "--base", "HEAD~1", "--head", "HEAD",
+        "--format", "json", "--ci-mode", "advisory",
+    ])
+
+    assert result.exit_code == 0, result.output
+    verifier = json.loads(result.output)
+    assert verifier["execution"] == "succeeded"
+    assert {"notes", "notes/before.txt"} <= set(verifier["changed_files"])
+    plan_path = repo / "agents-shipgate-reports" / "verification-plan.json"
+    paths = {blob["path"] for blob in json.loads(plan_path.read_text())["inputs"]["changed_files"]}
+    assert "notes" in paths
+
+
 def test_verify_manifest_present_force_runs_even_docs_only_diff(tmp_path: Path) -> None:
     repo = _repo_with_manifest(tmp_path)
     _set_origin_main(repo)

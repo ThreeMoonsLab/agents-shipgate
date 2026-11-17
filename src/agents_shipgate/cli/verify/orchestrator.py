@@ -2674,7 +2674,7 @@ def _bind_changed_files(
         candidate = Path(os.path.abspath(os.path.normpath(os.fspath(root / relative))))
         try:
             metadata = candidate.lstat()
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
             continue
         except OSError as exc:
             raise ConfigError(
