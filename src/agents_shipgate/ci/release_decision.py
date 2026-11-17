@@ -57,7 +57,10 @@ from agents_shipgate.core.semantic_assessment import (
     reviewed_risk_tag_constraints,
     reviewed_risk_tag_effects,
 )
-from agents_shipgate.core.source_warnings import unresolved_adk_tool_symbols
+from agents_shipgate.core.source_warnings import (
+    unread_host_mcp_config_path,
+    unresolved_adk_tool_symbols,
+)
 from agents_shipgate.core.surface_exclusions import (
     agent_label_index,
     catalog_subject,
@@ -2716,6 +2719,21 @@ def _evidence_gaps(
                     "workspace, then rerun the head scan with --diff-from "
                     "pointing to that report. Rerunning without --diff-from "
                     "clears this row without answering it."
+                ),
+            )
+        elif (unread_mcp_path := unread_host_mcp_config_path(warning)) is not None:
+            action = EvidenceGapAction(
+                kind="review_warning",
+                path=unread_mcp_path,
+                why=(
+                    "The codex_config loader cannot read this host's MCP file. Reader support is "
+                    "tracked at https://github.com/ThreeMoonsLab/agents-shipgate/issues/663."
+                ),
+                expects=(
+                    "Run `shipgate audit --host` to review the named file's servers. If the intended "
+                    "Codex files live together in a separate directory, point the codex_config entry "
+                    "at that directory and rerun the scan. If the files share a root, this warning "
+                    "remains a review item until reader support is added."
                 ),
             )
         else:
