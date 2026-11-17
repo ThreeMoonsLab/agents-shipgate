@@ -104,6 +104,7 @@ def _run(tmp_path, code, *, hosted="true", distributed=True, extra_args=()):
     command = [sys.executable, "-m", "pytest", "-q", "-o", "junit_duration_report=total",
                "--junitxml=" + str(tmp_path / "result.xml")]
     if distributed:
+        pytest.importorskip("xdist", reason="The subprocess exercises pytest-xdist workers")
         command += ["-n", "2", "--max-worker-restart=0"]
     command += list(extra_args)
     result = subprocess.run(command, cwd=tmp_path, env=env, text=True, capture_output=True, timeout=60)
