@@ -885,10 +885,15 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                 bag.set("google_adk", artifacts)
     attributed = set()
     constructed, handoff_targets = set(), set()
+    #: ``(path, agent) -> {target name: why}``: a handoff target the reader
+    #: named on a guess or could not identify (#1146 review).
+    guessed_handoffs: dict[tuple[str, str], dict[str, str]] = {}
     for item in loaded:
         for observation in item.binding_observations:
             path = _source_path(root, observation.source)
             constructed.add((path, observation.agent))
+            if observation.handoff_issues:
+                guessed_handoffs.setdefault((path, observation.agent), {}).update(observation.handoff_issues)
             if observation.source_identity_fallback:
                 result.identity_fallbacks.add((path, observation.agent))
             if observation.source_construction_labels:
@@ -1007,6 +1012,11 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
             "location": agent.source_pointer,
         }
     for record in artifacts.sub_agents if artifacts is not None else []:
+        if record.get("guessed_sub_agents") and isinstance(record.get("agent_name"), str):
+            # A Google ADK sub-agent named on a guess (#1146 review).
+            guessed_handoffs.setdefault(
+                (_source_path(root, str(record.get("source_ref") or "")), record["agent_name"]), {}
+            ).update(record["guessed_sub_agents"])
         if "unread" in record and isinstance(record.get("agent_name"), str):
             # A sub-agent list read only in part: a limit on its agent, at its
             # construction, not on every agent of the file (#909 review).
@@ -1169,13 +1179,25 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
         if not edge.complete:
             # A readable candidate survives an incomplete construction. Its
             # uncertainty belongs to this binding even when both sides list
-            # the same handoff, so the comparator cannot call it unchanged.
+            # the same handoff. On its own it doubts only whether the agent
+            # holds it: the construction or its list was read in part.
             result.gap(
                 "This handoff binding was read from an incomplete construction.",
                 source=source[0],
                 agent=source[1],
                 tool=key[2],
                 doubts=(DOUBT_CONSTRUCTION,),
+            )
+        guessed = guessed_handoffs.get(source, {}).get(target[1])
+        if guessed:
+            # Which agent the target is was guessed or refused: the target's
+            # identity, so equal readings are no evidence (#1146 review).
+            result.gap(
+                guessed,
+                source=source[0],
+                agent=source[1],
+                tool=key[2],
+                doubts=(DOUBT_DEFINITION_IDENTITY,),
             )
         result.bindings[key] = {
             "agent": source[1],
@@ -1568,6 +1590,15 @@ def compare(
                 if doubted:
                     uncertainty.setdefault(side, []).extend(sorted(doubted))
                     kinds.extend(doubted.values())
+            if not differs and uncertainty:
+                # What the binding is was read only in part (an object's
+                # endpoint, a factory value): equal readings of it are no
+                # evidence it is unchanged (#1146 review).
+                for side, value in (("base", before), ("head", after)):
+                    reason = value.get("definition", {}).get("unestablished")
+                    if reason:
+                        uncertainty.setdefault(side, []).append(reason)
+                        kinds.append(frozenset({DOUBT_DEFINITION_IDENTITY}))
             if not uncertainty and _reads_the_same(before, after, target_moves):
                 continue
             if _reads_the_same(before, after, target_moves, kinds):

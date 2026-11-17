@@ -1890,6 +1890,19 @@ class _PythonAdkExtractor:
             scope = self._scope_of(scope)
         return None
 
+    def _rebound_lines(self, item: ast.AST) -> list[int]:
+        """The lines binding a ``sub_agents`` name, when its scope binds it more than once."""
+
+        if not isinstance(item, ast.Name):
+            return []
+        found = self.scopes.enclosing_bindings(item, item.id) or [
+            binding.node
+            for binding in (self.module.bindings if self.module is not None else _module_bindings(self.tree)[0]).get(
+                item.id, []
+            )
+        ]
+        return sorted({node.lineno for node in found if hasattr(node, "lineno")}) if len(found) > 1 else []
+
     def _binding_for(self, agent_name: str, call: ast.Call) -> _AdkAgentBinding:
         binding = self.agent_bindings.get(agent_name)
         if binding is None:
@@ -3918,6 +3931,8 @@ class _PythonAdkExtractor:
                 # all — an inline construction, a call: left to the count.
                 sub_agent_names: list[str] = []
                 unresolved_sub_agents: list[str] = []
+                #: ``name -> why`` for a sub-agent named on a guess (#1146 review).
+                guessed_sub_agents: dict[str, str] = {}
                 when = Conditions()
                 for member in members:
                     item = member.expr
@@ -3954,6 +3969,16 @@ class _PythonAdkExtractor:
                     else:
                         sub_agent_names.append(resolved)
                         when.add(resolved, member.conditions)
+                        rebound = self._rebound_lines(item)
+                        if rebound:
+                            # Named, never established: which binding runs is
+                            # not read, so the agent spelled the same is a
+                            # guess. For the comparison only (#1146 review).
+                            guessed_sub_agents[resolved] = (
+                                f"Google ADK agent {agent_name!r} lists sub-agent `{variable}`, but "
+                                f"{variable!r} is bound more than once (lines {', '.join(map(str, rebound))}); "
+                                "the agent named for it is not established as the one handed off to."
+                            )
                 if self._invocation is not None:
                     binding = self._binding_for(agent_name, call)
                     for name in sub_agent_names:
@@ -3972,6 +3997,7 @@ class _PythonAdkExtractor:
                         "sub_agent_count": sub_agent_count,
                         "sub_agents": sub_agent_names,
                         "unresolved_sub_agents": unresolved_sub_agents,
+                        **({"guessed_sub_agents": guessed_sub_agents} if guessed_sub_agents else {}),
                         # ``name -> [condition, ...]`` for a sub-agent held
                         # only under a condition (#909).
                         "conditions": when.only_when(),

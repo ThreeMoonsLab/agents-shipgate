@@ -872,6 +872,8 @@ def _extract_agent_bindings(
                 warnings.append(reason)
                 handoffs_complete = False
             handoff_names: list[str] = []
+            #: ``name -> why`` for a handoff target named on a guess (#1146 review).
+            handoff_issues: dict[str, str] = {}
             handoff_when = Conditions()
             if handoff_list.unresolved:
                 reason = (
@@ -896,6 +898,7 @@ def _extract_agent_bindings(
                     sdk_names=sdk_names,
                     resolver=imports.resolver if module is not None else None,
                     local_identities=local_identities,
+                    module_bindings=module_bindings,
                 )
                 if identity is None:
                     reason = (
@@ -911,7 +914,18 @@ def _extract_agent_bindings(
                     if module is not None and member.module is module and isinstance(member.expr, ast.Name):
                         handoff_names.append(member.expr.id)
                         handoff_when.add(member.expr.id, member.conditions)
+                        # Which agent it is was refused: a doubt about this
+                        # handoff's target, not only its list (#1146 review).
+                        handoff_issues[member.expr.id] = reason
                     continue
+                if why_not:
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} hands off to "
+                        f"`{source_text(member.expr)}`, but {why_not}; the agent named for it is not "
+                        "established as the one handed off to."
+                    )
+                    # For the comparison only: ``scan`` reads the edge as it did.
+                    handoff_issues[identity] = reason
                 handoff_names.append(identity)
                 handoff_when.add(identity, member.conditions)
             if objects_reader is not None and module is None and field(call, "mcp_servers") is not None:
@@ -992,6 +1006,7 @@ def _extract_agent_bindings(
                     tool_conditions=tool_conditions,
                     tool_sites={name: locations for name, locations in tool_sites.items() if name in locators or name in objects},
                     handoff_names=handoff_names,
+                    handoff_issues=handoff_issues,
                     handoff_sites={name: list(dict.fromkeys((pointer, *context.invocation.locations)))
                                    for name in handoff_names} if context.invocation else {},
                     handoff_conditions=handoff_when.only_when(),
@@ -1351,6 +1366,7 @@ def _handoff_identity(
     sdk_names: _SdkNames,
     resolver: ImportResolver | None,
     local_identities: set[str],
+    module_bindings: dict[str, list[Any]] | None = None,
 ) -> tuple[str | None, str]:
     """The agent identity one handoff list member names, or why it names none.
 
@@ -1358,7 +1374,8 @@ def _handoff_identity(
     its scope binds to an agent it constructs is that agent's identity (#876
     review); any other name is spelled through ``from`` import aliases. A
     member of a list another module builds is followed into that module, to
-    the name its construction is assigned to (#909).
+    the name its construction is assigned to (#909). A name bound more than
+    once returns its identity with the reason it is a guess (#1146 review).
     """
 
     item = member.expr
@@ -1376,6 +1393,16 @@ def _handoff_identity(
             identity = identity_of(value)
             if identity is not None:
                 return identity, ""
+        bound = found or [binding.node for binding in (module_bindings or {}).get(item.id, [])]
+        if len(bound) > 1:
+            # Named, never established: which binding runs is not read, so the
+            # agent spelled the same is a guess (#1146 review). The second
+            # value is the reason beside a returned identity.
+            lines = sorted({node.lineno for node in bound if hasattr(node, "lineno")})
+            return aliases.get(item.id, item.id), (
+                f"{item.id!r} is bound more than once"
+                + (f" (lines {', '.join(map(str, lines))})" if lines else "")
+            )
         return aliases.get(item.id, item.id), ""
     if resolver is None:
         return None, f"it is written in {member.module.ref}, and imports are not followed here"

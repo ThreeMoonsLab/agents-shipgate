@@ -741,6 +741,10 @@ class AgentBindingObservation(BaseModel):
     #: doubts, one entry per part the reason joins (#1146). A reason without
     #: an entry doubts something this field does not classify.
     tool_issue_doubts: dict[str, list[str]] = Field(default_factory=dict)
+    #: ``handoff_name -> why`` for a handoff whose target agent the reader
+    #: named on a guess or could not identify: which agent it is is not
+    #: established (#1146 review). Always a definition-identity doubt.
+    handoff_issues: dict[str, str] = Field(default_factory=dict)
     #: ``tool_name -> ["file:line", ...]``: the constructions of this agent
     #: that list the tool, when one name is constructed more than once in the
     #: source (#872). Where each binding is, not which one runs.

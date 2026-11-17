@@ -89,8 +89,9 @@ What a finding states, and from where:
   never a row (#1146). When its only doubts are whether its agent holds it
   (the agent's constructor or callers were not proved, its list is a refused
   constructor's initializer, its construction was read in part) or which file
-  an import search reaches (`sys.path` or an import-search carrier the read
-  does not follow), the agent's finding says so once, from `read_same`:
+  an import search reaches (a `sys`/`site` path change, an import-search
+  carrier the read does not follow, a retained `sys`/`site` namespace), the
+  agent's finding says so once, from `read_same`:
   `2 bindings read the same on both sides (lookup_order, track_shipment);
   whether support_agent holds them is not established: …`, or `… which files
   an import search reaches for them is not established: …`, with the first
@@ -100,8 +101,11 @@ What a finding states, and from where:
   candidate as before, when the implementation was read on neither side
   (`implementation not read on either side`), when which definition is bound
   is not established (a name bound more than once, an import fallback, a lazy
-  `__getattr__`, code run first that could rebind it, a name bound by name
-  only), when the agent's settings were not read or conflict, and for any
+  `__getattr__`, code run first that could rebind it, an import the read does
+  not follow that could reassign it, a name bound by name only, a handoff or
+  sub-agent target bound more than once), when what a tool object is was read
+  only in part (an MCP server's URL, command or arguments the read cannot
+  name), when the agent's settings were not read or conflict, and for any
   doubt no reader classified. The row's `doubts` names which, and its finding
   says it: `reads the same on both sides, but which definition is bound is not
   established`.
