@@ -442,8 +442,14 @@ source-slot refusal rows (1,024). Git's diagnostic in a `verify` diff status
   `reidentified` row or an owner change that did not happen.
 - **Redact, then cut.** Every site named above is redacted before it is cut,
   and a cut never ends inside a `[REDACTED:…]` marker: a marker the bound
-  would split is dropped whole. A sweep of `src/` for text cut to a length
-  found no other text cut before the redaction that publishes it.
+  would split is dropped whole. When Git's diagnostic fills the 8 KiB
+  capture, its last, possibly cut, word is dropped before it is read. Two
+  places that bound already-redacted text no longer cut through a marker
+  either: the blocker title in `verify`'s headline (120 characters, and its
+  byte budget) and an evidence gap's subject in its one-line headline (120),
+  which had published half of one (`create_refund_x…_[REDACTED:op…`). A sweep
+  of `src/` for text cut to a length found no other text cut before the
+  redaction that publishes it.
 - **The privacy audit does not count these read-time redactions yet.**
   Because the sites above now redact when the text is read, the report-time
   pass finds `[REDACTED:…]` markers there and `privacy_audit` counts none of

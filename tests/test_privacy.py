@@ -1024,6 +1024,66 @@ def test_git_diagnostic_is_redacted_before_it_is_bounded():
     )
 
 
+def test_git_diagnostic_capture_drops_a_word_cut_at_its_byte_limit():
+    # #1079 review cycle 2: the capture keeps Git's first 8 KiB, and a token
+    # cut at that limit kept a head too short for any rule.
+    from agents_shipgate.cli.verify.git import _GIT_STDERR_LIMIT, _decode_git_stderr
+
+    token = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+    captured = (b"\n" * 8170 + b"fatal: header " + token.encode())[:_GIT_STDERR_LIMIT]
+    assert captured.endswith(b"ghp_A1b2")
+
+    shown = _decode_git_stderr(captured)
+
+    assert token[:6] not in shown
+    assert shown == "fatal: header"
+
+
+def _no_partial_marker(text: str) -> bool:
+    import re
+
+    whole = re.sub(r"\[REDACTED:[a-z0-9_:-]+\]", "", text)
+    return "[REDACTED" not in whole and "[RED" not in whole[-12:]
+
+
+def test_verify_headline_title_is_never_cut_inside_a_marker():
+    # #1079 review cycle 2: ``Most severe: create_refund_x…_[REDACTED:op…``.
+    from agents_shipgate.cli.verify.orchestrator import (
+        _HEADLINE_TITLE_MAX_CHARS,
+        _bounded,
+        _bounded_bytes,
+    )
+
+    title = "create_refund_" + "x" * 90 + "_[REDACTED:openai_api_key] lacks approval"
+    assert title.index("[REDACTED") < _HEADLINE_TITLE_MAX_CHARS - 1 < title.index("] lacks")
+
+    shown = _bounded(title, _HEADLINE_TITLE_MAX_CHARS)
+    assert _no_partial_marker(shown), shown
+    assert shown == "create_refund_" + "x" * 90 + "_…"
+    for budget in range(100, 140):
+        assert _no_partial_marker(_bounded_bytes(title, budget)), budget
+    assert _bounded_bytes(title, 200) == title
+
+
+def test_evidence_gap_headline_is_never_cut_inside_a_marker():
+    from agents_shipgate.core.evidence_actions import _MAX_SUBJECT_CHARS, evidence_gap_headline
+    from agents_shipgate.schemas.report import EvidenceGap
+
+    subject = "docs." + "x" * 100 + " [REDACTED:openai_api_key]"
+    assert subject.index("[REDACTED") < _MAX_SUBJECT_CHARS - 1 < len(subject)
+    gap = EvidenceGap(
+        kind="source_warning",
+        subject=subject,
+        why="A source degraded.",
+        next_action={"kind": "review_warning", "why": "Review source.", "expects": "Rerun."},
+    )
+
+    headline = evidence_gap_headline(gap)
+
+    assert _no_partial_marker(headline), headline
+    assert headline.endswith("(docs." + "x" * 100 + "…)")
+
+
 def test_rules_version_is_bumped_and_recorded_in_the_privacy_audit():
     audit = build_privacy_audit(RedactionStats(), output_surfaces=["json"])
 

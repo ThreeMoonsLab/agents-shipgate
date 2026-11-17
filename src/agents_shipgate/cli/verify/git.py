@@ -3539,7 +3539,14 @@ def _run_git_bounded_result(
 def _decode_git_stderr(payload: bytes | bytearray) -> str:
     """Return Git's diagnostic text as one safe, bounded, single-line string."""
 
-    text = bytes(payload).decode("utf-8", errors="replace")
+    raw = bytes(payload)
+    if len(raw) >= _GIT_STDERR_LIMIT:
+        # The capture stopped at its limit, so its last word may be the head
+        # of a longer one: a token cut there is too short for any rule to
+        # recognise. Drop everything after the last whitespace (#1079 review).
+        whole = re.match(rb"(?s)(.*\s)\S*\Z", raw)
+        raw = whole.group(1) if whole else b""
+    text = raw.decode("utf-8", errors="replace")
     collapsed = " ".join(
         part
         for part in "".join(
