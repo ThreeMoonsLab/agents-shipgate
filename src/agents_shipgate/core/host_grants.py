@@ -3193,7 +3193,9 @@ def _server_command(command: str) -> str:
     return _withheld_string(command, _sanitize_sensitive_string(Path(first).name or first) or None)
 
 
-def _json_shape(value: Any, path: tuple[str, ...] = ()) -> Any:
+def _json_shape(
+    value: Any, path: tuple[str, ...] = (), *, claude_settings: bool = False,
+) -> Any:
     """A structured value's shape: what a host reader would publish of it, and no free text.
 
     Key names, numbers, booleans and ``null`` are kept. Secret-bearing values
@@ -3201,7 +3203,9 @@ def _json_shape(value: Any, path: tuple[str, ...] = ()) -> Any:
     digest: ``env`` and ``headers`` (and codex's ``http_headers`` and
     ``env_http_headers``) keep their keys, a secret-named key's value
     (``apiKeyHelper``) and the word after a secret-named argument are
-    replaced, and ``policyHelper`` is excluded. Every other string is
+    replaced, and ``policyHelper`` is excluded. An action's top-level
+    ``apiKeyHelper`` string is a command and is digested like the standalone
+    settings reader, with credential text withheld. Every other string is
     :func:`_withheld_string`, keeping only what a host reader publishes: a
     ``permissions.allow``/``ask``/``deny`` rule and a documented Claude Code
     setting's value (``defaultMode``, ``enabledMcpjsonServers`` entries) at the
@@ -3221,6 +3225,8 @@ def _json_shape(value: Any, path: tuple[str, ...] = ()) -> Any:
             key_text = str(key)
             if key_text == "policyHelper":
                 shaped[key_text] = "<excluded-dynamic-helper>"
+            elif claude_settings and not path and key_text == "apiKeyHelper" and isinstance(inner, str):
+                shaped[key_text] = _withheld_string(inner)
             elif _is_secret_key(key_text) or parent in _CREDENTIAL_CONTAINER_KEYS:
                 shaped[key_text] = "<redacted>"
             elif key_text in _CONFIG_WITHHELD_KEYS and isinstance(inner, dict):
@@ -3252,7 +3258,7 @@ def _json_shape(value: Any, path: tuple[str, ...] = ()) -> Any:
     return value
 
 
-def _withheld_json(value: Any) -> str | None:
+def _withheld_json(value: Any, *, claude_settings: bool = False) -> str | None:
     """A structured value as it may be published: its :func:`_json_shape`, as canonical JSON.
 
     Canonical, so reformatting or reordering keys changes nothing.
@@ -3260,14 +3266,14 @@ def _withheld_json(value: Any) -> str | None:
 
     try:
         return json.dumps(
-            _json_shape(value), sort_keys=True, separators=(",", ":"),
+            _json_shape(value, claude_settings=claude_settings), sort_keys=True, separators=(",", ":"),
             ensure_ascii=False, default=str,
         )
     except (RecursionError, TypeError, ValueError):
         return None
 
 
-def _withheld_word(word: str) -> str | None:
+def _withheld_word(word: str, *, claude_settings: bool = False) -> str | None:
     """One word as it may be published: a JSON object by :func:`_withheld_json`, else as written.
 
     ``None`` for a word that starts like a JSON object and does not parse: what
@@ -3280,7 +3286,7 @@ def _withheld_word(word: str) -> str | None:
         loaded = json.loads(word)
     except (ValueError, RecursionError):
         return None
-    return _withheld_json(loaded)
+    return _withheld_json(loaded, claude_settings=claude_settings)
 
 
 #: The action inputs that hold JSON or a file path (#823 review).
@@ -3290,7 +3296,7 @@ _JSON_OR_PATH_INPUTS = frozenset({"mcp_config", "settings"})
 _PLAIN_PATH_RE = re.compile(r"(?:[A-Za-z0-9_./~@+,:=%-]|\$\{\{[ A-Za-z0-9_.\-\[\]*]*\}\})*")
 
 
-def _withheld_json_or_path(text: str) -> str | None:
+def _withheld_json_or_path(text: str, *, claude_settings: bool = False) -> str | None:
     """A ``settings`` or ``mcp_config`` value as it may be published.
 
     A JSON object by :func:`_withheld_word`, and a plain file path as
@@ -3301,7 +3307,7 @@ def _withheld_json_or_path(text: str) -> str | None:
     """
 
     if text.lstrip().startswith("{") or _PLAIN_PATH_RE.fullmatch(text):
-        return _withheld_word(text)
+        return _withheld_word(text, claude_settings=claude_settings)
     return _withheld_string(text)
 
 
@@ -3487,7 +3493,9 @@ def _published_setting(name: str, value: Any, *, arguments: str | None = None) -
         shown, redacted = _withheld_words(words, family=arguments)
         return _published_text(name, " ".join(shown), redacted=redacted)
     setting = _published_text(
-        name, _withheld_json_or_path(text) if name in _JSON_OR_PATH_INPUTS else _withheld_word(text)
+        name,
+        _withheld_json_or_path(text, claude_settings=name == "settings")
+        if name in _JSON_OR_PATH_INPUTS else _withheld_word(text),
     )
     # Read off the declared text: redaction may rewrite the expression away.
     return {**setting, "holds_expression": True} if holds_expression(text) else setting
@@ -8505,6 +8513,27 @@ _STEP_ACTIONS_UNREAD_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", "0.5"})
 _AGENT_LAUNCHES_UNREAD_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", "0.5", "0.6"})
 
 
+def _has_redacted_action_helper(grants: list[dict[str, Any]]) -> bool:
+    """A historical action snapshot may carry no comparison evidence for its helper."""
+
+    for grant in grants:
+        if grant.get("kind") != "workflow":
+            continue
+        for launch in grant.get("agent_launches", []):
+            for setting in launch.get("settings", []):
+                value = setting.get("value")
+                if setting.get("name") != "settings" or not isinstance(value, str) or not value.startswith("{"):
+                    continue
+                # Values in the normalized baseline have already been sanitized.
+                try:
+                    shape = json.loads(value)
+                except (ValueError, RecursionError):
+                    continue
+                if isinstance(shape, dict) and shape.get("apiKeyHelper") == "<redacted>":
+                    return True
+    return False
+
+
 def build_host_drift_payload(
     *, baseline: dict[str, Any], inventory: dict[str, Any], baseline_file: str
 ) -> dict[str, Any]:
@@ -8546,6 +8575,8 @@ def build_host_drift_payload(
             # Such a call's missing ``secret_mappings`` is not evidence that it
             # passed no named secret: those snapshots never read them (#693).
             reasons.append("baseline_reusable_workflow_secret_mappings_unavailable")
+    if _has_redacted_action_helper((baseline.get("inventory") or {}).get("grants", [])):
+        reasons.append("baseline_workflow_api_key_helper_unavailable")
     if not inventory_is_complete(inventory):
         reasons.append("current_inventory_incomplete")
     baseline_scope = baseline.get("scope")

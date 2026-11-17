@@ -378,3 +378,10 @@ def test_the_cold_start_oracle_supports_exactly_what_the_reader_models() -> None
     assert sorted((change["kind"], change["key"]) for change in case["changes"]) == [
         ("command_setting", "statusLine"), ("env", "NODE_OPTIONS"), ("unsupported_setting", "env.LOG_LEVEL"),
     ]
+
+    assert "disabledMcpjsonServers" not in oracle.CLAUDE_SUPPORTED_KEYS
+    case = oracle.claude_settings("{}", '{"disabledMcpjsonServers":["docs"]}')
+    assert case["scope"] == "unsupported"
+    assert [(change["kind"], change["key"]) for change in case["changes"]] == [
+        ("unsupported_setting", "disabledMcpjsonServers"),
+    ]

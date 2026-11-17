@@ -1440,7 +1440,8 @@ MCP_JSON = json.dumps({"mcpServers": {"db": {
 }}})
 #: What the host readers publish for them: key names, every such value withheld.
 SETTINGS_PUBLISHED = (
-    '{"apiKeyHelper":"<redacted>","env":{"DB_PASSWORD":"<redacted>","INTERNAL_KEY":"<redacted>"},'
+    '{"apiKeyHelper":"' + _digest("echo canary-helper-value")
+    + '","env":{"DB_PASSWORD":"<redacted>","INTERNAL_KEY":"<redacted>"},'
     '"permissions":{"allow":["Bash(npm test)"]}}'
 )
 MCP_PUBLISHED = (
@@ -1619,6 +1620,38 @@ def test_a_withheld_json_value_compares_as_the_host_readers_compare_it():
     row, = _rows(settings({"DB": "one"}), settings({"DB": "one", "EXTRA": "three"}))
     assert '"EXTRA":"<redacted>"' in row.after
     assert "three" not in row.after
+
+
+def test_action_settings_compare_the_helper_command_with_credential_text_withheld():
+    def settings(command):
+        return _workflow(_agent(settings=json.dumps({"apiKeyHelper": command})))
+
+    base = settings("helper --token example-credential-one")
+    assert _rows(base, settings("helper --token example-credential-two")) == []
+    row, = _rows(base, settings("other --token example-credential-two"))
+    assert (row.direction, row.expands) == ("changed", False)
+    _assert_absent(row.before + row.after, ("example-credential-one", "example-credential-two"))
+
+
+def test_a_baseline_with_a_redacted_action_helper_requires_a_fresh_snapshot(tmp_path):
+    from agents_shipgate.cli.host_audit import host_audit_inventory
+    from agents_shipgate.core.host_grants import (
+        build_host_drift_payload,
+        build_host_grants_baseline,
+    )
+
+    workflow = _workflow(_agent(settings=SETTINGS_JSON))
+    _write(tmp_path, {SOURCE: _yaml(workflow)})
+    current = host_audit_inventory(tmp_path)
+    baseline = build_host_grants_baseline(current)
+
+    assert build_host_drift_payload(baseline=baseline, inventory=current, baseline_file="b.json")["has_drift"] is False
+    workflow_grant = next(grant for grant in baseline["inventory"]["grants"] if grant["kind"] == "workflow")
+    old_setting = next(item for item in workflow_grant["agent_launches"][0]["settings"] if item["name"] == "settings")
+    old_setting["value"] = old_setting["value"].replace(_digest("echo canary-helper-value"), "<redacted>")
+    drift = build_host_drift_payload(baseline=baseline, inventory=current, baseline_file="b.json")
+    assert drift["comparison_status"] == "incomparable"
+    assert drift["incomparable_reasons"] == ["baseline_workflow_api_key_helper_unavailable"]
 
 
 @pytest.mark.parametrize("name", ["settings", "mcp_config"])
@@ -2035,7 +2068,8 @@ def test_a_change_that_only_adds_an_unread_step_says_what_the_workflow_does_not_
 
     result = CliRunner().invoke(app, ["diff", "--workspace", str(repo), "--base", "main"])
     assert result.exit_code == 0, result.output
-    assert "No static host-grant changes detected." in result.output
+    assert f"Changed, not compared: {SOURCE}" in result.output
+    assert "No static host-grant changes detected." not in result.output
     assert (
         f"{SOURCE} (github): compared; changed, but no grant this entry compares changed, so no row "
         "(text this entry does not read, such as a step's env or an unread agent step, is not "
