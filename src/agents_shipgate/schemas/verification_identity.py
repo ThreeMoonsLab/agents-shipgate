@@ -442,8 +442,8 @@ def requires_verification_receipt(
     own (``head_report_json`` or ``artifacts.report_json``). ``verify`` names
     one only for a run whose head scan ran and closes every such run with a
     receipt, so a named report owes one. A report the verifier does not name
-    belongs to another run (the manifest-free host route leaves an earlier
-    run's in place) and is not this run's to pass.
+    belongs to another run. A manifest-backed preview can leave an earlier
+    report in place, so the consumer passes only the report the verifier names.
 
     The legacy label is believed only for a payload shaped like legacy
     output. One that carries a receipt-era identity field is read as
