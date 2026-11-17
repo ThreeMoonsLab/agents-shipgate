@@ -641,7 +641,9 @@ def test_the_declared_channel_is_mandatory_on_the_command_line() -> None:
 
 def test_an_exercised_wheel_is_bound_by_bytes_and_never_called_qualified(tmp_path: Path) -> None:
     built = _wheel(tmp_path / "built" / WHEEL_FILENAME)
-    exercised = _wheel(tmp_path / "exercised" / WHEEL_FILENAME)
+    exercised = tmp_path / "exercised" / WHEEL_FILENAME
+    exercised.parent.mkdir()
+    shutil.copyfile(built, exercised)
 
     record = verify_wheel_provenance(
         built_path=built, qualified_path=exercised, source_commit=SOURCE, subject="exercised"

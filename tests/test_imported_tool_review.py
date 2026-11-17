@@ -2187,7 +2187,8 @@ def test_namespace_reads_in_the_chain_are_not_patches(repo, files):
     base = commit(repo, {**layout, "svc/app/agent.py": agent.format(tools="lookup")})
     head = commit(repo, {"svc/app/agent.py": agent.format(tools="lookup, refund")})
     result = run(repo, base, head, "--scope", "svc/app")
-    if "svc/app/debug.py" in files and "return sum([" in files["svc/app/debug.py"]:
+    # Both the local list comprehension and generator are consumed by builtin sum.
+    if "svc/app/debug.py" in files:
         assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
         assert _rows(result) == [("x", "refund", "added")]
     else:
