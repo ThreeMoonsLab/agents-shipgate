@@ -43,6 +43,7 @@ from agents_shipgate.inputs.n8n._auth_risk import (
     _risk_hints,
 )
 from agents_shipgate.inputs.n8n._common import (
+    _WORKFLOW_TARGET_KEYS,
     FROM_AI_RE,
     _http_method,
     _is_community_tool,
@@ -320,16 +321,7 @@ def _record_workflow_resolution(
 ) -> None:
     from agents_shipgate.inputs.n8n._workflows import _dynamic
 
-    target = _top_level_string(
-        item.parameters,
-        {
-            "workflowId",
-            "workflow_id",
-            "workflowName",
-            "workflow",
-            "targetWorkflow",
-        },
-    )
+    target = _top_level_string(item.parameters, _WORKFLOW_TARGET_KEYS)
     if target and not _is_runtime_expression(target):
         if target in node_by_id or target in node_by_name:
             return
