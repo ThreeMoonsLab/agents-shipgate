@@ -73,30 +73,71 @@ def test_word_overlap_without_a_shared_action_verb_does_not_match(name, descript
             "Add a comment with customer data.",
         ),
         ("customer data deletion", "update_customer_data", "Update customer data."),
-        # Synonyms apply in verb position only: the issue in
-        # ``github.create_issue`` is a noun.
-        ("issue refunds", "github.create_issue", "Create a GitHub issue about refunds."),
-        ("issue refunds", "jira.comment_on_issue", "Comment on a Jira issue about a refund."),
-        (
-            "create user accounts",
-            "jira.comment_on_issue",
-            "Comment on a Jira issue for a user account.",
-        ),
-        # The verb and the object come from one tool clause: these tools act
-        # on a label, a comment, a draft and a ticket, whatever else their
-        # descriptions mention.
-        ("remove users", "remove_label", "Remove a label from a user's ticket."),
-        ("wipe devices", "delete_comment", "Delete a comment on a device ticket."),
-        ("purge backups", "delete_draft", "Delete a draft note about backups."),
-        ("terminate employees", "close_ticket", "Close an HR ticket for an employee."),
-        ("close customer accounts", "close_ticket", "Close a customer's support ticket."),
-        # The direct object ends at a preposition: these are about reports.
-        ("run reports for customers", "execute_customer_payment", ""),
+        # A shared verb with no shared object.
         ("make payments", "make_appointment", "Book an appointment."),
+        ("send emails to customers", "send_slack_message", "Send a message to the support channel."),
     ],
 )
 def test_other_non_matches(prohibited, name, description):
+    # Known advisory false positives this rule keeps — homographs and a shared
+    # generic noun, such as "issue refunds" against ``github.create_issue`` or
+    # "close customer accounts" against ``close_ticket`` — are listed in
+    # docs/checks.md, not pinned here: recall over precision for an advisory
+    # a ``checks.ignore`` entry silences (#1035 review 3).
     assert not _tool_matches_prohibited_action(_tool(name, description), prohibited)
+
+
+@pytest.mark.parametrize(
+    ("prohibited", "name", "description"),
+    [
+        # Passive, modal and negated phrasing (#1035 review 3, probe5).
+        ("Customer data must not be deleted", "crm.delete_customer_data", ""),
+        ("Customer records must never be deleted", "delete_customer_record", ""),
+        ("Refunds must not be issued without approval", "issue_refund", ""),
+        ("The agent must never delete customer records", "delete_customer_record", ""),
+        ("Never let the agent send emails to customers", "send_customer_email", ""),
+        ("Do not allow deletion of customer data", "crm.delete_customer_data", ""),
+        ("Prevent deletion of customer data", "crm.delete_customer_data", ""),
+        ("No deletion of customer data", "crm.delete_customer_data", ""),
+        ("Emails to customers must not be sent without review", "send_customer_email", ""),
+        # The verb is only in the description, and not its first word.
+        ("delete customer data", "crm.cleanup", "Permanently delete customer records."),
+        ("delete customer records", "crm.cleanup", "Permanently delete customer records."),
+        ("delete customer data", "crm.purge", "Delete customer data and records."),
+        ("delete customer data", "crm.maintenance", "This tool deletes customer data."),
+        ("delete customer data", "crm.maintenance", "Deletes customer data permanently."),
+        ("send emails to customers", "notify", "Sends an email to the customer."),
+        ("delete customer data", "crm.records", "Use this tool to delete customer data."),
+        ("refund payments", "stripe.refund", "Refund a payment."),
+        # Noun-first tool names.
+        ("delete customer data", "customer_delete", ""),
+        ("delete records", "records.purge", ""),
+        ("delete records", "records.bulk_delete", ""),
+        ("delete customer records", "crm.customer.hard_delete", ""),
+        ("issue refunds", "refund_create", ""),
+        ("issue refunds", "refunds.create", ""),
+        ("issue refunds", "stripe.refunds.create", ""),
+        ("cancel subscriptions", "subscription_cancel", ""),
+        # Several verbs and objects, adjacent or not.
+        ("delete or export customer data or records", "delete_records", ""),
+        ("delete or export customer data or records", "export_records", ""),
+        ("delete customer data or export it", "export_customer_data", ""),
+        ("delete customer data or export records", "export_records", ""),
+        ("delete, export or share customer data", "share_customer_data", ""),
+        ("delete customer data, or export it to third parties", "export_customer_data", ""),
+        # A listed verb used as the object of an unlisted one.
+        ("process refunds without approval", "process_refund", ""),
+        ("schedule payments", "schedule_payment", ""),
+        ("process payments", "process_payment", ""),
+        ("start deployments", "start_deployment", ""),
+        ("request refunds", "request_refund", ""),
+        ("approve refunds", "approve_refund", ""),
+        ("export customer data", "export_records", "Export customer records to CSV."),
+        ("export customer data", "data_export", "Exports customer data."),
+    ],
+)
+def test_realistic_phrasings_of_a_genuine_prohibited_action_match(prohibited, name, description):
+    assert _tool_matches_prohibited_action(_tool(name, description), prohibited)
 
 
 def test_the_risk_tag_rules_still_run_for_a_tool_named_for_the_safeguard():
@@ -388,6 +429,33 @@ def test_a_partial_safeguard_word_in_the_tool_name_does_not_hide_the_action(tmp_
     finding = next(
         item for item in report.findings if item.check_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
     )
+    assert finding.blocks_release is False
+    assert not any(
+        gap.policy_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
+        for gap in report.policy_evidence_gaps
+    )
+
+
+def test_a_tool_whose_verb_is_only_in_its_description_is_published(tmp_path):
+    """#1035 review 3: ``crm.cleanup`` "Permanently delete customer records."
+    against "delete customer data". main raised a gap; the cycle-3 clause
+    parser published nothing, because the description's first word is not
+    its verb.
+    """
+
+    report = _scan(
+        _workspace(
+            tmp_path / "cleanup",
+            tool="crm.cleanup",
+            description="Permanently delete customer records.",
+            prohibited="delete customer data",
+        )
+    )
+
+    finding = next(
+        item for item in report.findings if item.check_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
+    )
+    assert finding.evidence["prohibited_action"] == "delete customer data"
     assert finding.blocks_release is False
     assert not any(
         gap.policy_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"

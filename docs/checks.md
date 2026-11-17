@@ -259,30 +259,25 @@ A write-capable tool contradicts a read-only declared purpose. Remove the tool o
 
 A tool appears to overlap with a manifest `prohibited_actions` entry. Remove or narrow the tool, or revise policy/scope text.
 
-The match compares whole words, never substrings (#1035). A tool clause must
-share the prohibited action's **verb** and a word of its **direct object**:
-"buy stock" matches `broker.buy_stock`. A tool clause is the verb in the
-tool's name (split on punctuation and camelCase) with the words it acts on, or
-the leading verb of the description's first sentence with the head of its
-object. A shared subject alone — "customer", "data" — is not the prohibited
-action, and `close_ticket` ("Close a customer's support ticket") acts on a
-ticket, so it is not "close customer accounts".
+The match compares whole words, never substrings (#1035). The tool's name
+(split on punctuation and camelCase) and description must share at least two
+words with the prohibited action, and one of them must be the action's
+**verb**. "buy stock" matches `broker.buy_stock`, "delete customer data"
+matches `crm.cleanup` ("Permanently delete customer records."), and a shared
+subject alone — "customer", "data" — is not the prohibited action.
 
-- **The action's verb** is the listed action verbs it contains (`delete`,
-  `export`, `send`, `refund`, …, joined by "or"/"and"). Failing that, a noun
-  that names one ("customer data deletion"); failing that, its leading word.
-  "Customer data must never be exported" is about `export`.
-- **The direct object** ends at a preposition: "run reports *for* customers"
-  is about reports. An action with only a destination ("deploy to
-  production") matches a tool that names it anywhere.
+- **The action's verb** is every listed action verb it contains (`delete`,
+  `export`, `send`, `refund`, …), adjacent or not: "delete, export or share
+  customer data". A noun that names one counts as that verb ("Prevent
+  deletion of customer data"). Only when there is none does its leading word
+  count, so "Customer data must never be exported" needs `export`.
 - **Spelling.** Inflections meet (`deletes`, `refunds`, `cancelled`), "shut
   down" meets `shutdown`, and "e-mail" meets `email`.
-- **Synonyms.** An explicit verb-to-verb table, applied only to a word in verb
-  position on either side, joins spellings of one action:
-  delete/purge/remove/erase/wipe/destroy, update/modify/edit/change,
-  buy/purchase, execute/run, terminate/close, create/issue/make,
-  send/email/message, share/disclose. The issue in `github.create_issue` stays
-  a noun. Nothing else is fuzzy.
+- **Synonyms.** An explicit table, applied to every word on both sides, joins
+  spellings of one action: delete/purge/remove/erase/wipe/destroy,
+  update/modify/edit/change, buy/purchase, execute/run, terminate/close,
+  create/issue/make, share/disclose. It also maps nouns that name an action to
+  their verb: deletion, approval, payment, and others. Nothing else is fuzzy.
 - **Connectives** such as `or`, `in`, `of`, `on`, `by`, `never` and `don't`
   are ignored, so "priority", "order" or "for a customer" no longer match
   "delete or export customer data".
@@ -294,6 +289,17 @@ ticket, so it is not "close customer accounts".
   "send email without customer consent".
 - **Risk tags** still match `email`/`external`, `refund` and `cancel` actions
   as before, for every tool.
+- **Known false positives.** The rule prefers recall, because a miss leaves
+  the check with no output at all. Some tools that share the verb and an
+  unrelated word still match:
+  - homographs: "issue refunds" against `github.create_issue` ("Create a
+    GitHub issue about refunds");
+  - a generic shared noun: "close customer accounts" against `close_ticket`
+    ("Close a customer's support ticket"), or "remove users" against
+    `remove_label`.
+
+  Each is a non-blocking advisory. Silence one with a `checks.ignore` entry
+  that gives the reason.
 
 The match is lexical, so it is a **medium, non-blocking advisory** that never
 moves the release verdict (#1055, Option A): it is published in `report.json`,

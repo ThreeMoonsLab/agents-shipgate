@@ -709,21 +709,22 @@ surface and is absent from `docs/checks.json`.
   hard controls. Otherwise it is a `medium` advisory under the same rule. A
   removed `rollback` is `critical` only when `destructive` is established.
 - **Prohibited actions.** The match compares whole-word stems, never
-  substrings. One tool clause must share the action's verb *and* a word of its
-  direct object. A tool clause is either the verb in the tool's name with the
-  words that verb acts on, or the leading verb of the description's first
-  sentence with the head of its object.
-  - **The action's verb.** The listed action verbs it contains, joined by
-    "or"/"and". Failing that, a noun that names one ("customer data
-    deletion"). Failing that, its leading word ("tweet").
-  - **The direct object** ends at a preposition ("run reports *for*
-    customers"). With no direct object, the destination ("deploy *to*
-    production") may match any tool word.
-  - **Synonyms** come from an explicit verb-to-verb table, applied only in
-    verb position: delete/purge/remove/erase/wipe/destroy,
-    update/modify/edit/change, buy/purchase, execute/run, terminate/close,
-    create/issue/make, send/email/message, share/disclose. "shut down" reads as
-    `shutdown`.
+  substrings. The tool's name and description must share at least two words
+  with the prohibited action, and one of them must be the action's verb.
+  - **The action's verb.** Every listed action verb the action contains,
+    adjacent or not ("delete, export or share customer data"). A noun that
+    names one counts as that verb ("Prevent **deletion** of customer data").
+    Only when there is none does the leading word count ("tweet"). So "Customer
+    data must never be **exported**" needs `export`, and a shared subject
+    ("customer", "data") is never enough.
+  - **The tool's side** is every word of its name (split on punctuation and
+    camelCase) and description, wherever the verb sits: "Permanently delete
+    customer records", `records.bulk_delete`.
+  - **Synonyms** come from an explicit table, applied to every word on both
+    sides: delete/purge/remove/erase/wipe/destroy, update/modify/edit/change,
+    buy/purchase, execute/run, terminate/close, create/issue/make,
+    share/disclose, plus nouns that name an action (deletion, approval,
+    payment, …). "shut down" reads as `shutdown` and "e-mail" as `email`.
   - **More connectives are stopwords:** `or`, `in`, `of`, `on`, `by`, `never`,
     and others.
   - **Qualifier clauses.** Words after `without`, `unless`, `except` or
@@ -753,14 +754,28 @@ surface and is absent from `docs/checks.json`.
 blocking conditions only narrow, as [Check IDs](#check-ids) allows. The
 prohibited-action matcher both narrows and widens.
 
-- **It narrows.** It drops substring false matches. It also drops matches
-  where the tool's own clause acts on another object. Usually that is right
-  (`close_ticket` for "close customer accounts"), but it also drops a few true
-  ones: `export_records` ("Export customer records") for "delete or export
-  customer data".
+- **It narrows.** It drops substring false matches. One is a word inside
+  another word: `or` in "priority", "order", "for". Another is an overlap with
+  no shared verb: "for a customer", or "Customer data must never be exported"
+  against a tool that adds a comment with customer data. It also drops a tool
+  named for the whole `without` safeguard (`send_email_preview`). On the
+  review probes, every other match `origin/main` made is kept.
 - **It widens.** It catches inflections and synonyms the substring match
   missed: `cancel orders` against `cancel_order`, `terminate accounts` against
-  `terminate_account`, `issue refunds` against `stripe.create_refund`.
+  `terminate_account`, `issue refunds` against `stripe.create_refund`, and
+  "Prevent deletion of customer data".
+- **Known false positives.** It still matches some tools that share the verb
+  and an unrelated word, all as advisories.
+  - Homographs, some through the synonym table: "issue refunds" against
+    `github.create_issue` (a GitHub issue *about* refunds), or against
+    `jira.comment_on_issue`.
+  - A generic shared noun: "close customer accounts" against `close_ticket`
+    ("Close a customer's support ticket"), "remove users" against
+    `remove_label`, "purge backups" against `delete_draft` ("…a draft note
+    about backups").
+
+  A `checks.ignore` entry with a reason silences one. Recall is preferred
+  because a miss leaves the check with no output at all.
 
 Every match it adds is an advisory that cannot move the verdict. A
 policy-eligible escalation blocks as before, with the same evidence, support
