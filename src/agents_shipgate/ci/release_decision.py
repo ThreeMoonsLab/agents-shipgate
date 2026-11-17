@@ -2725,11 +2725,15 @@ def _evidence_gaps(
             action = EvidenceGapAction(
                 kind="review_warning",
                 path=unread_mcp_path,
-                why="The codex_config loader cannot read this host's MCP file. Reader support is tracked in #663.",
+                why=(
+                    "The codex_config loader cannot read this host's MCP file. Reader support is "
+                    "tracked at https://github.com/ThreeMoonsLab/agents-shipgate/issues/663."
+                ),
                 expects=(
-                    "Review the named file's servers separately. If the file is outside the "
-                    "intended review scope, narrow the codex_config entry's path to the "
-                    "intended inputs or move the file outside that entry's path. Then rerun the scan."
+                    "Run `shipgate audit --host` to review the named file's servers. If the intended "
+                    "Codex files live together in a separate directory, point the codex_config entry "
+                    "at that directory and rerun the scan. If the files share a root, this warning "
+                    "remains a review item until reader support is added."
                 ),
             )
         else:

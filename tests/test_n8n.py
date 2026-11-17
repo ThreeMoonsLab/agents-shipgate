@@ -481,7 +481,8 @@ def test_n8n_mcp_client_action_is_not_an_mcp_tool_selection(tmp_path):
         node_type="@n8n/n8n-nodes-langchain.mcpClient",
     )
 
-    assert not any(tool["source_type"] == "n8n_mcp_client_tool" for tool in report.tool_catalog)
+    assert [(tool["name"], tool["source_type"]) for tool in report.tool_catalog] == [("GitHub MCP", "n8n_ai_tool")]
+    assert not any(finding.check_id == "SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED" for finding in report.findings)
 
 
 def test_n8n_reader_output_is_stable_across_hash_seeds(tmp_path):
@@ -523,7 +524,7 @@ for source in sources:
         )
         for seed in ("1", "2", "3", "4")
     ]
-    assert b"/notes" in outputs[0]
+    assert b'"path":"records"' in outputs[0]
     assert all(output == outputs[0] for output in outputs[1:])
 
 

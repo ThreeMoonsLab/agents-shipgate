@@ -345,8 +345,8 @@ def unread_host_mcp_config_warning(
 def unread_host_mcp_config_path(warning: str) -> str | None:
     """Return the file named by the other-host reader coverage warning."""
 
-    host, _, remainder = warning.partition(" MCP config ")
-    if host not in {"Cursor", "VS Code"}:
+    host, marker, remainder = warning.partition(" MCP config ")
+    if not host or not marker:
         return None
     literal = _read_string_literal(remainder, 0)
     if literal is None:

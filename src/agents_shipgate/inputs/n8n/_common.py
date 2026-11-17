@@ -84,8 +84,13 @@ def _string_values(value: Any) -> list[str]:
     return []
 
 
-def _top_level_string(value: dict[str, Any], keys: set[str]) -> str | None:
-    for key in sorted(keys):
+# Prefer the exported node parameter before accepting aliases.
+_HTTP_TARGET_KEYS = ("url", "endpoint", "path")
+_WORKFLOW_TARGET_KEYS = ("workflowId", "workflow_id", "workflowName", "workflow", "targetWorkflow")
+
+
+def _top_level_string(value: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
         item = value.get(key)
         if isinstance(item, str) and item.strip():
             return item.strip()
@@ -265,26 +270,14 @@ def _tool_node_kind(item: _NodeItem) -> str:
         "http_tool",
     }:
         return kind
-    if _top_level_string(
-        item.parameters,
-        {
-            "workflowId",
-            "workflow_id",
-            "workflowName",
-            "workflow",
-            "targetWorkflow",
-        },
-    ):
+    if _top_level_string(item.parameters, _WORKFLOW_TARGET_KEYS):
         return "workflow_tool"
     if any(
         _string_or_none(item.parameters.get(key))
         for key in ("jsCode", "pythonCode", "functionCode", "code")
     ):
         return "code_tool"
-    if _http_method(item) and _top_level_string(
-        item.parameters,
-        {"url", "path", "endpoint"},
-    ):
+    if _http_method(item) and _top_level_string(item.parameters, _HTTP_TARGET_KEYS):
         return "http_tool"
     return kind if kind != "unknown" else "ai_tool"
 
