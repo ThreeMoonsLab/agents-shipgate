@@ -470,7 +470,7 @@ def read_static_input_text(
     data = read_static_input_bytes(path, max_bytes=max_bytes)
     if path.suffix.lower() == ".py":
         return decode_python_source(data)
-    return data.decode("utf-8-sig")
+    return data.decode("utf-8")
 
 
 __all__ = [

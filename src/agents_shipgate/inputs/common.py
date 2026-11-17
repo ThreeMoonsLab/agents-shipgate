@@ -184,12 +184,7 @@ def manifest_relative_path(value: str, base_dir: Path) -> str:
 
 
 def load_structured_file(path: Path) -> Any:
-    if not path.exists():
-        raise InputParseError(f"Input file not found: {path}")
-    try:
-        text = read_static_input_text(path, max_bytes=MAX_INPUT_FILE_BYTES)
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise InputParseError(f"Unable to read input file {path}: {exc}") from exc
+    text = load_text_file(path).removeprefix("\ufeff")
     try:
         if path.suffix.lower() == ".json":
             return json.loads(text)
@@ -349,13 +344,7 @@ def load_structured_file_with_positions(path: Path) -> tuple[Any, PositionIndex]
     callers can still build pointers (e.g. ``/tools/3``) without a line
     number, which is strictly better than today's nothing.
     """
-    if not path.exists():
-        raise InputParseError(f"Input file not found: {path}")
-    try:
-        text = read_static_input_text(path, max_bytes=MAX_INPUT_FILE_BYTES)
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise InputParseError(f"Unable to read input file {path}: {exc}") from exc
-    return load_structured_text_with_positions(text, source=path)
+    return load_structured_text_with_positions(load_text_file(path), source=path)
 
 
 def load_structured_text_with_positions(
@@ -370,6 +359,7 @@ def load_structured_text_with_positions(
         raise InputParseError(
             f"Input file too large: {path}; maximum is {MAX_INPUT_FILE_BYTES} bytes"
         )
+    text = text.removeprefix("\ufeff")
     if path.suffix.lower() == ".json":
         try:
             return json.loads(text), _EMPTY_INDEX

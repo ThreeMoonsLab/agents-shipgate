@@ -8,8 +8,9 @@
   undecodable application files as coverage gaps. Static parsing ignores
   interpreter warnings about invalid string escapes. Deep expressions no
   longer crash discovery or application comparisons, which record any
-  implementation they cannot compare. JSON and TOML inputs accept a UTF-8
-  BOM, and flow-style YAML stays on the YAML parser. (#1042)
+  implementation they cannot compare. JSON and TOML adapter inputs accept a
+  UTF-8 BOM, and the declared YAML format controls flow-style YAML parsing.
+  Baseline evidence requires its canonical encoding. (#1042)
 
 ### Host comparison
 
