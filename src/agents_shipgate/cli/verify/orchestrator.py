@@ -7715,6 +7715,21 @@ def run_preview(
             )
         elif _host_review is not None:
             next_action = _host_review
+        elif _operation == "verify":
+            command = [
+                "agents-shipgate", "check", "--workspace", str(requested_root),
+                "--config", str(config_path), "--format", "agent-control-json",
+            ]
+            check_base = host_comparison.base_commit or base
+            if check_base is not None:
+                command.extend(["--base", check_base])
+            if head is not None:
+                command.extend(["--head", host_comparison.head_commit or head])
+            next_action = CodingAgentCommandAction(
+                kind="verify",
+                command=retarget_command(join_argv(command)),
+                why="Run the local boundary check on these inputs to reach a review or completion state.",
+            )
         headline = (
             f"{len(host_comparison.rows)} repository-declared host capability row(s). "
             "Advisory comparison only; no application release policy configured."

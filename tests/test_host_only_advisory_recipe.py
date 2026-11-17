@@ -118,6 +118,52 @@ def test_the_recipe_is_advisory_minimal_and_pinned() -> None:
     assert not (REPO_ROOT / "examples/github-actions/shipgate.yaml").exists()
 
 
+def test_host_only_init_installs_the_exercised_recipe_and_doctor_routes_to_host_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text(_BASE_SETTINGS, encoding="utf-8")
+    runner = CliRunner()
+    init = ["init", "--workspace", str(tmp_path), "--write", "--ci", "--json"]
+    output_path = tmp_path / ".github/workflows/agents-shipgate.yml"
+
+    first = runner.invoke(app, init)
+    assert first.exit_code == 0, first.output
+    first_payload = json.loads(first.stdout)
+    assert first_payload["manifest_status"] == "not_applicable_host_review"
+    assert first_payload["workflow"]["status"] == "written"
+    assert Path(first_payload["workflow"]["path"]) == output_path.resolve()
+    assert output_path.read_bytes() == RECIPE.read_bytes()
+    assert not (tmp_path / "shipgate.yaml").exists()
+
+    again = runner.invoke(app, init)
+    assert again.exit_code == 0, again.output
+    assert json.loads(again.stdout)["workflow"]["status"] == "skipped_existing_target"
+    assert output_path.read_bytes() == RECIPE.read_bytes()
+
+    doctor = ["doctor", "--workspace", str(tmp_path), "--json"]
+    result = runner.invoke(app, doctor)
+    assert result.exit_code == 0, result.output
+    inspected = json.loads(result.stdout)
+    assert inspected["manifest_status"] == "not_applicable_host_review"
+    assert inspected["control"]["decision_source"] == "setup"
+    assert "audit --host" in inspected["control"]["next_action"]["command"]
+    assert not any(inspected["control"]["permissions"].values())
+
+    explicit = runner.invoke(app, [*doctor, "--config", "shipgate.yaml"])
+    assert explicit.exit_code == 2, explicit.output
+
+    monkeypatch.chdir(tmp_path)
+    default = runner.invoke(app, ["doctor", "--json"])
+    assert default.exit_code == 0, default.output
+    assert json.loads(default.stdout)["control"] == inspected["control"]
+
+
 def test_the_pinned_version_installs_from_the_index_not_the_pr() -> None:
     """With `shipgate_version` set, the Action installs that release by name.
 

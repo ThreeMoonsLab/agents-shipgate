@@ -22,8 +22,10 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path
 
+from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.release_source import release_engine
 
 
@@ -172,10 +174,19 @@ def _workflow_slug(relative_dir: str) -> str:
     return f"{slug or 'project'}-{digest}"
 
 
+def _host_only_workflow_bytes() -> bytes:
+    packaged = files("agents_shipgate").joinpath("_meta", "host-only-advisory.yml")
+    if packaged.is_file():
+        return packaged.read_bytes()
+    # Source checkouts use the same copy that is included in the wheel.
+    source = Path(__file__).resolve().parents[4] / "examples/github-actions/14-host-only-advisory-pr.yml"
+    return source.read_bytes()
+
+
 def write_ci_workflow(
-    workspace: Path, *, repository_root: Path | None = None
+    workspace: Path, *, repository_root: Path | None = None, host_only: bool = False,
 ) -> CiWorkflowResult:
-    """Write the Shipgate workflow for ``workspace``'s manifest if absent.
+    """Write the manifest or host-only advisory workflow if absent.
 
     Refuses to overwrite. Also refuses if an existing workflow already gates
     this same manifest — surfacing the cross-reference so users don't
@@ -198,10 +209,16 @@ def write_ci_workflow(
         # does not exist from the root.
         root = workspace
         manifest_relative = Path(DEFAULT_MANIFEST_PATH)
-    config_value = manifest_relative.as_posix()
+    config_value = DEFAULT_MANIFEST_PATH if host_only else manifest_relative.as_posix()
     relative_target = workflow_relative_path(config_value)
     workflows_dir = root / ".github" / "workflows"
     target = root / relative_target
+    if host_only:
+        root_manifest = root / DEFAULT_MANIFEST_PATH
+        if root_manifest.exists() or root_manifest.is_symlink():
+            raise ConfigError(f"Host-only workflow requires a repository without {root_manifest.name}.")
+        if not workflows_dir.resolve().is_relative_to(root):
+            raise ConfigError("The host-only workflow destination escapes the repository.")
 
     cross_ref = _detect_cross_reference(
         workflows_dir, exclude=target, config_value=config_value
@@ -218,7 +235,7 @@ def write_ci_workflow(
             cross_reference_path=str(cross_ref),
         )
 
-    if target.exists():
+    def existing_workflow() -> CiWorkflowResult:
         return CiWorkflowResult(
             status="skipped_existing_target",
             path=str(target),
@@ -228,10 +245,18 @@ def write_ci_workflow(
             ),
         )
 
+    if target.exists() or target.is_symlink():
+        return existing_workflow()
+
+    # Manifest workflow pins are selected at write time. The host-only path
+    # uses the recipe's own exercised pins.
+    content = _host_only_workflow_bytes() if host_only else _render_workflow_template(config_value).encode("utf-8")
     workflows_dir.mkdir(parents=True, exist_ok=True)
-    # Re-render at write time so the ref reflects the current package
-    # version (or the AGENTS_SHIPGATE_WORKFLOW_REF override).
-    target.write_text(_render_workflow_template(config_value), encoding="utf-8")
+    try:
+        with target.open("xb") as stream:
+            stream.write(content)
+    except FileExistsError:
+        return existing_workflow()
     return CiWorkflowResult(
         status="written",
         path=str(target),

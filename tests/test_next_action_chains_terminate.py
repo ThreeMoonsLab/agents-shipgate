@@ -228,6 +228,28 @@ def test_every_chain_terminates_on_a_manifest_repository(
     _follow(entry)
 
 
+@pytest.mark.parametrize("change", ["quiet", "widening", "unreadable"])
+def test_host_only_verify_chain_terminates_without_an_inventory(host_only_repo: Path, change: str) -> None:
+    _git(host_only_repo, "checkout", "-qb", "change")
+    if change == "quiet":
+        (host_only_repo / "README.md").write_text("A documentation change.\n")
+    elif change == "widening":
+        (host_only_repo / ".claude/settings.json").write_text('{"permissions":{"allow":["Bash(*)"]}}')
+    else:
+        (host_only_repo / ".mcp.json").write_text("{")
+    _git(host_only_repo, "add", "-A")
+    _git(host_only_repo, "commit", "-qm", change)
+
+    entry = ["verify", "--workspace", str(host_only_repo), "--base", "main", "--head", "HEAD", "--json"]
+    result = runner.invoke(app, entry)
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["control"]
+    chain = _follow(entry)
+    assert 1 <= len(chain) <= 3
+    assert all(step[0] != "audit" for step in chain)
+
+
 def test_the_reported_cycle_specifically(host_only_repo: Path) -> None:
     """preview -> init -> audit -> preview, named so a regression is
     recognizable rather than just 'the property test went red'."""
