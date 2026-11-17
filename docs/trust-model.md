@@ -24,6 +24,9 @@ By default Agents Shipgate does not:
 - YAML is parsed with `yaml.safe_load`.
 - Declared local input paths are resolved relative to the manifest directory and rejected if they escape that base directory. This prevents a manifest from reading sibling repositories or absolute host files unless the source is first copied or symlinked into the reviewed workspace.
 - OpenAPI `$ref` resolution only follows internal JSON pointers beginning with `#/`.
+  If a request body, parameter, or selected response reference cannot be
+  resolved, the warning names its source pointer and the affected operation.
+  That tool's schema extraction is incomplete.
 - `file://`, `http://`, and other external `$ref` values are left as inert schema values.
 - Workspace discovery for `detect` and auto-init may invoke the local `git`
   binary (`rev-parse` and `ls-files`) with short timeouts to enumerate

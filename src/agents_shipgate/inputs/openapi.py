@@ -150,8 +150,10 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
                     api_path=str(api_path),
                     pointer_base=path_item.pointers[method],
                     method=method_lower,
+                    method_key=str(method),
                     operation=operation,
                     path_parameters=path_parameters,
+                    path_parameters_at=f"{path_item.pointers.get('parameters', '')}/parameters",
                     positions=positions,
                     warnings=warnings,
                 )
@@ -281,17 +283,34 @@ def _operation_to_tool(
     api_path: str,
     pointer_base: str,
     method: str,
+    method_key: str,
     operation: dict[str, Any],
     path_parameters: list[Any],
+    path_parameters_at: str,
     positions: PositionIndex,
     warnings: list[str],
 ) -> Tool:
     operation_id = operation.get("operationId") or _operation_name(method, api_path)
-    request_schema = _extract_request_schema(document, operation)
+    # A referenced Path Item can supply the operation and path parameters
+    # from different objects. Use each field's original pointer.
+    carrier_base = f"{pointer_base}/{json_pointer_escape(method_key)}"
+    carrier_warnings: list[str] = []
+    request_body = _resolve_carrier(
+        document, operation.get("requestBody"), f"{carrier_base}/requestBody", ("content",), carrier_warnings
+    )
+    request_schema = _schema_from_content(document, request_body)
     parameter_schema = _parameters_to_schema(
-        document, path_parameters, operation.get("parameters") or []
+        document,
+        (
+            (path_parameters_at, path_parameters),
+            (f"{carrier_base}/parameters", operation.get("parameters") or []),
+        ),
+        carrier_warnings,
     )
     input_schema = _merge_object_schemas(parameter_schema, request_schema)
+    output_schema = _extract_response_schema(document, operation, carrier_base, carrier_warnings)
+    warnings.extend(f"{warning} (operation {operation_id!r})" for warning in carrier_warnings)
+    confidence = "medium" if carrier_warnings else "high"
     description = "\n".join(
         part for part in [operation.get("summary"), operation.get("description")] if part
     )
@@ -304,8 +323,6 @@ def _operation_to_tool(
     annotations["path"] = api_path
     auth = _extract_security(document, operation)
 
-    # Where the operation is written: under ``/paths`` or, for a path item
-    # reached through ``$ref``, under the object that reference names.
     pointer = f"{pointer_base}/{method}"
     pos = positions.lookup(pointer)
     source_start_line: int | None = None
@@ -330,21 +347,17 @@ def _operation_to_tool(
         source_start_column=source_start_column,
         source_pointer=pointer,
         input_schema=input_schema,
-        output_schema=_extract_response_schema(document, operation),
+        output_schema=output_schema,
         parameters=schema_to_parameters(input_schema),
         annotations=annotations,
         auth=auth,
-        extraction_confidence="high",
-        extraction={"method": "openapi", "confidence": "high"},
+        extraction_confidence=confidence,
+        extraction={"method": "openapi", "confidence": confidence},
     )
 
 
-def _extract_request_schema(document: dict[str, Any], operation: dict[str, Any]) -> dict[str, Any]:
-    request_body = operation.get("requestBody")
-    if not isinstance(request_body, dict):
-        return {}
-    request_body = _resolve_ref(document, request_body)
-    content = request_body.get("content") or {}
+def _schema_from_content(document: dict[str, Any], carrier: dict[str, Any]) -> dict[str, Any]:
+    content = carrier.get("content") or {}
     if not isinstance(content, dict):
         return {}
     media = content.get("application/json") or next(iter(content.values()), {})
@@ -356,26 +369,23 @@ def _extract_request_schema(document: dict[str, Any], operation: dict[str, Any])
     return _resolve_schema(document, schema)
 
 
-def _extract_response_schema(document: dict[str, Any], operation: dict[str, Any]) -> dict[str, Any]:
+def _extract_response_schema(
+    document: dict[str, Any], operation: dict[str, Any], pointer: str, warnings: list[str]
+) -> dict[str, Any]:
     responses = operation.get("responses") or {}
     if not isinstance(responses, dict):
         return {}
-    response = _success_response(responses)
-    if not isinstance(response, dict):
-        return {}
-    response = _resolve_ref(document, response)
-    content = response.get("content") or {}
-    if not isinstance(content, dict):
-        return {}
-    media = content.get("application/json") or next(iter(content.values()), {})
-    if not isinstance(media, dict):
-        return {}
-    schema = media.get("schema") or {}
-    return _resolve_schema(document, schema) if isinstance(schema, dict) else {}
+    key = _success_response_key(responses)
+    response = _resolve_carrier(
+        document, responses.get(key),
+        f"{pointer}/responses/{json_pointer_escape(str(key))}",
+        ("description", "content"), warnings,
+    )
+    return _schema_from_content(document, response)
 
 
-def _success_response(responses: dict[Any, Any]) -> Any:
-    """The response an operation returns on success: its lowest 2xx code.
+def _success_response_key(responses: dict[Any, Any]) -> Any:
+    """The key of the selected response, so the schema can name its source.
 
     Codes are compared as text because YAML reads an unquoted ``200:`` as an
     integer, where JSON and a quoted key give a string. The ``2XX`` range
@@ -384,40 +394,41 @@ def _success_response(responses: dict[Any, Any]) -> Any:
 
     codes: list[tuple[int, Any]] = []
     success_range: Any = None
-    for key, value in responses.items():
+    for key in responses:
         code = str(key).strip()
         if len(code) == 3 and code.isascii() and code.isdigit() and code.startswith("2"):
-            codes.append((int(code), value))
+            codes.append((int(code), key))
         elif code.upper() == "2XX" and success_range is None:
-            success_range = value
+            success_range = key
     if codes:
         return min(codes, key=lambda item: item[0])[1]
     if success_range is not None:
         return success_range
-    return next(iter(responses.values()), {})
+    return next(iter(responses), None)
 
 
 def _parameters_to_schema(
-    document: dict[str, Any], path_parameters: list[Any], operation_parameters: list[Any]
+    document: dict[str, Any],
+    parameter_lists: tuple[tuple[str, list[Any]], ...],
+    warnings: list[str],
 ) -> dict[str, Any]:
     properties: dict[str, Any] = {}
     required: list[str] = []
-    for raw in [*path_parameters, *operation_parameters]:
-        if not isinstance(raw, dict):
+    for pointer, parameters in parameter_lists:
+        if not isinstance(parameters, list):
             continue
-        parameter = _resolve_ref(document, raw)
-        if not isinstance(parameter, dict):
-            continue
-        name = parameter.get("name")
-        if not name:
-            continue
-        schema = parameter.get("schema") or {}
-        if isinstance(schema, dict):
-            properties[str(name)] = _resolve_schema(document, schema)
-        else:
-            properties[str(name)] = {}
-        if parameter.get("required") is True:
-            required.append(str(name))
+        for index, raw in enumerate(parameters):
+            parameter = _resolve_carrier(document, raw, f"{pointer}/{index}", ("name",), warnings)
+            name = parameter.get("name")
+            if not name:
+                continue
+            schema = parameter.get("schema") or {}
+            if isinstance(schema, dict):
+                properties[str(name)] = _resolve_schema(document, schema)
+            else:
+                properties[str(name)] = {}
+            if parameter.get("required") is True:
+                required.append(str(name))
     if not properties:
         return {}
     return {"type": "object", "properties": properties, "required": required}
@@ -641,6 +652,37 @@ def _resolve_ref(document: dict[str, Any], value: dict[str, Any]) -> Any:
         return value
     target = _local_ref_target(document, ref)
     return value if target is _MISSING else target
+
+
+def _resolve_carrier(
+    document: dict[str, Any],
+    value: Any,
+    pointer: str,
+    expected_fields: tuple[str, ...],
+    warnings: list[str],
+) -> dict[str, Any]:
+    """Follow a local Reference Object before reading its schema."""
+
+    if not isinstance(value, dict):
+        return {}
+    if "$ref" not in value:
+        return value
+    visited = {id(value)}
+    current = value
+    while "$ref" in current and len(visited) <= MAX_SCHEMA_RESOLVE_DEPTH:
+        ref = current["$ref"]
+        target = _local_ref_target(document, ref) if isinstance(ref, str) else _MISSING
+        if not isinstance(target, dict) or id(target) in visited:
+            break
+        visited.add(id(target))
+        current = target
+    if "$ref" not in current and any(field in current for field in expected_fields):
+        return current
+    warnings.append(
+        f"Unresolved OpenAPI $ref at {pointer}/$ref. Use a local reference that resolves to "
+        "the expected object without a cycle."
+    )
+    return {}
 
 
 def _unresolved_refs(document: dict[str, Any], value: Any) -> list[str]:
