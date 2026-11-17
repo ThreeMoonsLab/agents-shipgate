@@ -449,6 +449,7 @@
   "tests/test_packaged_default_policies.py": 0.2,
   "tests/test_workflow_directory_instructions.py": 50.6,
   "tests/test_registry_drift_observation.py": 1.4,
+  "tests/test_application_read_same.py": 21.5,
   "tests/test_workflow_hardening.py": 1.1
  },
  "measured_at": "cbff1ef0b101",
@@ -712,6 +713,17 @@
    },
    "case_count": 44,
    "command": "python -m pytest tests/test_registry_drift_observation.py --junitxml=registry-drift-observation.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "4675b2987b9a with issue #1146 read-same increment",
+   "report_sha256": "813175ce100244cddfcecedfad74fa292d68a6bb3d0fedc68d9efcabe576d7e0",
+   "files": {
+    "tests/test_application_read_same.py": 21.5
+   },
+   "case_count": 23,
+   "command": "python -m pytest tests/test_application_read_same.py --junitxml=application-read-same.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {

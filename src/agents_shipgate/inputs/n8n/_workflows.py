@@ -217,7 +217,7 @@ def _workflow_error_workflow(workflow: dict[str, Any]) -> str | None:
         return None
     value = _top_level_string(
         settings,
-        {"errorWorkflow", "errorWorkflowId", "errorWorkflowName"},
+        ("errorWorkflow", "errorWorkflowId", "errorWorkflowName"),
     )
     return _redact_text(value) if value else None
 
@@ -434,9 +434,9 @@ def _execution_control(item: _NodeItem) -> dict[str, Any]:
 def _ingress_record(item: _NodeItem, source_path: str, workflow_id: str) -> dict[str, Any]:
     auth_value = _top_level_string(
         item.parameters,
-        {"authentication", "authType", "authorization"},
+        ("authentication", "authType", "authorization"),
     )
-    public_path = _top_level_string(item.parameters, {"path", "webhookPath"})
+    public_path = _top_level_string(item.parameters, ("path", "webhookPath"))
     http_method = _http_method(item)
     return {
         **_node_record(item, source_path, workflow_id),
