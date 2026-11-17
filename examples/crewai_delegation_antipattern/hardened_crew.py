@@ -1,10 +1,14 @@
 """Hardened Pattern Example: Bounded CrewAI Multi-Agent Delegation & Tool Safety.
 
+Target CrewAI version: crewai==0.80.0
+
 This file demonstrates a HARDENED CrewAI multi-agent setup aligned with Agents Shipgate:
-1. Agents enforce explicit `max_iter` and `max_execution_time` circuit breakers.
+1. Agents enforce explicit `max_iter=5` (tighter than CrewAI's default of 20) and `max_execution_time=60` circuit breakers.
 2. Tools handle exceptions internally and return structured JSON error payloads.
-3. Uncontrolled delegation loops are disabled (`allow_delegation=False`), and high-risk
-   financial/write operations require explicit human review gates.
+3. Uncontrolled delegation loops are disabled (`allow_delegation=False`), enforcing single-responsibility flow.
+
+Note: The fallback definitions below provide lightweight structural attributes for static
+analysis and offline inspection environments; they do not execute the live CrewAI delegation loop.
 """
 
 from __future__ import annotations
@@ -16,7 +20,8 @@ try:
     from crewai import Agent, Crew, Process, Task
     from crewai.tools import tool
 except ImportError:
-    # Lightweight fallback definitions for static evaluation environments without crewai installed
+    # Lightweight fallback definitions for static evaluation environments without crewai installed.
+    # These capture model configuration attributes and do not execute runtime delegation loops.
     class Agent:  # type: ignore[no-redef]
         def __init__(self, **kwargs: Any) -> None:
             self.allow_delegation = kwargs.get("allow_delegation", False)

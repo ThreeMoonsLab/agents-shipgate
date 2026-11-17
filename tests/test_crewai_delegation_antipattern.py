@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,8 @@ def test_unbounded_crew_has_anti_pattern_characteristics() -> None:
     # Verify anti-pattern attributes
     assert researcher.allow_delegation is True
     assert manager.allow_delegation is True
+    assert researcher.max_iter == 20  # CrewAI documented default
+    assert manager.max_iter == 20
     assert getattr(researcher, "max_execution_time", None) is None
     assert getattr(manager, "max_execution_time", None) is None
 
@@ -53,6 +56,10 @@ def test_guarded_tool_returns_structured_json_error_on_exception() -> None:
     assert "INV-9901" in payload["message"]
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Shipgate verification containment requires POSIX dir_fd support",
+)
 def test_shipgate_scan_verifies_hardened_crewai_example(tmp_path: Path) -> None:
     """Verify that agents-shipgate scan processes shipgate.yaml in the example directory cleanly."""
     example_dir = Path(__file__).parents[1] / "examples" / "crewai_delegation_antipattern"
@@ -67,6 +74,7 @@ def test_shipgate_scan_verifies_hardened_crewai_example(tmp_path: Path) -> None:
         ci_mode="advisory",
     )
 
+    assert exit_code == 0
     assert report.frameworks["crewai"]["agent_count"] >= 1
     inventory = {tool["name"]: tool for tool in report.tool_inventory}
     assert "safe_fetch_vendor_invoice" in inventory

@@ -1,75 +1,76 @@
 # CrewAI Delegation & Tool-Failure Anti-Pattern Use Case
 
-This guide details how **Agents Shipgate** detects, prevents, and mitigates runaway agent delegation and tool-failure cascades in CrewAI multi-agent applications.
+This guide details how to harden CrewAI multi-agent applications against runaway delegation and tool-failure cascades, and how **Agents Shipgate** validates tool declarations and inventory evidence.
+
+Target CrewAI version: `crewai==0.80.0` (see [`examples/crewai_delegation_antipattern/requirements.txt`](../../examples/crewai_delegation_antipattern/requirements.txt)).
 
 ---
 
 ## 1. Context & Architecture
 
-Multi-agent frameworks like CrewAI rely on Chain-of-Thought (CoT) reasoning loops where agents can dynamically delegate sub-tasks to other agents (`allow_delegation=True`). While powerful for autonomous task decomposition, this pattern creates a high-risk failure mode when tool executions encounter external errors (such as HTTP 502 Bad Gateway timeouts, network drops, or malformed JSON responses).
+Multi-agent frameworks like CrewAI provide task delegation mechanisms (`allow_delegation=True`) where agents can dynamically assign sub-tasks to other agents. While effective for autonomous problem decomposition, this pattern introduces reliability risks when external tool executions fail (e.g. HTTP 502 Bad Gateway timeouts, network connection drops, or malformed JSON payloads).
 
 When an unhandled exception is thrown inside a `@tool` function:
-1. The tool frame unwinds and returns an raw exception string to the agent loop.
-2. The agent interprets the tool error as a task bottleneck rather than a terminal network condition.
+1. The tool frame unwinds and returns a raw exception string to the agent loop.
+2. The agent may interpret the raw failure as a delegable task obstacle rather than a deterministic or terminal condition.
 3. If delegation is enabled (`allow_delegation=True`), the agent attempts to delegate the problem to another agent.
-4. The recipient agent invokes the failing tool again, causing a recursive delegation loop.
-5. If neither `max_iter` nor `max_execution_time` is configured, the loop continues indefinitely until process kill or model budget exhaustion.
+4. The recipient agent re-invokes the failing tool, creating mutual delegation cycles.
+5. While CrewAI documents a default `max_iter` of 20, `max_execution_time` defaults to `None` (unbounded wall-clock duration). Without explicit time limits or structured error handling, the agents execute redundant model queries and tool invocations until iteration exhaustion.
+
+> **Note on Fallback Definitions**: The fallback classes provided in the example code (`unbounded_crew.py` and `hardened_crew.py`) offer lightweight structural models for static analysis and offline testing without requiring a live CrewAI installation. They capture configuration attributes and do not execute the live CrewAI delegation loop.
 
 ---
 
-## 2. Token Exhaustion & Cost Calculations
+## 2. Failure Mode & Compounding Context
 
-In a typical CrewAI 2-agent setup with GPT-4o or DeepSeek-V3:
-
-$$\text{Total Tokens} = \sum_{k=1}^{N} \left( \text{System Prompt} + \text{Tool Schemas} + k \times \text{History Window} \right)$$
-
-For $N = 30$ delegation turns:
-- **Average Prompt Tokens per Turn**: ~6,000 tokens
-- **Total Prompt Tokens**: $\approx 180,000$ tokens
-- **Total Completion Tokens**: $\approx 15,000$ tokens
-- **Financial Blast Radius**: $\$10.00 - \$50.00+$ spent per single stuck task instance.
+When mutual delegation occurs between agents facing a persistent tool failure:
+- **Compounding Context**: Each delegation step appends the previous conversation history, reasoning thoughts, and exception strings into the prompt context for subsequent turns.
+- **Latency & Redundant Calls**: Without a wall-clock limit (`max_execution_time=None`), the agent team repeatedly retries failing network endpoints across multiple turns.
+- **Circuit Breaker Gap**: Relying solely on default iteration caps (20 steps) still allows extensive unnecessary model turns and external queries before the task terminates.
 
 ---
 
 ## 3. The Hardened Architecture
 
-To align multi-agent applications with enterprise governance and Shipgate safety criteria, developers must enforce three defensive layers:
+To build reliable multi-agent workflows, applications combine application-level circuit breakers with Shipgate static inventory governance:
 
 ```
 [ Incoming Task ]
        │
        ▼
-[ CrewAI Agent ] ─── (Circuit Breaker: max_iter=5, max_execution_time=60s)
+[ CrewAI Agent ] ─── (Circuit Breakers: max_iter=5, max_execution_time=60s, allow_delegation=False)
        │
        ▼
 [ Guarded @tool ] ─── (try/except -> returns JSON {"status": "error", "error_code": "..."})
        │
        ▼
-[ Shipgate Verification ] ─── (Static Check: SHIP-CREWAI-DYNAMIC-TOOL-SURFACE)
+[ Shipgate Static Inventory ] ─── (Static Discovery: shipgate.yaml -> report.tool_inventory)
 ```
 
 1. **Explicit Step & Time Bounds**:
-   - `max_iter`: Hard cap on the maximum number of reasoning steps per agent task (e.g., `max_iter=5`).
-   - `max_execution_time`: Hard wall-clock limit in seconds (e.g., `max_execution_time=60`).
+   - `max_iter`: Hard cap on the maximum number of reasoning steps per agent task (e.g., `max_iter=5`, tighter than the framework default of 20).
+   - `max_execution_time`: Hard wall-clock limit in seconds (e.g., `max_execution_time=60`) to guard against hung requests.
+   - `allow_delegation`: Explicitly set to `False` for deterministic single-responsibility execution paths.
 2. **Structured Tool Error Contracts**:
-   - `@tool` functions must never throw unhandled runtime exceptions. Instead, they catch exceptions internally and return structured JSON error payloads detailing error codes, retryability hints, and diagnostic messages.
+   - `@tool` functions catch exceptions internally and return structured JSON error payloads detailing error codes, diagnostic hints, and retryability flags, avoiding raw exception bubbling.
 3. **Static Governance via Agents Shipgate**:
-   - `agents-shipgate verify` scans CrewAI Python source files and manifest configurations (`shipgate.yaml`) to verify that all tool functions are explicitly declared, risk-tagged (e.g. `read_only`, `financial_action`), and bounded.
+   - `agents-shipgate scan` inspects the manifest (`shipgate.yaml`) and source code to enumerate declared tools (`safe_fetch_vendor_invoice`), verify framework attribution (`crewai`), and publish static tool inventory evidence for release review.
 
 ---
 
 ## 4. Verification Workflow
 
-To verify your CrewAI workflow locally before merging:
+To verify your CrewAI workflow:
 
 ```bash
-# 1. Run static tool-use readiness scan
-agents-shipgate scan --config examples/crewai-delegation-antipattern/shipgate.yaml
+# 1. Run static tool inventory scan
+agents-shipgate scan --config examples/crewai_delegation_antipattern/shipgate.yaml
 
-# 2. Run offline mock unit test suite
+# 2. Run offline unit test suite
 pytest tests/test_crewai_delegation_antipattern.py
 ```
 
 For full example code, see:
-- [`examples/crewai-delegation-antipattern/unbounded_crew.py`](../../examples/crewai-delegation-antipattern/unbounded_crew.py)
-- [`examples/crewai-delegation-antipattern/hardened_crew.py`](../../examples/crewai-delegation-antipattern/hardened_crew.py)
+- [`examples/crewai_delegation_antipattern/unbounded_crew.py`](../../examples/crewai_delegation_antipattern/unbounded_crew.py)
+- [`examples/crewai_delegation_antipattern/hardened_crew.py`](../../examples/crewai_delegation_antipattern/hardened_crew.py)
+- [`examples/crewai_delegation_antipattern/shipgate.yaml`](../../examples/crewai_delegation_antipattern/shipgate.yaml)
