@@ -85,6 +85,8 @@ def load_yaml_file(path: Path) -> dict[str, Any]:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise manifest_read_error(path, exc) from exc
+    except UnicodeDecodeError as exc:
+        raise ConfigError(f"Config file must be UTF-8: {path}") from exc
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError as exc:

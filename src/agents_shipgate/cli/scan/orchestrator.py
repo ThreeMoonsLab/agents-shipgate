@@ -124,7 +124,7 @@ def _manifest_placeholders(
     if text is None:
         try:
             text = config_path.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             return None
     return manifest_placeholder_fields(text)
 

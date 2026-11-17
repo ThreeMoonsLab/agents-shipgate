@@ -11,6 +11,21 @@ from agents_shipgate.core.errors import ConfigError
 SAMPLE = Path("samples/support_refund_agent/shipgate.yaml")
 
 
+def test_scan_reports_a_non_utf8_manifest_as_a_config_error(tmp_path):
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    config = tmp_path / "shipgate.yaml"
+    config.write_text('version: "0.1"\n', encoding="utf-16")
+
+    result = CliRunner().invoke(app, ["scan", "-c", str(config)])
+
+    assert result.exit_code == 2, result.output
+    assert "Config file must be UTF-8:" in result.output
+    assert config.name in result.output
+
+
 def test_load_sample_manifest():
     manifest = load_manifest(SAMPLE)
     assert manifest.version == "0.1"

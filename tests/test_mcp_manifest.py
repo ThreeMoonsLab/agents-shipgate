@@ -49,6 +49,36 @@ enabled_tools = ["open_page"]
     assert docs.annotations["mcp_local_documentation"] is True
 
 
+@pytest.mark.parametrize("args", ["5", "[5]"])
+def test_scan_reports_invalid_codex_mcp_server_args(tmp_path: Path, args: str) -> None:
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    codex = tmp_path / ".codex"
+    codex.mkdir()
+    (codex / "config.toml").write_text(
+        f'[mcp_servers.docs]\ncommand = "docs-mcp"\nargs = {args}\n',
+        encoding="utf-8",
+    )
+    config = tmp_path / "shipgate.yaml"
+    config.write_text(
+        """version: "0.1"
+project: {name: mcp-args-test}
+agent: {name: root}
+environment: {target: local}
+tool_sources:
+  - {id: codex, type: codex_config, path: .}
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["scan", "-c", str(config)])
+
+    assert result.exit_code == 3, result.output
+    assert ".codex/config.toml#mcp_servers.docs.args must be an array of strings" in result.output
+
+
 def test_codex_config_mcp_sources_strip_reserved_binding_annotations(
     tmp_path: Path,
 ) -> None:

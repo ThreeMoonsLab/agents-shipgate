@@ -343,6 +343,12 @@ def _servers_from_mapping(
         # is this invariant that makes one name in two files one server to
         # reconcile rather than two surfaces to tell apart.
         source_id = f"{source_id_prefix}:{server_name}"
+        args = raw_server.get("args", [])
+        if source_type == "codex_config_mcp" and (
+            not isinstance(args, list) or any(not isinstance(arg, str) for arg in args)
+        ):
+            field = f"{source_ref}#{pointer_prefix}.{server_name}.args"
+            raise InputParseError(f"{field} must be an array of strings")
         env_secret_names = tuple(_env_secret_names(raw_server))
         transport = _transport(raw_server)
         command = raw_server.get("command") if isinstance(raw_server.get("command"), str) else None
@@ -1114,7 +1120,7 @@ def _looks_like_local_documentation(server_name: str, server: dict[str, Any]) ->
         [
             server_name,
             str(server.get("command") or ""),
-            " ".join(str(item) for item in server.get("args") or []),
+            " ".join(str(item) for item in _as_sequence(server.get("args"))),
         ]
     )
     tokens = set(re.findall(r"[a-z0-9]+", text.lower()))

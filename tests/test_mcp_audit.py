@@ -498,3 +498,35 @@ def test_partially_unreadable_mcp_audit_never_publishes(tmp_path: Path) -> None:
         "merge": False,
         "report_complete": False,
     }
+
+
+def test_mcp_audit_reports_malformed_codex_server_arguments(tmp_path: Path) -> None:
+    diff_path = tmp_path / "change.diff"
+    diff_path.write_text(
+        "diff --git a/.codex/config.toml b/.codex/config.toml\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        "+++ b/.codex/config.toml\n"
+        "@@ -0,0 +1,3 @@\n"
+        "+[mcp_servers.docs]\n"
+        '+command = "docs-mcp"\n'
+        "+args = 5\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["mcp", "audit", "--workspace", str(tmp_path), "--diff", str(diff_path),
+         "--format", "agent-json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["control"]["state"] == "human_review_required"
+    assert payload["control"]["permissions"]["report_complete"] is False
+    assert any(
+        item["code"] == "mcp_toml_invalid_server_arguments"
+        and item["path"] == ".codex/config.toml"
+        and "mcp_servers.docs.args must be an array of strings" in item["message"]
+        for item in payload["diagnostics"]
+    )

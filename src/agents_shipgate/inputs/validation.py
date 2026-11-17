@@ -388,7 +388,7 @@ def _load_json_items(
 ) -> list[dict[str, Any]]:
     if path.suffix.lower() == ".jsonl":
         items: list[dict[str, Any]] = []
-        for line_number, line in enumerate(load_text_file(path).splitlines(), start=1):
+        for line_number, line in enumerate(load_text_file(path).split("\n"), start=1):
             if not line.strip():
                 continue
             try:

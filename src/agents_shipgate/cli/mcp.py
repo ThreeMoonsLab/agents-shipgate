@@ -25,6 +25,7 @@ from agents_shipgate.core.codex_boundary import (
     resolve_changed_file_text,
 )
 from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.wheel_layout import packaged_path
 from agents_shipgate.inputs.mcp_manifest import (
     NormalizedMcpServer,
@@ -508,11 +509,22 @@ def _servers_tools_from_toml(
         for plugin in data["plugins"].values():
             if isinstance(plugin, dict):
                 _validate_server_mapping(plugin, "mcp_servers", source_ref, diagnostics)
-    servers = normalize_codex_config_mcp_servers(
-        data,
-        source_ref=source_ref,
-        source_path=source_path,
-    )
+    try:
+        servers = normalize_codex_config_mcp_servers(
+            data,
+            source_ref=source_ref,
+            source_path=source_path,
+        )
+    except InputParseError as exc:
+        diagnostics.append(
+            AgentResultDiagnostic(
+                level="warning",
+                code="mcp_toml_invalid_server_arguments",
+                message=str(exc),
+                path=source_ref,
+            )
+        )
+        return [], []
     return servers, tools_from_normalized_mcp_servers(servers)
 
 
