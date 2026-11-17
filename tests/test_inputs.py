@@ -391,17 +391,18 @@ def _pointer_target(document, pointer):
 
 
 @pytest.mark.parametrize(
-    "ref",
+    ("ref", "reason"),
     [
-        "shared.yaml#/Record",
-        "#/components/missing",
-        "#/components/scalar",
-        "#/components/cycle",
-        "#/components/wrong_shape",
-        42,
+        ("shared.yaml#/Record", "outside this document"),
+        ("#/components/missing", "names no value"),
+        ("#/components/scalar", "does not name an object"),
+        ("#/components/cycle", "form a cycle"),
+        ("#/components/wrong_shape", "expected carrier fields"),
+        ("#named-anchor", "not a supported JSON Pointer"),
+        (42, "must be a string"),
     ],
 )
-def test_openapi_unread_schema_carrier_refs_name_their_source(tmp_path, ref):
+def test_openapi_unread_schema_carrier_refs_name_their_source(tmp_path, ref, reason):
     carrier = {"$ref": ref}
     document = {
         "openapi": "3.1.0",
@@ -438,7 +439,10 @@ def test_openapi_unread_schema_carrier_refs_name_their_source(tmp_path, ref):
     )
     for pointer in pointers:
         assert any(
-            f"at {pointer}." in warning and "operation 'writeRecord'" in warning
+            f"at {pointer}." in warning
+            and repr(ref) in warning
+            and reason in warning
+            and "operation 'writeRecord'" in warning
             for warning in loaded.warnings
         )
 
@@ -476,6 +480,54 @@ def test_openapi_local_carrier_refs_match_inline_schemas(tmp_path):
     ] == [(tool.input_schema, tool.output_schema) for tool in inline.tools]
 
 
+def test_openapi_resolves_local_media_and_percent_encoded_array_pointers(tmp_path):
+    document = {
+        "openapi": "3.2.0",
+        "paths": {
+            "/records/{id}": {
+                "get": {
+                    "parameters": [{"name": "id", "in": "path", "schema": {"type": "integer"}}],
+                    "responses": {"200": {"summary": "OK"}},
+                },
+                "post": {
+                    "parameters": [{"$ref": "#/paths/~1records~1%7Bid%7D/get/parameters/0"}],
+                    "requestBody": {"content": {"application/json": {"$ref": "#/components/mediaTypes/Record"}}},
+                    "responses": {"200": {"$ref": "#/components/responses/Summary"}},
+                },
+            },
+        },
+        "components": {
+            "mediaTypes": {"Record": {"schema": {"type": "object", "properties": {"title": {"type": "string"}}}}},
+            "responses": {"Summary": {"summary": "OK"}},
+        },
+    }
+    loaded = _load_openapi_text(tmp_path, json.dumps(document))
+    assert loaded.warnings == []
+    tool = next(tool for tool in loaded.tools if tool.annotations["httpMethod"] == "POST")
+    assert tool.input_schema["properties"] == {"id": {"type": "integer"}, "title": {"type": "string"}}
+    assert extraction_is_complete(tool)
+
+
+def test_openapi_groups_unread_shared_media_by_source_pointer(tmp_path):
+    document = {
+        "openapi": "3.2.0",
+        "paths": {"/records": {
+            "parameters": [{
+                "name": "q", "in": "query",
+                "content": {"application/json": {"$ref": "shared.yaml#/Query"}},
+            }],
+            **{method: {"operationId": f"{method}Record"} for method in ("get", "post", "patch", "put")},
+        }},
+    }
+    loaded = _load_openapi_text(tmp_path, json.dumps(document))
+    assert len(loaded.tools) == 4
+    assert all(not extraction_is_complete(tool) for tool in loaded.tools)
+    [warning] = loaded.warnings
+    assert "/paths/~1records/parameters/0/content/application~1json/$ref" in warning
+    assert "shared.yaml#/Query" in warning
+    assert "and 3 other operations" in warning
+
+
 def test_scan_reports_incomplete_openapi_request_carrier(tmp_path):
     from agents_shipgate.cli.scan import run_scan
 
@@ -498,8 +550,10 @@ def test_scan_reports_incomplete_openapi_request_carrier(tmp_path):
         packet_enabled=False,
     )
     coverage = report.release_decision.evidence_coverage
-    assert coverage.source_warning_count > 0
-    assert coverage.low_confidence_tool_count > 0
+    assert any(
+        gap.kind == "low_confidence_tool" and "stripe.create_refund" in gap.subject
+        for gap in coverage.evidence_gaps
+    )
     assert any(
         "requestBody/$ref" in warning and "stripe.create_refund" in warning
         for warning in report.source_warnings
