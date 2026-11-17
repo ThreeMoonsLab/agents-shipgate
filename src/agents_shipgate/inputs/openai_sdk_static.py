@@ -2161,7 +2161,8 @@ def _function_tool_decorators(
 def _ambiguous_sdk_decorator(ref: str, decorator: ast.expr) -> str:
     return (
         f"OpenAI Agents SDK tool decorator at {ref}:{decorator.lineno} "
-        "has an ambiguous import. Use an explicit, unconditional SDK import."
+        "has an ambiguous import or rebinding. Use an explicit, unconditional SDK import "
+        "and keep the decorator name bound to it."
     )
 
 

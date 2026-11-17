@@ -16,6 +16,7 @@ from agents_shipgate.inputs._python_framework import (
     assignment_value,
     dynamic_reason,
     framework_function_tool,
+    framework_tool_binding_problem,
     framework_tool_members,
     load_python_framework_sources,
     local_tool_lists,
@@ -26,6 +27,8 @@ from agents_shipgate.inputs._python_framework import (
 from agents_shipgate.inputs.common import stable_tool_id, tool_name_warning
 from agents_shipgate.inputs.config_trace import trace_config_binding
 from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
+from agents_shipgate.inputs.list_expressions import bindings_at
+from agents_shipgate.inputs.openai_sdk_static import _capability_changes
 from agents_shipgate.inputs.protocol import LoadedAdapterResult
 from agents_shipgate.inputs.python_static import (
     dotted_name,
@@ -90,6 +93,7 @@ class _CrewAiExtractor:
         self.tool_decorators = self._tool_decorator_names()
         self.prebuilt_names = self._prebuilt_tool_names()
         self.tool_vars: dict[str, Tool] = {}
+        self.tool_declarations: dict[str, ast.stmt] = {}
         self.discovered_tools: list[Tool] = []
         self.tool_lists = local_tool_lists(tree, source_ref, _reads_tools)
         self.inline_tools: dict[ast.Call, str] = {}
@@ -115,6 +119,7 @@ class _CrewAiExtractor:
                         self._record_inline_tool(element)
         for call in ordered_nodes(self.tree, (ast.Call,)):
             self._record_agent_or_crew(call)
+        self._record_agent_tool_changes()
         warnings = sorted(dict.fromkeys(self.warnings))
         self.artifacts.warnings.extend(warnings)
         return unique_tools(self.discovered_tools), warnings
@@ -162,7 +167,7 @@ class _CrewAiExtractor:
             source_type="crewai_function",
             extraction_method="crewai_tool_decorator_ast",
         )
-        self._add_tool(node.name, tool, "function_tools")
+        self._add_tool(node.name, tool, "function_tools", node)
 
     def _tool_decorator(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> ast.Call | ast.Name | None:
         for decorator in node.decorator_list:
@@ -211,7 +216,7 @@ class _CrewAiExtractor:
             extraction_confidence="medium",
             extraction={"method": "crewai_base_tool_ast", "confidence": "medium"},
         )
-        self._add_tool(node.name, tool, "class_tools")
+        self._add_tool(node.name, tool, "class_tools", node)
 
     def _record_prebuilt_tool(self, node: ast.Assign | ast.AnnAssign) -> None:
         target = assignment_target(node)
@@ -220,13 +225,17 @@ class _CrewAiExtractor:
             return
         class_name = last_name(call.func)
         if class_name in self.tool_vars and self.tool_vars[class_name].source_type == "crewai_class_tool":
-            self.tool_vars[target] = self.tool_vars[class_name]
+            if isinstance(call.func, ast.Name) and not framework_tool_binding_problem(
+                self.tool_lists, call.func, self.tool_declarations[class_name],
+            ):
+                self.tool_vars[target] = self.tool_vars[class_name]
+                self.tool_declarations[target] = node
             return
         if not self._is_prebuilt_tool_call(call):
             return
         name = last_name(call.func) or target
         tool = self._prebuilt_tool(name, call.lineno)
-        self._add_tool(target, tool, "prebuilt_tools")
+        self._add_tool(target, tool, "prebuilt_tools", node)
         self.warnings.append(
             f"CrewAI prebuilt tool {name!r} at {self.source_ref}:{call.lineno} "
             "was recorded as low-confidence metadata; provide an explicit inventory "
@@ -261,15 +270,31 @@ class _CrewAiExtractor:
                 }
             )
 
+    def _record_agent_tool_changes(self) -> None:
+        view = self.tool_lists.entry
+        lookup = bindings_at(view.scopes, view.bindings)
+        for receiver, site in _capability_changes(self.tree, frozenset({"tools"}), scopes=view.scopes):
+            candidates = [receiver]
+            if isinstance(receiver, ast.Name):
+                candidates = [assignment_value(statement) for _, statement in lookup(receiver.id, receiver)]
+            if any(isinstance(value, ast.Call) and last_name(value.func) == "Agent" for value in candidates):
+                self._dynamic("agent", site.lineno, "the agent's tools may change after construction")
+
     def _resolve_tool_names(self, expr: ast.AST | None) -> tuple[list[str], str | None]:
         if expr is None:
             return [], None
+        if isinstance(expr, (ast.List, ast.Tuple)):
+            for element in expr.elts:
+                if isinstance(element, ast.Call) and self._is_prebuilt_tool_call(element):
+                    self._record_inline_tool(element)
         members, reason = framework_tool_members(self.tool_lists, expr)
         if reason is not None:
             return [], reason
         names = []
         for element in members:
             if isinstance(element, ast.Name) and element.id in self.tool_vars:
+                if problem := framework_tool_binding_problem(self.tool_lists, element, self.tool_declarations[element.id]):
+                    return [], problem
                 names.append(self.tool_vars[element.id].name)
             elif isinstance(element, ast.Call) and self._is_prebuilt_tool_call(element):
                 names.append(self._record_inline_tool(element))
@@ -335,7 +360,7 @@ class _CrewAiExtractor:
             extraction={"method": "crewai_prebuilt_tool_reference", "confidence": "low"},
         )
 
-    def _add_tool(self, variable_name: str, tool: Tool, artifact_field: str) -> None:
+    def _add_tool(self, variable_name: str, tool: Tool, artifact_field: str, declaration: ast.stmt) -> None:
         if warning := tool_name_warning(tool.name):
             self.warnings.append(warning)
         existing = self.tool_vars.get(variable_name)
@@ -349,6 +374,7 @@ class _CrewAiExtractor:
                 ),
             )
         self.tool_vars[variable_name] = tool
+        self.tool_declarations[variable_name] = declaration
         self.discovered_tools.append(tool)
         getattr(self.artifacts, artifact_field).append(
             {"name": tool.name, "source_ref": self.source_ref, "line": source_line(tool.source_location)}
@@ -406,8 +432,10 @@ def _function_tool(
     )
 
 
-def _reads_tools(call: ast.Call, keyword_name: str | None) -> bool:
-    return keyword_name == "tools" and last_name(call.func) == "Agent"
+def _reads_tools(call: ast.Call, keyword_name: str | None, qualified: str | None) -> bool:
+    return keyword_name == "tools" and (
+        last_name(call.func) == "Agent" or qualified in {"crewai.Task", "crewai.task.Task"}
+    )
 
 
 def _decorator_tool_name(decorator: ast.Call | ast.Name) -> str | None:
@@ -540,9 +568,10 @@ class CrewAIAdapter:
                 shape="dynamic_construction",
                 status="not_extracted",
                 reads=(
-                    "A tools list built by a comprehension, a config read, or a "
-                    "rebound variable records a dynamic tool surface and adds "
-                    "nothing to the catalog."
+                    "A tool list the reader cannot resolve, a rebound member, "
+                    "or a list handed to code that may change it records a dynamic "
+                    "tool surface. Replacing or mutating an agent's tools also "
+                    "leaves its bindings incomplete."
                 ),
                 raises=("SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",),
             ),

@@ -85,12 +85,82 @@ def test_changed_tool_list_remains_partial_with_an_inventory(project, change):
         encoding="utf-8",
     )
     with manifest.open("a", encoding="utf-8") as config:
-        config.write(f"{framework}:\n  tool_inventories:\n    - tools.json\n")
+        config.write(f"{framework}:\n  tool_inventories:\n    - path: tools.json\n      source_id: framework\n")
 
     report = scan(manifest)
     assert report.binding_surface_facts.status == "partial"
     assert not report.binding_surface_facts.pass_eligible
     assert report.release_decision.decision != "passed"
+
+
+@pytest.mark.parametrize("scenario", ["parameter", "local", "module"])
+def test_tool_member_requires_the_binding_that_declared_it(project, scenario):
+    source, manifest, definitions, build, framework = project
+    if scenario == "parameter":
+        body = f"def make(lookup):\n    tools = [lookup]\n    return {build}\nroot = make(summarize)\n"
+    elif scenario == "local":
+        body = f"def make():\n    lookup = summarize\n    tools = [lookup]\n    return {build}\nroot = make()\n"
+    else:
+        body = f"lookup = summarize\ntools = [lookup]\nroot = {build}\n"
+    source.write_text(definitions + body, encoding="utf-8")
+    report = scan(manifest)
+    assert report.frameworks[framework]["dynamic_tool_surface_count"] == 1
+    assert report.binding_surface_facts.status == "partial"
+    assert not report.binding_surface_facts.tool_edges
+
+
+def test_known_readers_can_share_the_agent_tool_list(project):
+    source, manifest, definitions, build, framework = project
+    extras = (
+        "from langchain.agents import AgentExecutor\n"
+        "from langchain_core.tools import render_text_description\n"
+        "AgentExecutor(agent=root, tools=tools)\n"
+        "render_text_description(tools)\n"
+        if framework == "langchain" else
+        "from crewai import Task\n"
+        "Task(tools=tools)\n"
+    )
+    source.write_text(
+        definitions + "\ndef describe(items):\n    return len(items)\n"
+        + f"tools = [lookup]\nroot = {build}\ndescribe(tools)\n" + extras,
+        encoding="utf-8",
+    )
+    report = scan(manifest)
+    assert report.frameworks[framework]["dynamic_tool_surface_count"] == 0
+    assert len(report.binding_surface_facts.tool_edges) == 1
+
+
+def test_unknown_list_use_names_the_call_site(project):
+    source, manifest, definitions, build, framework = project
+    body = f"tools = [lookup]\nroot = {build}\nunknown_consumer(tools)\n"
+    source.write_text(definitions + body, encoding="utf-8")
+    line = len((definitions + body).splitlines())
+    report = scan(manifest)
+    assert report.frameworks[framework]["dynamic_tool_surface_count"] == 1
+    assert any(f"by the call at agent.py:{line}" in warning for warning in report.source_warnings)
+
+
+@pytest.mark.parametrize("mutation", ["root.tools.append(summarize)", "root.tools = [lookup, summarize]"])
+def test_crewai_agent_tool_edits_are_incomplete(tmp_path, mutation):
+    (tmp_path / "agent.py").write_text(
+        "from crewai import Agent\n"
+        "from crewai.tools import tool\n"
+        "@tool\ndef lookup(text: str) -> str:\n    return text\n"
+        "@tool\ndef summarize(text: str) -> str:\n    return text\n"
+        "root = Agent(role='lookup', tools=[lookup])\n"
+        f"{mutation}\n",
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "shipgate.yaml"
+    manifest.write_text(
+        'version: "0.1"\nproject: {name: crew}\nagent: {name: root}\n'
+        "environment: {target: local}\n"
+        "tool_sources: [{id: crew, type: crewai, path: agent.py}]\n",
+        encoding="utf-8",
+    )
+    report = scan(manifest)
+    assert report.binding_surface_facts.status == "partial"
+    assert any("tools may change after construction" in warning for warning in report.source_warnings)
 
 
 def test_function_local_list_does_not_shadow_the_module_list(project):

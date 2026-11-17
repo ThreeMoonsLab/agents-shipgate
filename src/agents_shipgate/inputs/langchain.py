@@ -14,6 +14,7 @@ from agents_shipgate.inputs._python_framework import (
     assignment_target,
     dynamic_reason,
     framework_function_tool,
+    framework_tool_binding_problem,
     framework_tool_members,
     load_python_framework_sources,
     local_tool_lists,
@@ -92,6 +93,7 @@ class _LangChainExtractor:
         }
         self.tool_decorators = self._tool_decorator_names()
         self.tool_vars: dict[str, Tool] = {}
+        self.tool_declarations: dict[str, ast.stmt] = {}
         self.discovered_tools: list[Tool] = []
         self.tool_lists = local_tool_lists(tree, source_ref, _reads_tools)
         self.call_targets = {
@@ -144,7 +146,7 @@ class _LangChainExtractor:
             source_type="langchain_function",
             extraction_method="langchain_tool_decorator_ast",
         )
-        self._add_tool(node.name, tool, "function_tools")
+        self._add_tool(node.name, tool, "function_tools", node)
 
     def _tool_decorator(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> ast.Call | ast.Name | None:
         for decorator in node.decorator_list:
@@ -185,7 +187,7 @@ class _LangChainExtractor:
             extraction_method="langchain_structured_tool_ast",
         )
         target = assignment_target(node) or tool_name
-        self._add_tool(target, tool, "structured_tools")
+        self._add_tool(target, tool, "structured_tools", node)
 
     def _record_tool_surface(self, call: ast.Call) -> None:
         call_kind = last_name(call.func)
@@ -218,6 +220,9 @@ class _LangChainExtractor:
             if not isinstance(member, ast.Name) or member.id not in self.tool_vars:
                 self._dynamic(kind, call.lineno, dynamic_reason(tools_expr), expr=tools_expr)
                 return
+            if problem := framework_tool_binding_problem(self.tool_lists, member, self.tool_declarations[member.id]):
+                self._dynamic(kind, call.lineno, problem, expr=tools_expr)
+                return
             names.append(self.tool_vars[member.id].name)
         record = {
             "agent": agent_name,
@@ -247,7 +252,7 @@ class _LangChainExtractor:
             )
         return schema
 
-    def _add_tool(self, variable_name: str, tool: Tool, artifact_field: str) -> None:
+    def _add_tool(self, variable_name: str, tool: Tool, artifact_field: str, declaration: ast.stmt) -> None:
         if warning := tool_name_warning(tool.name):
             self.warnings.append(warning)
         existing = self.tool_vars.get(variable_name)
@@ -261,6 +266,7 @@ class _LangChainExtractor:
                 ),
             )
         self.tool_vars[variable_name] = tool
+        self.tool_declarations[variable_name] = declaration
         self.discovered_tools.append(tool)
         getattr(self.artifacts, artifact_field).append(
             {"name": tool.name, "source_ref": self.source_ref, "line": source_line(tool.source_location)}
@@ -291,11 +297,22 @@ class _LangChainExtractor:
         )
 
 
-def _reads_tools(call: ast.Call, keyword_name: str | None) -> bool:
-    # These are the same consumers whose list arguments the adapter records.
-    return keyword_name in {None, "tools"} and last_name(call.func) in {
+def _reads_tools(call: ast.Call, keyword_name: str | None, qualified: str | None) -> bool:
+    if keyword_name in {None, "tools"} and last_name(call.func) in {
         *AGENT_BINDING_CALLS, "ToolNode", "bind_tools",
-    }
+    }:
+        return True
+    if keyword_name == "tools" and qualified in {
+        "langchain.agents.AgentExecutor", "langchain.agents.agent.AgentExecutor",
+        "langchain_classic.agents.AgentExecutor", "langchain_classic.agents.agent.AgentExecutor",
+    }:
+        return True
+    module, _, name = (qualified or "").rpartition(".")
+    return (
+        keyword_name in {None, "tools"}
+        and module in {"langchain.tools.render", "langchain_core.tools", "langchain_core.tools.render"}
+        and name in {"render_text_description", "render_text_description_and_args"}
+    )
 
 
 def _function_tool(
@@ -407,9 +424,9 @@ class LangChainAdapter:
                 shape="dynamic_construction",
                 status="not_extracted",
                 reads=(
-                    "A tools list built by a comprehension, a config read, or a "
-                    "rebound variable records a dynamic tool surface, with the "
-                    "config path when the read is statically traceable."
+                    "A tool list the reader cannot resolve, a rebound member, or "
+                    "a list handed to code that may change it records a dynamic "
+                    "tool surface. A statically traceable config read names its path."
                 ),
                 raises=("SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE",),
             ),

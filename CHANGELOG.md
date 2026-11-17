@@ -22,7 +22,7 @@
 
 ### Python scan readers
 
-- **LangChain and CrewAI report incomplete binding evidence for changed tool lists.** They follow list names in their Python scope and report mutation or ambiguous assignments instead of recording the original literal as the complete binding. The OpenAI Agents SDK reader excludes injected context from the input schema and warns about ambiguous tool-decorator imports. Pydantic fields specified without a default or a factory are required. (#1038)
+- **LangChain and CrewAI report incomplete binding evidence for changed tool lists.** They follow list names in their Python scope and report mutation or ambiguous assignments instead of recording the original literal as the complete binding. The OpenAI Agents SDK reader excludes injected context from the input schema and warns when it omits a tool whose decorator import or binding is ambiguous. Pydantic fields specified without a default or a factory are required. (#1038)
 
 ### Packaging
 

@@ -12,9 +12,13 @@ from agents_shipgate.core.domain import (
 )
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.inputs.common import list_input_directory, resolve_input_path, stable_tool_id
-from agents_shipgate.inputs.list_expressions import AgentReads, ListExpressions
+from agents_shipgate.inputs.list_expressions import ListExpressions, bindings_at, evaluation_site
 from agents_shipgate.inputs.mcp import load_mcp_tools
-from agents_shipgate.inputs.python_imports import ScopeIndex, _module_bindings
+from agents_shipgate.inputs.python_imports import (
+    ScopeIndex,
+    _module_bindings,
+    reference_spelling,
+)
 from agents_shipgate.inputs.python_static import (
     display_path,
     function_output_schema,
@@ -331,16 +335,59 @@ def unique_tools(tools: Iterable[Tool]) -> list[Tool]:
     return unique
 
 
-def local_tool_lists(tree: ast.Module, source_ref: str, reads: AgentReads) -> ListExpressions:
+def local_tool_lists(
+    tree: ast.Module,
+    source_ref: str,
+    reads: Callable[[ast.Call, str | None, str | None], bool],
+) -> ListExpressions:
+    scopes = ScopeIndex(tree)
+    bindings, has_wildcard = _module_bindings(tree)
+    lookup = bindings_at(scopes, bindings)
+
+    def reads_tools(call: ast.Call, keyword: str | None) -> bool:
+        spelling = reference_spelling(call.func)
+        qualified = None
+        if spelling and not has_wildcard:
+            head, _, attribute = spelling.partition(".")
+            found = lookup(head, call)
+            if len(found) == 1:
+                node, statement = found[0]
+                if isinstance(node, ast.alias) and statement in tree.body and statement.lineno < call.lineno:
+                    if isinstance(statement, ast.ImportFrom) and statement.level == 0 and statement.module:
+                        qualified = f"{statement.module}.{node.name}"
+                    elif isinstance(statement, ast.Import):
+                        qualified = node.name if node.asname else head
+                    if qualified and attribute:
+                        qualified = f"{qualified}.{attribute}"
+        return reads(call, keyword, qualified)
+
     return ListExpressions(
         ref=source_ref,
         tree=tree,
-        scopes=ScopeIndex(tree),
-        bindings=_module_bindings(tree)[0],
+        scopes=scopes,
+        bindings=bindings,
         module=None,
         resolver=None,
-        agent_reads=reads,
+        agent_reads=reads_tools,
     )
+
+
+def framework_tool_binding_problem(lists: ListExpressions, name: ast.Name, declaration: ast.stmt) -> str | None:
+    view = lists.entry
+    site = evaluation_site(view.scopes, name)
+    if view.scopes.enclosing_bindings(site, name.id):
+        return f"tool reference {name.id!r} is shadowed in its local scope"
+    bindings = view.bindings.get(name.id, ())
+    if (
+        not bindings
+        or bindings[-1].statement is not declaration
+        or not all(binding.top_level for binding in bindings)
+        or (len(bindings) > 1 and name.lineno <= declaration.lineno)
+    ):
+        return f"tool reference {name.id!r} does not resolve to its recorded module binding"
+    if any(line > declaration.lineno for line in view.star_lines):
+        return f"tool reference {name.id!r} may be rebound by a wildcard import"
+    return None
 
 
 def framework_tool_members(
