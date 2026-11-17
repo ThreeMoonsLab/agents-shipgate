@@ -37,12 +37,71 @@ def _module(name: str):
 summarize = _module("summarize")
 pool_script = _module("pool")
 run = _module("run")
+changed_lines = _module("changed_lines")
 DEVELOPMENT = json.loads((BENCH / "development.json").read_text(encoding="utf-8"))
 HOLDOUT = json.loads((BENCH / "holdout.json").read_text(encoding="utf-8"))
 POOL = json.loads((BENCH / "pool.json").read_text(encoding="utf-8"))
 CORPORA = {DEVELOPMENT["corpus"]: DEVELOPMENT["members"], HOLDOUT["corpus"]: HOLDOUT["members"]}
 SCORES = sorted((BENCH / "results").glob("*.scores.json"))
 README = (BENCH / "README.md").read_text(encoding="utf-8")
+
+
+def test_changed_lines_marks_the_edited_argument_wrapper_and_decorated_body() -> None:
+    source = b"""from agents import Agent as SDKAgent, function_tool
+from google.adk.tools import FunctionTool
+
+@function_tool
+def read():
+    return "changed value"
+
+wrapped = FunctionTool(func=read)
+agent = SDKAgent(
+    name="Test",
+    tools=[wrapped],
+)
+"""
+    assert changed_lines._markers(source, {6, 8, 10, 11}) == [
+        {"line": 6, "kind": "decorated_function", "function": "read"},
+        {"line": 8, "kind": "tool_wrapper", "constructor": "google.adk.tools.FunctionTool"},
+        {"line": 11, "kind": "constructor_argument", "constructor": "agents.Agent", "argument": "tools"},
+    ]
+
+
+@pytest.mark.parametrize("shadow", [
+    "SDKAgent = factory",
+    "def inner(SDKAgent):\n    return SDKAgent()",
+    "def inner():\n    from unrelated import Agent as SDKAgent",
+    "from other import *",
+])
+def test_changed_lines_withholds_ambiguous_import_spellings(shadow: str) -> None:
+    source = f"from agents import Agent as SDKAgent\n{shadow}\nagent = SDKAgent(tools=[])\n"
+    assert changed_lines._markers(source.encode(), {len(source.splitlines())}) == []
+
+
+def test_changed_lines_reads_only_edited_sides_and_retains_unread_files(tmp_path, monkeypatch):
+    base, head = "a" * 40, "b" * 40
+
+    def fake_git(repo, *args):
+        assert repo == tmp_path / "owner__project"
+        if "--name-only" in args:
+            return b"agent.py\0broken.py\0"
+        if "--unified=0" in args:
+            return b"@@ -1,0 +2,1 @@\n+edited line\n"
+        if args == ("show", f"{head}:agent.py"):
+            return b"from agents import Agent\nagent = Agent(tools=[])\n"
+        assert args == ("show", f"{head}:broken.py")
+        return b"invalid syntax!\n"
+
+    monkeypatch.setattr(changed_lines, "_git", fake_git)
+    result = changed_lines.inspect_member({
+        "slug": "case", "repository": "owner/project", "merge_base": base, "head": head,
+    }, tmp_path)
+    assert result["status"] == "partial"
+    marker, = result["markers"]
+    assert (marker["path"], marker["side"], marker["line"]) == ("agent.py", "head", 2)
+    assert result["unread"] == [{
+        "path": "broken.py", "side": "head", "reason": "Could not read Python source.",
+    }]
 
 
 def test_the_development_corpus_is_pinned_and_unique() -> None:

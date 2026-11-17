@@ -36,5 +36,81 @@ adjudication remain open.
 | [Vesta#58](https://github.com/mezgoodle/Vesta/pull/58) | b | The secretary receives the concatenated calendar and email groups. The root sub-agent list replaces calendar with secretary. The new email group includes check_emails, alongside the calendar tools get_calendar_events and schedule_event_tool. [Source](https://github.com/mezgoodle/Vesta/blob/8626cba5bd1584eec6f804040139747deb44bf7c/backend/app/services/adk_service.py#L124) |
 | [Vesta#70](https://github.com/mezgoodle/Vesta/pull/70) | b, c | The existing secretary tool argument adds the tasks group when that key is present. The source names get_tasks_tool, create_task_tool, complete_task_tool and delete_task_tool in that group. [Source](https://github.com/mezgoodle/Vesta/blob/e15e6a7bc31789297a6aac301878eb39ed927931/backend/app/services/adk_service.py#L126) |
 
-The changed-lines prototype, the 49-case scoring, and the decision under
-#1149's proposed rule are pending.
+## Prototype replay
+
+[The changed-lines probe](../changed_lines.py) reads the changed Python
+lines on both sides of each pinned comparison. It marks edited arguments
+to directly imported SDK or ADK agent constructors, calls to recognized
+`FunctionTool` constructors, and edited functions whose import spelling
+resolves to the SDK decorator. Each marker records the first changed line.
+Competing import bindings are withheld. The probe parses source with Python
+AST and uses the existing local Git caches.
+
+```sh
+python benchmark/application-q2/changed_lines.py \
+  --corpus benchmark/application-q2/development.json \
+  --clones ~/.cache/shipgate-q2/repos > changed-lines.json
+```
+
+CPython 3.12.13 read all 49 pinned comparisons. The JSON
+output has SHA-256 `f580c63bd67fd7066ce6a90dd59c2586ea6f12a97d017857193e278ce8ad4741`.
+The probe found markers in 30 of 49 cases and 14 of the
+18 cases above. In 7 of the 18 it found a head-side marker in the
+same file as the representative observation. These counts describe syntax
+locations. Confirming a binding change requires tracing it from source.
+
+| Case | Constructor arguments | Tool wrappers | Decorated functions |
+| --- | ---: | ---: | ---: |
+| [FEDOT.MAS#30](https://github.com/ITMO-NSS-team/FEDOT.MAS/pull/30) | 7 | 2 | 0 |
+| [FEDOT.MAS#36](https://github.com/ITMO-NSS-team/FEDOT.MAS/pull/36) | 0 | 0 | 0 |
+| [FEDOT.MAS#38](https://github.com/ITMO-NSS-team/FEDOT.MAS/pull/38) | 2 | 0 | 0 |
+| [FEDOT.MAS#42](https://github.com/ITMO-NSS-team/FEDOT.MAS/pull/42) | 0 | 0 | 0 |
+| [GRAAL#33](https://github.com/InseeFrLab/GRAAL/pull/33) | 0 | 0 | 2 |
+| [voice-freight-negotiator#10](https://github.com/JSebastianIEU/voice-freight-negotiator/pull/10) | 0 | 0 | 0 |
+| [Agentic-AI-Scientist#2](https://github.com/JinyanSu1/Agentic-AI-Scientist/pull/2) | 1 | 0 | 3 |
+| [OpenCMO#41](https://github.com/Lling0000/OpenCMO/pull/41) | 0 | 0 | 0 |
+| [Sponsio#173](https://github.com/SponsioLabs/Sponsio/pull/173) | 0 | 0 | 0 |
+| [MIS_TALENT#5](https://github.com/Tiendat2703/MIS_TALENT/pull/5) | 0 | 0 | 1 |
+| [MIS_TALENT#6](https://github.com/Tiendat2703/MIS_TALENT/pull/6) | 0 | 0 | 0 |
+| [MIS_TALENT#7](https://github.com/Tiendat2703/MIS_TALENT/pull/7) | 0 | 0 | 3 |
+| [MIS_TALENT#8](https://github.com/Tiendat2703/MIS_TALENT/pull/8) | 2 | 0 | 10 |
+| [agency-swarm#796](https://github.com/VRSEN/agency-swarm/pull/796) | 0 | 0 | 0 |
+| [agency-swarm#804](https://github.com/VRSEN/agency-swarm/pull/804) | 0 | 1 | 0 |
+| [O.R.I.O.N#126](https://github.com/VidulaWickramasinghe/O.R.I.O.N/pull/126) | 0 | 0 | 77 |
+| [internstore-migrate#4](https://github.com/YaroslavMarkivskyi/internstore-migrate/pull/4) | 0 | 0 | 0 |
+| [zeroruntime-python-examples#1](https://github.com/ZeroRuntimeAI/zeroruntime-python-examples/pull/1) | 0 | 0 | 0 |
+| [zeroruntime-python-examples#5](https://github.com/ZeroRuntimeAI/zeroruntime-python-examples/pull/5) | 0 | 0 | 0 |
+| [agr_ai_curation#842](https://github.com/alliance-genome/agr_ai_curation/pull/842) | 3 | 1 | 16 |
+| [agr_ai_curation#858](https://github.com/alliance-genome/agr_ai_curation/pull/858) | 0 | 0 | 1 |
+| [agr_ai_curation#860](https://github.com/alliance-genome/agr_ai_curation/pull/860) | 23 | 5 | 58 |
+| [cinescout-ai#9](https://github.com/buriro-ezekia/cinescout-ai/pull/9) | 2 | 0 | 0 |
+| [pastoriza#66](https://github.com/carlosdaniel092015-crypto/pastoriza/pull/66) | 0 | 0 | 2 |
+| [pastoriza#69](https://github.com/carlosdaniel092015-crypto/pastoriza/pull/69) | 0 | 0 | 4 |
+| [chack-agent#25](https://github.com/carlospolop/chack-agent/pull/25) | 0 | 0 | 0 |
+| [tuatha#1](https://github.com/cianfhoghlaim/tuatha/pull/1) | 0 | 80 | 0 |
+| [starchatter-telegram#4](https://github.com/starfall-orb/starchatter-telegram/pull/4) | 0 | 0 | 0 |
+| [adk_tutorial#7](https://github.com/cuppibla/adk_tutorial/pull/7) | 12 | 0 | 0 |
+| [adk_tutorial#9](https://github.com/cuppibla/adk_tutorial/pull/9) | 2 | 0 | 0 |
+| [skye-next#17](https://github.com/evvyraine/skye-next/pull/17) | 0 | 0 | 1 |
+| [livekit-agents#1](https://github.com/geroembser/livekit-agents/pull/1) | 0 | 0 | 0 |
+| [multi-agent-course#63](https://github.com/hamzafarooq/multi-agent-course/pull/63) | 0 | 0 | 0 |
+| [multi-agent-course#64](https://github.com/hamzafarooq/multi-agent-course/pull/64) | 0 | 0 | 0 |
+| [attest#3](https://github.com/jpka/attest/pull/3) | 2 | 0 | 0 |
+| [CRM#5](https://github.com/kkmiecik-coder/CRM/pull/5) | 0 | 0 | 7 |
+| [llm-agent-for-ai-studio#19](https://github.com/krevetka-is-afk/llm-agent-for-ai-studio/pull/19) | 2 | 0 | 14 |
+| [llm-agent-for-ai-studio#20](https://github.com/krevetka-is-afk/llm-agent-for-ai-studio/pull/20) | 0 | 0 | 2 |
+| [llm-agent-for-ai-studio#23](https://github.com/krevetka-is-afk/llm-agent-for-ai-studio/pull/23) | 2 | 0 | 12 |
+| [siada-cli#6](https://github.com/liauto-siada/siada-cli/pull/6) | 9 | 2 | 22 |
+| [agent-desk#8](https://github.com/lifenyan/agent-desk/pull/8) | 0 | 0 | 0 |
+| [Vesta#53](https://github.com/mezgoodle/Vesta/pull/53) | 1 | 0 | 0 |
+| [Vesta#58](https://github.com/mezgoodle/Vesta/pull/58) | 2 | 0 | 0 |
+| [Vesta#70](https://github.com/mezgoodle/Vesta/pull/70) | 0 | 0 | 0 |
+| [realestatecrm#612](https://github.com/mosnin/realestatecrm/pull/612) | 0 | 0 | 0 |
+| [rustic-ai#419](https://github.com/rustic-ai/rustic-ai/pull/419) | 0 | 0 | 0 |
+| [agent-memory-openai-agents-sdk#1](https://github.com/surrealdb/agent-memory-openai-agents-sdk/pull/1) | 8 | 0 | 10 |
+| [hepagent#72](https://github.com/xju2/hepagent/pull/72) | 1 | 0 | 6 |
+| [hepagent#74](https://github.com/xju2/hepagent/pull/74) | 0 | 0 | 17 |
+| **Total** | **81** | **91** | **268** |
+
+The complete source adjudication, hand scoring and decision under #1149's
+proposed rule are pending.
