@@ -147,7 +147,11 @@ def remove_contained(path: Path, *, root: Path | None = None) -> bool:
         return False
     _require_plain_file(path, metadata)
     try:
-        os.unlink(target)
+        # ``Path.unlink``, as every cleanup did before this module: a removal
+        # that fails raises its ``OSError`` to the caller, which maps it to its
+        # own documented failure (``ArtifactLifecycleError`` for verifier
+        # artifacts) rather than to an output-path refusal.
+        target.unlink()
     except FileNotFoundError:
         return False
     return True

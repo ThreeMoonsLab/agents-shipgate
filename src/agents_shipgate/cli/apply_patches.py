@@ -53,6 +53,7 @@ import typer
 from pydantic import ValidationError
 from ruamel.yaml import YAML
 
+from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_controls import owned_git_root_for
 from agents_shipgate.core.errors import AgentsShipgateError
 from agents_shipgate.schemas.declaration_continuation import (
@@ -112,9 +113,6 @@ def apply_patches(
     workspace: Path | None = typer.Option(
         None,
         "--workspace",
-        exists=True,
-        file_okay=False,
-        dir_okay=True,
         help=(
             "The repository the report's patches are for. Patches are written "
             "only under this directory or the git repository containing it, "
@@ -132,6 +130,9 @@ def apply_patches(
 
     Default is dry-run (prints diffs only). Use ``--apply`` to mutate.
     """
+    # Refused before anything is read, as on every --workspace command: an
+    # absent or unreadable workspace is an invocation error (exit 2).
+    workspace = require_workspace(workspace)
     confidence_levels = _confidence_set(confidence)
     kind_set = {k.strip() for k in kinds.split(",") if k.strip()}
 
