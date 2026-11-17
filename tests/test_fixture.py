@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -75,6 +76,32 @@ def test_replay_name_cannot_shadow_a_different_bundled_sample(tmp_path: Path):
 
     with pytest.raises(RuntimeError, match="governed_edits_governance"):
         fixtures_module._validate_replay_fixture_names(tmp_path)
+
+
+def test_fixture_verify_checks_the_report_golden_and_rejects_missing_evidence(tmp_path, monkeypatch):
+    from agents_shipgate.cli import fixture
+
+    sample = tmp_path / "sample"
+    shutil.copytree(fixture_path("simple_openai_api_agent"), sample)
+    monkeypatch.setattr(fixture, "_resolve_fixture", lambda _name: sample)
+    args = ["fixture", "verify", "simple_openai_api_agent"]
+
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert "release decision match expected/report.json" in result.stdout
+
+    golden = sample / "expected" / "report.json"
+    expected = json.loads(golden.read_text())
+    expected["release_decision"]["decision"] = "passed"
+    golden.write_text(json.dumps(expected))
+    result = runner.invoke(app, args)
+    assert result.exit_code == 20, result.output
+    assert "release_decision" in result.stderr
+
+    golden.unlink()
+    result = runner.invoke(app, args)
+    assert result.exit_code == 3, result.output
+    assert "No fixture golden" in result.stderr
 
 
 def test_cli_fixture_list_text():

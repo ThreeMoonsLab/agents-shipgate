@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from pydantic import ValidationError
 
 from agents_shipgate.cli._helpers import (
     _diagnose_config_error,
@@ -45,7 +46,7 @@ from agents_shipgate.core.current_control import (
     publish_current_control,
     workspace_identity_from_plan,
 )
-from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.errors import ConfigError, InputParseError, format_validation_error
 from agents_shipgate.core.static_inputs import (
     StaticInputSnapshot,
     activate_static_input_snapshot,
@@ -784,18 +785,23 @@ def reproduce(
 ) -> None:
     """Validate a terminal receipt and every artifact hash without execution."""
 
-    receipt = VerificationReceipt.model_validate(_load_json(receipt_path))
     try:
+        receipt = VerificationReceipt.model_validate(_load_json(receipt_path))
         validate_receipt_artifacts(receipt, root=artifacts_root.resolve())
-    except ValueError as exc:
-        raise InputParseError(str(exc)) from exc
+    except (InputParseError, OSError, ValueError) as exc:
+        message = (
+            format_validation_error(exc, label="Invalid verification receipt")
+            if isinstance(exc, ValidationError) else str(exc)
+        )
+        typer.echo(json.dumps({"valid": False, "mismatch": message}))
+        raise typer.Exit(3) from exc
     typer.echo(json.dumps({"valid": True, "receipt_id": receipt.receipt_id}))
 
 
 def _load_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         raise InputParseError(f"Could not read {path}: {exc}") from exc
     if not isinstance(value, dict):
         raise InputParseError(f"Expected one JSON object in {path}")

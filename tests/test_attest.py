@@ -488,3 +488,47 @@ def test_attest_cli_missing_verifier_returns_3(tmp_path: Path) -> None:
     result = runner.invoke(app, ["attest", "--from", str(tmp_path / "missing.json")])
     assert result.exit_code == 3
     assert "not found" in result.output
+
+
+def test_attest_refuses_explicit_unreadable_inputs(tmp_path: Path) -> None:
+    source = tmp_path / "verifier.json"
+    source.write_text(json.dumps(_verifier_payload()))
+    malformed_config = tmp_path / "bad.yaml"
+    malformed_config.write_text("version: [")
+    corrupt_run = tmp_path / "invalid-run.json"
+    corrupt_run.write_text("{")
+    wrong_object = tmp_path / "not-a-run.json"
+    wrong_object.write_text('{"unknown": "value"}')
+
+    for flag, path in (
+        ("--config", malformed_config),
+        ("--config", tmp_path / "missing.yaml"),
+        ("--verify-run", tmp_path / "missing-run.json"),
+        ("--verify-run", corrupt_run),
+        ("--verify-run", wrong_object),
+    ):
+        result = runner.invoke(app, ["attest", "--from", str(source), flag, str(path), "--json"])
+        assert result.exit_code == 3, (flag, path, result.output)
+        assert path.name in result.stderr
+        assert result.stdout == ""
+
+
+def test_attest_never_hashes_an_implicit_corrupt_verify_run(tmp_path: Path) -> None:
+    source = tmp_path / "verifier.json"
+    source.write_text(json.dumps(_verifier_payload()))
+    verify_run = source.with_name("verify-run.json")
+    verify_run.write_bytes(b"{")
+    args = ["attest", "--from", str(source), "--json"]
+
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["run_id"] is None and payload["verify_run_sha256"] is None
+
+    raw = b'{"run_id": "sha256:' + b'a' * 64 + b'"}\n'
+    verify_run.write_bytes(raw)
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["run_id"] == "sha256:" + "a" * 64
+    assert payload["verify_run_sha256"] == hashlib.sha256(raw).hexdigest()

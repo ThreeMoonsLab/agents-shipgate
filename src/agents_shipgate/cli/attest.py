@@ -26,7 +26,7 @@ from pydantic import ValidationError
 from agents_shipgate import __version__
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
 from agents_shipgate.config.loader import load_manifest
-from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.pr_approval import (
     APPROVAL_SOURCE,
     ApprovalEvaluation,
@@ -160,11 +160,8 @@ def _attest_command(
         raise typer.Exit(3) from exc
     report = _load_sibling_report(source, verifier)
     verify_run_path = _resolve_verify_run_path(source, verifier, explicit=verify_run)
-    verify_run_payload = _load_optional_json_object(verify_run_path)
-    verify_run_sha256 = (
-        hashlib.sha256(verify_run_path.read_bytes()).hexdigest()
-        if verify_run_path is not None and verify_run_path.is_file()
-        else None
+    verify_run_payload, verify_run_sha256 = _load_attestation_run(
+        verify_run_path, required=verify_run is not None,
     )
     receipt_path = source.with_name("verification-receipt.json")
     try:
@@ -684,13 +681,26 @@ def _resolve_verify_run_path(
     return candidate if candidate.is_file() else None
 
 
-def _load_optional_json_object(path: Path | None) -> dict[str, Any] | None:
-    if path is None or not path.is_file():
-        return None
+def _load_attestation_run(
+    path: Path | None, *, required: bool,
+) -> tuple[dict[str, Any] | None, str | None]:
+    if path is None:
+        return None, None
     try:
-        return _load_json_object(path, path.name)
-    except InputParseError:
-        return None
+        if not path.is_file():
+            raise OSError("expected a readable regular file")
+        raw = path.read_bytes()
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("expected one JSON object")
+        run_id = payload.get("run_id")
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise ValueError("expected a non-empty verification run ID")
+    except (OSError, ValueError, RecursionError) as exc:
+        if required:
+            raise InputParseError(f"Could not read verify-run.json at {path}: {exc}") from exc
+        return None, None
+    return payload, hashlib.sha256(raw).hexdigest()
 
 
 def _context_from_inputs(
@@ -702,12 +712,12 @@ def _context_from_inputs(
 ) -> tuple[dict[str, str | None], dict[str, str | None]]:
     context: dict[str, str | None] = {}
     run_context: dict[str, str | None] = {}
-    if config is not None and config.is_file():
+    if config is not None:
         try:
             manifest = load_manifest(config)
-        except Exception:
-            manifest = None
-        if manifest is not None and manifest.organization is not None:
+        except (ConfigError, InputParseError) as exc:
+            raise InputParseError(f"Could not use --config {config}: {exc}") from exc
+        if manifest.organization is not None:
             context.update(
                 {
                     "org_id": manifest.organization.id,

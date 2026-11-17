@@ -10,7 +10,7 @@ import shutil
 import subprocess
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import typer
 
@@ -204,8 +204,7 @@ def fixture_copy(
 def fixture_verify(
     name: str = typer.Argument(..., help="Fixture name."),
 ) -> None:
-    """Scan a fixture and (when ``expected/`` is present) confirm the JSON
-    summary matches the golden snapshot."""
+    """Verify a fixture's summary and release decision against a checked-in golden."""
     replay = replay_fixture(name)
     src = _resolve_fixture(name)
 
@@ -238,33 +237,56 @@ def fixture_verify(
         typer.echo(f"Fixture {name!r} scan failed: {exc}", err=True)
         raise typer.Exit(4) from exc
 
-    expected_dir = src / "expected"
-    if not expected_dir.is_dir():
-        typer.echo(
-            f"Fixture {name!r} has no expected/ directory; verification skipped (scan succeeded).",
-        )
-        raise typer.Exit(0)
-
-    summary = {
+    actual = {
         "status": report.summary.status,
         "critical_count": report.summary.critical_count,
         "high_count": report.summary.high_count,
         "medium_count": report.summary.medium_count,
+        "release_decision": report.release_decision.decision if report.release_decision else None,
     }
-    expected_summary_file = expected_dir / "summary.json"
-    if expected_summary_file.is_file():
-        expected = json.loads(expected_summary_file.read_text(encoding="utf-8"))
-        if summary == expected:
-            typer.echo(f"Fixture {name!r}: summary matches expected/summary.json")
-            raise typer.Exit(0)
-        typer.echo("Fixture summary diverged from expected:", err=True)
-        typer.echo(f"  expected: {expected}", err=True)
-        typer.echo(f"  actual:   {summary}", err=True)
-        raise typer.Exit(20)
+    expected, sources = _expected_fixture_summary(src / "expected")
+    if actual == expected:
+        typer.echo(f"Fixture {name!r}: summary and release decision match {sources}")
+        return
+    typer.echo("Fixture summary diverged from expected:", err=True)
+    typer.echo(f"  expected: {expected}", err=True)
+    typer.echo(f"  actual:   {actual}", err=True)
+    raise typer.Exit(20)
 
-    typer.echo(
-        f"Fixture {name!r}: no expected/summary.json; actual summary = {json.dumps(summary)}",
+
+def _expected_fixture_summary(expected_dir: Path) -> tuple[dict[str, Any], str]:
+    summary_path = expected_dir / "summary.json"
+    report_path = expected_dir / "report.json"
+    paths = [path for path in (summary_path, report_path) if path.is_file()]
+    if not paths:
+        raise InputParseError(f"No fixture golden at {summary_path} or {report_path}")
+
+    report = _read_fixture_golden(report_path) if report_path in paths else {}
+    summary = _read_fixture_golden(summary_path) if summary_path in paths else report.get("summary")
+    keys = ("status", "critical_count", "high_count", "medium_count")
+    if not isinstance(summary, dict) or any(key not in summary for key in keys):
+        raise InputParseError(f"Fixture golden at {expected_dir} lacks a complete summary")
+
+    decision = summary.get("release_decision", report.get("release_decision"))
+    if isinstance(decision, dict):
+        decision = decision.get("decision")
+    if not isinstance(decision, str) or not decision:
+        raise InputParseError(f"Fixture golden at {expected_dir} lacks a release decision")
+
+    return (
+        {**{key: summary[key] for key in keys}, "release_decision": decision},
+        " and ".join(f"expected/{path.name}" for path in paths),
     )
+
+
+def _read_fixture_golden(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_bytes())
+    except (OSError, ValueError, RecursionError) as exc:
+        raise InputParseError(f"Could not read fixture golden {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise InputParseError(f"Expected one JSON object in fixture golden {path}")
+    return data
 
 
 def _run_ai_generated_refund_pr_fixture(
