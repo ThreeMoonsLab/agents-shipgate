@@ -1,0 +1,126 @@
+{
+  "agent": "Wycena",
+  "agent_source": "integrations/chat_bridge/bots_pro/agenci.py",
+  "status": "partial",
+  "rows": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "counts": {
+    "added": 0,
+    "removed": 0,
+    "changed": 0,
+    "not_established": 4
+  },
+  "first_unresolved": {
+    "kind": "binding",
+    "text": "The source initializer names 'policz_wycene', but its binding is not established: the constructor caller census is not established: 'zbuduj_agenta_wyceny' (bots_pro/agenci.py:65) may be reached through dynamic import machinery at _smoke.py:5; 'zbuduj_agenta_wyceny' (bots_pro/agenci.py:65) may be reached through a dynamic import at _smoke.py:14; OpenAI Agents SDK agent 'Wycena' at bots_pro/agenci.py:66 uses a dynamic tools expression; its binding graph is incomplete. Not read: `NARZEDZIA_WYCENY` may be changed in place in bots_pro/agenci.py (bots_pro/agenci.py:70).; the constructor identity is not established: the constructor caller census is not established: 'zbuduj_agenta_wyceny' (bots_pro/agenci.py:65) may be reached through dynamic import machinery at _smoke.py:5; 'zbuduj_agenta_wyceny' (bots_pro/agenci.py:65) may be reached through a dynamic import at _smoke.py:14",
+    "row": 0,
+    "at": "bots_pro/agenci.py:65"
+  },
+  "capabilities": [],
+  "changed_capabilities": [],
+  "unchanged_capabilities": [],
+  "tools": [
+    {
+      "row": 0,
+      "tool": "policz_wycene",
+      "change": "not_established",
+      "candidate_change": "changed",
+      "facts": [
+        {
+          "kind": "change",
+          "text": "implementation changed"
+        }
+      ],
+      "specific_change": true,
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    },
+    {
+      "row": 1,
+      "tool": "policz_wysylke",
+      "change": "not_established",
+      "candidate_change": "changed",
+      "facts": [
+        {
+          "kind": "change",
+          "text": "implementation changed"
+        }
+      ],
+      "specific_change": true,
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    },
+    {
+      "row": 2,
+      "tool": "wyslij_obraz",
+      "change": "not_established",
+      "candidate_change": "added",
+      "facts": [],
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    },
+    {
+      "row": 3,
+      "tool": "znajdz_klienta",
+      "change": "not_established",
+      "candidate_change": "changed",
+      "facts": [
+        {
+          "kind": "change",
+          "text": "implementation changed"
+        }
+      ],
+      "specific_change": true,
+      "effect": {
+        "effect": "write",
+        "status": "unknown"
+      }
+    }
+  ],
+  "causes": [
+    0,
+    1,
+    2
+  ],
+  "questions": [],
+  "agent_limits": {
+    "count": 2,
+    "sides": [
+      "head"
+    ],
+    "first": "OpenAI Agents SDK agent 'Wycena' at bots_pro/agenci.py:84 uses a dynamic tools expression; its binding graph is incomplete. Not read: `NARZEDZIA_WYCENY` may be changed in place in bots_pro/agenci.py (bots_pro/agenci.py:91)."
+  },
+  "read_same": {
+    "count": 8,
+    "tools": [
+      "oddaj_czlowiekowi",
+      "pobierz_opcje",
+      "popraw_wycene",
+      "potwierdz",
+      "przygotuj_zamowienie",
+      "wyslij_podsumowanie",
+      "zapisz_pozycje",
+      "zapisz_wycene"
+    ],
+    "doubts": [
+      "construction"
+    ],
+    "sides": [
+      "base",
+      "head"
+    ],
+    "reasons": 16,
+    "first": "The source initializer names 'oddaj_czlowiekowi', but its binding is not established: the constructor caller census is not established: 'zbuduj_agenta_wyceny' (bots_pro/agenci.py:65) may be reached through dynamic import machinery at _smoke.py:5; 'zbuduj_agenta_wyceny' (bots_pro/agenci.py:65) may be reached through a dynamic import at _smoke.py:14; OpenAI Agents SDK agent 'Wycena' at bots_pro/agenci.py:66 uses a dynamic tools expression; its binding graph is incomplete. Not read: `NARZEDZIA_WYCENY` may be changed in place in bots_pro/agenci.py (bots_pro/agenci.py:70).; the constructor identity is not established: the constructor caller census is not established: 'zbuduj_agenta_wyceny' (bots_pro/agenci.py:65) may be reached through dynamic import machinery at _smoke.py:5; 'zbuduj_agenta_wyceny' (bots_pro/agenci.py:65) may be reached through a dynamic import at _smoke.py:14",
+    "at": "bots_pro/agenci.py:65"
+  }
+}

@@ -7,6 +7,15 @@ Exact source-local SDK clones have their own bindings. Unknown receivers,
 constructor/handle changes and unread lists retain explicit uncertainty.
 See [the application contract](docs/application-comparison.md).
 
+Unreleased, #1146: application comparison `0.5` succeeds the released `0.4`.
+A binding whose compared meaning was read from what is bound and is the same
+on both sides is no longer a `not_established` row: `rows` is shorter for the
+same change, and its agent's optional top-level `read_same` names it once with
+its doubts (whether the agent holds it, or which file an import search
+reaches). A doubt about which definition or settings are bound keeps the row,
+with optional `doubts`. No published schema document exists for either
+version yet (#1044).
+
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
 New in 1.3.0, runtime contract v42: an empty preflight plan no longer mints
