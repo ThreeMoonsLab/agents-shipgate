@@ -35,7 +35,24 @@ unchanged between the compared sides (#822); any change to either keeps it a
 blocking limit, as before. A dangling link, a link that leaves the repository,
 or a directory link outside the boundary paths refuses the whole comparison, even
 when no host file sits behind it (#688). That refusal is deliberate (#659),
-and it caused every widening the 1.0 host-config measurement missed.
+and it caused every widening the 1.0 host-config measurement missed. One
+exception (#1004): a directory link outside the boundary paths, such as
+`.happy/terraform/envs/dev/modules -> ../../modules`, is named as an unchanged
+`unreadable` limit, and the rest compared, when Git proves it unchanged
+without following it. On both sides it is the same mode `120000` entry and
+link text, naming in one hop a directory inside the repository that does not
+hold the link, whose Git tree object is the same and holds no link or
+submodule; a working tree's copy is read entry by entry, untracked and ignored
+files included. A link where a host reads agent configuration keeps its
+blocking limit however unchanged, so configuration cannot be moved behind a
+link: one named like a configuration file (`AGENTS.md`, `pkg/CLAUDE.md`), one
+at, under or above `.claude`, `.codex`, `.cursor`, `.vscode`, `.shipgate`,
+`.agents`, `.agents-shipgate`, `.github` or `policies`, one inside any
+`.claude`, `.codex`, `.github`, `.shipgate` or `.<name>-plugin` directory, and
+one whose directory holds a file that through the link would be one a host
+reads, all decided by the boundary registry's own patterns. Any change to the
+link or to what it names, and a dangling, external, escaping, looping or
+chained link, still refuses.
 Path classification is case-insensitive so protected files cannot evade review
 on macOS or Windows. Nested `.codex/**`, `.mcp.json`, and
 `.github/workflows/**` copies remain protected for repository-wide drift and
@@ -1313,7 +1330,8 @@ Independence is read off the reference graph, never off directory names. The
 comparison refuses as before when a limit is neither a bounded plugin
 reference, a withheld document nor unchanged (an unreadable settings file, an
 instruction file whose structure could not be established for any other
-reason, a link that is not read through),
+reason, a link that is not read through and not proven unchanged as #1004
+proves one),
 when a reference names a path outside its plugin, when the plugin is at the
 repository root, when its directory holds `.claude/settings.json` or
 `.claude/settings.local.json`, which decide every plugin hook's loading basis,

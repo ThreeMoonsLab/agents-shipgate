@@ -449,7 +449,8 @@
   "tests/test_declared_policy_pack_boundary.py": 44.3,
   "tests/test_packaged_default_policies.py": 0.2,
   "tests/test_workflow_directory_instructions.py": 50.6,
-  "tests/test_registry_drift_observation.py": 1.4
+  "tests/test_registry_drift_observation.py": 1.4,
+  "tests/test_unchanged_link_limits.py": 184.5
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -723,6 +724,17 @@
    },
    "case_count": 64,
    "command": "python -m pytest tests/test_unreadable_host_input.py -n 4 --junitxml=unreadable-host-input.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "350d30f770a9 with issue #1004 unchanged in-tree directory link increment",
+   "report_sha256": "f6d5dcd0eae9ebc4f51fda6648a37fc1ba279c5674942f3a36e360c4e1afa791",
+   "files": {
+    "tests/test_unchanged_link_limits.py": 184.5
+   },
+   "case_count": 94,
+   "command": "python -m pytest tests/test_unchanged_link_limits.py -n 4 --junitxml=unchanged-link-limits.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

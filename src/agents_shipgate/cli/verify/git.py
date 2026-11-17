@@ -1424,8 +1424,10 @@ def blob_path_unchanged(workspace: Path, base: str, head: str | None, path: str)
     ``.agents/skills``. Its callers ask only about a limit both sides carry on
     ``path``, and a side whose reader does not read ``path`` carries none
     there: in that example it carries an ``unreadable`` limit on the link
-    instead, which is never named as unchanged, so the comparison still
-    refuses whatever this answers.
+    instead, which is never named as unchanged (only that side carries it,
+    and a link at `.claude/skills` is where a host reads configuration, so
+    :func:`unread_link_unchanged` never proves it, #1004), so the comparison
+    still refuses whatever this answers.
 
     The answer is ``False`` whenever identity cannot be proven: a path absent
     on either side, a link added, removed or given another text (even one that
@@ -1567,6 +1569,271 @@ def tree_path_absent(workspace: Path, base: str, head: str | None, path: str) ->
         if not separator or name in names or name.startswith(encoded + b"/"):
             return False
     return True
+
+
+#: Bounds on the directory an unchanged link names (#1004): the files its Git
+#: tree may hold, the bytes of their listing, and the bytes a working tree's
+#: copy may hold for hashing. Past any of them the link is not proven
+#: unchanged and keeps its limit.
+_LINKED_DIRECTORY_FILES = 10_000
+_LINKED_DIRECTORY_LISTING_BYTES = 8 * 1024 * 1024
+_LINKED_DIRECTORY_BYTES = 64 * 1024 * 1024
+
+
+def _linked_directory(
+    link: str, text: str | None, kind: Callable[[str], str | None]
+) -> str | None:
+    """The in-tree directory a link's own text names, walked as a filesystem walks it (#1004).
+
+    ``kind`` names an in-tree entry without following it, as for
+    :func:`_reader_path`: ``"tree"``, ``"blob"``, ``"link"`` or ``None``. One
+    hop only. The text must be relative, ``..`` may not rise above the
+    repository, and every component it passes through, and the one it ends
+    on, must be a directory: never a link (a chain), a file or nothing. Each
+    component is walked from where the last one landed, so ``missing/../dir``
+    fails at ``missing`` as the filesystem fails it, although it normalizes to
+    ``dir``. ``None`` as well for a text that is empty, absolute or holds an
+    empty component (one trailing ``/`` is allowed: it asks for the directory
+    that is required anyway), for the repository root, and for a directory
+    that holds the link itself (a loop).
+    """
+
+    if not text or "\0" in text or "\\" in text or text.startswith("/") or os.path.isabs(text):
+        return None
+    components = text.split("/")
+    if len(components) > 1 and components[-1] == "":
+        components.pop()
+    parts = link.split("/")[:-1]
+    for component in components:
+        if component == "":
+            return None
+        if component == ".":
+            continue
+        if component == "..":
+            if not parts:
+                return None
+            parts.pop()
+            continue
+        parts.append(component)
+        if kind("/".join(parts)) != "tree":
+            return None
+    if not parts:
+        return None
+    target = "/".join(parts)
+    if link == target or link.startswith(f"{target}/"):
+        return None
+    return target
+
+
+def _linked_directory_files(workspace: Path, tree: str) -> dict[str, tuple[str, str]] | None:
+    """Every file one Git tree holds, recursively: ``{path: (mode, blob)}``, or ``None`` (#1004).
+
+    ``None`` when the tree holds a link or a submodule, whose content no tree
+    identity binds, when it holds more than :data:`_LINKED_DIRECTORY_FILES`
+    files, or on any Git failure.
+    """
+
+    if not _GIT_OBJECT_RE.fullmatch(tree):
+        return None
+    output = _run_git_bounded_output(
+        workspace,
+        ["ls-tree", "-r", "-z", "--full-tree", tree],
+        max_output_bytes=_LINKED_DIRECTORY_LISTING_BYTES,
+    )
+    if output is None:
+        return None
+    files: dict[str, tuple[str, str]] = {}
+    for record in output.split(b"\0"):
+        if not record:
+            continue
+        header, separator, name = record.partition(b"\t")
+        fields = header.split()
+        if not separator or len(fields) != 3:
+            return None
+        mode, object_type, oid = (field.decode("ascii", errors="replace") for field in fields)
+        if object_type != "blob" or mode not in {"100644", "100755"} or not _GIT_OBJECT_RE.fullmatch(oid):
+            return None
+        try:
+            files[name.decode("utf-8")] = (mode, oid)
+        except UnicodeDecodeError:
+            return None
+        if len(files) > _LINKED_DIRECTORY_FILES:
+            return None
+    return files
+
+
+def _worktree_directory_holds(
+    workspace: Path, directory: str, files: dict[str, tuple[str, str]]
+) -> bool:
+    """Whether a working-tree directory holds exactly ``files``, read without following a link (#1004).
+
+    Every entry beneath it is typed by its own entry: a link, a special file
+    or anything that cannot be typed fails, and so does a file Git's tree
+    does not list, untracked or ignored alike. A directory holding no file
+    is not compared, as Git records none. Each file must have the tree's
+    mode (executable or not) and, by its unfiltered hash, the tree's blob.
+    """
+
+    import stat
+
+    from agents_shipgate.core.trust_roots import _directory_member_kind
+
+    found: dict[str, str] = {}
+    total = visited = 0
+    pending = [""]
+    while pending:
+        relative = pending.pop()
+        try:
+            names = sorted(os.listdir(workspace / directory / relative))
+        except (OSError, ValueError):
+            return False
+        for name in names:
+            child = f"{relative}/{name}" if relative else name
+            visited += 1
+            if visited > 2 * _LINKED_DIRECTORY_FILES:
+                return False
+            entry = workspace / directory / child
+            try:
+                kind = _directory_member_kind(entry)
+                if kind == "directory":
+                    pending.append(child)
+                    continue
+                if kind != "file":
+                    return False
+                metadata = entry.lstat()
+            except (OSError, ValueError):
+                return False
+            found[child] = "100755" if metadata.st_mode & stat.S_IXUSR else "100644"
+            total += metadata.st_size
+            if len(found) > len(files) or total > _LINKED_DIRECTORY_BYTES:
+                return False
+    if found != {name: mode for name, (mode, _oid) in files.items()}:
+        return False
+    names = sorted(found)
+    hashes = _unfiltered_worktree_hashes(workspace, [f"{directory}/{name}" for name in names])
+    return len(hashes) == len(names) and all(
+        hashes.get(f"{directory}/{name}") == files[name][1] for name in names
+    )
+
+
+def unread_link_unchanged(workspace: Path, base: str, head: str | None, path: str) -> bool:
+    """Whether ``path`` is one unchanged in-tree directory link, left unread (#1004).
+
+    The reader reads through a directory link only at a boundary location
+    (#700); anywhere else, such as `.happy/terraform/envs/dev/modules ->
+    ../../modules`, it may conceal a `**/` match, so the reader names it as an
+    ``unreadable`` limit. This proves, from Git objects and never by following
+    the link, that such a limit hides no change and no configuration. All of
+    these must hold:
+
+    - **The link.** On both sides an entry of mode ``120000`` at ``path``
+      with the same blob, so the same text, and a directory at every
+      component above it.
+    - **Where it lands.** Its text names, in one hop, a directory inside the
+      repository that does not hold the link (:func:`_linked_directory`), the
+      same directory on both sides, with the same Git tree object, so the same
+      files, modes and bytes beneath it.
+    - **What it holds.** No link or submodule anywhere beneath it, which no
+      tree identity binds, and at most :data:`_LINKED_DIRECTORY_FILES` files.
+    - **Not configuration.** Neither ``path`` nor any path beneath it, as the
+      link spells it, is one a host reads for agent configuration
+      (:func:`~agents_shipgate.core.boundary_registry.is_host_configuration_location`),
+      so configuration cannot be moved behind an unchanged link.
+
+    ``head=None`` means the working tree, whose head is read without following
+    any link: each component by its own entry, the link by its own text, and
+    every file beneath the directory it names by its own entry and unfiltered
+    hash, which must match the base's tree exactly, untracked and ignored files
+    included. The base and a commit head are read from their tree entries. The
+    answer is ``False`` whenever any of this cannot be proven: a link added,
+    removed, retargeted or rewritten, a changed directory, a dangling, looping,
+    absolute or escaping link, a chain, or any Git failure.
+    """
+
+    from pathlib import PurePosixPath
+
+    from agents_shipgate.core.boundary_registry import is_host_configuration_location
+
+    relative = PurePosixPath(path)
+    if (
+        not path
+        or relative.is_absolute()
+        or relative.as_posix() != path
+        or ".." in relative.parts
+        or "\\" in path
+        or "\0" in path
+    ):
+        return False
+    try:
+        path.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    if is_host_configuration_location(path):
+        return False
+    base_commit = commit_sha(workspace, base)
+    if base_commit is None:
+        return False
+    base_tree = _CommitEntries(workspace, base_commit)
+    above = ["/".join(relative.parts[:index]) for index in range(1, len(relative.parts))]
+    if any(base_tree.kind(prefix) != "tree" for prefix in above) or base_tree.kind(path) != "link":
+        return False
+    text = base_tree.link_text(path)
+    target = _linked_directory(path, text, base_tree.kind)
+    target_entry = base_tree.entry(target) if target is not None else None
+    if target is None or target_entry is None:
+        return False
+    files = _linked_directory_files(workspace, target_entry[2])
+    if files is None or any(is_host_configuration_location(f"{path}/{name}") for name in files):
+        return False
+    if head is not None:
+        head_commit = commit_sha(workspace, head)
+        if head_commit is None:
+            return False
+        head_tree = _CommitEntries(workspace, head_commit)
+        return (
+            all(head_tree.kind(prefix) == "tree" for prefix in above)
+            and head_tree.entry(path) == base_tree.entry(path)
+            and _linked_directory(path, head_tree.link_text(path), head_tree.kind) == target
+            and head_tree.entry(target) == target_entry
+        )
+
+    from agents_shipgate.core.trust_roots import _directory_member_kind
+
+    kinds = {"directory": "tree", "file": "blob", "symlink": "link"}
+
+    def kind(entry: str) -> str | None:
+        try:
+            return kinds.get(_directory_member_kind(workspace / entry))
+        except (OSError, ValueError):
+            return None
+
+    if any(kind(prefix) != "tree" for prefix in above) or kind(path) != "link":
+        return False
+    try:
+        worktree_text = os.readlink(workspace / path)
+    except (OSError, ValueError):
+        return False
+    if worktree_text != text or _linked_directory(path, worktree_text, kind) != target:
+        return False
+    return _worktree_directory_holds(workspace, target, files)
+
+
+def unread_link_prover(workspace: Path, base: str, head: str | None) -> Callable[[str], bool]:
+    """:func:`unread_link_unchanged` for one comparison, each path answered once (#1004).
+
+    A link the reader leaves unread is a limit under every host whose `**/`
+    glob it may conceal, so one comparison asks about the same path several
+    times.
+    """
+
+    answers: dict[str, bool] = {}
+
+    def unchanged(path: str) -> bool:
+        if path not in answers:
+            answers[path] = unread_link_unchanged(workspace, base, head, path)
+        return answers[path]
+
+    return unchanged
 
 
 #: Bounds on what :func:`blob_path_identities` reads (#812): one tree listing,

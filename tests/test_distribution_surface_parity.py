@@ -287,6 +287,12 @@ SURFACES: tuple[Surface, ...] = (
         # answer and adds no claim; `tests/test_linked_unchanged_limits.py`
         # holds diff, verify, the PR comment and `check` to it, including the
         # shared plugin-reference limits `check` leaves out by the same proof.
+        # Naming an unchanged in-tree directory link the reader leaves unread
+        # (#1004) rests on Git identity facts too (the link's blob, the tree
+        # object it names) and on the boundary registry's own patterns for
+        # where a host reads configuration, so it restates no engine answer
+        # and adds no claim; `tests/test_unchanged_link_limits.py` holds
+        # diff, verify, the PR comment and `check` to it.
         # A hook row's inline-allow note (#826) renders the display-only
         # `inline_allow` the engine published on a Claude Code `PreToolUse`
         # handler, left out of grant equality, the inventory digests and saved

@@ -363,6 +363,113 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="unchanged-directory-links-1004"></a>
+
+## Migration Note: Unreleased — an unchanged in-tree directory link is named, not a refusal (#1004)
+
+No schema, member, reason code, check ID, limit kind or
+`minimum_control_contract_version` moves, and host-grants stays `0.9`. What
+moves is which comparisons name an unchanged limit instead of refusing, and so
+which are `comparable`.
+
+**What was wrong.** `chanzuckerberg/single-cell-data-portal#7802` changes only
+`.mcp.json`. Its four Terraform environment links, such as
+`.happy/terraform/envs/dev/modules -> ../../modules`, and the directory they
+name are identical at the merge base and the head. Such a link is not at a
+boundary location, so the reader does not read through it (#700), and a `**/`
+glob such as `**/CLAUDE.md` could match beneath it, so it is a blocking
+`unreadable` limit under every host with such a glob (`claude-code`, `codex`,
+`cursor`, `openshell`). `unreadable` was never named as unchanged (#721,
+#822), so `diff`, `verify` and the PR comment refused the whole comparison:
+`incomparable`, `base_inventory_incomplete; head_inventory_incomplete`, no
+row. Replayed with its real trees, it is now `comparable` with the six
+`.mcp.json` rows the change makes, and the four links named.
+
+| The issue's static control | `1.3.0` `diff`, `verify` and PR comment | now |
+| --- | --- | --- |
+| no link; `.mcp.json` gains a server | `comparable`, 1 row | unchanged |
+| the same, beside an unchanged `.happy/terraform/envs/dev/modules -> ../../modules` | `incomparable`, 0 rows | `comparable`, the same row; the link named in `unchanged_limits` (`limit: unreadable`) under each of the four hosts |
+
+- **The proof.** Read from Git objects, never by following the link. All of
+  these must hold:
+  - **the link:** on both sides an entry of mode `120000` at the path, with
+    the same blob (so the same text), and a directory at every component
+    above it;
+  - **where it lands:** its text names, in one hop, a directory inside the
+    repository, walked one component at a time as the filesystem walks it
+    (so `missing/../modules` fails at `missing`), that does not hold the link
+    itself;
+  - **what it holds:** the same Git tree object on both sides, so the same
+    files, modes and bytes, with no link or submodule anywhere beneath it,
+    and at most 10,000 files.
+
+  The base and a commit head are read from their tree entries. A working-tree
+  head (`diff`, `verify` without `--head`) is read without following any
+  link: each component by its own entry, the link by its own text, and every
+  entry beneath the directory it names by its own entry, each file by its
+  unfiltered hash, which must match the base's tree exactly. An untracked or
+  ignored file there, an edit, a changed executable bit, a link or a special
+  file keeps the limit. No `textconv` or filter runs.
+- **Configuration cannot be moved behind a link (owner ruling).** A link
+  where a host reads agent configuration keeps its blocking limit, however
+  unchanged. It is decided by the boundary registry's own patterns,
+  case-insensitively (`is_host_configuration_location`):
+  - the link is itself a file a reader opens: an adapter's exact path or glob
+    match (`AGENTS.md`, `pkg/CLAUDE.md`, `pkg/.mcp.json`), a plugin manifest,
+    marketplace or hook-named file;
+  - it is at, under or above a directory a host reads at a fixed place: the
+    directory of an exact path (`.claude`, `.codex`, `.cursor`, `.vscode`,
+    `.shipgate`, `policies`) or the literal directory of a glob
+    (`.claude/commands`, `.claude/skills`, `.cursor/rules`, `.agents/skills`,
+    `.github/workflows`, `.agents-shipgate`), so `.github`, `.agents` and
+    anything under them count;
+  - any of its components is a directory a `**/` glob reads anywhere
+    (`.claude`, `.codex`, `.github`, `.shipgate`) or a plugin manifest
+    directory (`.claude-plugin`, `.codex-plugin`, any `.<name>-plugin`);
+  - a file beneath the directory it names would, through the link, be any of
+    the above: a `CLAUDE.md`, `AGENTS.md`, `.mcp.json`, `.claude/…`,
+    `.codex/config.toml`, `.github/workflows/*.yml`, plugin manifest or hook
+    file. A `**/` glob can match beneath any directory, so this is asked of
+    every path Git lists beneath the link, not of the link's name alone.
+- **Still refused.** A link retargeted, even to an identical copy, or
+  rewritten to name the same directory (`../../modules` to `../.././modules`);
+  a file edited, added or made executable beneath it; a link added or
+  deleted; a link replaced by a directory holding the same files, or the
+  reverse; a dangling, external, escaping or looping link; a chain; a link
+  through a link; and a directory holding a link.
+- **Who reads the proof.** One function answers it for `diff --json` and
+  `verifier.json`'s `unchanged_limits`, the `Not compared: unchanged in this
+  change and not read` list of `diff`, `verify` text and the PR comment, and
+  the unchanged limits a `partial` comparison may carry beside its withheld
+  directories ([#808](#partial-host-comparison-808)). `unchanged_limits[].detail`
+  for such a link says why it was not compared instead of repeating the
+  reader's advice to replace the link.
+- **`check`.** Its boundary result cannot name a limit (#721), so where the
+  other routes now compare past the link it refuses with
+  `unchanged_limits_not_representable`, as it does for every unchanged limit,
+  instead of `base_inventory_incomplete` / `head_inventory_incomplete`. Its
+  rows stay empty, and its decision, violations, `input_coverage` and control
+  do not move.
+- **#1154.** A changed host file the reader could not read holds `verify` at
+  `insufficient_evidence`. An unchanged link is not in the change, so it adds
+  no evidence gap: a readable widening beside it is still `blocked` on its own
+  row, and an unreadable changed settings file beside it gets its own gap and
+  no other.
+- **Not changed.** The inventory, its issues and their messages, `audit
+  --host`, saved host-grants baselines, which still refuse an incomplete
+  inventory because a baseline acknowledges evidence (#721), drift, every
+  row's value and every control state and route. The published
+  `HostComparisonLimit` description in verifier schema `0.21` still says
+  `unreadable` is only a selected hook script; that description is frozen,
+  and this note extends it.
+
+**Compatibility.** No field changes shape: `limit: unreadable` has been a
+published `unchanged_limits` value since #702. A consumer that switches on
+`comparison_status` reads `comparable` (or `partial`) where `1.3.0` read
+`incomparable` for these layouts, with the link in `unchanged_limits`, and
+`check` reads `unchanged_limits_not_representable` where it read the two
+inventory reasons.
+
 <a id="unreadable-host-input-1154"></a>
 
 ## Migration Note: Unreleased — a changed host configuration the reader cannot read holds the verdict at `insufficient_evidence` (#1154)
