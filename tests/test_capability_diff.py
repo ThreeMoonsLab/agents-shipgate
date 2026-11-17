@@ -91,6 +91,64 @@ def _rows(repo: Path) -> list[dict]:
     return json.loads(result.output)["rows"]
 
 
+def test_explicit_host_head_avoids_an_oversized_working_tree(repo: Path, monkeypatch) -> None:
+    from agents_shipgate.core import host_grants
+
+    _widen(repo)
+    unrelated = repo / "specification" / "examples"
+    unrelated.mkdir(parents=True)
+    for index in range(80):
+        (unrelated / f"sample-{index}.json").write_text("{}")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "many unrelated paths")
+    monkeypatch.setattr(host_grants, "MAX_HOST_REPOSITORY_ENTRIES", 24)
+
+    worktree = _diff(repo, "--base", "main")
+    assert worktree.exit_code == 0, worktree.output
+    assert "head_inventory_incomplete" in worktree.output
+    assert "Use --head HEAD" in worktree.output
+
+    # The live file now declares none of the committed Claude Code additions.
+    (repo / ".claude" / "settings.json").write_text(BASE_SETTINGS)
+    result = _diff(repo, "--base", "main", "--head", "HEAD", "--json")
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["comparison_status"] == "comparable"
+    assert payload["head_ref"] == "HEAD"
+    assert "Bash(*)" in {row["after"] for row in payload["rows"]}
+    command = (
+        f"agents-shipgate diff --base {payload['base_commit']} --head {payload['head_commit']}"
+    )
+    assert payload["review"]["reproduce_command"] == command
+    assert f"Reproduce: {command}" in _diff(repo, "--base", "main", "--head", "HEAD").output
+
+
+def test_host_diff_uses_the_merge_base_of_the_selected_head(repo: Path) -> None:
+    _widen(repo)
+    _git(repo, "checkout", "-q", "main")
+    (repo / "README.md").write_text("main only")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-qm", "main independently advanced")
+    result = _diff(repo, "--base", "main", "--head", "feat/widen", "--json")
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    base = subprocess.check_output(
+        ["git", "merge-base", "main", "feat/widen"], cwd=repo, text=True,
+    ).strip()
+    head = subprocess.check_output(
+        ["git", "rev-parse", "feat/widen"], cwd=repo, text=True,
+    ).strip()
+    assert (payload["base_commit"], payload["head_commit"]) == (base, head)
+    assert payload["rows"]
+    assert (repo / ".claude" / "settings.json").read_text() == BASE_SETTINGS
+
+
+def test_host_diff_refuses_an_unavailable_explicit_head(repo: Path) -> None:
+    result = _diff(repo, "--head", "missing-head", "--json")
+    assert result.exit_code == 2, result.output
+    assert "missing-head" in result.stderr
+
+
 # --- the reviewer's question -----------------------------------------------
 
 

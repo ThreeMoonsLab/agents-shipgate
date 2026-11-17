@@ -13,6 +13,12 @@ not a host-coverage selector.
 Repository scope is deterministic and is the default for `check`, verification,
 and `audit --host`.
 
+Use `shipgate diff --base <ref> --head <ref>` to compare two committed
+snapshots. Host mode uses the selected head's merge base with the base ref
+and reads the scoped host inputs from both Git trees. This gives large
+checkouts a committed comparison when the working-tree inventory exceeds
+its limits. The usual invocation without `--head` compares the working tree.
+
 | Adapter | Status | Repository surfaces | Static semantics |
 |---|---|---|---|
 | OpenShell | static inventory | root/nested `.shipgate/openshell.json` selecting arbitrary repository policy files | [Pinned policy schema 1 inventory](openshell-support.md), authored/effective-snapshot roles, explicit/defaulted fields and named read limits; runtime enforcement and freshness remain unverified |
