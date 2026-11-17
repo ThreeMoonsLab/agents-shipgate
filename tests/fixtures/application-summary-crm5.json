@@ -78,7 +78,8 @@
       "effect": {
         "effect": "write",
         "status": "unknown"
-      }
+      },
+      "specific_change": true
     },
     {
       "row": 6,
@@ -94,7 +95,8 @@
       "effect": {
         "effect": "write",
         "status": "unknown"
-      }
+      },
+      "specific_change": true
     },
     {
       "row": 7,
@@ -217,7 +219,8 @@
       "effect": {
         "effect": "write",
         "status": "unknown"
-      }
+      },
+      "specific_change": true
     }
   ],
   "causes": [

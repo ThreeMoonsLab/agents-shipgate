@@ -372,6 +372,40 @@ def test_large_candidate_finding_names_the_specific_differences():
     assert "  7 additional candidates: see --json summary.findings." in lines
 
 
+def test_large_candidate_finding_prioritizes_reach_and_ignores_unconfirmed_details():
+    candidates = [
+        _row("a", f"other_{index}", "not_established", candidate_change="added", after=_binding(f"other_{index}"))
+        for index in range(MAX_TOOL_LINES)
+    ]
+    reach = {
+        "calls": [{"method": "GET", "url": "https://example.invalid/status", "at": "t.py:9", "via": []}],
+        "effects": [],
+        "limits": [],
+    }
+    candidates.extend([
+        _row(
+            "a", "check_status", "not_established", candidate_change="changed",
+            before=_binding("check_status"), after=_binding("check_status", reach=reach),
+        ),
+        _row(
+            "a", "uncertain", "not_established", candidate_change="changed",
+            before=_binding("uncertain"), after=_binding("uncertain"), doubts=["definition_identity"],
+        ),
+    ])
+    [finding] = build_summary(_payload(candidates))["findings"]
+    # A different wording for the uncertainty must not make it a named change.
+    finding["tools"][-1]["facts"] = [{"kind": "change", "text": "Which definition is bound is unclear."}]
+    lines = finding_lines(finding)
+
+    assert "now also reaches GET https://example.invalid/status" in lines[1]
+    assert not any("no outbound call or library effect established" in line for line in lines)
+    assert "  5 additional candidates (4 with a named change): see --json summary.findings." in lines
+
+    established = _row("a", "known", "added", after=_binding("known"))
+    [mixed] = build_summary(_payload([established, *candidates]))["findings"]
+    assert "candidate details in --json summary.findings" in finding_lines(mixed)[0]
+
+
 def test_pinned_crm_candidate_finding_keeps_tool_names_and_binding_caveat():
     # CRM #5, dae503cc671c...0935d0931c58, read by fc8cbb6707.
     # The fixture is the Wycena finding from the captured JSON summary.
@@ -391,7 +425,7 @@ def test_pinned_crm_candidate_finding_keeps_tool_names_and_binding_caveat():
             line.startswith(f"  ?~{tool} (candidate, not established): implementation changed")
             for line in details
         )
-    assert "  8 additional candidates: see --json summary.findings." in lines
+    assert any("8 additional candidates" in line and "see --json summary.findings" in line for line in lines)
     [brief] = finding_lines(finding, full=False)
     assert all(tool in brief for tool in ("wyslij_obraz", *edited))
 
