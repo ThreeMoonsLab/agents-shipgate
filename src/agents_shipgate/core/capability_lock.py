@@ -8,7 +8,10 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from agents_shipgate.core.capabilities import build_capability_facts
+from agents_shipgate.core.capabilities import (
+    build_capability_facts,
+    redacted_capability_facts,
+)
 from agents_shipgate.core.capability_delta import (
     CapabilityDefinitionDelta,
     CapabilityDeltaRow,
@@ -16,6 +19,7 @@ from agents_shipgate.core.capability_delta import (
 )
 from agents_shipgate.core.domain import Agent, Tool
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.privacy import redact_data, redact_text
 from agents_shipgate.invocation import retarget_command
 from agents_shipgate.schemas.capabilities import (
     CAPABILITY_LOCK_SCHEMA_VERSION,
@@ -51,22 +55,31 @@ def build_capability_lock(
     toolkit_bound_count: int = 0,
     plugins_enabled: bool = True,
 ) -> CapabilityLockFileV1:
-    facts = build_capability_facts(manifest, agent_id=agent.id, tools=tools)
-    source = CapabilityLockSource(
-        config_path=_manifest_relative_path(config_path, manifest_dir),
-        manifest_dir=".",
-        project_name=manifest.project.name,
-        agent_id=agent.id,
-        agent_name=agent.name,
-        environment_target=manifest.environment.target,
-        tool_count=len(tools),
-        toolkit_bound_count=toolkit_bound_count,
-        source_count=source_count,
-        source_warning_count=source_warning_count,
-        plugins_enabled=plugins_enabled,
+    # Redacted here, where the lock is assembled, and before any lock-level
+    # digest is taken: everything downstream - the lock file, both lock-diff
+    # files and the delta attestations - is built from these values, so every
+    # string the family publishes is redacted and every digest it publishes
+    # describes the redacted text (#1079).
+    facts = redacted_capability_facts(
+        build_capability_facts(manifest, agent_id=agent.id, tools=tools)
+    )
+    source = _redacted_source(
+        CapabilityLockSource(
+            config_path=_manifest_relative_path(config_path, manifest_dir),
+            manifest_dir=".",
+            project_name=manifest.project.name,
+            agent_id=agent.id,
+            agent_name=agent.name,
+            environment_target=manifest.environment.target,
+            tool_count=len(tools),
+            toolkit_bound_count=toolkit_bound_count,
+            source_count=source_count,
+            source_warning_count=source_warning_count,
+            plugins_enabled=plugins_enabled,
+        )
     )
     return CapabilityLockFileV1(
-        cli_version=cli_version,
+        cli_version=redact_text(cli_version) or "",
         source=source,
         summary=_lock_summary(facts),
         hashes=_lock_hashes(source, facts),
@@ -103,7 +116,7 @@ def load_capability_lock_json(content: str, *, source: str) -> CapabilityLockFil
             raw_version = payload.get("capability_lock_schema_version")
             source_schema_version = raw_version if isinstance(raw_version, str) else None
             payload = _normalize_capability_lock_payload(payload)
-        lock = CapabilityLockFileV1.model_validate(payload)
+        lock = _redacted_lock(CapabilityLockFileV1.model_validate(payload))
         # Normalization keeps old locks readable, but a lock diff must still
         # know which capability standard produced each side.  Store the
         # source version as a private runtime attribute: it never enters the
@@ -431,8 +444,89 @@ def _lock_ref_path(path: Path | None) -> str | None:
     if path is None:
         return None
     if path.is_absolute():
-        return path.name
-    return str(path)
+        return redact_text(path.name)
+    return redact_text(str(path))
+
+
+def _redacted_source(source: CapabilityLockSource) -> CapabilityLockSource:
+    dumped = source.model_dump(mode="python")
+    redacted = redact_data(dumped)
+    if redacted == dumped:
+        return source
+    return CapabilityLockSource.model_validate(redacted)
+
+
+def _redacted_lock(lock: CapabilityLockFileV1) -> CapabilityLockFileV1:
+    """A lock read from disk, made publishable the way an assembled one is.
+
+    A lock written before #1079 - a committed ``capabilities.lock.json``, a
+    cached base lock - can carry a credential verbatim, and ``verify`` and
+    ``capability diff`` republish what they read: the base lock file, both
+    lock-diff files and the attestations. Redacting on read publishes none of
+    it, and puts both sides of a comparison in one space: an old lock and a
+    fresh export of the same tools get the same ids, so upgrading does not read
+    as a reidentified capability. A lock with nothing to redact is returned as
+    it was read. Otherwise each lock-level digest whose input moved is
+    recomputed over the redacted content, and one whose input did not keeps its
+    stored value, so a digest an older engine wrote under an older recipe is
+    not rewritten without cause.
+    """
+
+    facts = redacted_capability_facts(lock.capabilities)
+    source = _redacted_source(lock.source)
+    cli_version = redact_text(lock.cli_version) or ""
+    if (
+        source is lock.source
+        and cli_version == lock.cli_version
+        and all(
+            published is read
+            for published, read in zip(
+                facts,
+                sorted(lock.capabilities, key=capability_fact_sort_key),
+                strict=True,
+            )
+        )
+    ):
+        return lock
+    stored = lock.hashes
+    before = _lock_hashes(lock.source, lock.capabilities)
+    after = _lock_hashes(source, facts)
+    hashes = CapabilityLockHashes(
+        semantic_capability_set_hash=_moved(
+            stored.semantic_capability_set_hash,
+            before.semantic_capability_set_hash,
+            after.semantic_capability_set_hash,
+        ),
+        evidence_set_hash=_moved(
+            stored.evidence_set_hash, before.evidence_set_hash, after.evidence_set_hash
+        ),
+        source_set_hash=_moved(
+            stored.source_set_hash, before.source_set_hash, after.source_set_hash
+        ),
+        definition_set_hash=(
+            None
+            if stored.definition_set_hash is None
+            else _moved(
+                stored.definition_set_hash,
+                before.definition_set_hash or "",
+                after.definition_set_hash or "",
+            )
+        ),
+    )
+    return lock.model_copy(
+        update={
+            "cli_version": cli_version,
+            "source": source,
+            "hashes": hashes,
+            "capabilities": facts,
+        }
+    )
+
+
+def _moved(stored: str, before: str, after: str) -> str:
+    """``stored``, unless redaction moved the content this digest covers."""
+
+    return stored if before == after else after
 
 
 def _sha256(value: Any) -> str:

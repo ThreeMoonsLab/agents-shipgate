@@ -363,6 +363,87 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="lock-family-redaction-1079"></a>
+
+## Migration Note: Unreleased — the capability lock family is redacted, and its digests describe what it publishes (#1079)
+
+**What was wrong.** `report.json`, the packet, SARIF, the PR comment and
+`verifier.json` redact every secret shape, but the capability lock family was
+built from unredacted capability facts: `capabilities.lock.json` (from
+`capability export`, the MCP `shipgate.capabilities` tool and `verify`, with
+`base.capabilities.lock.json`), `capability-lock-diff.json` and `.md` (from
+`verify` and `capability diff`), and `capability-delta-attestation.json` and
+`.v2.json`. A key in a tool name, in its owner
+(`$.capabilities[].controls.evidence_owner`), a scope, an authority source or
+a source pointer was published verbatim in the lock, in the diff's `added[]`,
+`changed[].before`/`after` and `semantic_changes[].before`/`after`, and
+throughout both attestations. A lock read back from disk was republished as it
+was. Separately, four places cut text to a length before the
+publication-time redaction reached it, so a credential straddling the cut lost
+the characters a rule needs and its head was published: the n8n HTTP tool's
+path hint (200 characters), skill-review excerpts (180), and the Python
+reader's expression text in a caveat (160) and its source-slot refusal rows
+(1,024).
+
+**What changes.**
+
+- **Every string the family publishes is redacted** where the lock is
+  assembled, by the rules `report.json` uses: each capability's identity,
+  effect, authority, controls, evidence, risk tags and semantic assessment,
+  the lock's `source` block and `cli_version`, the `base.path`/`head.path` of
+  a lock diff, and an attestation's `subject[].name`. Diff rows, semantic
+  changes and attestation records are built from those facts, so they carry
+  the redacted text.
+- **Every digest describes the text it is published with.** Each capability
+  digest whose input redaction changed (`identity_hash`, `binding_hash`,
+  `authority_hash`, `control_hash`, `risk_hash`, `evidence_hash`) is
+  recomputed over the redacted text by the same recipe, and the capability
+  `id` (`cap_<identity_hash>`) follows it. The lock's
+  `semantic_capability_set_hash`, `evidence_set_hash`, `source_set_hash` and
+  `definition_set_hash`, and the payload's `subject.key`,
+  `capability_set_digest` and `evidence_set_digest`, are computed from those,
+  so a consumer that recomputes one from the published file agrees with it,
+  and `tools/verify-capability-delta.py` accepts both attestations.
+  `schema_hash` and the definition digests cover text no lock publishes and
+  do not move. The in-toto `subject[].digest` (`gitTree`, `gitCommit`) names
+  repository objects, not lock content, and does not move.
+- **A lock read from disk is made publishable the same way**: a committed
+  `.agents-shipgate/capabilities.lock.json` written before this change, a
+  cached base lock and a `capability diff` input republish nothing they
+  carried, and an old lock and a fresh export of the same tools get the same
+  ids, so upgrading does not read as a reidentified capability. A lock with
+  nothing to redact reads back byte for byte, and a lock-level digest whose
+  input redaction did not move keeps its stored value.
+- **Two capabilities are never merged.** Redaction is many-to-one, so two
+  tools whose identities differ only inside a credential would redact to one
+  id, and a diff keys capabilities by id. Each capability in such a group
+  keeps the identity digest and id of its source text, the one digest that
+  does not describe the published text: the lock shows two indistinguishable
+  names, but two capabilities, and a change to either is still a row.
+- **Redact, then cut.** The n8n path hint, skill excerpts and the reader's
+  expression and refusal text are redacted before they are cut, and a cut
+  never ends inside a `[REDACTED:…]` marker: a marker the bound would split
+  is dropped whole.
+
+**Who must act.** Rotate any credential a lock, lock diff or attestation
+published, and re-run `capability export` so the committed lock no longer
+carries it. For a capability whose identity text holds a secret shape, the
+published `id` and digests, the lock's `source_set_hash` and set hashes, and a
+lock diff's `base`/`head` hashes move once; a consumer that pinned one of
+those values re-pins it. A capability, or a lock, with nothing to redact keeps
+every byte. An n8n HTTP tool whose URL path holds a secret shape can show a
+different path hint, and so a different `annotations_hash` (one
+`definition_changed` row). A skill finding whose excerpt line holds a secret
+shape publishes a different excerpt and fingerprint, so code scanning may show
+its alert as new once.
+
+**What does not change.** No schema or schema version, field, CLI flag, check
+ID, control state or contract version moves. `privacy_audit.rules_version`
+stays `0.2`: no rule changed, only where the rules are applied.
+`verification-input.diff` remains the exact bytes of the change.
+
+---
+
 <a id="held-restrictions-1036"></a>
 
 ## Migration Note: Unreleased — a tightened deny or ask rule is not a widening, and a lifted denial is rated by what it restricted (#1036)
@@ -1029,9 +1110,10 @@ finding whose fingerprint moved.
 permission is added, `report_schema_version` stays `1.0`, and
 `publish_when_policy_ineligible` stays in-process catalog metadata, absent from
 `docs/checks.json`. `verification-input.diff` remains the exact bytes of the
-change. The capability lock family (`capabilities.lock.json`, the lock diff
-and the capability delta attestation) stays unredacted, as before, pending
-#1079.
+change. This change did not redact the capability lock family
+(`capabilities.lock.json`, the lock diff and the capability delta
+attestation); #1079 does, and every string it publishes is now redacted. See
+[that migration note](#lock-family-redaction-1079).
 
 ---
 
@@ -5710,6 +5792,15 @@ positives redaction is. Even redaction leaves camelCase names and paths that
 read as words alone, so a SARIF location keeps its file. A detected secret or instruction-like
 text is always published as a finding with its value redacted, never hidden in
 an evidence gap. See [the migration note](#secret-observations-1026).
+
+The capability lock family (`capabilities.lock.json`,
+`base.capabilities.lock.json`, `capability-lock-diff.json` and `.md`, and
+both capability delta attestations) is redacted by the same rules, where a
+lock is assembled and where one is read, and each digest it publishes is
+computed over the redacted text, so a consumer recomputes it from the file.
+The one exception: two capabilities redaction would merge into one keep the
+identity digest of their source text. Text bounded to a length is redacted
+before it is cut. See [the migration note](#lock-family-redaction-1079).
 
 Changed-file paths are published verbatim, by decision (#742). `check` and
 `verify` name each file the change touches exactly as Git names it: in

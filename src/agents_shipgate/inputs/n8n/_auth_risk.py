@@ -17,9 +17,9 @@ from typing import Any
 
 from agents_shipgate.core.artifact_models import N8nArtifacts
 from agents_shipgate.core.domain import AuthInfo, ToolRiskHint
+from agents_shipgate.core.privacy import redact_and_truncate
 from agents_shipgate.inputs.n8n._common import (
     _NodeItem,
-    _redact_text,
     _string_or_none,
     _tool_node_kind,
     _top_level_string,
@@ -170,4 +170,6 @@ def _http_path_hint(item: _NodeItem) -> str | None:
         return None
     if "://" in value:
         value = value.split("://", 1)[1].split("/", 1)[-1]
-    return _redact_text(value[:200])
+    # Redact the whole value, then cut it: cutting first split a credential
+    # that straddled the 200th character and published its first part (#1079).
+    return redact_and_truncate(value, 200)

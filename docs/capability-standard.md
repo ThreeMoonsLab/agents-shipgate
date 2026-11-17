@@ -137,6 +137,14 @@ Lock-level hashes include:
 - `definition_set_hash` (v0.6) for every fact's `definition`, so a reviewed
   lock binds the tool definitions it was reviewed with.
 
+Every string a lock, lock diff or delta attestation publishes is redacted by
+the shared privacy rules before any of these hashes is taken, both when a lock
+is built and when one is read, so each hash covers the text a reader sees and
+recomputes from it (#1079). `schema_hash` and `definition` cover text no lock
+publishes and are taken over the source. When redaction would give two facts
+one id, each keeps the identity hash of its source text, so no capability is
+merged into another.
+
 Runtime trace evidence is intentionally excluded from capability locks and
 semantic lock hashes.
 

@@ -24,9 +24,11 @@ from agents_shipgate.core.privacy import (
     SECRET_PATTERNS,
     RedactionStats,
     build_privacy_audit,
+    redact_and_truncate,
     redact_data,
     redact_text,
     sanitize_findings,
+    truncate_redacted,
 )
 from agents_shipgate.schemas.baseline import BaselineFile, BaselineFinding
 from agents_shipgate.schemas.common import SourceReference
@@ -846,6 +848,41 @@ def test_sanitize_findings_redacts_extra_fields_and_counts_them():
     assert _BASIC_CREDENTIAL in finding.model_extra["debug_context"]
 
 
+def test_redact_and_truncate_redacts_before_it_cuts():
+    # #1079: cutting first left the head of a straddling credential, too short
+    # for any rule, to be published by a later redaction pass.
+    key = "sk-" + "A1b2C3d4E5f6G7h8I9j0K1l2"
+    text = "x" * 20 + " " + key + " tail"
+    cut_first = redact_text(text[:30])
+    assert key[:9] in (cut_first or "")  # the defect this replaces
+
+    assert redact_and_truncate(text, 30) == "x" * 20 + " "
+    assert redact_and_truncate(text, 60) == "x" * 20 + " [REDACTED:openai_api_key] tail"
+    assert redact_and_truncate("short", 30) == "short"
+    assert redact_and_truncate(None, 30) is None
+    # A cut at a marker's end keeps it; one inside it drops it whole.
+    assert truncate_redacted("ab [REDACTED:jwt] cd", 17) == "ab [REDACTED:jwt]"
+    assert truncate_redacted("ab [REDACTED:jwt] cd", 16) == "ab "
+
+
+def test_reader_source_text_is_redacted_before_it_is_cut():
+    import ast
+
+    from agents_shipgate.inputs.list_expressions import source_text
+
+    key = "sk-" + "A1b2C3d4E5f6G7h8I9j0K1l2"
+    # ``ast.unparse`` of this call puts the key across the 157th character.
+    call = f"make_agent(name={'n' * 119!r}, api_key={key!r})"
+    rendered = ast.unparse(ast.parse(call).body[0].value)
+    assert rendered.index(key) < 157 < rendered.index(key) + len(key)
+
+    shown = source_text(ast.parse(call).body[0].value)
+
+    assert key[:6] not in shown
+    assert shown.endswith("...")
+    assert len(shown) <= 160
+
+
 def test_rules_version_is_bumped_and_recorded_in_the_privacy_audit():
     audit = build_privacy_audit(RedactionStats(), output_surfaces=["json"])
 
@@ -857,14 +894,19 @@ def _plant_secret_shapes(project: Path) -> dict[str, str]:
     """Plant every #1026 shape in a copy of ``clean_read_only_agent``.
 
     Each shape is in a bound tool's name (so it reaches finding titles, SARIF
-    and the packet), its description, and the agent's declared purpose.
-    Returns the planted values by label.
+    and the packet), its description, its owner (so it reaches
+    ``controls.evidence_owner`` in the capability lock family, #1079), and the
+    agent's declared purpose. The sample's own tool keeps its name and gains a
+    key in its owner, so a ``verify`` against the unplanted sample has a
+    changed capability as well as added ones. Returns the planted values by
+    label.
     """
 
     stripe = "sk_live_" + "51HxQ2bL9kTq7vR3mN8pZ4wY6aC0dE2fG"
     tools = json.loads((project / "tools.json").read_text(encoding="utf-8"))
     base = tools["tools"][0]
     base["description"] = f"Look up documentation. Use api_key: {stripe} for auth."
+    base["owner"] = f"docs-platform {stripe}"
     for label, text in {
         "basic": f"call with header Authorization: Basic {_BASIC_CREDENTIAL}",
         "pem": f"-----BEGIN RSA PRIVATE KEY-----\n{_PEM_BODY}...",
@@ -880,6 +922,7 @@ def _plant_secret_shapes(project: Path) -> dict[str, str]:
         tool = json.loads(json.dumps(base))
         tool["name"] = f"docs.{label} {text}"
         tool["description"] = f"Look up {label} metadata; {text}"
+        tool["owner"] = f"{label} owners; {text}"
         tools["tools"].append(tool)
     (project / "tools.json").write_text(json.dumps(tools, indent=2), encoding="utf-8")
     bindings = "".join(
@@ -1095,18 +1138,13 @@ def test_verify_publishes_no_planted_secret_in_any_rendered_artifact(tmp_path):
     assert {"pr-comment.md", "current-control.json", "verifier.json", "report.md"} <= {
         path.name for path in written
     }
-    # Two families are outside this contract. ``verification-input.diff`` is
-    # the change's exact bytes, which a worker replays and the receipt digests
+    # One file is outside this contract: ``verification-input.diff`` is the
+    # change's exact bytes, which a worker replays and the receipt digests
     # (docs/verification-reproducibility.md): a verification input, the same
     # text the pull request already shows. The capability lock family is
-    # unredacted for every secret shape, the pre-#1026 ones included (tool
-    # names, ``controls.evidence_owner``, ``semantic_changes``), pending #1079;
-    # it is not the report, packet, PR comment or control output this change
-    # redacts. The v2 delta attestation is that family too: it publishes v1's
-    # fields plus three definition digests, so it may carry what v1 carries
-    # and nothing more, which the last assertion holds it to.
-    unredacted = {
-        "verification-input.diff",
+    # inside it (#1079): the head and base locks, both lock-diff files and
+    # both delta attestations.
+    lock_family = {
         "capabilities.lock.json",
         "base.capabilities.lock.json",
         "capability-lock-diff.json",
@@ -1114,18 +1152,64 @@ def test_verify_publishes_no_planted_secret_in_any_rendered_artifact(tmp_path):
         "capability-delta-attestation.json",
         "capability-delta-attestation.v2.json",
     }
-    rendered = [path for path in written if path.name not in unredacted]
-    assert len(rendered) >= 10
+    assert lock_family <= {path.name for path in written}
+    rendered = [path for path in written if path.name != "verification-input.diff"]
+    assert len(rendered) >= 16
     _assert_no_secret_in(rendered, secrets)
-
-    def exposed(name: str) -> set[str]:
-        text = (reports / name).read_text(encoding="utf-8", errors="replace")
-        return {label for label, value in secrets.items() if value in text}
-
-    assert exposed("capability-delta-attestation.v2.json") <= exposed(
-        "capability-delta-attestation.json"
-    )
+    _assert_lock_family_shows_the_redactions(reports)
     report_json = json.loads((reports / "report.json").read_text(encoding="utf-8"))
     assert {"SHIP-DOC-SECRET-IN-DESCRIPTION", "SHIP-DOC-INJECTION-RISK"} <= {
         finding["check_id"] for finding in report_json["findings"]
     }
+
+
+def _assert_lock_family_shows_the_redactions(reports: Path) -> None:
+    """Each place the #1077 review found a planted key now holds a marker.
+
+    Redacted, not dropped: the lock still names every tool and owner, and the
+    digests it publishes are digests of what it shows, so the stdlib reference
+    consumer accepts both attestations.
+    """
+
+    lock = json.loads((reports / "capabilities.lock.json").read_text(encoding="utf-8"))
+    planted = [
+        fact for fact in lock["capabilities"] if fact["identity"]["tool_name"] != "docs.lookup"
+    ]
+    assert len(planted) == 7
+    for fact in lock["capabilities"]:
+        # $.capabilities[].controls.evidence_owner
+        assert "[REDACTED:" in fact["controls"]["evidence_owner"], fact["identity"]["tool_name"]
+    for fact in planted:
+        assert "[REDACTED:" in fact["identity"]["tool_name"]
+        assert fact["id"] == f"cap_{fact['hashes']['identity_hash']}"
+    diff = json.loads((reports / "capability-lock-diff.json").read_text(encoding="utf-8"))
+    assert len(diff["added"]) == 7
+    [changed] = diff["changed"]
+    # changed[].after.controls.evidence_owner and semantic_changes[].after
+    assert changed["after"]["controls"]["evidence_owner"] == (
+        "docs-platform [REDACTED:stripe_key]"
+    )
+    [owner] = [
+        change
+        for change in changed["semantic_changes"]
+        if change["field"] == "controls.evidence_owner"
+    ]
+    assert owner["before"] == "docs-platform"
+    assert owner["after"] == "docs-platform [REDACTED:stripe_key]"
+    verifier = _reference_capability_delta_verifier()
+    for name in ("capability-delta-attestation.json", "capability-delta-attestation.v2.json"):
+        document = json.loads((reports / name).read_text(encoding="utf-8"))
+        assert "[REDACTED:" in json.dumps(document), name
+        assert verifier.verify(document).rows == [], name
+
+
+def _reference_capability_delta_verifier():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_ref_verifier_privacy", Path("tools/verify-capability-delta.py")
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
