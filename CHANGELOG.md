@@ -10,7 +10,8 @@
   traversal walk expressions iteratively, including dotted names in chained
   calls. Application comparisons report implementations they cannot read.
   JSON adapter inputs and Codex TOML configuration accept a UTF-8 BOM.
-  `.yaml` and `.yml` inputs use YAML parsing, including flow-style mappings.
+  The `.json` suffix selects JSON parsing. Other suffixes use YAML parsing,
+  including files whose contents begin with a flow-style mapping or list.
   Baseline evidence requires its canonical encoding. (#1042)
 
 ### Host comparison

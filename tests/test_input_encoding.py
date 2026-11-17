@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from agents_shipgate.core.python_source import decode_python_source
-from agents_shipgate.inputs.common import load_structured_file, load_structured_file_with_positions
+from agents_shipgate.inputs.common import load_structured_file
 from agents_shipgate.inputs.mcp_manifest import load_codex_config_mcp_sources
 from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
 from agents_shipgate.schemas.manifest import ToolSourceConfig
@@ -19,10 +19,9 @@ def test_structured_reader_accepts_bom_and_uses_declared_format(tmp_path):
     yaml_path = tmp_path / "input.yaml"
     yaml_path.write_text("{enabled: true}", encoding="utf-8")
     assert load_structured_file(json_path) == load_structured_file(yaml_path) == {"enabled": True}
-    odd_suffix = tmp_path / "input.txt"
-    odd_suffix.write_text('{\n\t"maximum": 1e6\n}', encoding="utf-8")
-    assert load_structured_file(odd_suffix) == {"maximum": 1e6}
-    assert load_structured_file_with_positions(odd_suffix)[0] == {"maximum": 1e6}
+    other_suffix = tmp_path / "input.txt"
+    other_suffix.write_text("{enabled: true}", encoding="utf-8")
+    assert load_structured_file(other_suffix) == {"enabled": True}
 
     config = tmp_path / ".codex" / "config.toml"
     config.parent.mkdir()

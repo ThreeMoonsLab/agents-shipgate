@@ -183,17 +183,10 @@ def manifest_relative_path(value: str, base_dir: Path) -> str:
         return raw_path.as_posix()
 
 
-def _uses_json_parser(path: Path, text: str) -> bool:
-    suffix = path.suffix.lower()
-    return suffix == ".json" or (
-        suffix not in {".yaml", ".yml"} and text.lstrip().startswith(("{", "["))
-    )
-
-
 def load_structured_file(path: Path) -> Any:
     text = load_text_file(path).removeprefix("\ufeff")
     try:
-        if _uses_json_parser(path, text):
+        if path.suffix.lower() == ".json":
             return json.loads(text)
         return yaml.safe_load(text)
     except (json.JSONDecodeError, yaml.YAMLError) as exc:
@@ -367,7 +360,7 @@ def load_structured_text_with_positions(
             f"Input file too large: {path}; maximum is {MAX_INPUT_FILE_BYTES} bytes"
         )
     text = text.removeprefix("\ufeff")
-    if _uses_json_parser(path, text):
+    if path.suffix.lower() == ".json":
         try:
             return json.loads(text), _EMPTY_INDEX
         except json.JSONDecodeError as exc:
