@@ -229,11 +229,22 @@ def test_a_score_survives_the_summary_block(tmp_path: Path) -> None:
     assert summarize.answer_id(with_summary) == summarize.answer_id(answer)
     reworded = {**with_summary, "summary": {"findings": [{"agent": "b"}]}}
     assert summarize.answer_id(reworded) == summarize.answer_id(answer)
+    assert summarize.presentation_id(answer) is None
+    assert summarize.presentation_id(reworded) != summarize.presentation_id(with_summary)
     _write_run(tmp_path, [{"slug": "a", "status": "ok"}], {"a": with_summary})
     totals = summarize.totals(summarize.load_run(corpus, tmp_path), {"a": score})
     assert (totals["scored"], totals["stale_scores"]) == (1, [])
     moved = {**with_summary, "rows": [{"change": "added"}]}
     assert summarize.answer_id(moved) != summarize.answer_id(answer)
+    assert summarize.presentation_id(moved) == summarize.presentation_id(with_summary)
+
+
+def test_presentation_identity_keeps_scope_summaries_in_order() -> None:
+    left = {"engine": {"version": "1"}, "comparisons": [{}, {"summary": {"count": 1}}]}
+    right = {"engine": {"version": "2"}, "comparisons": [{"summary": {"count": 1}}, {}]}
+    assert summarize.answer_id(left) == summarize.answer_id(right)
+    assert summarize.presentation_id(left) != summarize.presentation_id(right)
+    assert summarize.presentation_id(left) == summarize.presentation_id({**left, "engine": {}})
 
 
 def test_the_readme_quotes_868s_levels_verbatim() -> None:
@@ -332,6 +343,61 @@ def _runner_case(tmp_path: Path, slugs: tuple[str, ...]) -> tuple[dict, Path, Pa
 
 def _git_ok(command: list[str]) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(command, 0, "", "")
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_retained_replay_keeps_input_pins_and_refuses_to_overwrite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupted: bool,
+) -> None:
+    corpus, corpus_path, clones, out = _runner_case(tmp_path, ("case",))
+    engine = tmp_path / "engine"
+    receipt = out / "run-inputs.json"
+    answer = {"comparison_status": "compared", "rows": [], "summary": {"findings": []}}
+
+    def run_command(command, **kwargs):
+        if command[0] == "git":
+            return _git_ok(command)
+        assert receipt.is_file()
+        if interrupted:
+            raise KeyboardInterrupt
+        return subprocess.CompletedProcess(command, 0, json.dumps(answer), "")
+
+    monkeypatch.setattr(run.subprocess, "run", run_command)
+    args = ["--engine", str(engine), "--corpus", str(corpus_path), "--clones", str(clones), "--out", str(out)]
+    if interrupted:
+        with pytest.raises(KeyboardInterrupt):
+            run.main([*args, "--retain-run"])
+        assert not (out / "runs.json").exists()
+    else:
+        assert run.main([*args, "--retain-run"]) == 0
+        summarized = summarize.load_run(corpus, out)["case"]
+        assert summarized["presentation_id"] == summarize.presentation_id(answer)
+
+    before = {path.name: path.read_bytes() for path in out.iterdir()}
+    inputs = json.loads(before["run-inputs.json"])
+    assert inputs["members"] == corpus["members"]
+    assert inputs["corpus_sha256"] == hashlib.sha256(corpus_path.read_bytes()).hexdigest()
+    assert inputs["engine_launcher_sha256"] == hashlib.sha256(engine.read_bytes()).hexdigest()
+    assert inputs["fetch_requested"] is False
+    for repeat in (args, [*args, "--retain-run"]):
+        with pytest.raises(SystemExit, match="2"):
+            run.main(repeat)
+        assert {path.name: path.read_bytes() for path in out.iterdir()} == before
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("slug", "runs"), ("head", "HEAD"), ("repository", "invalid-repository")],
+)
+def test_replay_rejects_invalid_inputs_before_creating_output(
+    tmp_path: Path, field: str, value: str,
+) -> None:
+    corpus, corpus_path, clones, out = _runner_case(tmp_path, ("case",))
+    corpus["members"][0][field] = value
+    corpus_path.write_text(json.dumps(corpus), encoding="utf-8")
+    with pytest.raises(SystemExit, match="2"):
+        run.main(["--engine", str(tmp_path / "engine"), "--corpus", str(corpus_path),
+                  "--clones", str(clones), "--out", str(out), "--retain-run"])
+    assert not out.exists()
 
 
 @pytest.mark.parametrize("outcome", ["success", "refused", "timeout", "unavailable", "fetch_failed"])
