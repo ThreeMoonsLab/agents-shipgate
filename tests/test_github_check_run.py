@@ -121,6 +121,13 @@ def test_annotations_map_sarif_levels():
     assert annotations[0]["title"] == "SHIP-POLICY-APPROVAL-MISSING"
 
 
+def test_sarif_annotations_decode_repository_path():
+    sarif = _sarif([_result(uri="services/refund%20agent/shipgate.yaml")])
+    [annotation] = annotations_from_sarif(sarif)
+
+    assert annotation["path"] == "services/refund agent/shipgate.yaml"
+
+
 def test_annotations_capped_at_checks_api_limit():
     sarif = _sarif([_result(line=i + 1) for i in range(MAX_ANNOTATIONS + 25)])
     annotations = annotations_from_sarif(sarif)

@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
+from urllib.parse import unquote
 
 from typer.testing import CliRunner
 
@@ -119,6 +121,55 @@ def _ci_clone(origin: Path, destination: Path, sha: str) -> Path:
     _git(destination, "fetch", "-q", "origin", "+refs/heads/*:refs/remotes/origin/*")
     _git(destination, "checkout", "-q", "--detach", sha)
     return destination
+
+
+
+def test_committed_verify_sarif_locates_findings_from_repository_root(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    sample = Path(__file__).resolve().parents[1] / "samples" / "support_refund_agent"
+    scope = "services/refund agent"
+    shutil.copytree(sample, repo / scope)
+    _write(repo / "shipgate.yaml", MANIFEST)
+    _git(repo, "init", "-q", "-b", "main")
+    head = _commit(repo, "Add root and nested manifests")
+    out = tmp_path / "reports"
+
+    result = runner.invoke(
+        app,
+        [
+            "verify", "--workspace", str(repo), "--config", f"{scope}/shipgate.yaml",
+            "--base", head, "--head", head, "--out", str(out), "--ci-mode", "advisory",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    sarif = json.loads((out / "report.sarif").read_text(encoding="utf-8"))
+    results = sarif["runs"][0]["results"]
+    locations = [
+        location["physicalLocation"]
+        for item in results
+        for location in item.get("locations", [])
+    ]
+    uris = {location["artifactLocation"]["uri"] for location in locations}
+    assert "services/refund%20agent/shipgate.yaml" in uris
+    assert "services/refund%20agent/specs/support-tools.openapi.yaml" in uris
+    assert all(
+        unquote(uri).startswith(f"{scope}/") and (repo / unquote(uri)).is_file()
+        for uri in uris
+    )
+    approval = next(item for item in results if item["ruleId"] == "SHIP-POLICY-APPROVAL-MISSING")
+    assert len(approval["locations"]) == 2
+    assert all(
+        location["physicalLocation"]["region"]["startLine"] > 1
+        for location in approval["locations"]
+    )
+    semantic = [item for item in results if item["ruleId"].startswith("SHIP-SEMANTIC-")]
+    assert semantic
+    assert all(
+        item["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+        == "services/refund%20agent/shipgate.yaml"
+        for item in semantic
+    )
 
 
 def _develop_origin(tmp_path: Path) -> tuple[Path, str, str]:

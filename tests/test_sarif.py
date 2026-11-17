@@ -4,9 +4,11 @@ from pathlib import Path
 from jsonschema import validate
 
 from agents_shipgate.cli.scan import run_scan
-from agents_shipgate.report.sarif import render_sarif_report
+from agents_shipgate.report.sarif import SarifSourcePaths, render_sarif_report
 from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.report import (
+    EvidenceGap,
+    EvidenceGapAction,
     Finding,
     ReadinessReport,
     ReportSummary,
@@ -142,6 +144,47 @@ def test_sarif_output_stays_findings_only_for_capability_diff_reports(tmp_path):
     assert "suggested_scenarios" not in sarif_text
     assert "tool_surface_facts" not in sarif_text
     assert "tool_surface_diff" not in sarif_text
+    assert "samples/support_refund_agent/specs/support-tools.openapi.yaml" in sarif_text
+
+
+def test_sarif_keeps_repository_relative_changed_files(tmp_path: Path):
+    report = _report_with_findings(
+        [
+            Finding(
+                check_id="SHIP-VERIFY-TRUST-ROOT-CHANGED",
+                title="Trust root changed",
+                severity="high",
+                category="verify",
+                recommendation="Review the change.",
+                source=SourceReference(type="changed_file", path=".github/workflows/ci.yml"),
+            )
+        ]
+    )
+    paths = SarifSourcePaths("nested/shipgate.yaml", tmp_path)
+
+    payload = render_sarif_report(report, source_paths=paths)
+
+    location = payload["runs"][0]["results"][0]["locations"][0]["physicalLocation"]
+    assert location["artifactLocation"]["uri"] == ".github/workflows/ci.yml"
+
+
+def test_sarif_semantic_gap_links_to_local_source_and_preserves_line(tmp_path: Path):
+    (tmp_path / "tools.py").write_text("# source\n", encoding="utf-8")
+    paths = SarifSourcePaths("nested/shipgate.yaml", tmp_path.resolve())
+    gap = EvidenceGap(
+        kind="missing_effect_evidence",
+        subject="tool",
+        source_ref="tools.py:7",
+        why="Effect evidence is missing.",
+        next_action=EvidenceGapAction(
+            kind="declare_action_effect", why="Effect evidence is missing.", expects="Review effect."
+        ),
+    )
+
+    source = paths.gap_location(gap)
+
+    assert paths.artifact_uri(source.path, source.type) == "nested/tools.py"
+    assert source.start_line == 7
 
 
 def _report_with_findings(findings: list[Finding]) -> ReadinessReport:

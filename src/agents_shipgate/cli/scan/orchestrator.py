@@ -266,6 +266,11 @@ def _run_scan(
             plan=plan,
             manifest=resolved.manifest,
             config_path=config_path,
+            configured_manifest_path=(
+                verification_context.configured_manifest_path
+                if verification_context is not None
+                else None
+            ),
             packet_generated_at=packet_generated_at,
             human_context=human_context,
         )

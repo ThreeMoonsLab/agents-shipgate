@@ -29,6 +29,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from agents_shipgate.report.pr_projection import (
     item_to_check_run_annotation,
@@ -153,7 +154,7 @@ def _first_location(result: dict[str, Any]) -> tuple[str, int] | None:
         start_line = region.get("startLine")
         if not isinstance(start_line, int) or start_line < 1:
             start_line = 1
-        return uri, start_line
+        return unquote(uri), start_line
     return None
 
 
