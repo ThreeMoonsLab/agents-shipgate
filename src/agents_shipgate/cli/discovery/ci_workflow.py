@@ -22,10 +22,10 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from importlib.resources import files
 from pathlib import Path
 
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.wheel_layout import packaged_path
 from agents_shipgate.release_source import release_engine
 
 
@@ -174,15 +174,6 @@ def _workflow_slug(relative_dir: str) -> str:
     return f"{slug or 'project'}-{digest}"
 
 
-def _host_only_workflow_bytes() -> bytes:
-    packaged = files("agents_shipgate").joinpath("_meta", "host-only-advisory.yml")
-    if packaged.is_file():
-        return packaged.read_bytes()
-    # Source checkouts use the same copy that is included in the wheel.
-    source = Path(__file__).resolve().parents[4] / "examples/github-actions/14-host-only-advisory-pr.yml"
-    return source.read_bytes()
-
-
 def write_ci_workflow(
     workspace: Path, *, repository_root: Path | None = None, host_only: bool = False,
 ) -> CiWorkflowResult:
@@ -250,7 +241,10 @@ def write_ci_workflow(
 
     # Manifest workflow pins are selected at write time. The host-only path
     # uses the recipe's own exercised pins.
-    content = _host_only_workflow_bytes() if host_only else _render_workflow_template(config_value).encode("utf-8")
+    content = (
+        packaged_path("_meta/host-only-advisory.yml").read_bytes()
+        if host_only else _render_workflow_template(config_value).encode("utf-8")
+    )
     workflows_dir.mkdir(parents=True, exist_ok=True)
     try:
         with target.open("xb") as stream:
