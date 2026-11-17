@@ -42,6 +42,7 @@ import typer
 from pydantic import ValidationError
 from ruamel.yaml import YAML
 
+from agents_shipgate.core.errors import format_validation_error
 from agents_shipgate.schemas.declaration_continuation import (
     DECLARATION_CONTINUATION_ARTIFACT_NAME,
     AppliedDeclaration,
@@ -225,10 +226,12 @@ def apply_patches(
             and (p.get("kind") == "manual" or p.get("confidence") in confidence_levels)
         ]
     except (ValidationError, typer.BadParameter) as exc:
-        typer.echo(
-            f"Malformed patch in report at {from_path}: {exc}",
-            err=True,
+        label = f"Malformed patch in report at {from_path}"
+        message = (
+            format_validation_error(exc, label=label)
+            if isinstance(exc, ValidationError) else f"{label}: {exc}"
         )
+        typer.echo(message, err=True)
         import shlex as _shlex
 
         out_q = _shlex.quote(str(from_path.parent))
@@ -238,7 +241,7 @@ def apply_patches(
         )
         _emit_input_error(
             "malformed_patch",
-            str(exc),
+            message,
             next_action=rerun_command,
             next_actions=[
                 {

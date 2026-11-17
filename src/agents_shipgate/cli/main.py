@@ -159,6 +159,11 @@ class _OnDemandGroup(typer.core.TyperGroup):
     the whole seam. A resolved command is cached on this group instance.
     """
 
+    def main(self, *args: Any, **kwargs: Any) -> Any:
+        from agents_shipgate.cli.agent_mode import run_cli_with_error_reporting
+
+        return run_cli_with_error_reporting(super().main, *args, **kwargs)
+
     def list_commands(self, ctx: Context) -> list[str]:
         return [row[0] for row in _ROOT_COMMANDS]
 

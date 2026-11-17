@@ -374,6 +374,30 @@ def test_build_server_without_sdk_raises_config_error() -> None:
         build_server()
 
 
+@pytest.mark.parametrize("pipx", [False, True])
+def test_mcp_console_exits_cleanly_without_the_extra(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pipx: bool,
+) -> None:
+    from agents_shipgate.mcp_server.server import main
+
+    monkeypatch.setitem(sys.modules, "mcp", None)
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "0")
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    if pipx:
+        (tmp_path / "pipx_metadata.json").touch()
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 2
+    result = capsys.readouterr()
+    assert result.out == ""
+    [message] = result.err.splitlines()
+    assert "agents-shipgate[mcp]" in message
+    if pipx:
+        assert "pipx inject" in message and tmp_path.name in message
+    else:
+        assert sys.executable in message and "-m pip install" in message
+
+
 def test_an_sdk_without_mcpserver_is_named_as_a_version_problem(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

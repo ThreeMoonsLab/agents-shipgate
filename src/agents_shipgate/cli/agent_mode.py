@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import os
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from contextvars import ContextVar
 from typing import Any
 
 from agents_shipgate.invocation import (
@@ -67,6 +68,77 @@ def detect_actor(env: Mapping[str, str] | None = None) -> str:
         if source.get(hint):
             return actor
     return DEFAULT_ACTOR
+
+
+# None outside the root invocation preserves direct emitter use in commands,
+# the separately installed MCP entry point, and tests.
+_EMITTED_CLI_ERROR: ContextVar[bool | None] = ContextVar("emitted_cli_error", default=None)
+_CLI_ERROR_EXITS = {
+    2: ("config_error", "The command rejected its arguments or configuration."),
+    3: ("input_parse_error", "The command could not read or validate an input."),
+    4: ("other_error", "The command stopped before producing a result."),
+    5: ("other_error", "The requested operation was refused."),
+    6: ("other_error", "The baseline check failed."),
+}
+
+
+def _emit_cli_exit_error(exit_code: object, message: str | None = None, details: object = None) -> None:
+    if _EMITTED_CLI_ERROR.get() is not False or not isinstance(exit_code, int):
+        return
+    error = _CLI_ERROR_EXITS.get(exit_code)
+    if error is None:
+        # Result and policy exit codes already carry their own evidence.
+        return
+
+    from agents_shipgate.schemas.diagnostics import NextAction
+
+    kind, default_message = error
+    action = NextAction(
+        kind="review",
+        why="Review the command's diagnostic and check its inputs and options before retrying.",
+    )
+    emit_agent_mode_error_action(
+        kind, message=message or default_message, exit_code=exit_code, action=action,
+        details=details or None, command=join_argv(invocation_prefix()),
+    )
+
+
+def run_cli_with_error_reporting(run: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Preserve Click's presentation and add one recovery envelope at the root."""
+
+    from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
+
+    token = _EMITTED_CLI_ERROR.set(False if is_agent_mode() else None)
+    try:
+        result = run(*args, **kwargs)
+    except SystemExit as exc:
+        _emit_cli_exit_error(exc.code)
+        raise
+    except AgentsShipgateError as exc:
+        code = 2 if isinstance(exc, ConfigError) else 3 if isinstance(exc, InputParseError) else 4
+        print(str(exc), file=sys.stderr)
+        _emit_cli_exit_error(code, str(exc), details=exc.details)
+        if kwargs.get("standalone_mode", True):
+            raise SystemExit(code) from None
+        return code
+    except Exception as exc:
+        from pydantic import ValidationError
+
+        from agents_shipgate.core.errors import format_validation_error
+
+        if not isinstance(exc, ValidationError):
+            raise
+        message = format_validation_error(exc, label="Invalid input")
+        print(message, file=sys.stderr)
+        _emit_cli_exit_error(3, message)
+        if kwargs.get("standalone_mode", True):
+            raise SystemExit(3) from None
+        return 3
+    else:
+        _emit_cli_exit_error(result)
+        return result
+    finally:
+        _EMITTED_CLI_ERROR.reset(token)
 
 
 def emit_agent_mode_error_action(
@@ -181,7 +253,18 @@ def emit_agent_mode_error(
     if artifacts is not None:
         payload["artifacts"] = artifacts
     payload.update(fields)
-    print(json.dumps(payload, default=str), file=sys.stderr)
+    emit_cli_error_line(payload)
+
+
+def emit_cli_error_line(payload: dict[str, object], *, sort_keys: bool = False) -> None:
+    """Write a diagnostic that the current command already knows how to route."""
+
+    already_emitted = _EMITTED_CLI_ERROR.get()
+    if already_emitted is True:
+        return
+    print(json.dumps(payload, default=str, sort_keys=sort_keys), file=sys.stderr)
+    if already_emitted is False:
+        _EMITTED_CLI_ERROR.set(True)
 
 
 def _normalized_actions(next_actions: object) -> object:
