@@ -15,9 +15,13 @@ def loads_jsonc(text: str) -> Any:
     """
 
     chars = list(text)
+    if chars and chars[0] == "\ufeff":
+        chars[0] = " "
     length = len(chars)
     index = 0
     in_string = False
+    comma_at: int | None = None
+    previous_token = ""
     while index < length:
         char = chars[index]
         if in_string:
@@ -28,29 +32,28 @@ def loads_jsonc(text: str) -> Any:
                 in_string = False
             index += 1
             continue
-        if char == '"':
-            in_string = True
-        elif char == "/" and index + 1 < length and chars[index + 1] == "/":
-            end = text.find("\n", index)
-            end = length if end == -1 else end
+        if char == "/" and index + 1 < length and chars[index + 1] == "/":
+            end = index + 2
+            while end < length and chars[end] not in "\r\n":
+                end += 1
             chars[index:end] = " " * (end - index)
             index = end
             continue
-        elif char == "/" and index + 1 < length and chars[index + 1] == "*":
+        if char == "/" and index + 1 < length and chars[index + 1] == "*":
             end = text.find("*/", index + 2)
             if end == -1:
                 raise json.JSONDecodeError("Unterminated comment", text, index)
             for position in range(index, end + 2):
-                if chars[position] != "\n":
+                if chars[position] not in "\r\n":
                     chars[position] = " "
             index = end + 2
             continue
-        elif char == ",":
-            following = index + 1
-            while following < length and chars[following] in " \t\r\n":
-                following += 1
-            if following < length and chars[following] in "}]":
-                chars[index] = " "
+        if char not in " \t\r\n":
+            if comma_at is not None and char in "}]":
+                chars[comma_at] = " "
+            comma_at = index if char == "," and previous_token not in {"", "{", "["} else None
+            previous_token = char
+            in_string = char == '"'
         index += 1
     return json.loads("".join(chars))
 
