@@ -380,6 +380,96 @@ _DOCUMENTED_ERROR_IDS = {
 }
 
 
+def _leaf_commands(group, path=()):
+    import typer
+
+    context = typer.Context(group, info_name=path[-1] if path else "agents-shipgate")
+    for name in group.list_commands(context):
+        command = group.get_command(context, name)
+        if hasattr(command, "list_commands"):
+            yield from _leaf_commands(command, (*path, name))
+        else:
+            yield (*path, name)
+
+
+def test_a_parser_error_in_each_leaf_command_emits_one_recovery_line() -> None:
+    from typer.main import get_command
+
+    paths = list(_leaf_commands(get_command(app)))
+    assert len(paths) > 50
+    for path in paths:
+        result = runner.invoke(app, [*path, "--invalid-shipgate-test-option"], env={
+            "AGENTS_SHIPGATE_AGENT_MODE": "1",
+        })
+        assert result.exit_code == 2, (path, result.output, result.exception)
+        [line] = [line for line in result.stderr.splitlines() if line.startswith("{")]
+        payload = json.loads(line)
+        _assert_documented_envelope(payload)
+        assert payload["exit_code"] == 2
+
+
+def test_an_unresolvable_diff_base_emits_one_agent_error(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    result = runner.invoke(
+        app, ["diff", "--workspace", str(tmp_path), "--base", "does-not-exist", "--json"],
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+    assert result.exit_code == 2, result.output
+    [line] = [line for line in result.stderr.splitlines() if line.startswith("{")]
+    payload = json.loads(line)
+    _assert_documented_envelope(payload)
+    assert "does-not-exist" in result.stderr
+    assert payload["exit_code"] == 2
+
+
+def test_preflight_validation_does_not_echo_the_invalid_value(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app, ["preflight", "--workspace", str(tmp_path), "--plan", "-", "--json"],
+        input='{"planned_files": ["private-validation-canary"]}',
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+    assert result.exit_code == 2, result.output
+    [line] = [line for line in result.stderr.splitlines() if line.startswith("{")]
+    payload = json.loads(line)
+    _assert_documented_envelope(payload)
+    assert "planned_files: Extra inputs are not permitted" in payload["message"]
+    for value in ("private-validation-canary", "input_value=", "type=", "errors.pydantic.dev"):
+        assert value not in result.stderr
+
+
+@pytest.mark.parametrize("present", [False, True])
+def test_root_routes_worker_plan_failures_without_a_traceback(tmp_path: Path, present: bool) -> None:
+    plan = tmp_path / "plan.json"
+    if present:
+        plan.write_text('{"plan_id": ["private-plan-value"]}')
+    result = runner.invoke(
+        app, ["verification", "worker", "--workspace", str(tmp_path), "--plan", str(plan)],
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+    assert result.exit_code == 3, result.output
+    [line] = [line for line in result.stderr.splitlines() if line.startswith("{")]
+    payload = json.loads(line)
+    _assert_documented_envelope(payload)
+    assert payload["error"] == "input_parse_error"
+    assert ("Invalid input" if present else "plan.json") in payload["message"]
+    for value in ("Traceback", "private-plan-value", "type=", "errors.pydantic.dev"):
+        assert value not in result.stderr
+
+
+def test_already_structured_authorization_error_is_not_duplicated(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app, ["authorization", "request", "--receipt", str(tmp_path / "missing.json"),
+              "--artifacts-root", str(tmp_path), "--destination-ref", "refs/heads/example",
+              "--expected-lease-oid", "1" * 40],
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+    assert result.exit_code == 3, result.output
+    [line] = result.stderr.splitlines()
+    payload = json.loads(line)
+    _assert_documented_envelope(payload)
+    assert "fresh valid receipt" in payload["next_actions"][0]["expects"]
+
+
 def test_config_error_catalog_covers_non_manifest_request_configuration() -> None:
     catalog = json.loads(
         (Path(__file__).resolve().parent.parent / "docs" / "errors.json").read_text(

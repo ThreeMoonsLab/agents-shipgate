@@ -307,6 +307,7 @@ class RegistrySummaryV1(BaseModel):
 
     registry_schema_version: Literal["0.6"] = REGISTRY_SCHEMA_VERSION
     registry: str
+    registry_present: bool = True
     count: int
     skipped_count: int = 0
     by_merge_verdict: dict[str, int] = Field(default_factory=dict)
@@ -401,6 +402,7 @@ class RegistryVerificationResultV1(BaseModel):
 
     registry_schema_version: Literal["0.6"] = REGISTRY_SCHEMA_VERSION
     registry: str
+    registry_present: bool = True
     row_count: int
     skipped_count: int = 0
     issue_count: int = 0

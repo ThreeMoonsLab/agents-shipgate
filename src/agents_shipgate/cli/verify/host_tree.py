@@ -37,7 +37,7 @@ def materialize_host_tree(
             )
         found = {
             item["path"]
-            for grant in snapshot.inventory["grants"] if grant.get("kind") == "hook"
+            for grant in snapshot.inventory["grants"]
             for item in grant.get("script_inputs") or []
             if item.get("path") is not None and item.get("basis") is not None
             # The first archive already preserves links. Selecting one again

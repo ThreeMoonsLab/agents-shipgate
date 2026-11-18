@@ -13,6 +13,12 @@ not a host-coverage selector.
 Repository scope is deterministic and is the default for `check`, verification,
 and `audit --host`.
 
+Use `shipgate diff --base <ref> --head <ref>` to compare two committed
+snapshots. Host mode uses the selected head's merge base with the base ref
+and reads the scoped host inputs from both Git trees. This gives large
+checkouts a committed comparison when the working-tree inventory exceeds
+its limits. The usual invocation without `--head` compares the working tree.
+
 | Adapter | Status | Repository surfaces | Static semantics |
 |---|---|---|---|
 | OpenShell | static inventory | root/nested `.shipgate/openshell.json` selecting arbitrary repository policy files | [Pinned policy schema 1 inventory](openshell-support.md), authored/effective-snapshot roles, explicit/defaulted fields and named read limits; runtime enforcement and freshness remain unverified |
@@ -568,14 +574,19 @@ in canonical JSON:
 - its key names, numbers, booleans and `null`, so reordering keys compares
   as unchanged and adding a key is a change;
 - `<redacted>` for `env` and `headers` values (and codex's `http_headers` and
-  `env_http_headers`), `apiKeyHelper`, every other secret-named value and the
+  `env_http_headers`), secret-named values except the top-level
+  `apiKeyHelper` command in `settings`, and the
   word after a secret-named argument such as `--token`, as the host readers
   redact them, so rotating one compares as unchanged;
 - each other string as `<withheld:…>`, a short digest of what the host
   readers digest for it: the sanitized text, and a URL's query. Editing it is
   a `changed` row, and none of its text is published. So an MCP server's
   `args` — an `mcp-remote --header "Authorization: Bearer …"` included — and a
-  hook's command, matcher and type publish only digests;
+  hook's command, matcher and type publish only digests. A top-level
+  `settings.apiKeyHelper` command uses the same digest projection, with
+  credential-shaped arguments redacted before hashing. Saved baselines
+  that redacted the entire helper need to be regenerated before comparing
+  workflow drift;
 - except the strings a host reader publishes: a `permissions.allow`, `ask` or
   `deny` rule, and the value of a documented Claude Code setting
   (`defaultMode`, the switches in [the ratings table](#claude-code-setting-ratings),
@@ -1532,9 +1543,15 @@ comment, `check`'s rows and `audit --host` name a change to one as a row:
   handler's is: the executable's name, a digest and a shape, never the text.
   A row reads `statusLine: curl sha256:… (runs curl, sh; 1 pipe)`; a changed
   command reads `apiKeyHelper command changed (k.sh sha256:… → curl sha256:…)`.
-  A script the command runs is not read, unlike a hook's
-  ([bounded script comparison](#hook-script-dependencies)): an edit only to
-  the script gives no row.
+  Host inventory and baseline `0.10` also record direct script dependencies
+  from repository settings using the [bounded script reader](#hook-script-dependencies).
+  For a launch from the repository root, a literal `./status.sh` names that
+  repository file. On POSIX, an absolute path inside the workspace also
+  establishes a direct reference. Changes to captured bytes produce a row on
+  the declaring setting, with no widening inferred. Coverage names unresolved
+  references such as interpreter wrappers that take a repository script. A
+  saved baseline created before script capture needs a fresh snapshot when a
+  current setting names a direct script.
 - **`env`** — an entry whose name sets where Claude Code, or a tool it starts,
   sends requests (any `*_BASE_URL`, an `OTEL_EXPORTER_OTLP_…ENDPOINT`,
   `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`), which TLS certificates

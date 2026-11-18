@@ -329,7 +329,7 @@ def test_the_text_names_a_script_change_once_and_a_repoint_as_selection(tmp_path
     text = _diff(root)
     digest = change["change"].split(" → ")[-1]
     assert text.count(digest) == 1
-    assert "a.sh (claude-code): compared; changed; the row of the hook that runs it names this script" in text
+    assert "a.sh (claude-code): compared; changed; the row for its declaring command names this script" in text
 
     _write(root, {"a.sh": "a\n", SETTINGS: _hooks('"${CLAUDE_PROJECT_DIR}/b.sh"')})
     data = _diff(root, "--json")

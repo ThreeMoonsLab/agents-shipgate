@@ -450,7 +450,6 @@ def _script_differences_not_shown(
         return {
             (str(grant["host"]), str(entry["path"])): (entry.get("sha256"), entry.get("size_bytes"))
             for grant in inventory.get("grants", [])
-            if grant.get("kind") == "hook"
             for entry in grant.get("script_inputs") or []
             if entry.get("path") and entry.get("sha256")
         }
@@ -485,7 +484,7 @@ def _script_differences_not_shown(
                     entry_as_base(str(grant["host"]), entry) for entry in grant["script_inputs"]
                 ],
             }
-            if grant.get("kind") == "hook" and grant.get("script_inputs")
+            if grant.get("script_inputs")
             else grant
             for grant in after.get("grants", [])
         ],
@@ -511,7 +510,7 @@ def _unresolved_script_facts(
     after: dict[str, Any],
     changed_inputs: ChangedInputs | None,
 ) -> dict[tuple[str, str, str, str | None], dict[str, Any]]:
-    """Selected hooks whose script this entry could not resolve, as coverage facts (#702).
+    """Selected executable declarations whose script could not be resolved (#702, #1084).
 
     One ``script_not_resolved`` item per declaring file, side and host: a
     hook the host loads names a command, such as an interpreter wrapper or a
@@ -531,17 +530,18 @@ def _unresolved_script_facts(
     found: dict[tuple[str, str], dict[str, set[str]]] = {}
     for side, inventory in (("base", before), ("head", after)):
         for grant in inventory.get("grants", []):
-            if grant.get("kind") != "hook" or hook_loading_basis(grant) not in LOADED_HOOK_BASES:
+            if grant.get("kind") == "hook" and hook_loading_basis(grant) not in LOADED_HOOK_BASES:
                 continue
             for entry in grant.get("script_inputs") or []:
                 limit = entry.get("limit")
                 if entry.get("path") or not limit or limit in _NO_SCRIPT_TO_NAME:
                     continue
-                where = (
-                    str(grant["event"])
-                    if limit in {"unsupported_hook_shape", "handler_bound_exceeded"}
-                    else f"{grant['event']} handler {entry['handler']}"
-                )
+                if grant.get("kind") == "command_setting":
+                    where = f"command setting {grant['setting']}"
+                elif limit in {"unsupported_hook_shape", "handler_bound_exceeded"}:
+                    where = str(grant["event"])
+                else:
+                    where = f"{grant['event']} handler {entry['handler']}"
                 host = str(grant["host"])
                 key = (host, _file_of(str(grant["source"]), files.get(host, set())))
                 found.setdefault(key, {}).setdefault(f"{where} ({limit})", set()).add(side)

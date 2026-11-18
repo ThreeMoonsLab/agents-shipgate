@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
@@ -337,6 +338,28 @@ def test_query_filters_org_fields_and_human_ack(tmp_path: Path) -> None:
     assert payload["registry_schema_version"] == "0.6"
     assert payload["count"] == 1
     assert payload["rows"][0]["repo"] == "org/support"
+
+
+@pytest.mark.parametrize("command", ["summary", "verify"])
+def test_registry_distinguishes_missing_default_from_explicit_input(command, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    args = ["registry", command, "--json"]
+    default = runner.invoke(app, args)
+    assert default.exit_code == 0, default.output
+    payload = json.loads(default.stdout)
+    assert payload["registry_present"] is False
+    if command == "verify":
+        assert payload["ok"] is False
+    explicit = runner.invoke(app, [*args, "--registry", ".agents-shipgate/registry.jsonl"])
+    assert explicit.exit_code == 3, explicit.output
+    assert explicit.stdout == ""
+    assert "Registry does not exist" in explicit.stderr
+
+    ledger = tmp_path / "empty.jsonl"
+    ledger.touch()
+    empty = runner.invoke(app, [*args, "--registry", str(ledger)])
+    assert empty.exit_code == 0, empty.output
+    assert json.loads(empty.stdout)["registry_present"] is True
 
 
 def test_registry_summary_and_verify_hash_chain(tmp_path: Path) -> None:

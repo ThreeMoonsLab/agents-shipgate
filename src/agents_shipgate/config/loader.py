@@ -7,7 +7,7 @@ from typing import Any, get_args
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.errors import ConfigError, InputParseError, format_validation_error
 from agents_shipgate.inputs.common import (
     PositionIndex,
     load_structured_file_with_positions,
@@ -183,15 +183,8 @@ def _validate_manifest_data(
 
 
 def _format_validation_error(exc: ValidationError) -> str:
-    lines = ["Invalid shipgate.yaml:"]
-    for error in exc.errors():
-        location = ".".join(str(part) for part in error.get("loc", ())) or "<root>"
-        message = error.get("msg", "invalid value")
-        suggestion = _field_suggestion(error)
-        if suggestion:
-            message = f"{message}. Did you mean {suggestion}?"
-        lines.append(f"- {location}: {message}")
-    return "\n".join(lines)
+    return format_validation_error(exc, label="Invalid shipgate.yaml", suggest=_field_suggestion)
+
 
 
 def _field_suggestion(error: dict[str, Any]) -> str | None:
