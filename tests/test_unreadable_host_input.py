@@ -372,6 +372,13 @@ def test_an_unreadable_variant_never_weakens_the_verdict(
     assert "RecursionError" not in json.dumps(unread)
 
 
+WORKFLOW = ".github/workflows/ci.yml"
+_WORKFLOW_BASE = (
+    "name: ci\non: [push]\npermissions: read-all\njobs:\n  test:\n"
+    "    runs-on: ubuntu-latest\n    steps:\n      - run: npm test\n"
+)
+
+
 # A host configuration the reader parses but cannot interpret:
 # shape -> (path, base, head).
 SHAPES: dict[str, tuple[str, str, str]] = {
@@ -385,6 +392,16 @@ SHAPES: dict[str, tuple[str, str, str]] = {
         '{"mcpServers": {}}\n',
         '{"mcpServers": [{"name": "shell", "command": "bash"}]}\n',
     ),
+    "capitalized_settings_allow_is_a_string": (
+        ".CLAUDE/SETTINGS.JSON",
+        BASE_SETTINGS,
+        '{"permissions": {"allow": "Read"}}\n',
+    ),
+    "mcp_root_is_a_list": (".mcp.json", '{"mcpServers": {}}\n', "[]\n"),
+    "workflow_head_is_a_list": (WORKFLOW, _WORKFLOW_BASE, "[]\n"),
+    "workflow_base_is_a_list": (WORKFLOW, "[]\n", _WORKFLOW_BASE),
+    "workflow_base_is_empty": (WORKFLOW, "", _WORKFLOW_BASE),
+    "mcp_base_is_empty": (".mcp.json", "", '{"mcpServers": {}}\n'),
 }
 
 
@@ -401,23 +418,67 @@ def test_a_shape_the_reader_cannot_interpret_is_unread(tmp_path: Path, shape: st
     # `check` answers too: a top-level array used to fail it with a traceback.
     assert (check["decision"], check["input_coverage"]) == ("require_review", "partial")
     assert check["control"]["state"] == "human_review_required"
+    if "_base_" in shape:
+        assert "could not read its base version" in _unread_gaps(verify)[0]["why"]
 
 
-NESTED_WORKFLOW = "packages/web/.github/workflows/ci.yml"
-_NESTED_WORKFLOW_BASE = (
-    "name: ci\non: [push]\npermissions: read-all\njobs:\n  test:\n"
-    "    runs-on: ubuntu-latest\n    steps:\n      - run: npm test\n"
-)
+@pytest.mark.parametrize("shape, side", [
+    ("mcp_root_is_a_list", "head"),
+    ("mcp_servers_is_a_list", "head"),
+    ("workflow_head_is_a_list", "head"),
+    ("workflow_base_is_a_list", "base"),
+])
+def test_host_comparison_names_the_side_with_an_unsupported_shape(
+    tmp_path: Path, shape: str, side: str,
+) -> None:
+    path, base, head = SHAPES[shape]
+    repo = _repository(tmp_path, {path: head}, base={path: base})
+
+    result = runner.invoke(app, ["diff", "--workspace", str(repo), "--base", "main", "--json"])
+
+    assert result.exit_code == 0, result.output
+    comparison = json.loads(result.output)
+    assert comparison["comparison_status"] == "incomparable"
+    assert [(item["source"], item["limit"], item["side"]) for item in comparison["coverage"]["items"]] == [
+        (path, "unsupported", side),
+    ]
+
+
+def test_invalid_workflow_timestamp_is_a_named_parse_failure(tmp_path: Path) -> None:
+    bad_workflow = _WORKFLOW_BASE + "env:\n  START_DATE: 2026-02-30\n"
+    repo = _repository(tmp_path, {WORKFLOW: bad_workflow}, base={WORKFLOW: _WORKFLOW_BASE})
+
+    verify, exit_code = _verify(repo)
+    assert (verify["decision"], exit_code) == ("insufficient_evidence", 20)
+    assert verify["control"]["state"] == "human_review_required"
+    assert [gap["source_ref"] for gap in _unread_gaps(verify)] == [WORKFLOW]
+
+    check = _check(repo)
+    assert check["input_coverage"] == "partial"
+    assert any(
+        row["path"] == WORKFLOW and row["evidence"].get("parser") == "ValueError"
+        for row in check["violations"]
+    )
+
+    result = runner.invoke(app, ["audit", "--host", "--workspace", str(repo), "--json"])
+    assert result.exit_code == 0, result.output
+    assert [
+        (issue["source"], issue["kind"], issue["blocking"])
+        for issue in json.loads(result.output)["issues"]
+    ] == [(WORKFLOW, "parse_failed", True)]
+
+
+NESTED_WORKFLOW = f"packages/web/{WORKFLOW}"
 # Readable files the inventory also reads under the Claude Code host, through
 # the shared adapter, whose `permissions` is not a Claude settings object:
 # case -> (path, base or None for a new file, head).
 NOT_CLAUDE_SETTINGS: dict[str, tuple[str, str | None, str]] = {
     "nested_workflow_edited": (
         NESTED_WORKFLOW,
-        _NESTED_WORKFLOW_BASE,
-        _NESTED_WORKFLOW_BASE.replace("- run: npm test", "- run: npm ci\n      - run: npm test"),
+        _WORKFLOW_BASE,
+        _WORKFLOW_BASE.replace("- run: npm test", "- run: npm ci\n      - run: npm test"),
     ),
-    "nested_workflow_added": (NESTED_WORKFLOW, None, _NESTED_WORKFLOW_BASE),
+    "nested_workflow_added": (NESTED_WORKFLOW, None, _WORKFLOW_BASE),
     "agent_contract_permissions_string": (
         ".shipgate/agent-contract.json",
         '{"version": 1}\n',
@@ -459,7 +520,7 @@ def test_only_a_claude_settings_or_hook_file_records_a_shape_refusal(tmp_path: P
     files = {
         SETTINGS: '{"permissions": "read"}\n',
         ".claude/hooks/hooks.json": "[]\n",
-        NESTED_WORKFLOW: _NESTED_WORKFLOW_BASE,
+        NESTED_WORKFLOW: _WORKFLOW_BASE,
         ".agents-shipgate/state.json": "[]\n",
     }
     for path, text in files.items():

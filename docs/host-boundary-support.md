@@ -61,7 +61,12 @@ dangling, external, escaping, looping or chained link, still refuses. A
 configured `verify --head`, as the Action runs it, still refuses any committed
 link before it compares anything (#688).
 Path classification is case-insensitive so protected files cannot evade review
-on macOS or Windows. Nested `.codex/**`, `.mcp.json`, and
+on macOS or Windows. A case variant is also read as its lower-case spelling:
+`.github/workflows/CI.YML` is parsed and evaluated as a workflow, and
+`.codex/CONFIG.TOML` as the Codex config (#1143). Only a `.yml` or `.yaml`
+directly in the root `.github/workflows/` is a workflow, for `check` as for
+the comparison: a `policies/*.shipgate.yaml` pack is not, whatever keys it
+holds. Nested `.codex/**`, `.mcp.json`, and
 `.github/workflows/**` copies remain protected for repository-wide drift and
 trust-root review, even when the host only loads the root copy. Which host a
 nested `.mcp.json` is reported under is decided by what selects it, below.

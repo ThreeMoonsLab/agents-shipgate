@@ -63,6 +63,9 @@ Repository inputs describe the matching local checkout, including files read
 from its evaluated committed tree. A historical HEAD must match first; the
 reader never compares historical source bytes with a different current HEAD.
 A local manifest overlaid on an archived tree remains a `worktree` input.
+When an explicit head removes a manifest that existed at its merge base,
+`verify` stops for human review before opening the local copy or publishing
+scan artifacts.
 Generated historical comparison reports and diffs are checked in the artifact
 bundle, not looked up as source files in the checkout.
 

@@ -237,7 +237,6 @@ from .git import (
     commit_date,
     commit_sha,
     detect_default_base,
-    detect_default_base_with_notes,
     ensure_git_workspace,
     git_path,
     merge_base_sha,
@@ -521,6 +520,7 @@ def run_verify(
     authorization: Path | None = None,
     openshell_proof_config: Path | None = None,
     openshell_proof_required: bool = False,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[VerifierArtifact, ReadinessReport | None, int]:
     if openshell_proof_config is not None:
         from agents_shipgate.core.openshell_native import external_path
@@ -542,6 +542,7 @@ def run_verify(
             evaluated_ref=head,
         )
     )
+    archived_manifest_missing = archive_head and config_blob_at_head is False
     out_dir = _resolve_out_dir(
         git_root=git_root, requested_workspace=workspace.resolve(), out=out
     )
@@ -672,6 +673,9 @@ def run_verify(
     ) -> tuple[VerifierArtifact, None, int]:
         """Publish a run that stopped before any scan, on its one route (#1023)."""
 
+        unscanned_manifest_provenance = (
+            "absent" if archived_manifest_missing else configured_manifest_provenance
+        )
         verifier = _build_verifier(
             git_root=git_root,
             config_path=config_path,
@@ -682,7 +686,7 @@ def run_verify(
             trigger=evaluate(
                 paths=[],
                 diff_text="",
-                manifest_present=config_path.is_file(),
+                manifest_present=config_path.is_file() and not archived_manifest_missing,
                 user_requested=True,
                 input_status=INPUT_UNAVAILABLE,
             ),
@@ -695,7 +699,7 @@ def run_verify(
             head_status="failed",
             head_exit_code=2,
             out_dir=out_dir,
-            manifest_provenance_value=configured_manifest_provenance,
+            manifest_provenance_value=unscanned_manifest_provenance,
             ci_mode=ci_mode,
             headline_override=headline,
             first_next_action_override=action,
@@ -710,7 +714,7 @@ def run_verify(
             pr_comment_path,
             report=None,
             git_root=git_root,
-            manifest_provenance_value=configured_manifest_provenance,
+            manifest_provenance_value=unscanned_manifest_provenance,
             config_path=config_path,
             config_logical_path=config_relative.as_posix(),
             baseline_path=baseline_path,
@@ -722,9 +726,10 @@ def run_verify(
         )
         return verifier, None, 2
 
-    if not config_path.is_file() and ref_exists(git_root, head):
+    if (not config_path.is_file() or archived_manifest_missing) and ref_exists(git_root, head):
         # A deleted manifest is a removed gate, never first adoption, and a
-        # base that cannot be read cannot show which of the two this is.
+        # base that cannot be read cannot show which of the two this is. A
+        # checkout copy cannot replace a gate removed from an explicit head.
         removal = _probe_manifest_removal(
             git_root=git_root,
             config_relative=config_relative,
@@ -814,6 +819,7 @@ def run_verify(
             workspace=git_root,
             config=config_relative,
             base=base,
+            auto_base=auto_base,
             head=head if archive_head else None,
             out=explicit_output_path(out) if out is not None else None,
             pr_comment_style=pr_comment_style,
@@ -987,7 +993,7 @@ def run_verify(
     if tree_config_relative is not None:
         config_relative = tree_config_relative
 
-    overlay_worktree_manifest = archive_head and config_blob_at_head is False
+    overlay_worktree_manifest = archived_manifest_missing
     worktree_manifest_text: str | None = None
     if not archive_head or overlay_worktree_manifest:
         try:
@@ -1446,6 +1452,7 @@ def run_verify(
                 operation_callback=capture_base_operations,
                 engine_requirement_factory=engine_requirement,
                 run_report_dir=run_base_report_dir,
+                progress=progress,
             )
             base_notes.extend(cache_notes)
 
@@ -1486,6 +1493,8 @@ def run_verify(
         if archive_head:
             head_tmp = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-head-")
             head_tree_dir = Path(head_tmp.name) / "head"
+            if progress is not None:
+                progress("Preparing the head Git tree for verification...")
             archive_verification_tree(git_root, head, head_tree_dir)
             # Resolve once the tree exists. The snapshot matches paths lexically,
             # and on macOS the temporary directory is reached through /var while
@@ -1892,6 +1901,7 @@ def _prepare_base_report(
     operation_callback=None,
     engine_requirement_factory: Callable[[], VerificationEngineRequirement] | None = None,
     run_report_dir: Callable[[], Path] | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[
     VerifierBaseStatus,
     str | None,
@@ -2012,6 +2022,8 @@ def _prepare_base_report(
         tmp_root = Path(tmp)
         base_tree_dir = tmp_root / "base"
         base_out = tmp_root / "reports"
+        if progress is not None:
+            progress("Preparing the base Git tree for verification...")
         try:
             archive_verification_tree(git_root, base, base_tree_dir)
         except Exception as exc:  # noqa: BLE001 - optional base enrichment.
@@ -5529,10 +5541,13 @@ def _write_artifacts(
         json.dumps(initial_handoff.model_dump(mode="json"), indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    # A missing or invalid manifest cannot yield a reproducible request
-    # identity.  Error artifacts remain useful diagnostics, but they are not a
-    # trusted receipt and downstream consumers must reject their absence.
-    if not config_path.is_file() or not ref_exists(git_root, verifier.head_ref):
+    # A manifest absent from the evaluated inputs cannot yield a reproducible
+    # request identity, even if another checkout has a copy at the same path.
+    if (
+        manifest_provenance_value == "absent"
+        or not config_path.is_file()
+        or not ref_exists(git_root, verifier.head_ref)
+    ):
         _publish_run_control(
             verifier=verifier,
             out_dir=verifier_path.parent,
@@ -7299,6 +7314,7 @@ def _preview_verify_command(
     base: str | None,
     head: str | None,
     out: Path | None,
+    auto_base: bool,
     pr_comment_style: str = "capability-review",
     preview: bool = False,
     scope: ChangeScope | None = None,
@@ -7319,6 +7335,8 @@ def _preview_verify_command(
         parts.append("--preview")
     if base is not None:
         parts.extend(["--base", base])
+    elif not auto_base:
+        parts.append("--no-base")
     if head is not None:
         parts.extend(["--head", head])
     if out is not None:
@@ -7427,19 +7445,38 @@ def run_preview(
     diff_text = ""
     notes: list[str] = []
     diff_input: DiffContext | None = None
-    if base is None and auto_base:
+    base_failure_status: VerifierDiffStatus | None = None
+    base_failure_action: CodingAgentFetchBaseAction | None = None
+    if base is None and in_git and (auto_base or head is not None):
         try:
-            detection = detect_default_base_with_notes(root, head or "HEAD")
-        except Exception:  # noqa: BLE001 - preview must never crash.
-            detection = None
-        if detection is not None:
-            notes.extend(detection.notes)
-            if detection.base is not None:
-                base = detection.base
-                notes.append(
-                    f"Auto-detected base {detection.base!r} for diff context; "
-                    "pass --base to override or --no-base to disable."
+            head_available = ref_exists(root, head or "HEAD")
+            detection = resolve_verify_base(root, head or "HEAD") if head_available and auto_base else None
+        except Exception as exc:  # noqa: BLE001 - preview must never crash.
+            diff_input = _as_diff_context(exc)
+        else:
+            if head is not None and not head_available:
+                diff_input = DiffContext(
+                    completeness="unavailable",
+                    reason="refs_missing",
+                    detail=f"Head ref does not exist locally: {head}",
                 )
+                notes.append(diff_input.note)
+            if detection is not None:
+                notes.extend(detection.notes)
+                if detection.base is not None:
+                    base = detection.base
+                    notes.append(
+                        f"Auto-detected base {detection.base!r} for diff context; "
+                        "pass --base to override or --no-base to disable."
+                    )
+                elif not detection.resolved:
+                    base_failure_status, headline, base_failure_action = _base_unresolved_route()
+                    diff_input = DiffContext(
+                        completeness="unavailable",
+                        reason=base_failure_status.reason,
+                        detail=base_failure_status.detail or "",
+                    )
+                    notes.append(headline)
     if base:
         try:
             git_root = ensure_git_workspace(root)
@@ -7564,6 +7601,7 @@ def run_preview(
         workspace=workspace,
         config=config,
         base=base,
+        auto_base=auto_base,
         head=head,
         out=explicit_output_path(out) if out is not None else None,
         pr_comment_style=pr_comment_style,
@@ -7572,6 +7610,7 @@ def run_preview(
         workspace=workspace,
         config=config,
         base=base,
+        auto_base=auto_base,
         head=head,
         out=explicit_output_path(out) if out is not None else None,
         pr_comment_style=pr_comment_style,
@@ -7594,7 +7633,7 @@ def run_preview(
     # fact that the PR was never inspected — and an unadopted repo reached over a
     # shallow or blobless clone is exactly where this failure lands.
     if diff_input is not None:
-        next_action: AgentControlAction = _diff_failure_action(
+        next_action: AgentControlAction = base_failure_action or _diff_failure_action(
             diff_input,
             expects=(
                 f"{base}...{head or 'HEAD'}"
@@ -7667,6 +7706,7 @@ def run_preview(
                 workspace=workspace,
                 config=config,
                 base=base,
+                auto_base=auto_base,
                 head=head,
                 out=explicit_output_path(out) if out is not None else None,
                 pr_comment_style=pr_comment_style,
@@ -7802,7 +7842,7 @@ def run_preview(
         head_ref=head or "HEAD",
         changed_files=changed_files,
         diff_text_available=bool(diff_text),
-        diff_status=_diff_status_artifact(diff_input),
+        diff_status=base_failure_status or _diff_status_artifact(diff_input),
         trigger=_embedded_trigger(trigger),
         base_status="not_requested",
         base_notes=notes,
