@@ -320,9 +320,9 @@ def _run_report(output_dir: Path, verifier_payload: dict[str, Any]) -> dict[str,
     is its own. Beside a verifier, ``report.json`` is this run's only when
     ``verifier.json`` names it, as ``head_report_json`` or
     ``artifacts.report_json``, which ``verify`` does for every run whose head
-    scan ran. The manifest-free host route runs no scan and leaves an earlier
-    run's report in the directory. Nothing is published from a report the
-    verifier does not name, and it owes no receipt (#1022).
+    scan ran. A manifest-backed preview can leave an earlier report in place.
+    The step only publishes from the report the verifier names and requires
+    a receipt for that report (#1022).
     """
 
     report_json = output_dir / "report.json"

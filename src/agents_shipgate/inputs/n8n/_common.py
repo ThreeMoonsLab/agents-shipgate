@@ -84,7 +84,12 @@ def _string_values(value: Any) -> list[str]:
     return []
 
 
-def _top_level_string(value: dict[str, Any], keys: set[str]) -> str | None:
+# Prefer the exported node parameter before accepting aliases.
+_HTTP_TARGET_KEYS = ("url", "endpoint", "path")
+_WORKFLOW_TARGET_KEYS = ("workflowId", "workflow_id", "workflowName", "workflow", "targetWorkflow")
+
+
+def _top_level_string(value: dict[str, Any], keys: tuple[str, ...]) -> str | None:
     for key in keys:
         item = value.get(key)
         if isinstance(item, str) and item.strip():
@@ -235,7 +240,7 @@ def _node_kind(node_type: str) -> str:
     compact = lower.replace("-", "").replace("_", "")
     if "mcptrigger" in compact:
         return "mcp_server_trigger"
-    if "toolmcp" in compact or "mcpclient" in compact:
+    if lower.rsplit(".", 1)[-1] in {"toolmcp", "mcpclienttool"}:
         return "mcp_client_tool"
     if "toolworkflow" in compact:
         return "workflow_tool"
@@ -265,26 +270,14 @@ def _tool_node_kind(item: _NodeItem) -> str:
         "http_tool",
     }:
         return kind
-    if _top_level_string(
-        item.parameters,
-        {
-            "workflowId",
-            "workflow_id",
-            "workflowName",
-            "workflow",
-            "targetWorkflow",
-        },
-    ):
+    if _top_level_string(item.parameters, _WORKFLOW_TARGET_KEYS):
         return "workflow_tool"
     if any(
         _string_or_none(item.parameters.get(key))
         for key in ("jsCode", "pythonCode", "functionCode", "code")
     ):
         return "code_tool"
-    if _http_method(item) and _top_level_string(
-        item.parameters,
-        {"url", "path", "endpoint"},
-    ):
+    if _http_method(item) and _top_level_string(item.parameters, _HTTP_TARGET_KEYS):
         return "http_tool"
     return kind if kind != "unknown" else "ai_tool"
 
