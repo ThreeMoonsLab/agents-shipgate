@@ -63,7 +63,7 @@ def _plan_outputs(
         # A manifest-named directory is held to the manifest's directory; an
         # operator-typed --out is trusted as typed, and only what is inside it
         # is checked.
-        write_root=out_dir if operator_out else base_dir.resolve(),
+        write_root=Path(manifest.output.directory) if operator_out else base_dir.resolve(),
         generated_paths=generated_paths,
         packet_format_set=packet_format_set,
         output_surfaces=output_surfaces,

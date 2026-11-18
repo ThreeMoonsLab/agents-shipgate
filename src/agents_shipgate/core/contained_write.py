@@ -93,6 +93,38 @@ def check_output_directory(directory: Path, *, root: Path) -> Path:
     return target
 
 
+def refuse_links_inside(directory: Path, repository: Path) -> None:
+    """Refuse an output directory whose components inside ``repository`` include a link.
+
+    For an output location the operator typed or a command defaulted —
+    ``scan --out``, ``verify --out`` and ``verify``'s default reports
+    directory — before it is resolved. The operator chooses where the path
+    goes until it enters the repository, so a link *above* the repository is
+    theirs. Below that point, every component is repository content a pull
+    request can commit, and a link there would carry the write out of the
+    checkout (#1031). So the shallowest ancestor of ``directory`` that
+    resolves into ``repository`` is found, and everything from there down is
+    walked for a link, a junction included. A ``directory`` that never enters
+    the repository is not checked here.
+    """
+
+    root_real = repository.resolve()
+    for anchor in (*reversed(directory.parents), directory):
+        try:
+            anchor_real = anchor.resolve()
+        except OSError:
+            continue
+        if anchor_real != root_real and root_real not in anchor_real.parents:
+            continue
+        remainder = directory.relative_to(anchor).parts
+        link = first_symlink_in_chain(anchor_real.joinpath(*remainder), root_real)
+        if link is not None:
+            raise UnsafeOutputPathError(
+                directory, f"{link} is a symbolic link inside the repository {root_real}"
+            )
+        return
+
+
 def write_contained(
     path: Path,
     data: str | bytes,
@@ -189,7 +221,11 @@ def _make_directories(path: Path, directory: Path, root_real: Path) -> None:
         except FileExistsError:
             pass
         metadata = os.lstat(current)
-        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or current.is_junction()
+            or not stat.S_ISDIR(metadata.st_mode)
+        ):
             raise UnsafeOutputPathError(path, f"{current} is not a plain directory")
 
 
@@ -235,6 +271,7 @@ __all__ = [
     "UnsafeOutputPathError",
     "check_output_directory",
     "check_output_path",
+    "refuse_links_inside",
     "remove_contained",
     "write_contained",
 ]

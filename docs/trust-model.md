@@ -98,37 +98,61 @@ run prints carry `-P` for the same reason.
 ## Write Boundaries
 
 A repository under review is untrusted input, and so is a report produced from
-one. Neither one widens where `scan` and `apply-patches` write: each writes
-only inside a directory the operator chose or the manifest's own directory, and
-only through plain directories to plain files. Other commands are not covered
-by this section; they write where their documented `--out` options say.
+one. Neither one widens where `scan`, `verify` and `apply-patches` write. Each
+writes only inside a directory the operator chose or the manifest's own
+directory, and only through plain directories to plain files, where "plain"
+excludes symbolic links, Windows junctions, special files and hard links. Other
+commands write where their documented `--out` options say.
 
-- **`scan` reports.** `output.directory` in `shipgate.yaml` is a relative path
-  inside the manifest's directory. The manifest schema rejects an absolute
-  path, a Windows drive or UNC path and any `..` component. Every file `scan`
-  writes or clears — the Markdown, JSON and SARIF reports, the packet files,
-  the advisory scaffolds, the `current-control.json` pointer and the stale
-  verifier artifacts it removes — goes through one contained writer
-  (`core/contained_write.py`). Before anything is written or removed, it
-  refuses a destination reached through a symbolic link in any directory
-  below the trusted root, a link at the destination itself (even one that
-  stays inside the workspace), a special file, a hard link, and a spelling
-  that is not inside the root. Where the platform supports it, the file is
-  also opened with `O_NOFOLLOW` and re-checked from the open descriptor. The
-  trusted root is the manifest's directory for `output.directory`. For a
-  `scan --out` directory, which the operator typed, it is that directory
-  itself: the directories above it are the operator's choice, and the files
-  inside it are still checked.
+- **The reports directory.**
+  - `output.directory` in `shipgate.yaml` is a relative path inside the
+    manifest's directory. The manifest schema rejects an absolute path, a
+    Windows drive or UNC path and any `..` component.
+  - `scan` refuses an `output.directory` reached through a link, even one
+    pointing inside the workspace, before it reads any input.
+  - An output directory typed with `--out` (`scan`, `verify`, and the GitHub
+    Action's `--out agents-shipgate-reports`), and `verify`'s default
+    `<workspace>/agents-shipgate-reports`, is checked from the repository root
+    before it is resolved. The repository root is the git toplevel, or the
+    manifest's directory outside Git.
+  - Every component of that output directory inside the repository must be a
+    plain directory, because a pull request can commit a link there. The
+    directories above the repository root are the operator's to choose, and a
+    location outside the repository may be reached through a link.
+- **Every file `scan` writes or clears**, and `verify`'s captured inputs, go
+  through one contained writer (`core/contained_write.py`). That covers:
+  - the Markdown, JSON and SARIF reports, the packet files and the advisory
+    scaffolds;
+  - the `current-control.json` pointer and the stale verifier artifacts it
+    removes;
+  - the `verification-inputs/` copies.
+- **What the contained writer refuses.** Before anything is written or
+  removed, it refuses:
+  - a link or junction in any directory below the trusted root;
+  - a link at the destination itself;
+  - a special file or a hard link;
+  - a spelling that is not inside the root.
+
+  Where the platform supports it, the file is also opened with `O_NOFOLLOW`
+  and re-checked from the open descriptor. The trusted root is the manifest's
+  directory for `output.directory`, and the checked output directory itself
+  for `--out`.
+- **The verify artifacts.** Before its first write, the scan that `verify` runs
+  checks every name a Shipgate run writes into a reports directory. That covers
+  the verifier route artifacts and capability locks `verify` writes afterwards.
 - **`apply-patches`.** The report is untrusted input: it carries its own
-  `manifest_dir` and every `target_file` beside the patches. A patch target
-  must resolve under that `manifest_dir`, *and* under the `--workspace` the
-  operator names (default: the directory `apply-patches` runs in) or the git
-  toplevel containing it. A toplevel counts only when its `.git` is a
-  directory, or a gitdir file, owned by the current user. The target must also
-  be a Shipgate manifest — the only file a generated patch edits — and never
-  a protected agent-boundary or trust-root file. Any other target exits `5`
-  with nothing written. A pointer that does not fit its document exits `2` as
-  a malformed patch, and no file is written.
+  `manifest_dir` and every `target_file` beside the patches.
+  - A patch target must resolve under that `manifest_dir`, *and* under the
+    `--workspace` the operator names (default: the directory `apply-patches`
+    runs in) or the git toplevel containing it.
+  - A toplevel counts only when its `.git` is a directory or a gitdir file. On
+    POSIX that entry must also be owned by the current user; Windows has no
+    such check.
+  - The target must be a Shipgate manifest before the patch and still load as
+    one after it. It must never be a protected agent-boundary or trust-root
+    file.
+  - Any other target exits `5` with nothing written. A pointer that does not
+    fit its document exits `2` as a malformed patch, and no file is written.
 
 ## Privacy Boundary
 

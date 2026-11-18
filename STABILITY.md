@@ -393,11 +393,12 @@ meant to contain, and nothing checked the files written inside them.
   `manifest_dir` *and* under a root the run names itself: the new
   `--workspace <dir>` option, or else the directory it is started in, plus the
   git toplevel containing that directory. A toplevel counts only when its
-  `.git` is a directory, or a file naming a `gitdir:`, owned by the current
-  user; anything else at the nearest `.git` narrows the roots instead of
-  widening them. The target must also load as a Shipgate manifest, the only
-  file a generated patch edits, and a protected agent-boundary or trust-root
-  file is refused by name. Anything else exits `5` (`other_error`, with a
+  `.git` is a directory or a file naming a `gitdir:`, and on POSIX only when
+  that entry is owned by the current user (Windows has no ownership check);
+  anything else at the nearest `.git` narrows the roots instead of widening
+  them. The target must load as a Shipgate manifest, the only file a generated
+  patch edits, before the patch and again once every patch for it is applied
+  in memory; a protected agent-boundary or trust-root file is refused by name. Anything else exits `5` (`other_error`, with a
   `review` action naming the report and the resolved target) and nothing is
   written. The `apply-patches` commands `verify` prints carry
   `--workspace <repository>`, so they work from any directory.
@@ -416,18 +417,28 @@ meant to contain, and nothing checked the files written inside them.
   An absolute path, a Windows drive or UNC path, or a `..` segment is a
   `config_error` (exit `2`) when the manifest loads, for every command that
   loads it. `docs/manifest-v0.1.json` carries the rule as a `pattern`.
+- **The reports directory, typed or default.** An output directory typed
+  with `--out` (`scan`, `verify`, and the GitHub Action's
+  `--out agents-shipgate-reports`) and `verify`'s default
+  `<workspace>/agents-shipgate-reports` are checked from the repository root
+  (the git toplevel, or the manifest's directory outside Git) before they are
+  resolved, and so is `output.directory`. Every component inside the
+  repository must be a plain directory, not a link or a Windows junction: a
+  reports directory that is itself a link is refused, even one pointing inside
+  the workspace, and so is a link deeper in the path. The directories above
+  the repository root are the operator's choice, and a location outside the
+  repository may still be reached through a link.
 - **Every file `scan` writes or clears** — reports, packet files, the advisory
   scaffolds, `current-control.json` and the stale verifier artifacts it
-  removes — goes through one contained writer. Before anything is written or
-  removed it refuses a symbolic link in any directory below the trusted root, a
-  link at the destination (one that stays inside the workspace included), a
-  special file, a hard link, and a spelling outside the root; where the
-  platform supports it, the file is opened with `O_NOFOLLOW` and re-checked.
-  The trusted root is the manifest's directory for `output.directory`, and the
-  directory itself for a `scan --out` the operator typed. A reports directory
-  that is itself a link is now refused even when it points inside the
-  workspace. `verify` clears stale verifier artifacts the same way, so a
-  linked one is refused instead of being removed.
+  removes — and `verify`'s `verification-inputs/` copies go through one
+  contained writer. Before anything is written or removed it refuses a link or
+  junction in any directory below the trusted root, a link at the destination
+  (one that stays inside the workspace included), a special file, a hard link,
+  and a spelling outside the root; where the platform supports it, the file is
+  opened with `O_NOFOLLOW` and re-checked. The trusted root is the manifest's
+  directory for `output.directory`, and the checked output directory itself for
+  `--out`. `verify` clears stale verifier artifacts the same way, so a linked
+  one is refused instead of being removed.
 - **Git.** Every Git child — discovery, `verify`'s plumbing, `fixture run`,
   `authorization execute` and the Claude Code hook runner — runs with
   `agents_shipgate.core.git_env.hardened_git_env()`, which holds the union of
@@ -456,8 +467,9 @@ and a report applied from inside its repository, behave as before.
   rescue that run; to write reports elsewhere afterwards, pass `scan --out`.
   `verify` passes its own `--out`, but a base or head manifest holding such a
   value now fails to load.
-- A reports directory that is, or contains, a symbolic or hard link: replace
-  the link with a plain directory or file, or choose another `--out`.
+- A reports directory that is, or contains, a symbolic or hard link, or that
+  sits below a linked directory of the repository: replace the link with a
+  plain directory or file, or choose an `--out` outside the repository.
 - A pipeline that runs `apply-patches` from outside the repository the patches
   are for: pass `--workspace <repository>`, or run it from inside. `bootstrap`
   already runs it from the workspace.

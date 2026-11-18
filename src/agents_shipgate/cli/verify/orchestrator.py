@@ -66,6 +66,7 @@ from agents_shipgate.core.capability_lock import (
     render_capability_lock_diff_json,
     render_capability_lock_json,
 )
+from agents_shipgate.core.contained_write import refuse_links_inside
 from agents_shipgate.core.current_control import (
     VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS,
     begin_current_control,
@@ -6481,9 +6482,17 @@ def _resolve_out_dir(
     by, so a refresh from any directory finds what this run published (#575).
     """
 
-    if out is not None:
-        return explicit_output_path(out).resolve()
-    return default_reports_dir(requested_workspace).resolve()
+    spelled = (
+        explicit_output_path(out)
+        if out is not None
+        else default_reports_dir(requested_workspace)
+    )
+    # Before it is resolved: a link committed at the reports directory, or at
+    # any directory between the repository root and it, would otherwise be
+    # followed here and every artifact written outside the checkout (#1031).
+    # Links above the repository are the operator's choice.
+    refuse_links_inside(spelled, git_root)
+    return spelled.resolve()
 
 
 def _resolve_under_workspace(workspace: Path, path: Path) -> Path:

@@ -5272,11 +5272,12 @@ sets the boundary:
   the repository `apply-patches` works on: the `--workspace` you name
   (default: the directory it runs in), or the git toplevel containing it. A
   toplevel counts only when its `.git` is a directory, or a gitdir file,
-  owned by you.
-- The target must be a Shipgate manifest. Every patch the engine generates
-  edits the manifest it was generated from, so any other file — an agent
-  instruction file, a host settings file, a workflow — is refused, and a
-  protected agent-boundary or trust-root file is refused by name.
+  that on POSIX is owned by you.
+- The target must be a Shipgate manifest, and must still load as one once
+  every patch for it is applied. Every patch the engine generates edits the
+  manifest it was generated from, so any other file — an agent instruction
+  file, a host settings file, a workflow — is refused, and a protected
+  agent-boundary or trust-root file is refused by name.
 
 Anything else aborts with exit code 5 and nothing is written. The commands
 `verify` prints name the repository with `--workspace`, so they work from any
