@@ -21,6 +21,12 @@ from agents_shipgate.core.static_inputs import (
     read_static_input_text,
 )
 from agents_shipgate.core.trust_roots import inspect_lexical_path_identity
+from agents_shipgate.core.yaml_limits import (
+    MAX_YAML_DEPTH,
+    MAX_YAML_NODES,
+    BoundedSafeLoader,
+    YamlLimitError,
+)
 
 # These keys are authority-bearing inputs to the binding resolver. Catalog
 # formats may carry arbitrary extension metadata, so their loaders must never
@@ -51,6 +57,8 @@ def strip_untrusted_binding_annotations(
 
 HTTP_METHODS = {"get", "put", "post", "delete", "patch", "options", "head", "trace"}
 MAX_INPUT_FILE_BYTES = 10 * 1024 * 1024
+MAX_JSON_DEPTH = 64
+_JSON_STRUCTURE_TOKENS = re.compile(r'["\\{}\[\]]')
 CONVENTIONAL_TOOL_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,128}$")
 
 
@@ -180,13 +188,39 @@ def manifest_relative_path(value: str, base_dir: Path) -> str:
     return display_path(raw_path, base_dir)
 
 
+def _load_bounded_json(text: str) -> Any:
+    """Bound source nesting before JSON resolves repeated keys."""
+
+    depth = 0
+    in_string = False
+    escaped_at = -1
+    for match in _JSON_STRUCTURE_TOKENS.finditer(text):
+        token = match.group()
+        if in_string:
+            if match.start() == escaped_at:
+                continue
+            if token == "\\":
+                escaped_at = match.end()
+            elif token == '"':
+                in_string = False
+        elif token == '"':
+            in_string = True
+        elif token in "{[":
+            depth += 1
+            if depth > MAX_JSON_DEPTH:
+                raise ValueError(f"JSON exceeds the nesting limit of {MAX_JSON_DEPTH}")
+        elif token in "}]":
+            depth -= 1
+    return json.loads(text)
+
+
 def load_structured_file(path: Path) -> Any:
     text = load_text_file(path).removeprefix("\ufeff")
     try:
         if path.suffix.lower() == ".json":
-            return json.loads(text)
-        return yaml.safe_load(text)
-    except (json.JSONDecodeError, yaml.YAMLError) as exc:
+            return _load_bounded_json(text)
+        return yaml.load(text, Loader=BoundedSafeLoader)
+    except (ValueError, yaml.YAMLError, RecursionError) as exc:
         raise InputParseError(f"Unable to parse input file {path}: {exc}") from exc
 
 
@@ -320,9 +354,8 @@ def load_structured_file_with_positions(path: Path) -> tuple[Any, PositionIndex]
     """Load JSON/YAML and (for YAML) build a position index for findings.
 
     Mirrors :func:`load_structured_file` exactly for the parsed data —
-    the same ``yaml.safe_load`` / ``json.loads`` calls and same error
-    handling — and additionally returns a :class:`PositionIndex` built
-    from a *separate* ``ruamel.yaml`` round-trip parse for YAML inputs.
+    the same bounded YAML and JSON reads — and additionally returns a
+    :class:`PositionIndex` built from a *separate* ``ruamel.yaml`` round-trip parse for YAML inputs.
 
     Keeping the data path on PyYAML preserves v0.10 semantics:
 
@@ -359,13 +392,13 @@ def load_structured_text_with_positions(
     text = text.removeprefix("\ufeff")
     if path.suffix.lower() == ".json":
         try:
-            return json.loads(text), _EMPTY_INDEX
-        except json.JSONDecodeError as exc:
+            return _load_bounded_json(text), _EMPTY_INDEX
+        except (ValueError, RecursionError) as exc:
             raise InputParseError(f"Unable to parse input file {path}: {exc}") from exc
 
     try:
-        data = yaml.safe_load(text)
-    except yaml.YAMLError as exc:
+        data = yaml.load(text, Loader=BoundedSafeLoader)
+    except (ValueError, yaml.YAMLError, RecursionError) as exc:
         raise InputParseError(f"Unable to parse input file {path}: {exc}") from exc
 
     # Position index: best-effort, separate parse. PyYAML already accepted
@@ -373,7 +406,7 @@ def load_structured_text_with_positions(
     # rather than failing the scan.
     try:
         parsed = _YAML_RT.load(text)
-    except YAMLError:
+    except (ValueError, YAMLError, RecursionError):
         return data, _EMPTY_INDEX
 
     positions: dict[str, tuple[int, int]] = {}
@@ -387,37 +420,46 @@ def load_structured_text_with_positions(
             positions[""] = (parsed.lc.line + 1, parsed.lc.col + 1)
         except (AttributeError, TypeError):
             pass
-    _walk_for_positions(parsed, "", positions)
+    try:
+        _walk_for_positions(parsed, positions)
+    except YamlLimitError as exc:
+        raise InputParseError(f"Unable to index YAML positions in {path}: {exc}") from exc
     return data, PositionIndex(positions)
 
 
-def _walk_for_positions(
-    node: Any,
-    pointer: str,
-    out: dict[str, tuple[int, int]],
-) -> None:
-    """Populate ``out`` with parent key/item positions for each pointer."""
-    if isinstance(node, CommentedMap):
-        for key in node:
-            key_text = str(key)
-            child_pointer = f"{pointer}/{json_pointer_escape(key_text)}"
+def _walk_for_positions(parsed: Any, out: dict[str, tuple[int, int]]) -> None:
+    """Index each expanded path within a node, depth and pointer budget."""
+    visited = 0
+    pointer_bytes = 0
+
+    def visit(node: Any, pointer: str, depth: int) -> None:
+        nonlocal visited, pointer_bytes
+        if depth > MAX_YAML_DEPTH:
+            raise YamlLimitError(f"position index exceeds the nesting limit of {MAX_YAML_DEPTH}")
+        if isinstance(node, CommentedMap):
+            children = node.items()
+            position = node.lc.key
+        elif isinstance(node, CommentedSeq):
+            children = enumerate(node)
+            position = node.lc.item
+        else:
+            return
+
+        for key, child in children:
+            child_pointer = f"{pointer}/{json_pointer_escape(str(key))}"
+            visited += 1
+            pointer_bytes += len(child_pointer.encode("utf-8", errors="surrogatepass"))
+            if visited > MAX_YAML_NODES or pointer_bytes > MAX_INPUT_FILE_BYTES:
+                raise YamlLimitError("position index exceeds its path budget")
             try:
-                pos = node.lc.key(key)
-            except Exception:  # noqa: BLE001 — ruamel raises a variety of types
+                pos = position(key)
+            except Exception:  # noqa: BLE001 — ruamel raises several position lookup errors
                 pos = None
             if pos is not None:
                 out[child_pointer] = (pos[0] + 1, pos[1] + 1)
-            _walk_for_positions(node[key], child_pointer, out)
-    elif isinstance(node, CommentedSeq):
-        for idx, item in enumerate(node):
-            child_pointer = f"{pointer}/{idx}"
-            try:
-                pos = node.lc.item(idx)
-            except Exception:  # noqa: BLE001
-                pos = None
-            if pos is not None:
-                out[child_pointer] = (pos[0] + 1, pos[1] + 1)
-            _walk_for_positions(item, child_pointer, out)
+            visit(child, child_pointer, depth + 1)
+
+    visit(parsed, "", 1)
 
 
 def iter_tool_items(

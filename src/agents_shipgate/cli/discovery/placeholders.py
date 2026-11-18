@@ -20,6 +20,7 @@ from collections.abc import Iterator, Mapping, Sequence
 
 import yaml
 
+from agents_shipgate.core.yaml_limits import BoundedSafeLoader
 from agents_shipgate.schemas.manifest import MANIFEST_PLACEHOLDER_VALUE
 
 PLACEHOLDER_VALUE = MANIFEST_PLACEHOLDER_VALUE
@@ -155,8 +156,8 @@ def collect_placeholders(template: str) -> list[dict[str, object]]:
     """
 
     try:
-        root = yaml.compose(template)
-    except yaml.YAMLError:
+        root = yaml.compose(template, Loader=BoundedSafeLoader)
+    except (yaml.YAMLError, RecursionError):
         return _scan_lines(template)
     if root is None:
         return []
