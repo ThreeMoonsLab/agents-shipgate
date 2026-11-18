@@ -252,11 +252,15 @@ def test_handoff_reference_is_not_an_observed_construction(repo):
     result = run(repo, base, head)
     assert result["comparison_status"] == "partial"
     assert [(r["agent"], r["tool"], r["change"]) for r in result["rows"]] == [
-        ("agent", "lookup", "not_established"),
-        ("triage", "handoff:agent.py:worker", "not_established"),
         ("worker", "execute", "not_established"),
     ]
     assert result["rows"][-1]["candidate_change"] == "removed"
+    # The bindings that read the same on both sides are no rows; their
+    # agents' doubt is named once each (#1146).
+    assert [(e["agent"], e["tools"]) for e in result["read_same"]] == [
+        ("agent", ["lookup"]),
+        ("triage", ["handoff:agent.py:worker"]),
+    ]
     assert any(gap["agent"] == "worker" and "subclass 'Worker'" in gap["reason"]
                for gap in result["head"]["coverage_gaps"])
     assert any("unread class construction hook" in gap["reason"] for gap in result["head"]["coverage_gaps"])

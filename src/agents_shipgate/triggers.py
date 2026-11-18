@@ -1096,7 +1096,21 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.git_diff is not None:
         try:
-            paths, diff_text = _git_diff_context(args.git_diff)
+            if args.git_diff:
+                paths, diff_text = _git_diff_context(args.git_diff)
+            else:
+                from agents_shipgate.cli.current_workspace import generated_reports_exclusion
+                from agents_shipgate.cli.verify.git import ensure_git_workspace
+
+                requested = Path.cwd()
+                root = ensure_git_workspace(requested)
+                paths, diff_text = _git_diff_context(
+                    None,
+                    cwd=root,
+                    exclude=generated_reports_exclusion(
+                        root, requested_workspace=requested, comparison_ref="HEAD"
+                    ),
+                )
         except (FileNotFoundError, ConfigError) as exc:
             print(
                 f"--git-diff failed: {exc}. Run from a git checkout, or "
