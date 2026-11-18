@@ -61,6 +61,7 @@ from agents_shipgate.core.instruction_structure import (
 from agents_shipgate.core.manifest_proposals import (
     assess_coverage_increasing_tool_source_proposal,
 )
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.core.structured_depth import NestingLimitExceeded, bounded_parse
 from agents_shipgate.core.trust_roots import (
     read_absolute_identity_bound_text,
@@ -1371,7 +1372,7 @@ def _evaluate_config_file(
         )
         return
     try:
-        data = bounded_parse(tomllib.loads, resolved.new_text)
+        data = bounded_parse(tomllib.loads, resolved.new_text.removeprefix("\ufeff"))
     except (tomllib.TOMLDecodeError, NestingLimitExceeded) as exc:
         add(
             "CODEX-CONFIG-PARSE-FAILED",
@@ -1380,7 +1381,9 @@ def _evaluate_config_file(
         )
         return
     try:
-        old_data = bounded_parse(tomllib.loads, resolved.old_text or "")
+        old_data = bounded_parse(
+            tomllib.loads, (resolved.old_text or "").removeprefix("\ufeff")
+        )
     except (tomllib.TOMLDecodeError, NestingLimitExceeded) as exc:
         add(
             "CODEX-CONFIG-PARSE-FAILED",
@@ -2540,13 +2543,6 @@ def _policy_snapshot_sha256(data: dict[str, Any], raw_text: str | None) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     ).hexdigest()
-
-
-def _display_path(path: Path, workspace: Path) -> str:
-    try:
-        return path.resolve().relative_to(workspace.resolve()).as_posix()
-    except ValueError:
-        return str(path)
 
 
 def _parser_error(kind: str, exc: Exception) -> dict[str, Any]:
