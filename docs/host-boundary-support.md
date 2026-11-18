@@ -574,14 +574,19 @@ in canonical JSON:
 - its key names, numbers, booleans and `null`, so reordering keys compares
   as unchanged and adding a key is a change;
 - `<redacted>` for `env` and `headers` values (and codex's `http_headers` and
-  `env_http_headers`), `apiKeyHelper`, every other secret-named value and the
+  `env_http_headers`), secret-named values except the top-level
+  `apiKeyHelper` command in `settings`, and the
   word after a secret-named argument such as `--token`, as the host readers
   redact them, so rotating one compares as unchanged;
 - each other string as `<withheld:…>`, a short digest of what the host
   readers digest for it: the sanitized text, and a URL's query. Editing it is
   a `changed` row, and none of its text is published. So an MCP server's
   `args` — an `mcp-remote --header "Authorization: Bearer …"` included — and a
-  hook's command, matcher and type publish only digests;
+  hook's command, matcher and type publish only digests. A top-level
+  `settings.apiKeyHelper` command uses the same digest projection, with
+  credential-shaped arguments redacted before hashing. Saved baselines
+  that redacted the entire helper need to be regenerated before comparing
+  workflow drift;
 - except the strings a host reader publishes: a `permissions.allow`, `ask` or
   `deny` rule, and the value of a documented Claude Code setting
   (`defaultMode`, the switches in [the ratings table](#claude-code-setting-ratings),
