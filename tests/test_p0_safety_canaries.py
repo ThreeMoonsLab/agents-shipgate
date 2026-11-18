@@ -7,9 +7,12 @@ a canary is itself a test failure.
 
 from __future__ import annotations
 
+import ast
 import json
+import re
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -24,6 +27,7 @@ from agents_shipgate.core.domain import (
     Tool,
     ToolRiskHint,
 )
+from agents_shipgate.core.evaluation_clock import trust_expiry_date
 from agents_shipgate.core.semantic_assessment import assess_tool_semantics
 from agents_shipgate.schemas.manifest import ActionDeclarationConfig
 
@@ -1076,7 +1080,7 @@ def test_p0_trust_root_bypass_canary(
                 "affected_surface": "policy",
                 "owner": "canary-reviewer",
                 "reason": "acknowledgement is not semantic evidence",
-                "expires": "2027-12-31",
+                "expires": (trust_expiry_date() + timedelta(days=365)).isoformat(),
             }
         ]
     elif case.scenario == "no_heuristics_gap":
@@ -1116,7 +1120,7 @@ def test_p0_trust_root_bypass_canary(
                         "check_id": "SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING",
                         "owner": "canary-reviewer",
                         "reason": "attempted severity downgrade must not waive control",
-                        "expires": "2027-12-31",
+                        "expires": (trust_expiry_date() + timedelta(days=365)).isoformat(),
                     }
                 ],
             }
@@ -1391,6 +1395,20 @@ def test_a_reviewed_tag_transitions_the_action_instead_of_blocking_it() -> None:
     }
     assert assessment.pass_eligible is True
     assert not assessment.effect.issues
+
+
+def test_p0_canary_fixture_expiries_move_with_the_clock() -> None:
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    literals = [
+        value.lineno
+        for mapping in ast.walk(tree)
+        if isinstance(mapping, ast.Dict)
+        for key, value in zip(mapping.keys, mapping.values, strict=True)
+        if isinstance(key, ast.Constant) and key.value == "expires"
+        and isinstance(value, ast.Constant) and isinstance(value.value, str)
+        and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value.value)
+    ]
+    assert not literals, f"Use relative expiry dates at lines {literals}"
 
 
 def test_p0_safety_canary_catalog_has_exact_planned_shape() -> None:

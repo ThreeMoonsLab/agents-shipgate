@@ -7,7 +7,7 @@ can be reproduced.
 Hard expiry is different: a commit author controls commit timestamps and must
 never be able to extend a human acknowledgement, severity override, or
 baseline exception.  ``trust_expiry_date`` therefore uses the later of the
-content-bound evaluation date and the verifier's wall-clock date.  This split
+content-bound evaluation date and the verifier's UTC wall-clock date. This split
 is intentional and security-sensitive.
 """
 
@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import date
+from datetime import UTC, date, datetime
 
 _EVALUATION_DATE: ContextVar[date | None] = ContextVar(
     "agents_shipgate_evaluation_date", default=None
@@ -24,7 +24,7 @@ _EVALUATION_DATE: ContextVar[date | None] = ContextVar(
 
 
 def evaluation_date() -> date:
-    return _EVALUATION_DATE.get() or date.today()
+    return _EVALUATION_DATE.get() or datetime.now(UTC).date()
 
 
 def trust_expiry_date() -> date:
@@ -35,7 +35,8 @@ def trust_expiry_date() -> date:
     future evaluation date may expire a grant early, which is conservative.
     """
 
-    return max(evaluation_date(), date.today())
+    today = datetime.now(UTC).date()
+    return max(_EVALUATION_DATE.get() or today, today)
 
 
 @contextmanager
