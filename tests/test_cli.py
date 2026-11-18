@@ -791,7 +791,7 @@ def test_cli_explain_json_returns_full_metadata():
         assert key in payload
 
 
-def test_cli_findings_json_reports_no_heuristic_policy_findings(tmp_path):
+def test_cli_findings_json_reports_only_heuristic_advisories(tmp_path):
     run_scan(
         config_path=Path("samples/support_refund_agent/shipgate.yaml"),
         output_dir=tmp_path,
@@ -819,14 +819,22 @@ def test_cli_findings_json_reports_no_heuristic_policy_findings(tmp_path):
         "regex_heuristic",
     ]
     assert payload["filters"]["include_suppressed"] is False
-    assert payload["summary"]["matched_findings"] == 0
     assert "suppressed_omitted" in payload["summary"]
     assert "suppressed_excluded" not in payload["summary"]
-    assert payload["summary"]["by_provenance_kind"]["keyword_heuristic"] == 0
-    assert payload["findings"] == []
+    # The only heuristic findings are the prohibited-action word matches,
+    # published as non-blocking advisories (#1055 Option A, #1035); every
+    # other heuristic policy match stays an evidence gap.
+    assert payload["summary"]["matched_findings"] == len(payload["findings"]) > 0
+    assert payload["summary"]["by_provenance_kind"]["keyword_heuristic"] == len(
+        payload["findings"]
+    )
+    assert {finding["check_id"] for finding in payload["findings"]} == {
+        "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
+    }
+    assert all(finding["agent_action"] == "informational" for finding in payload["findings"])
 
 
-def test_cli_findings_text_excludes_heuristic_policy_gaps(tmp_path):
+def test_cli_findings_text_lists_heuristic_advisories_not_gaps(tmp_path):
     run_scan(
         config_path=Path("samples/support_refund_agent/shipgate.yaml"),
         output_dir=tmp_path,
@@ -850,7 +858,11 @@ def test_cli_findings_text_excludes_heuristic_policy_gaps(tmp_path):
     assert "Scope: active findings only" in result.output
     assert "Provenance counts:" in result.output
     assert "keyword_heuristic:" in result.output
-    assert "No findings matched." in result.output
+    # Only the advisory prohibited-action matches (#1035); no policy gap is
+    # rendered as a finding.
+    assert "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT" in result.output
+    assert "No findings matched." not in result.output
+    assert "Policy applicability is supported only by heuristic evidence" not in result.output
 
 
 def test_cli_findings_invalid_provenance_kind_exits_three(tmp_path):

@@ -561,6 +561,14 @@ def _build_capability_intent(
     prohibited = list(manifest.agent.prohibited_actions)
     observed_tool_names = sorted({tool.name for tool in tools})
 
+    # A word match between a tool and a prohibited action is published as an
+    # advisory finding (#1055, Option A) but is not a divergence the gate
+    # asserts, so it does not mark this section ``missing`` (#1035).
+    findings = [
+        finding
+        for finding in findings
+        if finding.support is None or finding.support.policy_eligible
+    ]
     divergence = _findings_with_check(findings, CAPABILITY_INTENT_CHECKS)
     rows = [
         CapabilityIntentRow(

@@ -4,7 +4,10 @@ v0.6 ships generators that emit only manifest-target patches (per the
 plan §3 + C5/C6/C7/C9/C10):
 
 - ``RemovePointerPatch`` for the 3 stale-manifest checks (high
-  confidence; auto-applied at default ``apply-patches --confidence high``).
+  confidence; auto-applied at default ``apply-patches --confidence high``),
+  only for an entry naming a tool that is absent from the tool catalog. An
+  entry naming a catalog tool whose binding is not established gets the
+  manual fallback, never a removal (#1035).
 - ``AppendPointerPatch`` for ``SHIP-AUTH-SCOPE-COVERAGE-MISSING``
   (medium confidence; requires explicit ``--confidence medium``).
 
@@ -26,6 +29,7 @@ import hashlib
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+from agents_shipgate.core.findings.remediation import names_unbound_catalog_tool
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.patches import (
     ACTION_SELECTOR_KEYS,
@@ -88,7 +92,26 @@ def generate_patches_for_finding(
 # ---------------------------------------------------------------------------
 
 
+def _unbound_catalog_tool_patch(finding: Finding) -> list[Patch]:
+    """A keep-it patch when the entry names a tool whose binding is unestablished.
+
+    Such an entry is not stale (#1035): the tool is in the catalog, so no
+    generator may propose removing it. A default ``apply-patches --apply`` used
+    to delete the approval, confirmation and idempotency policies of
+    ``create_refund`` and ``terminate_account`` this way. The manual patch
+    carries the finding's own instruction, because the catalog-level
+    recommendation the generic fallback would use says to remove the entry.
+    An empty list means the entry is not of this kind.
+    """
+
+    if not names_unbound_catalog_tool(finding):
+        return []
+    return [ManualPatch(instructions=finding.recommendation)]
+
+
 def _gen_stale_suppression(context: PatchContext, finding: Finding) -> list[Patch]:
+    if keep := _unbound_catalog_tool_patch(finding):
+        return keep
     check_id = finding.evidence.get("check_id")
     tool = finding.evidence.get("tool")
     matches = [
@@ -117,6 +140,8 @@ def _gen_stale_suppression(context: PatchContext, finding: Finding) -> list[Patc
 
 
 def _gen_stale_policy(context: PatchContext, finding: Finding) -> list[Patch]:
+    if keep := _unbound_catalog_tool_patch(finding):
+        return keep
     policy = finding.evidence.get("policy")
     tool = finding.evidence.get("tool")
     field_for = {
@@ -148,6 +173,8 @@ def _gen_stale_policy(context: PatchContext, finding: Finding) -> list[Patch]:
 
 
 def _gen_stale_risk_override(context: PatchContext, finding: Finding) -> list[Patch]:
+    if keep := _unbound_catalog_tool_patch(finding):
+        return keep
     tool = finding.evidence.get("tool")
     if tool not in context.manifest.risk_overrides.tools:
         return []

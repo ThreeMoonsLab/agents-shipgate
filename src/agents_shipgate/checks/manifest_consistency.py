@@ -2,21 +2,34 @@ from __future__ import annotations
 
 from agents_shipgate.checks.base import agent_finding, tool_finding
 from agents_shipgate.core.context import ScanContext
+from agents_shipgate.core.findings.remediation import BINDING_NOT_ESTABLISHED
 from agents_shipgate.core.heuristics import is_broad_scope
 from agents_shipgate.core.manifest_protection import (
     CODEOWNERS_LOCATIONS,
     manifest_protection,
 )
 from agents_shipgate.core.risk_hints import is_policy_eligible_high_risk_tool, risk_tags
-from agents_shipgate.schemas.manifest import PolicyToolEntry
+from agents_shipgate.core.tool_identity import ToolSelectorIndex
+from agents_shipgate.schemas.manifest import PolicyToolEntry, SuppressionConfig
 
 
 def run(context: ScanContext, *, known_check_ids: set[str]) -> list:
     findings = []
+    catalog = context.tool_catalog or context.tools
+    selectors = ToolSelectorIndex.build(catalog)
+    reachable_ids = {tool.id for tool in context.tools}
     tool_names = {tool.name for tool in context.tools}
-    findings.extend(_stale_suppressions(context, tool_names, known_check_ids))
-    findings.extend(_stale_policies(context, tool_names))
-    findings.extend(_stale_overrides(context, tool_names))
+    # ``context.tools`` is the proven-reachable subset; ``tool_catalog`` is
+    # every extracted declaration. A name in the catalog but not reachable is
+    # an unestablished binding, not a missing tool: the tool exists, and
+    # deleting its approval, confirmation or idempotency policy would remove a
+    # control from a real tool the moment its binding is established (#1035).
+    catalog_names = {tool.name for tool in catalog} - tool_names
+    findings.extend(
+        _stale_suppressions(context, selectors, reachable_ids, known_check_ids)
+    )
+    findings.extend(_stale_policies(context, selectors, reachable_ids))
+    findings.extend(_stale_overrides(context, tool_names, catalog_names))
     findings.extend(_missing_high_risk_owners(context))
     findings.extend(_unused_manifest_scopes(context))
     findings.extend(_unprotected_manifest(context))
@@ -100,31 +113,72 @@ def _unprotected_manifest(context: ScanContext) -> list:
     ]
 
 
+def _unbound_recommendation(tool: str, entry: str) -> str:
+    return (
+        f"Keep this {entry}: {tool} is in the tool catalog, but the scan did not "
+        "prove the agent reaches it, so the entry cannot be checked against it "
+        "yet. Establish the binding (agent_bindings or tool_sources[].binding) "
+        "instead of removing the entry."
+    )
+
+
+def _tool_selector_issue(
+    entry: PolicyToolEntry | SuppressionConfig,
+    selectors: ToolSelectorIndex,
+    reachable_ids: set[str],
+) -> str | None:
+    # Resolve stable ids and source aliases the same way as policy controls.
+    # A missed qualifier is not new grounds for deleting a legacy entry
+    # whose name still exists. Other checks report unresolved selectors.
+    matches = selectors.resolve(entry).matches or selectors.by_name.get(entry.tool or "", ())
+    if any(tool.id in reachable_ids for tool in matches):
+        return None
+    return BINDING_NOT_ESTABLISHED if matches else "missing_tool"
+
+
 def _stale_suppressions(
-    context: ScanContext, tool_names: set[str], known_check_ids: set[str]
+    context: ScanContext,
+    selectors: ToolSelectorIndex,
+    reachable_ids: set[str],
+    known_check_ids: set[str],
 ) -> list:
     findings = []
     for suppression in context.manifest.checks.ignore:
         issues = []
         if suppression.check_id not in known_check_ids:
             issues.append("unknown_check_id")
-        if suppression.tool and suppression.tool not in tool_names:
-            issues.append("missing_tool")
+        tool_label = suppression.tool or suppression.tool_id
+        if tool_label:
+            issue = _tool_selector_issue(suppression, selectors, reachable_ids)
+            # ID-only suppressions never had an automatic missing-tool removal.
+            if issue is not None and (suppression.tool or issue == BINDING_NOT_ESTABLISHED):
+                issues.append(issue)
         if not issues:
             continue
+        unbound_only = issues == [BINDING_NOT_ESTABLISHED]
         findings.append(
             agent_finding(
                 check_id="SHIP-MANIFEST-STALE-SUPPRESSION",
-                title=f"Suppression for {suppression.check_id} no longer matches the manifest",
+                title=(
+                    f"Suppression for {suppression.check_id} names {tool_label}, "
+                    "whose binding to the agent is not established"
+                    if unbound_only
+                    else f"Suppression for {suppression.check_id} no longer matches the manifest"
+                ),
                 severity="medium",
                 category="manifest",
                 evidence={
                     "check_id": suppression.check_id,
                     "tool": suppression.tool,
                     "issues": issues,
+                    **({"tool_id": suppression.tool_id} if not suppression.tool and suppression.tool_id else {}),
                 },
                 confidence="high",
-                recommendation="Remove stale suppressions or update them to match current check IDs and tool names.",
+                recommendation=(
+                    _unbound_recommendation(str(tool_label), "suppression")
+                    if unbound_only
+                    else "Remove stale suppressions or update them to match current check IDs and tool names."
+                ),
                 context=context,
                 provenance_kind="static_declaration",
             )
@@ -132,7 +186,9 @@ def _stale_suppressions(
     return findings
 
 
-def _stale_policies(context: ScanContext, tool_names: set[str]) -> list:
+def _stale_policies(
+    context: ScanContext, selectors: ToolSelectorIndex, reachable_ids: set[str]
+) -> list:
     findings = []
     policy_sets: list[tuple[str, list[PolicyToolEntry]]] = [
         ("approval", context.manifest.policies.require_approval_for_tools),
@@ -141,7 +197,35 @@ def _stale_policies(context: ScanContext, tool_names: set[str]) -> list:
     ]
     for policy_name, entries in policy_sets:
         for entry in entries:
-            if entry.tool in tool_names:
+            issue = _tool_selector_issue(entry, selectors, reachable_ids)
+            if issue is None:
+                continue
+            if issue == BINDING_NOT_ESTABLISHED:
+                # Not stale, and never a removal: the tool exists. Deleting
+                # this entry is what a high-confidence patch used to propose
+                # for create_refund and terminate_account (#1035).
+                findings.append(
+                    agent_finding(
+                        check_id="SHIP-MANIFEST-STALE-POLICY",
+                        title=(
+                            f"{policy_name} policy references {entry.tool}, whose "
+                            "binding to the agent is not established"
+                        ),
+                        severity="medium",
+                        category="manifest",
+                        evidence={
+                            "policy": policy_name,
+                            "tool": entry.tool,
+                            "issues": [BINDING_NOT_ESTABLISHED],
+                        },
+                        confidence="high",
+                        recommendation=_unbound_recommendation(
+                            entry.tool, f"{policy_name} policy entry"
+                        ),
+                        context=context,
+                        provenance_kind="static_declaration",
+                    )
+                )
                 continue
             findings.append(
                 agent_finding(
@@ -159,10 +243,30 @@ def _stale_policies(context: ScanContext, tool_names: set[str]) -> list:
     return findings
 
 
-def _stale_overrides(context: ScanContext, tool_names: set[str]) -> list:
+def _stale_overrides(
+    context: ScanContext, tool_names: set[str], catalog_names: set[str]
+) -> list:
     findings = []
     for tool_name in context.manifest.risk_overrides.tools:
         if tool_name in tool_names:
+            continue
+        if tool_name in catalog_names:
+            findings.append(
+                agent_finding(
+                    check_id="SHIP-MANIFEST-STALE-RISK-OVERRIDE",
+                    title=(
+                        f"Risk override references {tool_name}, whose binding to "
+                        "the agent is not established"
+                    ),
+                    severity="medium",
+                    category="manifest",
+                    evidence={"tool": tool_name, "issues": [BINDING_NOT_ESTABLISHED]},
+                    confidence="high",
+                    recommendation=_unbound_recommendation(tool_name, "risk override"),
+                    context=context,
+                    provenance_kind="static_declaration",
+                )
+            )
             continue
         findings.append(
             agent_finding(

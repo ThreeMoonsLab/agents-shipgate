@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.finding_refs import finding_tool_names
+from agents_shipgate.core.findings.advisory import ADVISORY_LABEL, is_lexical_advisory
 from agents_shipgate.core.risk_hints import is_high_risk_tool, risk_tags
 from agents_shipgate.schemas.report import (
     CapabilityFact,
@@ -109,6 +110,9 @@ class DiffSpec:
 class MisalignmentRecord:
     misalignment: Misalignment
     scenario_type: SuggestedScenarioType | None
+    # A lexical advisory (#1055 Option A): listed, labelled, sorted last, and
+    # never the source of a suggested scenario.
+    advisory: bool = False
 
 
 CHECK_DIFF_MAP: dict[str, DiffSpec] = {
@@ -329,7 +333,12 @@ def _build_diff_records(
 ) -> tuple[list[CapabilityFact], list[DeclaredIntention], list[MisalignmentRecord]]:
     active_findings = _active_relevant_findings(report)
     tool_lookup = {tool.name: tool for tool in tools}
-    findings_by_tool = _findings_by_tool(active_findings, tool_lookup.keys())
+    # A lexical advisory stays visible as a labelled misalignment, but it does
+    # not select a capability or change its ``control_status`` (#1035).
+    findings_by_tool = _findings_by_tool(
+        [finding for finding in active_findings if not _is_advisory(finding)],
+        tool_lookup.keys(),
+    )
 
     capability_facts = [
         _capability_fact(tool, findings_by_tool.get(tool.name, []))
@@ -348,6 +357,7 @@ def _build_diff_records(
     )
     records.sort(
         key=lambda record: (
+            record.advisory,
             SEVERITY_SORT[record.misalignment.severity],
             record.misalignment.kind,
             record.misalignment.tool_name or "",
@@ -355,6 +365,13 @@ def _build_diff_records(
         )
     )
     return capability_facts, declared_intentions, records
+
+
+def _is_advisory(finding: Finding) -> bool:
+    return is_lexical_advisory(
+        finding.check_id,
+        finding.support.policy_eligible if finding.support is not None else None,
+    )
 
 
 def _active_relevant_findings(report: ReadinessReport) -> list[Finding]:
@@ -548,6 +565,17 @@ def _misalignment_records(
     known_tools = set(tool_lookup)
     for finding in findings:
         spec = _diff_spec(finding)
+        advisory = _is_advisory(finding)
+        if advisory:
+            spec = DiffSpec(
+                kind=spec.kind,
+                policy_requirement=spec.policy_requirement,
+                release_implication=(
+                    "None: the match is lexical evidence, which never changes "
+                    "the release decision."
+                ),
+                scenario_type=None,
+            )
         tool_names = finding_tool_names(finding, known_tools) or [None]
         for tool_name in tool_names:
             capability = capability_by_tool.get(tool_name or "")
@@ -570,10 +598,16 @@ def _misalignment_records(
                 intention_refs=sorted(intention_refs),
                 finding_refs=sorted(finding_refs),
                 policy_requirement=spec.policy_requirement,
-                gap=f"{finding.title}.",
+                gap=(
+                    f"{ADVISORY_LABEL}: {finding.title}."
+                    if advisory
+                    else f"{finding.title}."
+                ),
                 release_implication=spec.release_implication,
             )
-            records.append(MisalignmentRecord(misalignment, spec.scenario_type))
+            records.append(
+                MisalignmentRecord(misalignment, spec.scenario_type, advisory=advisory)
+            )
     return records
 
 

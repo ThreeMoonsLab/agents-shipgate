@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from agents_shipgate.core.findings.advisory import ADVISORY_LABEL, is_lexical_advisory
 from agents_shipgate.schemas.packet import (
     EvidenceMatrixConfidence,
     EvidenceMatrixDomain,
@@ -160,11 +161,16 @@ def build_evidence_matrix(report_payload: dict[str, Any] | None) -> EvidenceMatr
     if not isinstance(report_payload, dict):
         return unavailable_evidence_matrix()
 
-    active_findings = [
+    unsuppressed = [
         item
         for item in _list_of_dicts(report_payload.get("findings"))
         if item.get("suppressed") is not True
     ]
+    # A lexical advisory (#1055 Option A) never gates, so it is not a missing
+    # control and does not move a row's coverage status. It stays visible as
+    # a labelled note instead (#1035).
+    active_findings = [item for item in unsuppressed if not _is_advisory(item)]
+    advisories = [item for item in unsuppressed if _is_advisory(item)]
     blockers = _release_items(report_payload, "blockers")
     review_items = _release_items(report_payload, "review_items")
 
@@ -172,7 +178,19 @@ def build_evidence_matrix(report_payload: dict[str, Any] | None) -> EvidenceMatr
         _build_row(spec, report_payload, active_findings, blockers, review_items)
         for spec in _domain_specs()
     ]
-    return EvidenceMatrixSection(rows=rows, notes=[_MATRIX_NOTE])
+    notes = [_MATRIX_NOTE]
+    notes.extend(
+        _dedupe([f"{ADVISORY_LABEL}: {_control_summary(item)}" for item in advisories])
+    )
+    return EvidenceMatrixSection(rows=rows, notes=notes)
+
+
+def _is_advisory(finding: dict[str, Any]) -> bool:
+    support = finding.get("support")
+    return is_lexical_advisory(
+        str(finding.get("check_id") or ""),
+        support.get("policy_eligible") if isinstance(support, dict) else None,
+    )
 
 
 def unavailable_evidence_matrix() -> EvidenceMatrixSection:

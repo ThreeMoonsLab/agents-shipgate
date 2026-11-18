@@ -43,6 +43,8 @@ agents-shipgate apply-patches --from agents-shipgate-reports/report.json \
 
 **Caveat**: when multiple suppressions match the same stale check, the generator falls back to `ManualPatch` and `agent_action` becomes `escalate_to_human` — the agent should surface which entries were ambiguous and ask the user to pick.
 
+**Not stale**: an entry whose tool is in `tool_catalog[]` but not proven reachable carries `evidence.issues: ["binding_not_established"]` and only a `ManualPatch` that says to keep it. Do not delete it: the tool exists, and its approval, confirmation or idempotency policy protects it once the binding is established (#1035).
+
 ### `inventory` — narrow the surface
 
 `SHIP-INVENTORY-WILDCARD-TOOLS` and friends fire when the agent exposes "all tools" via a wildcard. There's no patch — fix the source:

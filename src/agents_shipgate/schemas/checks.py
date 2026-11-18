@@ -54,6 +54,17 @@ class CheckMetadata(BaseModel):
     # does not lose the evidence. In-process routing metadata, not catalog
     # wire surface.
     publish_when_policy_ineligible: bool = Field(default=False, exclude=True)
+    # Lexical heuristics never move the release verdict (#1055, Option A).
+    # A check whose only evidence for an instance is lexical — a keyword in a
+    # description, a word shared with ``prohibited_actions`` — sets this so the
+    # instance is published as a visible, non-blocking advisory finding and
+    # *no* evidence gap is raised for it. Without the flag a policy-ineligible
+    # instance becomes an evidence gap, which moves ``passed`` to
+    # ``insufficient_evidence`` on wording alone, and nothing a reviewer can
+    # declare closes it (#1035). Instances with policy-eligible support are
+    # untouched: they gate exactly as before. In-process routing metadata,
+    # not catalog wire surface.
+    advisory_when_policy_ineligible: bool = Field(default=False, exclude=True)
     # v0.17 (M1 + M5): hard severity floor used by two callers.
     # M1 (manifest-side): ``checks.severity_overrides`` cannot resolve
     # to a weaker severity than ``floor_severity``; the resolver raises

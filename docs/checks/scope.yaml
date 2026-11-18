@@ -15,13 +15,14 @@
 # user-facing prose (description/rationale/recommendation) changes.
 checks:
 - id: SHIP-SCOPE-PROHIBITED-TOOL-PRESENT
-  default_severity: high
+  default_severity: medium
   mvp_tier: core
   floor_severity: medium
+  advisory_when_policy_ineligible: true
   description: Tool appears to overlap with a manifest prohibited action.
   rationale: Prohibited actions should not be contradicted by attached tool capabilities.
-  fires_when: Tool name/description/risk tags overlap prohibited_actions without a
-    mitigating policy.
+  fires_when: |-
+    A tool's name and description share two words with a prohibited action, one of them the action's verb (its listed verbs, else a noun naming one, else its leading word), or the tool's risk tags match the action, without a mitigating policy. A tool whose name contains every word of the action's "without" clause is that safeguard and is not compared by words. The match is lexical, so it is published as a non-blocking advisory finding and never moves the verdict.
   evidence_fields:
   - prohibited_action
   - risk_tags
