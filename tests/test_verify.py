@@ -3909,6 +3909,69 @@ def test_verify_preview_missing_base_without_manifest_reports_the_missing_ref(
     assert payload["can_merge_without_human"] is False
 
 
+@pytest.mark.parametrize("preview", [False, True])
+def test_host_preview_cleans_previous_scan_artifacts_before_publishing(tmp_path: Path, preview: bool) -> None:
+    from scripts.github_action_outputs import extract_outputs
+
+    host = _init_repo(tmp_path)
+    config = host / ".mcp.json"
+    config.write_text('{"mcpServers": {}}\n', encoding="utf-8")
+    _commit_all(host, "base")
+    config.write_text('{"mcpServers": {"docs": {"command": "docs-mcp"}}}\n', encoding="utf-8")
+    _commit_all(host, "host config")
+    out_dir = host / "agents-shipgate-reports"
+    preview_args = [
+        "verify", *(["--preview"] if preview else []), "--workspace", str(host),
+        "--base", "HEAD~1", "--head", "HEAD", "--out", str(out_dir), "--format", "json",
+    ]
+    attest_args = ["attest", "--from", str(out_dir / "verifier.json"), "--json"]
+
+    first = runner.invoke(app, preview_args)
+    assert first.exit_code == 0, first.output
+    assert json.loads(first.output)["execution"] == "not_run"
+    clean_names = {path.name for path in out_dir.iterdir()}
+    clean_outputs = extract_outputs(out_dir)
+    clean_attestation = runner.invoke(app, attest_args)
+
+    adopted = tmp_path / "adopted"
+    adopted.mkdir()
+    project = _init_repo(adopted)
+    _write_manifest(project)
+    manifest = project / "shipgate.yaml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace("type: mcp\n    path: tools.json", "type: google_adk\n    path: agent.py"),
+        encoding="utf-8",
+    )
+    (project / "agent.py").write_text(
+        "from google.adk.agents import LlmAgent\n"
+        "from google.adk.tools import FunctionTool\n"
+        "def lookup_case(case_id) -> dict:\n"
+        "    return {'case_id': case_id}\n"
+        "root = LlmAgent(name='support_reader', tools=[FunctionTool(func=lookup_case)])\n",
+        encoding="utf-8",
+    )
+    _commit_all(project, "add support reader")
+    completed = runner.invoke(app, [
+        "verify", "--workspace", str(project), "--no-base",
+        "--out", str(out_dir), "--format", "json", "--ci-mode", "advisory",
+    ])
+    assert completed.exit_code == 0, completed.output
+    assert (out_dir / "report.json").is_file()
+    assert (out_dir / "packet.json").is_file()
+    assert (out_dir / "capabilities.lock.json").is_file()
+    assert (out_dir / "suggested-inventory.json").is_file()
+
+    reused = runner.invoke(app, preview_args)
+    assert reused.exit_code == 0, reused.output
+    assert json.loads(reused.output)["artifacts"] == json.loads(first.output)["artifacts"]
+    assert {path.name for path in out_dir.iterdir()} == clean_names
+    assert extract_outputs(out_dir) == clean_outputs
+    reused_attestation = runner.invoke(app, attest_args)
+    assert (reused_attestation.exit_code, reused_attestation.output) == (
+        clean_attestation.exit_code, clean_attestation.output,
+    )
+
+
 def test_verify_preview_configured_repo_preserves_exact_verify_args(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     (repo / "shipgate.yaml").write_text('version: "0.1"\n', encoding="utf-8")
