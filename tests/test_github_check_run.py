@@ -121,6 +121,24 @@ def test_annotations_map_sarif_levels():
     assert annotations[0]["title"] == "SHIP-POLICY-APPROVAL-MISSING"
 
 
+@pytest.mark.parametrize(("uri", "encoded", "expected"), [
+    ("services/refund%20agent/shipgate.yaml", True, "services/refund agent/shipgate.yaml"),
+    ("services/file%2520name.py", True, "services/file%20name.py"),
+    ("services/file%20name.py", False, "services/file%20name.py"),
+    ("https://example.test/file%20name.py", False, "https://example.test/file%20name.py"),
+])
+def test_sarif_annotations_decode_only_projected_repository_paths(
+    uri: str, encoded: bool, expected: str,
+) -> None:
+    result = _result(uri=uri)
+    if encoded:
+        result["locations"][0]["properties"] = {"shipgateArtifactUriEncoding": "percent"}
+    sarif = _sarif([result])
+    [annotation] = annotations_from_sarif(sarif)
+
+    assert annotation["path"] == expected
+
+
 def test_annotations_capped_at_checks_api_limit():
     sarif = _sarif([_result(line=i + 1) for i in range(MAX_ANNOTATIONS + 25)])
     annotations = annotations_from_sarif(sarif)

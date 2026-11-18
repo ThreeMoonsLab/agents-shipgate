@@ -48,6 +48,7 @@
 
 ### Changes
 
+- **SARIF locations resolve from the repository root.** Scan and verify link findings from nested projects to the correct repository files and preserve source lines. Semantic gaps link to the referenced source when it resolves to a file, or to the configured manifest for symbolic refs. (Refs #1047)
 - **Unread OpenAPI schema carriers produce incomplete extraction evidence.** Unresolved request body, parameter, response, and media type references mark affected tools as medium confidence. A shared carrier produces one warning naming its pointer and the affected operations. Verification can now route these split specifications to review for insufficient evidence. (#1166)
 - **n8n uses the exported `url` and `workflowId` before aliases.** Observation IDs can change for nodes with multiple URL fields. An `mcpClient` action wired as a tool now appears as an ordinary n8n tool and no longer triggers the MCP client toolset warning. An unread Cursor or VS Code MCP file now has a named path and host-audit guidance in its evidence gap. (#1073)
 - **The capability lock from `verify` records the effective plugin setting.** The default opt-out now contributes `false` to `source_set_hash`. See the [capability lock plugin opt-in migration note](STABILITY.md#capability-lock-plugin-opt-in-1062). (#1062)
