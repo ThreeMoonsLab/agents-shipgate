@@ -354,6 +354,7 @@ def committed_source(tmp_path: Path) -> tuple[Path, str]:
 def test_build_provenance_reads_its_own_clean_head(
     committed_source: tuple[Path, str], monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    pytest.importorskip("hatchling", reason="Source stamping uses Hatchling")
     from hatch_build import candidate_source
     root, sha = committed_source
     monkeypatch.setenv("GIT_DIR", "/missing/not-the-build-repository")
@@ -364,6 +365,7 @@ def test_build_provenance_reads_its_own_clean_head(
 def test_build_refuses_a_guessed_or_modified_source(
     committed_source: tuple[Path, str], mutation: str,
 ) -> None:
+    pytest.importorskip("hatchling", reason="Source stamping uses Hatchling")
     from hatch_build import candidate_source
     root, sha = committed_source
     version = __version__
@@ -382,6 +384,7 @@ def test_build_refuses_a_guessed_or_modified_source(
 
 
 def test_no_git_copy_cannot_assert_source_identity(tmp_path: Path) -> None:
+    pytest.importorskip("hatchling", reason="Source stamping uses Hatchling")
     from hatch_build import candidate_source
     with pytest.raises(subprocess.CalledProcessError):
         candidate_source(tmp_path, SHA, __version__)

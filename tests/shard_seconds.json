@@ -1,5 +1,6 @@
 {
  "files": {
+  "tests/agent_tasks/test_agent_tasks.py": 8.4,
   "tests/harness/test_adversarial_guards.py": 0.0,
   "tests/harness/test_claude_code_driver.py": 0.0,
   "tests/harness/test_codex_driver.py": 0.9,
@@ -587,6 +588,17 @@
    },
    "case_count": 14,
    "command": "python -m pytest tests/test_claude_command_settings.py --junitxml=command-settings.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "fc8cbb670766 with issue #1048 test increment",
+   "report_sha256": "7d47749974275224b8df5d73b52531a7dece683e4a3732268edd409f82dc3547",
+   "files": {
+    "tests/agent_tasks/test_agent_tasks.py": 8.4
+   },
+   "case_count": 2,
+   "command": "python -m pytest tests/agent_tasks/test_agent_tasks.py -o junit_duration_report=total --junitxml=shard-weight.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {
