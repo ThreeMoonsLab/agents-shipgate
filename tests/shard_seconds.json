@@ -185,6 +185,7 @@
   "tests/test_framework_constructor_imports.py": 367.3,
   "tests/test_framework_constructor_retention.py": 298.1,
   "tests/test_framework_matrix.py": 5.5,
+  "tests/test_framework_mix_benchmark.py": 0.1,
   "tests/test_github_action_annotations.py": 0.0,
   "tests/test_github_action_outputs.py": 0.0,
   "tests/test_github_check_run.py": 0.0,
