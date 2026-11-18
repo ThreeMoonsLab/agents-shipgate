@@ -18,9 +18,10 @@ a new user.
 
 Per member it writes ``<slug>.json`` (the engine's stdout, only when it exits
 0), ``<slug>.err`` (its stderr tail) and a row in ``runs.json``: ``status`` is
-``ok``, ``refused`` (the engine exited non-zero, e.g. ``objects_missing``),
-``timeout`` or ``unavailable`` (a pin could not be obtained), with the exit
-code, seconds and reason. Outputs a member already had in ``--out``, and the
+``ok``, ``invalid_output`` (stdout failed the comparison or pin checks),
+``refused`` (the engine exited non-zero, e.g. ``objects_missing``), ``timeout``
+or ``unavailable`` (a pin could not be obtained), with the exit code, seconds
+and reason. Outputs a member already had in ``--out``, and the
 previous ``runs.json``, are removed first, so a stale answer can never stand in
 for this run's, and a run that stops early leaves no ``runs.json`` for
 ``summarize.py`` to read. The exit code is 0 only when every member answered
@@ -153,6 +154,38 @@ def _prepare_member(clone: Path, member: dict, fetch: bool) -> str | None:
     return None
 
 
+def _invalid_answer_reason(stdout: str, member: dict) -> str | None:
+    """Check the fields the replay relies on before treating stdout as an answer."""
+    try:
+        answer = json.loads(stdout)
+    except (ValueError, RecursionError):
+        return "stdout is not a readable JSON comparison"
+    if not isinstance(answer, dict):
+        return "stdout must contain one comparison object"
+    if answer.get("comparison_status") not in ("compared", "partial", "not_established"):
+        return "stdout has an invalid comparison_status"
+    for side, pin in (("base", "merge_base"), ("head", "head")):
+        evidence = answer.get(side)
+        if not isinstance(evidence, dict) or evidence.get("compared_commit") != member[pin]:
+            return f"stdout {side}.compared_commit does not match the pinned {pin}"
+    rows = answer.get("rows")
+    if not isinstance(rows, list):
+        return "stdout rows must be a list"
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict) or row.get("change") not in ("added", "removed", "changed", "not_established"):
+            return f"stdout rows[{index}] has an invalid change kind"
+        for side in ("before", "after"):
+            binding = row.get(side)
+            if binding is None:
+                continue
+            if not isinstance(binding, dict):
+                return f"stdout rows[{index}].{side} must be an object or null"
+            reach = binding.get("reach")
+            if reach is not None and not isinstance(reach, dict):
+                return f"stdout rows[{index}].{side}.reach must be an object or null"
+    return None
+
+
 def run_member(member: dict, *, engine: list[str], clones: Path, out: Path) -> dict:
     slug = member["slug"]
     clone = clone_dir(clones, member["repository"])
@@ -171,14 +204,19 @@ def run_member(member: dict, *, engine: list[str], clones: Path, out: Path) -> d
                 "seconds": round(time.monotonic() - started, 1),
                 "reason": f"diff exceeded {DIFF_TIMEOUT_SECONDS} s"}
     (out / f"{slug}.err").write_text(result.stderr[-4000:], encoding="utf-8")
-    if result.returncode == 0:
+    if result.returncode != 0:
+        status = "refused"
+        reason = result.stderr.strip()[-300:] or None
+    else:
         (out / f"{slug}.json").write_text(result.stdout, encoding="utf-8")
+        reason = _invalid_answer_reason(result.stdout, member)
+        status = "ok" if reason is None else "invalid_output"
     return {
         "slug": slug,
-        "status": "ok" if result.returncode == 0 else "refused",
+        "status": status,
         "exit_code": result.returncode,
         "seconds": round(time.monotonic() - started, 1),
-        "reason": None if result.returncode == 0 else (result.stderr.strip()[-300:] or None),
+        "reason": reason,
     }
 
 

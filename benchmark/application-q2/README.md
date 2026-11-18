@@ -31,8 +31,8 @@ agents-shipgate diff --application --base <merge_base> --head <head> --json
 run in the clone's root with no `--scope`, so the scope is derived from the
 change, as it is for a new user. Nothing is fetched while the diff runs.
 [`run.py`](run.py) does exactly this: with `--fetch` it clones and fetches the
-pins, and it records every member's outcome (`ok`, `refused`, `timeout` or
-`unavailable`, with the reason) in `runs.json`. [`summarize.py`](summarize.py)
+pins, and it records every member's outcome (`ok`, `invalid_output`, `refused`,
+`timeout` or `unavailable`, with the reason) in `runs.json`. [`summarize.py`](summarize.py)
 counts statuses and rows from a run directory. The counts are mechanical. The
 Q1/Q2 scores below are not.
 
@@ -49,8 +49,11 @@ previous `runs.json`, before it prepares any clone. A member that times out, is
 unavailable or is refused this time therefore has no answer, never an earlier
 build's, and a run that stops early leaves no `runs.json`, which `summarize.py`
 refuses to read. The engine's stderr tail is kept in `<slug>.err` when it ran;
-every member's outcome and reason is in `runs.json`. The runner exits non-zero
-unless every member answered `ok`.
+every member's outcome and reason is in `runs.json`. An engine exit of zero
+only counts as `ok` when the output has the expected comparison fields and
+reports the pinned commits. For `invalid_output`, the runner keeps the raw
+stdout for diagnosis and the summarizer assigns no answer identity. The
+runner exits non-zero unless every member answered `ok`.
 
 For a replay you want to keep, pass `--retain-run` and an empty `--out`
 directory. The runner saves the selected refs, corpus hash, launcher hash

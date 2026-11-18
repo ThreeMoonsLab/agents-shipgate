@@ -345,6 +345,16 @@ def _git_ok(command: list[str]) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(command, 0, "", "")
 
 
+def _pinned_answer(status: str = "compared", **fields) -> dict:
+    return {
+        "comparison_status": status,
+        "base": {"compared_commit": "a" * 40},
+        "head": {"compared_commit": "b" * 40},
+        "rows": [],
+        **fields,
+    }
+
+
 @pytest.mark.parametrize("interrupted", [False, True])
 def test_retained_replay_keeps_input_pins_and_refuses_to_overwrite(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupted: bool,
@@ -352,7 +362,7 @@ def test_retained_replay_keeps_input_pins_and_refuses_to_overwrite(
     corpus, corpus_path, clones, out = _runner_case(tmp_path, ("case",))
     engine = tmp_path / "engine"
     receipt = out / "run-inputs.json"
-    answer = {"comparison_status": "compared", "rows": [], "summary": {"findings": []}}
+    answer = _pinned_answer(summary={"findings": []})
 
     def run_command(command, **kwargs):
         if command[0] == "git":
@@ -400,6 +410,45 @@ def test_replay_rejects_invalid_inputs_before_creating_output(
     assert not out.exists()
 
 
+@pytest.mark.parametrize(
+    ("stdout", "reason"),
+    [
+        ("malformed", "not a readable JSON comparison"),
+        ("[]", "one comparison object"),
+        (json.dumps(_pinned_answer("complete")), "invalid comparison_status"),
+        (json.dumps(_pinned_answer(head={"compared_commit": "c" * 40})), "head.compared_commit"),
+        (json.dumps(_pinned_answer(rows={})), "rows must be a list"),
+        (json.dumps(_pinned_answer(rows=[{"change": []}])), "invalid change kind"),
+        (json.dumps(_pinned_answer(rows=[{"change": "changed", "after": []}])), "after must be an object"),
+        (json.dumps(_pinned_answer(rows=[{"change": "changed", "after": {"reach": []}}])), "after.reach"),
+    ],
+)
+def test_a_zero_exit_with_invalid_stdout_is_retained_as_a_failed_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stdout: str, reason: str,
+) -> None:
+    corpus, corpus_path, clones, out = _runner_case(tmp_path, ("valid", "invalid"))
+    valid = _pinned_answer("not_established")
+
+    def fake_run(command, **kwargs):
+        if command[0] == "git":
+            return _git_ok(command)
+        output = stdout if kwargs["cwd"].name == "o__invalid" else json.dumps(valid)
+        return subprocess.CompletedProcess(command, 0, output, "")
+
+    monkeypatch.setattr(run.subprocess, "run", fake_run)
+    assert run.main(["--engine", str(tmp_path / "engine"), "--corpus", str(corpus_path),
+                     "--clones", str(clones), "--out", str(out), "--retain-run"]) == 1
+    good, bad = json.loads((out / "runs.json").read_text(encoding="utf-8"))
+    assert good["status"] == "ok"
+    assert bad["status"] == "invalid_output" and bad["exit_code"] == 0
+    assert reason in bad["reason"]
+    assert (out / "invalid.json").read_text(encoding="utf-8") == stdout
+    summaries = summarize.load_run(corpus, out)
+    assert summaries["valid"]["status"] == "not_established"
+    assert summaries["invalid"]["status"] == "invalid_output"
+    assert summaries["invalid"]["answer_id"] is None
+
+
 @pytest.mark.parametrize("outcome", ["success", "refused", "timeout", "unavailable", "fetch_failed"])
 def test_a_rerun_reports_current_outputs_and_fails_for_any_failed_member(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str
@@ -413,7 +462,7 @@ def test_a_rerun_reports_current_outputs_and_fails_for_any_failed_member(
                {"case": {"comparison_status": "compared", "rows": [{"change": "added"}]}})
     (out / "case.err").write_text("previous build diagnostic")
     (out / "other.json").write_text("unrelated output")
-    current = {"comparison_status": "partial", "rows": [{"change": "removed"}]}
+    current = _pinned_answer("partial", rows=[{"change": "removed"}])
     engine_calls = []
 
     def fake_run(command, **kwargs):
@@ -470,7 +519,7 @@ def test_a_successful_member_does_not_hide_another_members_failure(
         if kwargs["cwd"].name == "o__bad" and failure == "timeout":
             raise subprocess.TimeoutExpired(command, kwargs["timeout"])
         code = 2 if kwargs["cwd"].name == "o__bad" else 0
-        return subprocess.CompletedProcess(command, code, json.dumps({"comparison_status": "partial", "rows": []}), "")
+        return subprocess.CompletedProcess(command, code, json.dumps(_pinned_answer("partial")), "")
 
     monkeypatch.setattr(run, "complete", lambda clone, sha: clone.name != "o__bad" or failure != "unavailable")
     monkeypatch.setattr(run.subprocess, "run", fake_run)
