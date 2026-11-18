@@ -75,6 +75,7 @@ from agents_shipgate.core.host_grants import (
 )
 from agents_shipgate.core.host_input_failure import safe_failure_text
 from agents_shipgate.core.mcp_host_selection import UNATTRIBUTED_MCP_HOST, is_mcp_config_path
+from agents_shipgate.core.paths import first_symlink_in_chain
 from agents_shipgate.core.structured_depth import MAX_HOST_CONFIG_DEPTH
 from agents_shipgate.core.trust_roots import (
     is_configured_manifest,
@@ -1911,20 +1912,9 @@ def _validate_renamed_boundary_head(
     path: str,
 ) -> BoundaryInputIssue | None:
     candidate = workspace / path
-    try:
-        relative = candidate.relative_to(workspace)
-    except ValueError:
-        relative = None
-    current = workspace
-    if relative is None:
-        unsafe = True
-    else:
-        unsafe = False
-        for part in relative.parts:
-            current = current / part
-            if current.is_symlink():
-                unsafe = True
-                break
+    # The shared symlink-chain walk: a link anywhere below the workspace, or a
+    # path not spelled under it, makes the rename target unresolved.
+    unsafe = first_symlink_in_chain(candidate, workspace) is not None
     try:
         size = candidate.stat().st_size
         candidate.resolve().relative_to(workspace)

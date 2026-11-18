@@ -944,17 +944,6 @@ def published_setting_value(grant: dict[str, Any]) -> Any:
     return text
 
 
-def _display_path(path: Path, *, root: Path, home: Path) -> str:
-    try:
-        return path.resolve().relative_to(root).as_posix()
-    except ValueError:
-        pass
-    try:
-        return f"~/{path.resolve().relative_to(home).as_posix()}"
-    except ValueError:
-        return str(path)
-
-
 def _issue_source_label(source: str) -> str:
     """The bounded, single-line form of an issue's source, and its identity (#590).
 
