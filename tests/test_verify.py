@@ -3771,7 +3771,54 @@ def test_verify_preview_names_unresolved_base_on_another_default_branch(tmp_path
     assert payload["diff_status"]["completeness"] == "unavailable"
     assert payload["diff_status"]["reason"] == "refs_missing"
     assert "base_unresolved" in payload["diff_status"]["detail"]
-    assert payload["control"]["next_action"]["kind"] == "fetch_base"
+    assert "--base <ref>" in payload["diff_status"]["remediation"]
+    action = payload["control"]["next_action"]
+    assert action["kind"] == "fetch_base"
+    assert "--base <ref>" in action["expects"]
+    assert "--no-base" in action["expects"]
+
+
+def test_verify_preview_reports_a_missing_head_before_detecting_the_base(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+
+    result = runner.invoke(
+        app, ["verify", "--workspace", str(repo), "--preview", "--head", "missing-head", "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    status = payload["diff_status"]
+    assert status["reason"] == "refs_missing"
+    assert "missing-head" in status["detail"]
+    assert "base_unresolved" not in status["detail"]
+
+
+def test_verify_preview_allows_setup_before_the_first_commit(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+
+    result = runner.invoke(app, ["verify", "--workspace", str(repo), "--preview", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["control"]["next_action"]["kind"] != "fetch_base"
+
+
+def test_verify_preview_keeps_no_base_in_its_verify_command(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    _write_manifest(repo)
+    _commit_all(repo, "base")
+    subprocess.run(["git", "branch", "-M", "develop"], cwd=repo, check=True)
+
+    result = runner.invoke(
+        app, ["verify", "--workspace", str(repo), "--preview", "--no-base", "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    action = json.loads(result.output)["control"]["next_action"]
+    assert action["kind"] == "verify"
+    assert "--no-base" in action["command"]
 
 
 def test_verify_preview_missing_base_without_manifest_reports_the_missing_ref(

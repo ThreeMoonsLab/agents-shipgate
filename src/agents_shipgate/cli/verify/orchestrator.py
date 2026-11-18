@@ -800,6 +800,7 @@ def run_verify(
             workspace=git_root,
             config=config_relative,
             base=base,
+            auto_base=auto_base,
             head=head if archive_head else None,
             out=explicit_output_path(out) if out is not None else None,
             pr_comment_style=pr_comment_style,
@@ -7259,6 +7260,7 @@ def _preview_verify_command(
     base: str | None,
     head: str | None,
     out: Path | None,
+    auto_base: bool,
     pr_comment_style: str = "capability-review",
     preview: bool = False,
     scope: ChangeScope | None = None,
@@ -7279,6 +7281,8 @@ def _preview_verify_command(
         parts.append("--preview")
     if base is not None:
         parts.extend(["--base", base])
+    elif not auto_base:
+        parts.append("--no-base")
     if head is not None:
         parts.extend(["--head", head])
     if out is not None:
@@ -7385,25 +7389,38 @@ def run_preview(
     diff_text = ""
     notes: list[str] = []
     diff_input: DiffContext | None = None
-    if base is None and auto_base and in_git:
+    base_failure_status: VerifierDiffStatus | None = None
+    base_failure_action: CodingAgentFetchBaseAction | None = None
+    if base is None and in_git and (auto_base or head is not None):
         try:
-            detection = resolve_verify_base(root, head or "HEAD")
+            head_available = ref_exists(root, head or "HEAD")
+            detection = resolve_verify_base(root, head or "HEAD") if head_available and auto_base else None
         except Exception as exc:  # noqa: BLE001 - preview must never crash.
             diff_input = _as_diff_context(exc)
         else:
-            notes.extend(detection.notes)
-            if detection.base is not None:
-                base = detection.base
-                notes.append(
-                    f"Auto-detected base {detection.base!r} for diff context; "
-                    "pass --base to override or --no-base to disable."
-                )
-            elif not detection.resolved:
-                status, _, _ = _base_unresolved_route()
+            if head is not None and not head_available:
                 diff_input = DiffContext(
-                    completeness="unavailable", reason=status.reason, detail=status.detail or "",
+                    completeness="unavailable",
+                    reason="refs_missing",
+                    detail=f"Head ref does not exist locally: {head}",
                 )
                 notes.append(diff_input.note)
+            if detection is not None:
+                notes.extend(detection.notes)
+                if detection.base is not None:
+                    base = detection.base
+                    notes.append(
+                        f"Auto-detected base {detection.base!r} for diff context; "
+                        "pass --base to override or --no-base to disable."
+                    )
+                elif not detection.resolved:
+                    base_failure_status, headline, base_failure_action = _base_unresolved_route()
+                    diff_input = DiffContext(
+                        completeness="unavailable",
+                        reason=base_failure_status.reason,
+                        detail=base_failure_status.detail or "",
+                    )
+                    notes.append(headline)
     if base:
         try:
             git_root = ensure_git_workspace(root)
@@ -7528,6 +7545,7 @@ def run_preview(
         workspace=workspace,
         config=config,
         base=base,
+        auto_base=auto_base,
         head=head,
         out=explicit_output_path(out) if out is not None else None,
         pr_comment_style=pr_comment_style,
@@ -7536,6 +7554,7 @@ def run_preview(
         workspace=workspace,
         config=config,
         base=base,
+        auto_base=auto_base,
         head=head,
         out=explicit_output_path(out) if out is not None else None,
         pr_comment_style=pr_comment_style,
@@ -7558,7 +7577,7 @@ def run_preview(
     # fact that the PR was never inspected — and an unadopted repo reached over a
     # shallow or blobless clone is exactly where this failure lands.
     if diff_input is not None:
-        next_action: AgentControlAction = _diff_failure_action(
+        next_action: AgentControlAction = base_failure_action or _diff_failure_action(
             diff_input,
             expects=(
                 f"{base}...{head or 'HEAD'}"
@@ -7631,6 +7650,7 @@ def run_preview(
                 workspace=workspace,
                 config=config,
                 base=base,
+                auto_base=auto_base,
                 head=head,
                 out=explicit_output_path(out) if out is not None else None,
                 pr_comment_style=pr_comment_style,
@@ -7766,7 +7786,7 @@ def run_preview(
         head_ref=head or "HEAD",
         changed_files=changed_files,
         diff_text_available=bool(diff_text),
-        diff_status=_diff_status_artifact(diff_input),
+        diff_status=base_failure_status or _diff_status_artifact(diff_input),
         trigger=_embedded_trigger(trigger),
         base_status="not_requested",
         base_notes=notes,
