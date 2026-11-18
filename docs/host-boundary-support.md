@@ -35,7 +35,32 @@ unchanged between the compared sides (#822); any change to either keeps it a
 blocking limit, as before. A dangling link, a link that leaves the repository,
 or a directory link outside the boundary paths refuses the whole comparison, even
 when no host file sits behind it (#688). That refusal is deliberate (#659),
-and it caused every widening the 1.0 host-config measurement missed.
+and it caused every widening the 1.0 host-config measurement missed. One
+exception (#1004): a directory link outside the boundary paths, such as
+`.happy/terraform/envs/dev/modules -> ../../modules`, is named as an unchanged
+`unreadable` limit, and the rest compared, when Git proves it unchanged
+without following it. On both sides it is the same mode `120000` entry and
+link text, naming in one hop a directory inside the repository that does not
+hold the link, whose Git tree object is the same and holds no link or
+submodule; a working tree's copy is read entry by entry, untracked and ignored
+files included, except what is untracked beneath a name the walk never enters
+(`__pycache__`, `node_modules`, `.venv` and the like). A directory several
+links name is examined once. One directory may hold 10,000 files, and each
+comparison examines up to 20,000 files and performs up to 1,024 Git lookups
+across all its links. When a bound is reached, the link retains its limit
+and reports the reason. A link where a host reads agent configuration keeps its
+blocking limit however unchanged, so configuration cannot be moved behind a
+link: one named like a configuration file (`AGENTS.md`, `pkg/CLAUDE.md`), one
+at, under or above `.claude`, `.codex`, `.cursor`, `.vscode`, `.shipgate`,
+`.agents`, `.agents-shipgate`, `.github` or `policies` at the repository root
+(a nested `docs/.cursor` or `docs/.vscode` is not one, as this entry reads
+neither there), one inside a `.claude`, `.codex`, `.github`, `.shipgate` or
+`.<name>-plugin` directory at any depth, and one whose directory holds a file
+that through the link would be one a host reads, all decided by the boundary
+registry's own patterns. Any change to the link or to what it names, and a
+dangling, external, escaping, looping or chained link, still refuses. A
+configured `verify --head`, as the Action runs it, still refuses any committed
+link before it compares anything (#688).
 Path classification is case-insensitive so protected files cannot evade review
 on macOS or Windows. A case variant is also read as its lower-case spelling:
 `.github/workflows/CI.YML` is parsed and evaluated as a workflow, and
@@ -1263,6 +1288,20 @@ pull request in the repository. `check --diff` is bound to no checkout, so it
 never reports `allow`, and its coverage is `unknown` (issue
 `boundary_diff_unbound`) where it read every file it was given.
 
+### Advisory pull requests without a manifest
+
+On a repository with recognized host configuration, `init --write --ci`
+installs the [host-only advisory workflow](../examples/github-actions/14-host-only-advisory-pr.yml).
+It leaves an existing workflow intact. `doctor --json` identifies the host
+route and reports the command to inspect the declared host configuration.
+
+Advisory `verify` reports `merge_verdict: unknown` and
+`can_merge_without_human: false` when the repository has no application
+release policy. For a comparable host change, `verify` carries the same
+human-review requirement as `check` on the same inputs. When the verifier
+routes to a local boundary check, follow `control.next_action` to evaluate
+those inputs. Strict verification requires a manifest with a release policy.
+
 ### Partial comparisons
 
 A plugin directory `diff` and `verify` could not compare no longer hides the
@@ -1318,7 +1357,8 @@ Independence is read off the reference graph, never off directory names. The
 comparison refuses as before when a limit is neither a bounded plugin
 reference, a withheld document nor unchanged (an unreadable settings file, an
 instruction file whose structure could not be established for any other
-reason, a link that is not read through),
+reason, a link that is not read through and not proven unchanged as #1004
+proves one),
 when a reference names a path outside its plugin, when the plugin is at the
 repository root, when its directory holds `.claude/settings.json` or
 `.claude/settings.local.json`, which decide every plugin hook's loading basis,

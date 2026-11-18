@@ -15,6 +15,8 @@ from agents_shipgate.cli.agent_mode import (
     emit_agent_mode_error_routing as _emit_agent_mode_error_routing,
 )
 from agents_shipgate.cli.diagnostics import diagnose_doctor, top_next_actions
+from agents_shipgate.cli.discovery import detect_workspace
+from agents_shipgate.cli.discovery.host_boundary import host_discovery_action, needs_host_route
 from agents_shipgate.cli.discovery.identity_recovery import discover_agent_name
 from agents_shipgate.cli.discovery.placeholders import collect_placeholders
 from agents_shipgate.cli.scan.inspect import (
@@ -24,6 +26,7 @@ from agents_shipgate.cli.scan.inspect import (
 )
 from agents_shipgate.cli.setup_control import (
     SETUP_COMPLETE,
+    SETUP_INCOMPLETE,
     setup_control_envelope,
     setup_failure_routing,
     setup_input_id,
@@ -31,7 +34,7 @@ from agents_shipgate.cli.setup_control import (
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.config.loader import manifest_read_error
 from agents_shipgate.core.adoption_ladder import audit_rung
-from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.errors import ConfigError, DiscoveryError, InputParseError
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.environment import environment_report
 from agents_shipgate.invocation import render_command
@@ -186,16 +189,64 @@ def _init_command(config: str, workspace: Path | None) -> str:
     return render_command(["init", "--workspace", str(target), "--write"])
 
 
+def _try_host_only_doctor(
+    workspace: Path, *, environment: dict[str, object], json_output: bool,
+) -> bool:
+    manifest = workspace / "shipgate.yaml"
+    if manifest.exists() or manifest.is_symlink():
+        return False
+    try:
+        discovered = detect_workspace(workspace)
+    except DiscoveryError:
+        return False
+    if not needs_host_route(discovered):
+        return False
+
+    action = host_discovery_action(discovered, workspace)
+    discovery = discovered.model_dump(mode="json")
+    reason = "Host-only discovery uses the repository host review route."
+    routing = setup_control_envelope(
+        operation="doctor",
+        input_id=setup_input_id(
+            operation="doctor", workspace=workspace,
+            routing_facts=(discovery, action.model_dump(mode="json")),
+        ),
+        reason=reason,
+        diagnostics=[],
+        advance=action,
+        advance_kind="discover",
+        advance_decision=SETUP_INCOMPLETE,
+        exit_code=0,
+    )
+    if json_output:
+        typer.echo(json.dumps({
+            "manifest_status": "not_applicable_host_review",
+            "workspace": str(workspace),
+            "auto_detected": discovery,
+            "environment": environment,
+            "diagnostics": [],
+            "next_action": routing.legacy_next_action,
+            "next_actions": routing.json_actions(),
+            "control": routing.envelope.model_dump(mode="json"),
+        }, indent=2))
+    else:
+        typer.echo(reason)
+        typer.echo(f"Next: {routing.legacy_next_action}")
+    return True
+
+
 def register(app: typer.Typer) -> None:
     @app.command()
     def doctor(
-        config: str = typer.Option("shipgate.yaml", "--config", "-c", help="Path or quoted glob."),
+        config: str | None = typer.Option(None, "--config", "-c", help="Path or quoted glob. Defaults to shipgate.yaml."),
         workspace: Path | None = typer.Option(None, "--workspace", help="Inspect every manifest below workspace."),
         json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
         verbose: bool = typer.Option(False, "--verbose", help="Enable debug logs."),
     ) -> None:
         """Validate manifests and enumerate declared sources without running checks."""
         require_workspace(workspace)
+        auto_select_config = config is None
+        config = config if config is not None else "shipgate.yaml"
         # Which Python is running which build of Shipgate, and what disagrees.
         # Read once for the whole run: it describes the process, not a manifest,
         # so per-manifest answers would be the same answer repeated.
@@ -210,6 +261,10 @@ def register(app: typer.Typer) -> None:
             configure_logging(verbose=verbose)
             paths = _resolve_config_paths(config=config, workspace=workspace)
         except ConfigError as exc:
+            if auto_select_config and _try_host_only_doctor(
+                (workspace or Path.cwd()).resolve(), environment=environment, json_output=json_output,
+            ):
+                return
             # Discovery itself failed — no candidate manifest exists. This is
             # still a `doctor --json` answer, so it carries the same envelope as
             # every other one: the promise is that the field is on every payload,
@@ -255,6 +310,10 @@ def register(app: typer.Typer) -> None:
                 environment=environment,
             )
             raise typer.Exit(2) from exc
+        if auto_select_config and workspace is None and _try_host_only_doctor(
+            Path.cwd().resolve(), environment=environment, json_output=json_output,
+        ):
+            return
         payloads: list[dict[str, object]] = []
         # One read per manifest, taken here so the *failure* routes describe the
         # same bytes the inspection rejected. Reopening the path after a refusal

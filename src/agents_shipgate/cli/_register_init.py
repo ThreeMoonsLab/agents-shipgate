@@ -1558,13 +1558,37 @@ def register(app: typer.Typer) -> None:
                 raise typer.Exit(4) from exc
             if not target.exists() and needs_host_route(detect_result):
                 action = host_discovery_action(detect_result, workspace_resolved)
+                host_workflow = None
+                if ci and action.kind == "command":
+                    try:
+                        host_workflow = write_ci_workflow(
+                            workspace_resolved,
+                            repository_root=repository_root(workspace_resolved),
+                            host_only=True,
+                        )
+                    except (ConfigError, OSError, RuntimeError) as exc:
+                        message = f"Could not install the host-only advisory workflow: {exc}"
+                        typer.echo(message, err=True)
+                        _emit_agent_mode_error_routing(
+                            "other_error",
+                            routing=setup_failure_routing(
+                                operation="init", workspace=workspace_resolved,
+                                reason=message, exit_code=4,
+                                action=NextAction(kind="review", why=message),
+                            ),
+                            message=message,
+                            exit_code=4,
+                        )
+                        raise typer.Exit(4) from exc
+                reason = "Host-only discovery does not need a manifest."
+                reason += f" {host_workflow.message}" if host_workflow else " No setup files were written."
                 routing = setup_control_envelope(
                     operation="init",
                     input_id=setup_input_id(
                         operation="init", workspace=workspace_resolved,
                         routing_facts=(detect_result.model_dump(mode="json"), action.model_dump(mode="json")),
                     ),
-                    reason="Host-only discovery does not need a manifest. No setup files were written.",
+                    reason=reason,
                     diagnostics=[], advance=action, advance_kind="discover",
                     advance_decision=SETUP_INCOMPLETE, exit_code=0,
                 )
@@ -1572,9 +1596,23 @@ def register(app: typer.Typer) -> None:
                     typer.echo(json.dumps({
                         "manifest_status": "not_applicable_host_review",
                         "created": False, "path": str(target),
-                        "manifest_message": "No setup files were written. Follow next_action for host review.",
+                        "manifest_message": (
+                            reason if host_workflow
+                            else "No setup files were written. Follow next_action for host review."
+                        ),
                         "auto_detected": detect_result.model_dump(mode="json"),
-                        "placeholders": [], "workflow": None, "agent_instructions": None,
+                        "placeholders": [],
+                        "workflow": (
+                            {
+                                "status": host_workflow.status,
+                                "path": host_workflow.path,
+                                "message": host_workflow.message,
+                                **({"cross_reference_path": host_workflow.cross_reference_path}
+                                   if host_workflow.cross_reference_path else {}),
+                            }
+                            if host_workflow else None
+                        ),
+                        "agent_instructions": None,
                         # Nothing was rendered, so no manifest's tool surface
                         # has an origin — the same `null` every other route
                         # that reached neither disk nor this payload reports.
@@ -1587,7 +1625,10 @@ def register(app: typer.Typer) -> None:
                         "control": routing.envelope.model_dump(mode="json"),
                     }, indent=2))
                 else:
-                    typer.echo("Host-only discovery needs no shipgate.yaml; no setup files were written.")
+                    typer.echo(
+                        reason if host_workflow
+                        else "Host-only discovery needs no shipgate.yaml; no setup files were written."
+                    )
                     typer.echo(f"Next: {routing.legacy_next_action}")
                 return
             # Both rendering and validation belong to the product boundary.

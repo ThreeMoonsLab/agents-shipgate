@@ -11,6 +11,14 @@ from agents_shipgate.schemas.current_control import CurrentControlWorkspaceIdent
 from agents_shipgate.schemas.verification_identity import VerificationBlob
 
 
+#: Schema-frozen note (#1004): the published v0.21 description of
+#: ``HostComparisonLimit`` stays as released. Since #1004 an ``unreadable``
+#: limit is also an in-tree directory link the reader does not read through,
+#: which Git proves unchanged together with the directory it names, and at,
+#: under or beneath which no host reads agent configuration
+#: (``agents_shipgate.cli.verify.git.unread_link_unchanged``). ``unreadable``
+#: was already a published value, so the schema is unchanged; STABILITY.md
+#: describes it.
 class HostComparisonLimit(BaseModel):
     """A surface this comparison did not read, and the change did not touch (#721).
 

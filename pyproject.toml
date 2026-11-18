@@ -159,6 +159,7 @@ path = "hatch_build.py"
 "AGENTS.md" = "agents_shipgate/_meta/AGENTS.md"
 "STABILITY.md" = "agents_shipgate/_meta/STABILITY.md"
 "docs/triggers.json" = "agents_shipgate/_meta/triggers.json"
+"examples/github-actions/14-host-only-advisory-pr.yml" = "agents_shipgate/_meta/host-only-advisory.yml"
 ".claude/commands/shipgate.md" = "agents_shipgate/_meta/claude-command/shipgate.md"
 # Per-category check metadata YAMLs. Loaded at import time by
 # agents_shipgate.checks._metadata_loader to build CHECK_METADATA.
