@@ -35,6 +35,19 @@ def test_self_check_json_output_is_well_formed():
         assert status == "ok", f"fixture {name} not ok: {status}"
 
 
+def test_self_check_unready_result_supplies_its_own_agent_diagnostic(monkeypatch):
+    from agents_shipgate.cli import self_check
+
+    monkeypatch.setattr(self_check, "_probe_cli_surface", lambda: {"contract": "unavailable"})
+    monkeypatch.setattr(self_check, "_run_fixture", lambda name: "ok")
+
+    result = runner.invoke(app, ["self-check", "--json"], env={"AGENTS_SHIPGATE_AGENT_MODE": "1"})
+
+    assert result.exit_code == 4
+    assert json.loads(result.stdout)["ready"] is False
+    assert '"error":' not in result.stderr
+
+
 def test_logging_handler_survives_stream_swap_between_invocations(capsys):
     """Regression for the flaky CI self-check JSON failure (PR #192):
     a logging handler bound to a since-closed stderr (an earlier

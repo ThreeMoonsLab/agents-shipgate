@@ -243,9 +243,9 @@ def test_prepare_and_worker_preserve_a_caught_missing_component(repo, committed,
         "--workspace", str(repo), "--diff", str(reports / "verification-input.diff"),
         "--out", str(reports / "replayed-unit.json"),
     ])
-    assert result.exit_code != 0
+    assert result.exit_code == 3, result.output
     assert not (reports / "replayed-unit.json").exists()
-    assert "dependency could not be captured" in str(result.exception)
+    assert "dependency could not be captured" in result.stderr
 
 
 @pytest.mark.parametrize("form", ["skills_file", "apps", "mcpServers", "hooks"])

@@ -13,7 +13,11 @@ from agents_shipgate.cli._helpers import (
     _echo_next_action_hint,
     _parse_fail_on,
 )
-from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
+from agents_shipgate.cli.agent_mode import (
+    emit_agent_mode_error,
+    is_agent_mode,
+    mark_cli_routing_reported,
+)
 from agents_shipgate.cli.current_workspace import (
     OutputDirectoryHoldsRepositoryContent,
     caller_path_spelling,
@@ -536,6 +540,7 @@ def verify(
             next_actions=[NextAction(kind="review", why=guidance).model_dump(mode="json")],
         )
         raise typer.Exit(4) from exc
+    mark_cli_routing_reported()
     raise typer.Exit(exit_code)
 
 

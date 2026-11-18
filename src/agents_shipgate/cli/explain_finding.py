@@ -23,6 +23,7 @@ from pydantic import ValidationError
 
 from agents_shipgate.checks.registry import check_catalog
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+from agents_shipgate.core.errors import format_validation_error
 from agents_shipgate.core.privacy import sanitize_report_payload
 from agents_shipgate.schemas.checks import CheckMetadata
 from agents_shipgate.schemas.common import AgentAction
@@ -116,7 +117,7 @@ def _load_report(path: Path) -> tuple[ReadinessReport, dict[str, Any]]:
     try:
         report = ReadinessReport.model_validate(payload)
     except ValidationError as exc:
-        raise ValueError(f"report.json failed validation: {exc}") from exc
+        raise ValueError(format_validation_error(exc, label="report.json failed validation")) from exc
 
     # The published schema requires `agent_action` on every finding; the
     # Pydantic model leaves it optional so fixtures can build minimal findings.
