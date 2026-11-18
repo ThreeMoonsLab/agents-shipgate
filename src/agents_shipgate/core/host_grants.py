@@ -386,10 +386,14 @@ class HostStaticParseCache:
         assert text is not None
         display = str(path.absolute())
         self.parse_counts[display] = self.parse_counts.get(display, 0) + 1
+        # The registry folds case, so `.github/workflows/CI.YML` is a workflow
+        # and `.codex/CONFIG.TOML` the Codex config; each is parsed as its
+        # lower-case spelling is, never handed to the JSON parser (#1143).
+        filename = path.name.casefold()
         try:
-            if path.suffix == ".toml":
+            if filename.endswith(".toml"):
                 data = tomllib.loads(text.removeprefix("\ufeff"))
-            elif path.suffix in {".yml", ".yaml"}:
+            elif filename.endswith((".yml", ".yaml")):
                 data = yaml.safe_load(text)
             elif is_vscode_mcp_path(path.as_posix()):
                 # VS Code reads `mcp.json` as JSON with comments (#659).
@@ -5161,7 +5165,9 @@ def _collect_file(
             )
     elif host == "codex" and kind == "requirements":
         grants.extend(_codex_requirement_grants(data, scope=scope, source=source))
-    elif host == "codex" and path.suffix == ".toml":
+    elif host == "codex" and path.suffix.casefold() == ".toml":
+        # Folded as the parser folds it: a parsed `CONFIG.TOML` that fell
+        # through here would publish no grants at all (#1143).
         grants.extend(_codex_grants(data, scope=scope, source=source))
         if isinstance(data, dict) and isinstance(data.get("profile"), str):
             selected = data["profile"].strip()
