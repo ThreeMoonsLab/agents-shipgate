@@ -157,8 +157,8 @@ def _invoke(args: list[str]) -> str:
     return result.output
 
 
-def _diff(repo: Path) -> dict:
-    return json.loads(_invoke(["diff", "--workspace", str(repo), "--base", "main", "--json"]))
+def _diff(repo: Path, *options: str) -> dict:
+    return json.loads(_invoke(["diff", "--workspace", str(repo), "--base", "main", *options, "--json"]))
 
 
 def _check(repo: Path) -> dict:
@@ -277,6 +277,19 @@ def test_the_proof_holds_between_commits_and_against_the_working_tree(tmp_path: 
 
     assert unread_link_unchanged(repo, "main", "HEAD", LINK)
     assert unread_link_unchanged(repo, "main", None, LINK)
+
+
+def test_committed_host_diff_proves_the_link_from_the_selected_head(tmp_path: Path) -> None:
+    repo = _repository(tmp_path)
+    _write(repo, ".happy/terraform/local-modules/main.tf", MODULE)
+    _link(repo, LINK, "../../local-modules")
+
+    assert _diff(repo)["comparison_status"] == "incomparable"
+
+    payload = _diff(repo, "--head", "HEAD")
+    assert payload["comparison_status"] == "comparable"
+    assert _rows(payload) == MCP_ADDED
+    assert _limits(payload) == _named()
 
 
 def test_check_refuses_as_it_does_for_every_unchanged_limit(tmp_path: Path) -> None:
