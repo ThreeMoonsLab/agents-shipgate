@@ -24,7 +24,10 @@ from agents_shipgate.core.lenses.action_surface import (
     compute_action_surface_diff,
     evaluate_action_surface_policies,
 )
-from agents_shipgate.core.policy_evidence import policy_evidence_gap
+from agents_shipgate.core.policy_evidence import (
+    is_lexical_only_support,
+    policy_evidence_gap,
+)
 from agents_shipgate.core.severity_overrides import resolve_severity_overrides
 from agents_shipgate.core.surface_exclusions import (
     catalog_label_index,
@@ -188,6 +191,20 @@ def _run_checks_and_decide(
             continue
         source = finding.policy_evidence_source or finding.source
         metadata = catalog_by_id.get(finding.check_id)
+        if (
+            metadata is not None
+            and metadata.advisory_when_policy_ineligible
+            and is_lexical_only_support(support)
+        ):
+            # Lexical evidence never moves the verdict (#1055, Option A): the
+            # instance is published as an advisory finding and raises no
+            # evidence gap. release_decision's support guard keeps it out of
+            # blockers and named review items, so it reaches report.json,
+            # report.md and SARIF without changing ``decision`` (#1035). An
+            # instance that is weak for a non-lexical reason (a protocol
+            # default, an unknown basis) still takes the gap route below.
+            retained_findings.append(finding)
+            continue
         context.policy_evidence_gaps.append(
             policy_evidence_gap(
                 status=support.status,

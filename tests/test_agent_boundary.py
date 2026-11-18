@@ -17,6 +17,7 @@ from agents_shipgate.cli.agent_result import (
 )
 from agents_shipgate.cli.main import app
 from agents_shipgate.core.agent_boundary import evaluate_agent_boundary
+from agents_shipgate.core.boundary_diff import BoundaryInputIssue
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.mcp_server.server import shipgate_check
 
@@ -99,6 +100,48 @@ def test_cursor_cli_permissions_are_evaluated_independent_of_actor(tmp_path: Pat
     assert [item.check_id for item in result.violated_rules] == [
         "SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW"
     ]
+
+
+def test_deleted_codex_boundary_policy_emits_a_weakened_policy_finding(tmp_path: Path) -> None:
+    path = "policies/codex-boundary.shipgate.yaml"
+    diff = (
+        f"diff --git a/{path} b/{path}\n"
+        f"deleted file mode 100644\n--- a/{path}\n+++ /dev/null\n"
+        "@@ -1 +0,0 @@\n-rules: []\n"
+    )
+    result = _build(tmp_path, diff)
+    [finding] = [
+        item for item in result.violated_rules if item.check_id == "SHIP-CODEX-BOUNDARY-POLICY-WEAKENED"
+    ]
+    assert finding.path == path
+    assert finding.evidence["deleted"] is True
+
+
+def test_partial_host_coverage_holds_total_coverage_without_input_issues(tmp_path: Path) -> None:
+    diff = _new_file_diff(".claude/settings.json", '{"permissions":')
+    result = _build(tmp_path, diff)
+    assert not result.issues
+    [claude] = [item for item in result.host_coverage if item.adapter == "claude_code"]
+    assert claude.status == "partial"
+    assert result.input_coverage == "partial"
+
+
+def test_unread_boundary_input_invalidates_openshell_safe_paths(tmp_path: Path, monkeypatch) -> None:
+    path = "example-openshell.rules"
+    monkeypatch.setattr(
+        "agents_shipgate.core.openshell_boundary.assess_openshell_boundary",
+        lambda *_args: ([], [], [], {path}),
+    )
+    diff = _new_file_diff(path, "version: 1")
+    assert evaluate_agent_boundary(workspace=tmp_path, diff_text=diff).openshell_safe_paths == {path}
+
+    result = evaluate_agent_boundary(
+        workspace=tmp_path, diff_text=diff,
+        input_issues=[BoundaryInputIssue("content_source", "other.rules", "Unread working-tree input")],
+    )
+
+    assert result.input_coverage == "partial"
+    assert not result.openshell_safe_paths
 
 
 def test_conductor_without_manifest_routes_to_declaration_not_complete(tmp_path: Path) -> None:

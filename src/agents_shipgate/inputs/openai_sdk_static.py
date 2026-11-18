@@ -70,6 +70,7 @@ from agents_shipgate.inputs.python_imports import (
     ScopeIndex,
     _module_bindings,
     local_binding_detail,
+    rebound_names,
     reference_spelling,
 )
 from agents_shipgate.inputs.python_static import (
@@ -875,6 +876,13 @@ def _extract_agent_bindings(
                         f"{constructor_issue}; {unread_list_reason('OpenAI Agents SDK', target, pointer, listed)}"
                     )
                     tool_issue_doubts.update(joined_doubts(tool_issues, tool_issue_doubts, (tool.name,), DOUBT_CONSTRUCTION))
+                    # Machinery that can rebind this name in the agent's
+                    # module doubts the definition too (#1146 review).
+                    tool_issue_doubts.update(joined_doubts(
+                        tool_issues, tool_issue_doubts,
+                        rebound_names(constructor_issue, module.ref if module is not None else None, (tool.name,)),
+                        DOUBT_DEFINITION_IDENTITY,
+                    ))
                     tool_issues[tool.name] = "; ".join(filter(None, (tool_issues.get(tool.name), reason)))
             handoff_list = lists.resolve(field(call, "handoffs"), invocation=context.invocation)
             handoffs_complete = not context.limits and constructor_issue is None
@@ -982,6 +990,15 @@ def _extract_agent_bindings(
                 # Every binding of an agent whose constructor is not proved,
                 # a tool bound as an object included (#910, #964).
                 tool_issue_doubts.update(joined_doubts(tool_issues, tool_issue_doubts, (*names, *objects), DOUBT_CONSTRUCTION))
+                # A wildcard import, reflective namespace access or
+                # exec-style machinery in the agent's own module, or a module
+                # it imports a tool's name from that is not read, can rebind
+                # that name too: a doubt about the definition (#1146 review).
+                tool_issue_doubts.update(joined_doubts(
+                    tool_issues, tool_issue_doubts,
+                    rebound_names(constructor_issue, module.ref if module is not None else None, (*names, *objects)),
+                    DOUBT_DEFINITION_IDENTITY,
+                ))
                 tool_issues.update({name: "; ".join(filter(None, [tool_issues.get(name),
                                    f"the constructor identity is not established: {constructor_issue}"]))
                                     for name in (*names, *objects)})

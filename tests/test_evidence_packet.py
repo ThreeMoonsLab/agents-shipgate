@@ -500,6 +500,47 @@ def test_evidence_matrix_source_only_rows_use_medium_confidence():
     assert action_surface.confidence == "medium"
 
 
+def test_evidence_matrix_labels_a_lexical_advisory_and_keeps_coverage():
+    """#1035: an advisory word match is visible but is not a missing control."""
+
+    advisory = {
+        "id": "advisory-1",
+        "fingerprint": "fp_advisory",
+        "check_id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
+        "severity": "medium",
+        "category": "scope",
+        "title": "broker.buy_stock appears to overlap with a prohibited action",
+        "tool_name": "broker.buy_stock",
+        "confidence": "medium",
+        "suppressed": False,
+        "blocks_release": False,
+        "support": {"policy_eligible": False},
+    }
+    payload = {
+        "release_decision": {"blockers": [], "review_items": []},
+        "declared_intentions": [{"kind": "prohibited_action", "text": "buy stock"}],
+        "findings": [advisory],
+    }
+
+    matrix = build_evidence_matrix(payload)
+    row = next(row for row in matrix.rows if row.domain == "Prompt/scope alignment")
+
+    assert row.evidence_present == "covered"
+    assert row.missing_controls == []
+    assert row.evidence_source == ["declared_intentions"]
+    assert (
+        "Advisory (lexical evidence, does not gate): SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on "
+        "broker.buy_stock: broker.buy_stock appears to overlap with a prohibited action"
+    ) in matrix.notes
+
+    # A policy-eligible finding of the same check is still a missing control.
+    eligible = {**advisory, "support": {"policy_eligible": True}}
+    matrix = build_evidence_matrix({**payload, "findings": [eligible]})
+    row = next(row for row in matrix.rows if row.domain == "Prompt/scope alignment")
+    assert row.evidence_present == "partial"
+    assert len(row.missing_controls) == 1
+
+
 def test_evidence_matrix_confidence_mixed_stays_domain_local():
     payload = {
         "release_decision": {"blockers": [], "review_items": []},
@@ -631,7 +672,7 @@ def test_verdict_derives_from_release_decision_not_fail_policy(tmp_path):
 
 
 def test_capability_intent_keeps_heuristic_policy_matches_out_of_findings(tmp_path):
-    _, packet = _scan_with_packet(tmp_path)
+    out, packet = _scan_with_packet(tmp_path)
     section = packet.capability_intent
     assert section.declared_purpose
     assert "stripe.create_refund" in section.observed_tools
@@ -639,10 +680,24 @@ def test_capability_intent_keeps_heuristic_policy_matches_out_of_findings(tmp_pa
         item.check_id == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
         for item in section.divergence_findings
     )
+    # Lexical evidence never moves the verdict (#1055, Option A; #1035): the
+    # word match is published as an advisory finding and raises no gap.
     assert packet.release_decision.evidence_coverage.policy_gap_count > 0
-    assert any(
+    assert not any(
         gap.why.startswith("SHIP-SCOPE-PROHIBITED-TOOL-PRESENT:")
         for gap in packet.release_decision.evidence_coverage.evidence_gaps
+    )
+    report = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    advisory = [
+        finding
+        for finding in report["findings"]
+        if finding["check_id"] == "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT"
+    ]
+    assert advisory
+    assert all(
+        finding["blocks_release"] is False
+        and finding["support"]["policy_eligible"] is False
+        for finding in advisory
     )
 
 

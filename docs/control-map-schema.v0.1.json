@@ -1,0 +1,136 @@
+{
+  "$defs": {
+    "ControlMapControl": {
+      "additionalProperties": false,
+      "description": "One control activity, or evidence item, of the framework.\n\nAn activity the ledger cannot speak to is listed with no evidence and a\n``shows`` line that says so: the extract prints it, so a reader sees what\nis not covered as well as what is.",
+      "properties": {
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/ControlMapEvidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "shows": {
+          "minLength": 1,
+          "title": "Shows",
+          "type": "string"
+        },
+        "status": {
+          "minLength": 1,
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "status",
+        "shows"
+      ],
+      "title": "ControlMapControl",
+      "type": "object"
+    },
+    "ControlMapEvidence": {
+      "additionalProperties": false,
+      "description": "One kind of ledger row cited for an activity.",
+      "properties": {
+        "gaps": {
+          "items": {
+            "enum": [
+              "no_rows_in_window",
+              "observation_interval",
+              "observation_incomparable",
+              "inventory_issues",
+              "capability_comparison_absent",
+              "definition_digests_absent",
+              "approval_not_supplied",
+              "approval_not_approved"
+            ],
+            "type": "string"
+          },
+          "title": "Gaps",
+          "type": "array"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "row_kind": {
+          "enum": [
+            "attestation",
+            "drift_observation"
+          ],
+          "title": "Row Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "row_kind"
+      ],
+      "title": "ControlMapEvidence",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/control-map-schema.v0.1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "JSON Schema for a control map read by agents-shipgate registry report --control-map: per evidence item of a framework, which registry row kinds bear on it and which of the engine's gap rules apply. A map arranges evidence; it judges no control.",
+  "properties": {
+    "control_map_schema_version": {
+      "const": "0.1",
+      "title": "Control Map Schema Version",
+      "type": "string"
+    },
+    "controls": {
+      "items": {
+        "$ref": "#/$defs/ControlMapControl"
+      },
+      "minItems": 1,
+      "title": "Controls",
+      "type": "array"
+    },
+    "framework": {
+      "minLength": 1,
+      "title": "Framework",
+      "type": "string"
+    },
+    "framework_label": {
+      "minLength": 1,
+      "title": "Framework Label",
+      "type": "string"
+    },
+    "note": {
+      "minLength": 1,
+      "title": "Note",
+      "type": "string"
+    },
+    "source": {
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "control_map_schema_version",
+    "framework",
+    "framework_label",
+    "source",
+    "note",
+    "controls"
+  ],
+  "title": "Agents Shipgate Control Map v0.1",
+  "type": "object"
+}

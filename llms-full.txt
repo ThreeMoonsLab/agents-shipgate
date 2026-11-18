@@ -3491,7 +3491,7 @@ baseline summary and do not fail CI.
 | `SHIP-AUTH-TOOL-BROAD-SCOPE` | high | A tool declares broad scopes such as `*`, `admin`, or `service:*`. |
 | `SHIP-AUTH-SCOPE-COVERAGE-MISSING` | high | A tool requires scopes that are not covered by `permissions.scopes`. |
 | `SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE` | high | A write-capable tool contradicts a read-only declared purpose. |
-| `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` | high | A tool appears to overlap with a manifest `prohibited_actions` entry. |
+| `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` | medium | A tool shares a verb and another word with a manifest `prohibited_actions` entry; advisory, never moves the verdict. |
 | `SHIP-POLICY-APPROVAL-MISSING` | critical | A high-risk tool lacks a manifest approval policy. |
 | `SHIP-POLICY-CONFIRMATION-MISSING` | high | A destructive, external-write, or customer-communication tool lacks a confirmation policy. |
 | `SHIP-ACTION-UNDECLARED` | high | A loaded tool lacks explicit action-surface metadata when explicit actions are required. |
@@ -3500,11 +3500,11 @@ baseline summary and do not fail CI.
 | `SHIP-ACTION-DESTRUCTIVE-ROLLBACK-MISSING` | critical | A newly added destructive action lacks approval or rollback controls. |
 | `SHIP-ACTION-EXTERNAL-COMMUNICATION-AUDIT-MISSING` | high | A newly added external communication action lacks audit evidence. |
 | `SHIP-ACTION-WILDCARD-SCOPE` | critical | An action declares or expands into a wildcard/admin-like scope. |
-| `SHIP-ACTION-EFFECT-ESCALATED` | critical | An action effect escalated compared with the base surface. |
+| `SHIP-ACTION-EFFECT-ESCALATED` | critical | An action effect escalated compared with the base surface; an escalation only wording supports is a medium advisory. |
 | `SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED` | high | An action declaration weakens the effect inferred from the loaded tool surface. |
 | `SHIP-ACTION-CONTROL-DOWNGRADE` | high | An action declaration weakens an inherited approval or safeguard control. |
 | `SHIP-ACTION-APPROVAL-REMOVED` | critical | An existing action approval policy was removed. |
-| `SHIP-ACTION-SAFEGUARD-REMOVED` | high | An existing action safeguard was removed. |
+| `SHIP-ACTION-SAFEGUARD-REMOVED` | high | An existing action safeguard was removed; on an action whose effect is unestablished it is a medium advisory. |
 | `SHIP-EVIDENCE-APPROVAL-TRACE-MISSING` | high | Local HITL approval trace evidence is missing or incomplete for an approval-required tool. |
 | `SHIP-EVIDENCE-OVERRIDE-REASON-MISSING` | high | Local HITL override reason evidence is missing or incomplete. |
 | `SHIP-EVIDENCE-HIGH-RISK-EXCLUSION-MISSING` | high | Local high-risk auto-approval exclusion evidence is missing or incomplete. |
@@ -3594,7 +3594,7 @@ baseline summary and do not fail CI.
 | `SHIP-N8N-SECRET-IN-WORKFLOW-PARAMETER` | high | n8n workflow JSON contains a secret-like value; evidence is redacted. |
 | `SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` | high | A Conductor OSS workflow uses a dynamic or unresolved tool-capability surface. |
 | `SHIP-MANIFEST-STALE-SUPPRESSION` | medium | A suppression references a missing check ID or missing tool. |
-| `SHIP-MANIFEST-STALE-POLICY` | medium | An approval, confirmation, or idempotency policy references a missing tool. |
+| `SHIP-MANIFEST-STALE-POLICY` | medium | An approval, confirmation, or idempotency policy references a missing tool, or a catalog tool whose binding is not established (never a removal patch). |
 | `SHIP-MANIFEST-STALE-RISK-OVERRIDE` | medium | A risk override references a missing tool. |
 | `SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING` | high | A high-risk production or production-like tool lacks owner metadata. |
 | `SHIP-MANIFEST-UNUSED-SCOPE` | medium/high | `permissions.scopes` contains a scope unused by any loaded tool; broad unused scopes are high. |
@@ -3700,6 +3700,60 @@ A write-capable tool contradicts a read-only declared purpose. Remove the tool o
 
 A tool appears to overlap with a manifest `prohibited_actions` entry. Remove or narrow the tool, or revise policy/scope text.
 
+The match compares whole words, never substrings (#1035). The tool's name
+(split on punctuation and camelCase) and description must share at least two
+words with the prohibited action, and one of them must be the action's
+**verb**. "buy stock" matches `broker.buy_stock`, "delete customer data"
+matches `crm.cleanup` ("Permanently delete customer records."), and a shared
+subject alone — "customer", "data" — is not the prohibited action.
+
+- **The action's verb** is every listed action verb it contains (`delete`,
+  `export`, `send`, `refund`, …), adjacent or not: "delete, export or share
+  customer data". A noun that names one counts as that verb ("Prevent
+  deletion of customer data"). Only when there is none does its leading word
+  count, so "Customer data must never be exported" needs `export`.
+- **Spelling.** Inflections meet (`deletes`, `refunds`, `cancelled`), "shut
+  down" meets `shutdown`, and "e-mail" meets `email`.
+- **Synonyms.** An explicit table, applied to every word on both sides, joins
+  spellings of one action: delete/purge/remove/erase/wipe/destroy,
+  update/modify/edit/change, buy/purchase, execute/run, terminate/close,
+  create/issue/make, share/disclose. It also maps nouns that name an action to
+  their verb: deletion, approval, payment, and others. Nothing else is fuzzy.
+- **Connectives** such as `or`, `in`, `of`, `on`, `by`, `never` and `don't`
+  are ignored, so "priority", "order" or "for a customer" no longer match
+  "delete or export customer data".
+- **Qualifier clauses.** Words after `without`, `unless`, `except` or
+  `outside` qualify the action and are not part of it. When a tool's name
+  contains *every* word of a `without` clause, the tool is that safeguard and
+  the word comparison is skipped: `send_email_preview` for "send external
+  email without preview". `send_customer_email` is still compared against
+  "send email without customer consent".
+- **Risk tags** still match `email`/`external`, `refund` and `cancel` actions
+  as before, for every tool.
+- **Known false positives.** The rule prefers recall, because a miss leaves
+  the check with no output at all. Some tools that share the verb and an
+  unrelated word still match:
+  - homographs: "issue refunds" against `github.create_issue` ("Create a
+    GitHub issue about refunds");
+  - a generic shared noun: "close customer accounts" against `close_ticket`
+    ("Close a customer's support ticket"), or "remove users" against
+    `remove_label`.
+
+  Each is a non-blocking advisory. Silence one with a `checks.ignore` entry
+  that gives the reason.
+
+The match is lexical, so it is a **medium, non-blocking advisory** that never
+moves the release verdict (#1055, Option A): it is published in `report.json`,
+`report.md` and SARIF with `support.policy_eligible: false`, raises no evidence
+gap, and can be suppressed with a `checks.ignore` reason or filtered by
+`--no-heuristics`. Review surfaces label it rather than count it: its
+`misalignments[]` entry says "Advisory (lexical evidence, does not gate)" and
+is listed last, it suggests no scenario and changes no
+`capability_facts[].control_status`, and the packet's evidence matrix lists it
+as a note instead of a missing control. Before 1.3.1 it raised a non-waivable
+evidence gap instead, which moved `passed` to `insufficient_evidence` on
+wording alone.
+
 ### SHIP-SCOPE-TOOLKIT-UNBOUNDED
 
 A recognized agent-toolkit constructor (e.g. `stripe_agent_toolkit`) is mounted with no `configuration` allowlist, so the full toolkit surface — which static extraction cannot enumerate — is granted. Routes to human review instead of passing silently. Pass an explicit `configuration` allowlist (resource:verb actions) to bound the mounted tools.
@@ -3761,6 +3815,22 @@ scopes.
 An action changed to a higher-risk effect, such as read to write or write to
 destructive. Add reviewer approval for the escalation or reduce the effect.
 
+It is a critical blocker only when the higher effect is established: the
+action's effect can drive hard controls (the same guard the current-surface
+control checks use) and a reviewed or structural claim places it above the
+base effect. The diff compares the *conservative* effect, which also counts
+keyword risk hints, so a reviewed `write` tool whose description gains "the
+customer gets an email" escalates to `external_communication` on wording
+alone. That escalation is published as a **medium, non-blocking advisory**
+(`provenance_kind: keyword_heuristic`, `support.policy_eligible: false`, with
+the escalating claims' real bases such as `inferred_keyword` rather than
+`protocol_structure`). It raises no evidence gap and does not move the verdict
+(#1035, #1055 Option A), and `--no-heuristics` filters it. An escalation that
+rests on other non-authoritative evidence, such as a protocol default, still
+becomes an evidence gap. Declaring the higher effect under
+`action_surface.actions[].effect` makes the escalation reviewed, and then it
+blocks.
+
 ### SHIP-ACTION-EFFECT-DOWNGRADE-DECLARED
 
 An `action_surface.actions[]` declaration sets a lower-risk effect than
@@ -3783,6 +3853,14 @@ Restore `approval.required` or document a reviewed override.
 An existing action lost a safeguard such as audit logging, idempotency,
 rollback, or dry-run support. Restore the safeguard or document a reviewed
 override.
+
+It blocks when the action's effect can drive hard controls, the same guard
+the current-surface control checks use. On an action whose effect nothing
+reviewed or structural establishes, the removal is still published, as a
+medium non-blocking advisory whose support says why; when that effect rests
+only on wording it raises no evidence gap (#1035, #1055 Option A). A removed
+`rollback` is critical only when `destructive` is established, not when a
+keyword put it in the conservative effect.
 
 ### SHIP-EVIDENCE-APPROVAL-TRACE-MISSING
 
@@ -4508,7 +4586,9 @@ step from adoption rung 2 to rung 3.
 
 A suppression references an unknown check ID or a tool that is not loaded in the
 current scan. Remove stale suppressions so reviewers can trust the suppression
-list as current release intent.
+list as current release intent. A tool that is in the catalog without an
+established binding is handled as described under `SHIP-MANIFEST-STALE-POLICY`;
+a suppression whose check ID is unknown is stale whatever its tool.
 
 ### SHIP-MANIFEST-STALE-POLICY
 
@@ -4516,10 +4596,28 @@ A policy entry references a tool that is not loaded. Remove or update stale
 approval, confirmation, or idempotency policies so release policy matches the
 actual tool surface.
 
+This check and the two beside it (`SHIP-MANIFEST-STALE-SUPPRESSION`,
+`SHIP-MANIFEST-STALE-RISK-OVERRIDE`) compare an entry's tool with the whole tool
+catalog, not only with the tools proven reachable (#1035). A tool that is in
+`tool_catalog[]` but whose binding to the agent is not established is not
+missing: the finding says so ("…references `create_refund`, whose binding to
+the agent is not established"), carries `evidence.issues:
+["binding_not_established"]`, and asks you to keep the entry and establish the
+binding. It never carries a `remove_pointer` patch, and its
+`suggested_patch_kind` is `manual`, so `apply-patches` cannot delete an
+approval, confirmation or idempotency policy for a real tool. Before 1.3.1 a
+sample with 63 catalog tools and none proven reachable got high-confidence
+patches that a default `apply-patches --apply` would have used to delete the
+approval policies of `create_refund`, `terminate_account` and
+`crm.delete_customer_data`. An entry naming a tool absent from the catalog is
+reported and patched exactly as before.
+
 ### SHIP-MANIFEST-STALE-RISK-OVERRIDE
 
 `risk_overrides.tools` references a tool that is not loaded. Remove stale
-overrides or update them to the current tool names.
+overrides or update them to the current tool names. A tool that is in the
+catalog without an established binding is handled as described under
+`SHIP-MANIFEST-STALE-POLICY`.
 
 ### SHIP-MANIFEST-HIGH-RISK-OWNER-MISSING
 
@@ -5274,7 +5372,10 @@ agents-shipgate apply-patches \
 
 So in v0.7 with the default flags:
 
-- The 3 stale-manifest removals (when unambiguous) auto-apply.
+- The 3 stale-manifest removals (when unambiguous) auto-apply. An entry
+  naming a tool that is in the tool catalog without an established binding
+  is not stale and gets only a manual keep-the-entry patch (#1035), so no
+  default run deletes a control for a tool that exists.
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` scope appends are **skipped**
   (medium confidence). Pass `--confidence medium` to opt in — but
   read the appended scopes before merging, since adding scopes can

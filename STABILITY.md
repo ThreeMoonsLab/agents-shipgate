@@ -13,8 +13,9 @@ on both sides is no longer a `not_established` row: `rows` is shorter for the
 same change, and its agent's optional top-level `read_same` names it once with
 its doubts (whether the agent holds it, or which file an import search
 reaches). A doubt about which definition or settings are bound keeps the row,
-with optional `doubts`. No published schema document exists for either
-version yet (#1044).
+with optional `doubts`. `compared` can become `partial` when a handoff or
+sub-agent target name is bound more than once or an MCP endpoint cannot be
+named. No published schema document exists for either version yet (#1044).
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
@@ -1258,6 +1259,147 @@ now report the policy digests a released wheel reports.
 
 ---
 
+<a id="lexical-advisories-1035"></a>
+
+## Migration Note: Unreleased — keyword evidence no longer blocks or gaps three checks, and stale-manifest checks read the catalog (#1035)
+
+**What was wrong.** Three checks turned weak evidence into verdicts or harmful
+patches.
+
+- `SHIP-ACTION-EFFECT-ESCALATED` compared the conservative effect, which
+  counts keyword risk hints, and blocked as `critical` with
+  `protocol_structure` support. Rewording a reviewed `write` tool's
+  description to "the customer gets an email" moved a `passed` base to
+  `blocked`, with or without `--no-heuristics`.
+- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` matched by substring, so `or` matched
+  "priority", "for" and "order". Adding "for a customer" to a description
+  raised a non-waivable gap: `passed` became `insufficient_evidence`, and
+  neither `checks.ignore` nor `--no-heuristics` cleared it.
+- The stale-manifest checks compared policies, suppressions and risk overrides
+  with the proven-reachable tools only. On
+  `samples/large_multi_framework_agent` (63 catalog tools, none proven
+  reachable) they called `create_refund`, `terminate_account` and
+  `crm.delete_customer_data` missing, with `confidence: high` removal patches
+  that a default `apply-patches --apply` would apply, deleting their approval,
+  confirmation and idempotency policies.
+
+**What changes.** The owner ruling on #1055 (Option A: lexical heuristics
+never move the verdict) is applied to these checks through one in-process
+catalog flag, `advisory_when_policy_ineligible`. It is not catalog wire
+surface and is absent from `docs/checks.json`.
+
+- **Effect escalation.** It blocks only when the head effect can drive hard
+  controls and a policy-eligible claim places it above the base effect. An
+  escalation that only wording supports is a `medium`, non-blocking finding
+  with `provenance_kind: keyword_heuristic` and the claims' real bases
+  (`inferred_keyword`). That finding raises no evidence gap and is never a
+  blocker or review item, so it adds nothing to the verdict, and
+  `--no-heuristics` filters it. Other checks can still read the same keyword:
+  on the #1035 reproduction (a reviewed `write` tool whose description gains
+  "the customer gets an email") `--diff-from` moves `blocked` to
+  `review_required`, not to `passed`, because `SHIP-MCP-PERMISSION-EXPANDED`
+  reports the keyword-driven capability change as a review item, and the head
+  scan alone is `insufficient_evidence` from the keyword effect claim's
+  `mixed_policy_evidence` gap. Both are the remainder of #1055. An escalation
+  backed by other non-authoritative evidence, such as a protocol default,
+  raises an evidence gap as before.
+- **Safeguard removal.** It blocks only when the action's effect can drive
+  hard controls. Otherwise it is a `medium` advisory under the same rule. A
+  removed `rollback` is `critical` only when `destructive` is established.
+- **Prohibited actions.** The match compares whole-word stems, never
+  substrings. The tool's name and description must share at least two words
+  with the prohibited action, and one of them must be the action's verb.
+  - **The action's verb.** Every listed action verb the action contains,
+    adjacent or not ("delete, export or share customer data"). A noun that
+    names one counts as that verb ("Prevent **deletion** of customer data").
+    Only when there is none does the leading word count ("tweet"). So "Customer
+    data must never be **exported**" needs `export`, and a shared subject
+    ("customer", "data") is never enough.
+  - **The tool's side** is every word of its name (split on punctuation and
+    camelCase) and description, wherever the verb sits: "Permanently delete
+    customer records", `records.bulk_delete`.
+  - **Synonyms** come from an explicit table, applied to every word on both
+    sides: delete/purge/remove/erase/wipe/destroy, update/modify/edit/change,
+    buy/purchase, execute/run, terminate/close, create/issue/make,
+    share/disclose, plus nouns that name an action (deletion, approval,
+    payment, …). "shut down" reads as `shutdown` and "e-mail" as `email`.
+  - **More connectives are stopwords:** `or`, `in`, `of`, `on`, `by`, `never`,
+    and others.
+  - **Qualifier clauses.** Words after `without`, `unless`, `except` or
+    `outside` are not part of the action. When a tool's name contains *every*
+    word of a `without` clause, the tool is that safeguard, and the word
+    comparison is skipped for it: `send_email_preview` against "send external
+    email without preview". The risk-tag rules still run for it. A tool that
+    shares only part of the clause is still compared:
+    `crm.send_customer_email` against "send email without customer consent".
+
+  A match is a `medium`, non-blocking advisory finding (`default_severity`
+  `high` → `medium`), never an evidence gap.
+- **Advisory framing.** A lexical advisory is labelled
+  `Advisory (lexical evidence, does not gate)` in its `misalignments[]` entry,
+  which is listed after every gating one, suggests no scenario, and is no
+  longer counted in `capability_facts[]` (which tools are selected, their
+  `control_status`, `related_findings`). The packet's evidence matrix lists it
+  as a note, not a missing control, so it changes no row's `evidence_present`.
+- **Stale manifest entries.** An entry naming a catalog tool whose binding is
+  not established is reported as such, with `evidence.issues:
+  ["binding_not_established"]`, a manual keep-the-entry patch and
+  `suggested_patch_kind: manual`. It never gets a `remove_pointer` patch. An
+  entry naming a tool absent from the catalog is unchanged, evidence and
+  fingerprint included.
+
+**What does not change.** No check ID is added, removed or renamed. The
+blocking conditions only narrow, as [Check IDs](#check-ids) allows. The
+prohibited-action matcher both narrows and widens.
+
+- **It narrows.** It drops substring false matches. One is a word inside
+  another word: `or` in "priority", "order", "for". Another is an overlap with
+  no shared verb: "for a customer", or "Customer data must never be exported"
+  against a tool that adds a comment with customer data. It also drops a tool
+  named for the whole `without` safeguard (`send_email_preview`). On the
+  review probes, every other match `origin/main` made is kept.
+- **It widens.** It catches inflections and synonyms the substring match
+  missed: `cancel orders` against `cancel_order`, `terminate accounts` against
+  `terminate_account`, `issue refunds` against `stripe.create_refund`, and
+  "Prevent deletion of customer data".
+- **Known false positives.** It still matches some tools that share the verb
+  and an unrelated word, all as advisories.
+  - Homographs, some through the synonym table: "issue refunds" against
+    `github.create_issue` (a GitHub issue *about* refunds), or against
+    `jira.comment_on_issue`.
+  - A generic shared noun: "close customer accounts" against `close_ticket`
+    ("Close a customer's support ticket"), "remove users" against
+    `remove_label`, "purge backups" against `delete_draft` ("…a draft note
+    about backups").
+
+  A `checks.ignore` entry with a reason silences one. Recall is preferred
+  because a miss leaves the check with no output at all.
+
+Every match it adds is an advisory that cannot move the verdict. A
+policy-eligible escalation blocks as before, with the same evidence, support
+and fingerprint. No schema, contract or control state moves.
+
+**Who must act.** Nothing is required. A pipeline that relied on a
+keyword-only escalation blocking, or on a prohibited-action word match making
+the run `insufficient_evidence`, should declare the effect under
+`action_surface.actions[].effect` (a reviewed escalation blocks) or read the
+advisory findings. Two kinds of baseline entry rotate once and reappear as new
+findings:
+
+- stale-manifest findings about catalog tools, which carry the corrected
+  statement and a new `evidence.issues`;
+- a removed-`rollback` `SHIP-ACTION-SAFEGUARD-REMOVED` on an action whose
+  `destructive` effect only a keyword supplied. It still blocks when the
+  action has an established effect, but its `change.severity` is now `high`
+  instead of `critical`, and that value is part of the fingerprinted evidence.
+
+The keyword gaps that remain (a risk-hint effect claim above a reviewed
+declaration, `SHIP-SCHEMA-BROAD-FREE-TEXT`, `SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE`,
+and others) and `SHIP-MCP-PERMISSION-EXPANDED` on a keyword-driven capability
+change are the rest of #1055.
+
+---
+
 <a id="capability-definitions"></a>
 
 ## Migration Note: 1.3.0 — the capability lock records tool definitions (capability standard `0.6`, lock `0.9`, lock diff `0.10`, #1117)
@@ -1462,6 +1604,50 @@ To record observations, add the workflow in `docs/post-approval-monitoring.md`.
 and exit codes, the attestation, the bypass rule for attestation rows, and
 `release_decision.decision`. The engine reads no clock and calls no API; the
 workflow declares the time and moves the ledger.
+
+---
+
+<a id="control-evidence"></a>
+
+## Migration Note: Unreleased — `registry report --control-map` writes an audit-window evidence extract (control map `0.1`, control evidence `0.1`, #1121)
+
+**What was wrong.** A team preparing an assessment turned the registry ledger
+into evidence by hand: picking the window's rows, deciding which bear on which
+control activity, and explaining the gaps. A hand-made summary cannot be
+checked against the ledger it came from.
+
+**What changes.**
+
+- `registry report` takes exactly one of `--bypass`, `--drift` or
+  `--control-map <file>`. `--control-map` needs `--since` and `--until` (UTC
+  days, inclusive) and takes `--repo`, `--expected-interval-days`, `--out
+  <dir>` and `--json`; `--fail-on-bypass` and `--fail-on-drift` do not apply,
+  and `--out` applies only here (exit `2` otherwise). A map it cannot read
+  exits `2`. It exits `0` whatever it finds.
+- A control map (`control_map_schema_version: "0.1"`,
+  `docs/control-map-schema.v0.1.json`) lists evidence items with the row kinds
+  and gap rules that apply; `docs/control-maps/aiuc-1.yaml` is the first, for
+  AIUC-1 B006 and E004 as the April 2026 evidence list numbers them.
+- `--out` writes `control-evidence.json` (`control_evidence_schema_version:
+  "0.1"`, `docs/control-evidence-schema.v0.1.json`), `control-evidence.md`,
+  `ledger-extract.jsonl`, the cited ledger lines byte for byte, and
+  `control-map.yaml`, the map's bytes unchanged; the view's `recompute`
+  command, run from that directory, reads those two and gives the same
+  `controls` block. Every file is written as exact UTF-8 bytes with `\n` line
+  ends on every platform, so the extract and the map hash to the
+  `extract.sha256` and `map.sha256` the view names.
+- Gap rules, a closed set: `no_rows_in_window`, `observation_interval`,
+  `observation_incomparable`, `inventory_issues`,
+  `capability_comparison_absent`, `definition_digests_absent`,
+  `approval_not_supplied`, `approval_not_approved`. Each is printed as
+  `found`, `none` or `not_checked`.
+- `registry report` with neither mode now says "pass --bypass, --drift or
+  --control-map".
+
+**Who must act.** Nobody: the view is new and opt-in.
+
+**What does not change.** The ledger, every other report, and
+`release_decision.decision`. The output judges no control.
 
 ---
 
@@ -6038,7 +6224,7 @@ command-contract commitments yet. They remain consumers of `verify` artifacts;
 | `agents-shipgate org bundle` | `--config`/`-c`, `--workspace`, `--from`, `--out`, `--attestation`, `--registry`, `--as-of`, `--json` |
 | `agents-shipgate registry ingest` | `--attestation`, `--observation`, `--capability-diff`, `--event-time`, `--workflow-run-id`, `--head-sha`, `--ci-context`, `--registry`, `--repo`, `--json` |
 | `agents-shipgate registry query` | `--registry`, `--repo`, `--org-id`, `--service`, `--tier`, `--actor`, `--verdict`, `--capability-id`, `--trust-root-touched`, `--policy-weakened`, `--human-ack-required`/`--human-ack-not-required`, `--human-ack-satisfied`/`--human-ack-not-satisfied`, `--json` |
-| `agents-shipgate registry report` | `--registry`, `--bypass`, `--drift`, `--repo`, `--since`, `--until`, `--expected-interval-days`, `--json`, `--fail-on-bypass`, `--fail-on-drift` |
+| `agents-shipgate registry report` | `--registry`, `--bypass`, `--drift`, `--control-map`, `--repo`, `--since`, `--until`, `--expected-interval-days`, `--out`, `--json`, `--fail-on-bypass`, `--fail-on-drift` |
 | `agents-shipgate registry summary` | `--registry`, `--json` |
 | `agents-shipgate registry verify` | `--registry`, `--json`, `--fail-on-issue` |
 | `shipgate audit --host` | `--workspace`, `--host`, `--json`, `--out`, `--save-baseline`, `--baseline-file`, `--drift`, `--fail-on-drift` |

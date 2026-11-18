@@ -1,5 +1,6 @@
 {
  "files": {
+  "tests/agent_tasks/test_agent_tasks.py": 8.4,
   "tests/harness/test_adversarial_guards.py": 0.0,
   "tests/harness/test_claude_code_driver.py": 0.0,
   "tests/harness/test_codex_driver.py": 0.9,
@@ -457,6 +458,7 @@
   "tests/test_unreadable_host_input.py": 297.8,
   "tests/test_unchanged_link_limits.py": 77.2,
   "tests/test_capability_lock_redaction.py": 0.1,
+  "tests/test_control_evidence.py": 0.2,
   "tests/test_workflow_hardening.py": 1.1
  },
  "measured_at": "cbff1ef0b101",
@@ -588,6 +590,17 @@
    },
    "case_count": 14,
    "command": "python -m pytest tests/test_claude_command_settings.py --junitxml=command-settings.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "fc8cbb670766 with issue #1048 test increment",
+   "report_sha256": "7d47749974275224b8df5d73b52531a7dece683e4a3732268edd409f82dc3547",
+   "files": {
+    "tests/agent_tasks/test_agent_tasks.py": 8.4
+   },
+   "case_count": 2,
+   "command": "python -m pytest tests/agent_tasks/test_agent_tasks.py -o junit_duration_report=total --junitxml=shard-weight.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {
@@ -820,6 +833,17 @@
    },
    "case_count": 8,
    "command": "python -m pytest tests/test_capability_lock_redaction.py --junitxml=capability-lock-redaction.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "8a0bef1eefbe with issue #1121 increment",
+   "report_sha256": "8d528e37777465ae624911571bce2396051dc7629f57a628a1dd94c7f5fc02ac",
+   "files": {
+    "tests/test_control_evidence.py": 0.2
+   },
+   "case_count": 21,
+   "command": "python -m pytest tests/test_control_evidence.py --junitxml=control-evidence.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {

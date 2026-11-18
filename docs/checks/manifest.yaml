@@ -53,10 +53,12 @@ checks:
   description: A policy references a missing tool.
   rationale: Approval, confirmation, and idempotency policies should map to the actual
     release surface.
-  fires_when: A policy entry names a tool that is not loaded.
+  fires_when: |-
+    A policy entry names a tool that is not loaded. When the tool is in the tool catalog but its binding to the agent is not established, the finding says so with issues [binding_not_established] and never carries a removal patch.
   evidence_fields:
   - policy
   - tool
+  - issues
   recommendation: Remove stale policy entries or update them to current tool names.
   suggested_patch_kind: remove_pointer
 - id: SHIP-MANIFEST-STALE-RISK-OVERRIDE
@@ -64,9 +66,11 @@ checks:
   mvp_tier: hygiene
   description: A risk override references a missing tool.
   rationale: Risk overrides should not outlive the tool they describe.
-  fires_when: risk_overrides.tools contains a tool that is not loaded.
+  fires_when: |-
+    risk_overrides.tools contains a tool that is not loaded. When the tool is in the tool catalog but its binding to the agent is not established, the finding says so with issues [binding_not_established] and never carries a removal patch.
   evidence_fields:
   - tool
+  - issues
   recommendation: Remove stale risk overrides or update them to current tool names.
   suggested_patch_kind: remove_pointer
 - id: SHIP-MANIFEST-STALE-SUPPRESSION
@@ -74,8 +78,8 @@ checks:
   mvp_tier: hygiene
   description: A suppression references a missing check or tool.
   rationale: Stale suppressions hide intent and make release review harder to audit.
-  fires_when: checks.ignore contains an unknown check_id or a tool name that is not
-    loaded.
+  fires_when: |-
+    checks.ignore contains an unknown check_id or a tool name that is not loaded. A tool in the tool catalog whose binding to the agent is not established is reported as binding_not_established, not missing_tool, and is not proposed for removal unless the check_id is also unknown.
   evidence_fields:
   - check_id
   - tool

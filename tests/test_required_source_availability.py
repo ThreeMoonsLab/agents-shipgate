@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -153,7 +154,7 @@ def test_module_invocation_agrees_with_the_cli(tmp_path: Path) -> None:
 
     completed = subprocess.run(
         [
-            "python",
+            sys.executable,
             "-m",
             "agents_shipgate",
             "scan",

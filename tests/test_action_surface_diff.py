@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from agents_shipgate.cli.scan import run_scan
 from agents_shipgate.core import semantic_assessment as semantic_assessment_module
@@ -21,6 +22,7 @@ from agents_shipgate.core.lenses.action_surface import (
     enrich_action_surface_diff_with_source,
     evaluate_action_surface_policies,
 )
+from agents_shipgate.core.policy_evidence import is_lexical_only_support
 from agents_shipgate.core.semantic_assessment import attach_semantic_assessments
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.report import Finding
@@ -1665,3 +1667,397 @@ action_surface:
     )
     assert policy_finding.blocks_release is True
     assert policy_finding.evidence["missing"][0]["reason"] == "unknown_path"
+
+
+# --- #1035: keyword evidence never escalates into a blocker ------------------
+
+
+_KEYWORD_EXTERNAL = ToolRiskHint(
+    tag="customer_communication",
+    source="keyword",
+    confidence="high",
+    basis="inferred_keyword",
+    provenance_kind="keyword_heuristic",
+)
+_KEYWORD_FINANCIAL = ToolRiskHint(
+    tag="financial_action",
+    source="keyword",
+    confidence="high",
+    basis="inferred_keyword",
+    provenance_kind="keyword_heuristic",
+)
+_KEYWORD_DESTRUCTIVE = ToolRiskHint(
+    tag="destructive",
+    source="keyword",
+    confidence="high",
+    basis="inferred_keyword",
+    provenance_kind="keyword_heuristic",
+)
+_PROTOCOL_DEFAULT_DESTRUCTIVE = ToolRiskHint(
+    tag="destructive",
+    source="mcp_protocol",
+    confidence="high",
+    basis="protocol_default",
+    provenance_kind="static_declaration",
+)
+
+
+def _reviewed_manifest(effect: str | None) -> AgentsShipgateManifest:
+    action = {"tool": "add_comment"}
+    if effect is not None:
+        action["effect"] = effect
+    return _manifest({"action_surface": {"actions": [action]}})
+
+
+def _semantic_facts(
+    manifest: AgentsShipgateManifest,
+    *hints: ToolRiskHint,
+    annotations: dict | None = None,
+) -> tuple[list[Tool], ActionSurfaceFacts]:
+    tool = Tool(
+        id="tool:add_comment",
+        name="add_comment",
+        source_type="langchain_inventory",
+        source_id="tools",
+        extraction_confidence="high",
+        annotations=annotations or {},
+        risk_hints=list(hints),
+    )
+    declaration = next(
+        (action for action in manifest.action_surface.actions if action.tool == tool.name),
+        None,
+    )
+    tools = attach_semantic_assessments(
+        [tool], {tool.id: declaration} if declaration is not None else {}
+    )
+    facts = build_action_surface_facts(manifest, agent_id="agent:action-test/agent", tools=tools)
+    return tools, facts
+
+
+def _diff_findings(
+    base: ActionSurfaceFacts,
+    head_manifest: AgentsShipgateManifest,
+    head_tools: list[Tool],
+    head: ActionSurfaceFacts,
+    check_id: str,
+) -> list[Finding]:
+    diff = compute_action_surface_diff(head, base)
+    findings = evaluate_action_surface_policies(
+        head_manifest,
+        head,
+        diff,
+        agent_id="agent:action-test/agent",
+        tools=head_tools,
+        policy_evidence_gaps=[],
+    )
+    return [finding for finding in findings if finding.check_id == check_id]
+
+
+def test_keyword_only_effect_escalation_is_an_advisory_with_keyword_support():
+    """A reviewed ``write`` whose description gains an email keyword (#1035)."""
+
+    manifest = _reviewed_manifest("write")
+    _, base = _semantic_facts(manifest)
+    head_tools, head = _semantic_facts(manifest, _KEYWORD_EXTERNAL)
+    assert (base.actions[0].effect, head.actions[0].effect) == ("write", "external_communication")
+
+    [finding] = _diff_findings(base, manifest, head_tools, head, "SHIP-ACTION-EFFECT-ESCALATED")
+
+    assert finding.blocks_release is False
+    assert finding.severity == "medium"
+    assert finding.provenance_kind == "keyword_heuristic"
+    assert finding.support is not None and finding.support.policy_eligible is False
+    rows = {row.predicate: row for row in finding.support.predicates}
+    # The truthful basis, not the ``protocol_structure`` default every
+    # action finding used to carry.
+    assert rows["escalated_effect_support"].evidence_bases == ["inferred_keyword"]
+    assert rows["escalated_effect_support"].observed == ["external_communication"]
+    assert rows["authoritative_effect_bound"].evidence_bases == ["reviewed_declaration"]
+    assert is_lexical_only_support(finding.support)
+    # Identity is the change, as before: a baseline entry still finds it.
+    assert finding.evidence["change"]["before"] == "write"
+    assert finding.evidence["change"]["after"] == "external_communication"
+
+
+def test_policy_eligible_effect_escalation_still_blocks():
+    base_manifest = _reviewed_manifest("write")
+    head_manifest = _reviewed_manifest("external_communication")
+    _, base = _semantic_facts(base_manifest)
+    head_tools, head = _semantic_facts(head_manifest)
+
+    [finding] = _diff_findings(
+        base, head_manifest, head_tools, head, "SHIP-ACTION-EFFECT-ESCALATED"
+    )
+
+    assert finding.blocks_release is True
+    assert finding.severity == "critical"
+    assert finding.support is not None and finding.support.policy_eligible is True
+
+
+def test_a_protocol_default_escalation_is_not_lexical_and_keeps_the_gap_route():
+    """Option A covers lexical evidence only; other weak evidence still gaps."""
+
+    manifest = _reviewed_manifest("write")
+    _, base = _semantic_facts(manifest)
+    head_tools, head = _semantic_facts(manifest, _PROTOCOL_DEFAULT_DESTRUCTIVE)
+
+    [finding] = _diff_findings(base, manifest, head_tools, head, "SHIP-ACTION-EFFECT-ESCALATED")
+
+    assert finding.blocks_release is False
+    assert finding.provenance_kind == "static_declaration"
+    assert not is_lexical_only_support(finding.support)
+
+
+def test_safeguard_removed_on_a_keyword_only_effect_is_advisory():
+    manifest = _manifest()
+    _, base = _semantic_facts(
+        manifest, _KEYWORD_FINANCIAL, annotations={"idempotentHint": True}
+    )
+    head_tools, head = _semantic_facts(manifest, _KEYWORD_FINANCIAL)
+
+    [finding] = _diff_findings(base, manifest, head_tools, head, "SHIP-ACTION-SAFEGUARD-REMOVED")
+
+    assert finding.blocks_release is False
+    assert finding.severity == "medium"
+    assert finding.provenance_kind == "keyword_heuristic"
+    assert is_lexical_only_support(finding.support)
+    rows = {row.predicate: row for row in finding.support.predicates}
+    assert rows["safeguard_removed"].policy_eligible is True
+    assert rows["safeguard_effect_applicability"].evidence_bases == ["inferred_keyword"]
+
+
+def test_safeguard_removed_on_an_established_effect_still_blocks():
+    manifest = _reviewed_manifest("financial_write")
+    _, base = _semantic_facts(manifest, annotations={"idempotentHint": True})
+    head_tools, head = _semantic_facts(manifest)
+
+    [finding] = _diff_findings(base, manifest, head_tools, head, "SHIP-ACTION-SAFEGUARD-REMOVED")
+
+    assert finding.blocks_release is True
+    assert finding.severity == "high"
+    assert finding.support is not None and finding.support.policy_eligible is True
+
+
+@pytest.mark.parametrize(
+    ("effect", "hints", "severity"),
+    [("destructive", (), "critical"), ("write", (_KEYWORD_DESTRUCTIVE,), "high")],
+)
+def test_rollback_removal_is_critical_only_for_an_established_destructive_effect(
+    effect, hints, severity
+):
+    manifest = _reviewed_manifest(effect)
+    _, base = _semantic_facts(manifest, *hints, annotations={"rollback": True})
+    _, head = _semantic_facts(manifest, *hints)
+    assert head.actions[0].effect == "destructive"
+
+    diff = compute_action_surface_diff(head, base)
+
+    [change] = [change for change in diff.modified if change.type == "SAFEGUARD_REMOVED"]
+    assert change.severity == severity
+
+
+_TICKET_MANIFEST = """version: "0.1"
+project: {name: ticket-agent}
+agent:
+  name: ticket-assistant
+  declared_purpose: [add comments to support tickets]
+environment: {target: local}
+tool_sources:
+  - {id: ticket_tools, type: mcp, path: tools.json}
+agent_bindings:
+  declarations:
+    - agent: root
+      complete: true
+      tools: [{tool: tickets.add_comment, source_id: ticket_tools}]
+      handoffs: []
+      reason: reviewed local fixture binding
+permissions:
+  scopes: [tickets:write]
+action_surface:
+  actions:
+    - tool: tickets.add_comment
+      effect: %s
+      scopes: [tickets:write]
+      authority: {mode: scoped, auth_type: oauth2, credential_mode: delegated}
+ci: {mode: advisory}
+"""
+
+
+def _ticket_workspace(root: Path, *, description: str, effect: str = "write") -> Path:
+    root.mkdir(parents=True)
+    (root / "shipgate.yaml").write_text(_TICKET_MANIFEST % effect, encoding="utf-8")
+    (root / "tools.json").write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "name": "tickets.add_comment",
+                        "description": description,
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "ticket_id": {"type": "string"},
+                                "note": {"type": "string", "maxLength": 2000},
+                            },
+                            "required": ["ticket_id", "note"],
+                            "additionalProperties": False,
+                        },
+                        "auth": {"type": "oauth2", "scopes": ["tickets:write"]},
+                        "owner": "support-platform",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    return root / "shipgate.yaml"
+
+
+def _ticket_scan(config: Path, out: str, **kwargs):
+    report, _ = run_scan(
+        config_path=config,
+        output_dir=config.parent / out,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+        **kwargs,
+    )
+    return report
+
+
+@pytest.mark.parametrize("no_heuristics", [False, True])
+def test_description_only_rewording_of_a_reviewed_write_tool_does_not_block(
+    tmp_path, no_heuristics
+):
+    """The #1035 reproduction, end to end, with and without --no-heuristics."""
+
+    base = _ticket_workspace(
+        tmp_path / "base", description="Append a comment to a support ticket."
+    )
+    base_report = _ticket_scan(base, "reports")
+    assert base_report.release_decision.decision == "passed"
+    head = _ticket_workspace(
+        tmp_path / "head",
+        description="Append a comment to a support ticket; the customer gets an email.",
+    )
+
+    report = _ticket_scan(
+        head,
+        "reports",
+        diff_from_path=base.parent / "reports" / "report.json",
+        no_heuristics=no_heuristics,
+    )
+    alone = _ticket_scan(head, "alone", no_heuristics=no_heuristics)
+
+    decision = report.release_decision
+    # Not `passed` yet, and pinned so a change is deliberate. The one review
+    # item is SHIP-MCP-PERMISSION-EXPANDED, which reads the same keyword
+    # through the capability delta (effect write -> external_communication,
+    # a risk tag added); the head scan alone is `insufficient_evidence` from
+    # the `mixed_policy_evidence` gap a keyword effect claim raises. Both are
+    # the remainder of #1055 (Option A), whose implementation should make this
+    # reproduction `passed`. Neither comes from SHIP-ACTION-EFFECT-ESCALATED.
+    assert decision.decision == "review_required"
+    assert [item.check_id for item in decision.review_items] == [
+        "SHIP-MCP-PERMISSION-EXPANDED"
+    ]
+    assert alone.release_decision.decision == "insufficient_evidence"
+    assert decision.blockers == []
+    assert report.action_surface_diff.summary.effect_escalations == 1
+    assert report.action_surface_diff.summary.blocking_findings == 0
+    finding = next(
+        item for item in report.findings if item.check_id == "SHIP-ACTION-EFFECT-ESCALATED"
+    )
+    assert finding.blocks_release is False
+    assert finding.provenance_kind == "keyword_heuristic"
+    assert finding.suppressed is no_heuristics
+    assert finding.support is not None and finding.support.policy_eligible is False
+    assert not any(
+        "protocol_structure" in row.evidence_bases
+        for row in finding.support.predicates
+        if not row.policy_eligible
+    )
+    # It moves nothing: the comparison adds no evidence gap, no blocker and no
+    # review item, and the engine records why it was left out.
+    assert sorted(gap.policy_id or gap.kind for gap in report.policy_evidence_gaps) == sorted(
+        gap.policy_id or gap.kind for gap in alone.policy_evidence_gaps
+    )
+    assert not any(
+        item.check_id == "SHIP-ACTION-EFFECT-ESCALATED"
+        for item in [*decision.blockers, *decision.review_items]
+    )
+    rule = next(
+        item
+        for item in decision.contribution_rules
+        if item.check_id == "SHIP-ACTION-EFFECT-ESCALATED"
+    )
+    assert rule.category == "excluded"
+
+
+def test_a_reviewed_effect_escalation_blocks_end_to_end(tmp_path):
+    base = _ticket_workspace(
+        tmp_path / "base", description="Append a comment to a support ticket."
+    )
+    _ticket_scan(base, "reports")
+    head = _ticket_workspace(
+        tmp_path / "head",
+        description="Append a comment to a support ticket.",
+        effect="external_communication",
+    )
+
+    report = _ticket_scan(
+        head, "reports", diff_from_path=base.parent / "reports" / "report.json"
+    )
+
+    finding = next(
+        item for item in report.findings if item.check_id == "SHIP-ACTION-EFFECT-ESCALATED"
+    )
+    assert finding.blocks_release is True
+    assert finding.severity == "critical"
+    assert report.release_decision.decision == "blocked"
+    assert any(
+        item.check_id == "SHIP-ACTION-EFFECT-ESCALATED"
+        for item in report.release_decision.blockers
+    )
+
+
+def test_verify_detects_reviewed_effect_increase_with_unchanged_wording(tmp_path: Path) -> None:
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+    from tests.test_verify_base_and_gate_removal import _git
+
+    repo = tmp_path / "project"
+    config = _ticket_workspace(
+        repo, description="Append a comment to a support ticket; the customer gets an email.",
+    )
+    manifest = yaml.safe_load(config.read_text(encoding="utf-8"))
+    action = manifest["action_surface"]["actions"][0]
+    action["safeguards"] = {"audit_log": True, "idempotency": True}
+    action["approval"] = {"required": True}
+    manifest["policies"] = {"require_confirmation_for_tools": ["tickets.add_comment"]}
+    config.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "add", "--", "shipgate.yaml", "tools.json")
+    _git(repo, "commit", "-qm", "Base reviewed write")
+    base = _git(repo, "rev-parse", "HEAD")
+
+    action["effect"] = "external_communication"
+    config.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    _git(repo, "add", "--", "shipgate.yaml")
+    _git(repo, "commit", "-qm", "Review the external communication effect")
+    head = _git(repo, "rev-parse", "HEAD")
+
+    out = tmp_path / "reports"
+    result = CliRunner().invoke(app, [
+        "verify", "--workspace", str(repo), "--config", "shipgate.yaml",
+        "--base", base, "--head", head, "--out", str(out), "--ci-mode", "advisory",
+    ])
+    assert result.exit_code == 0, result.output
+    report = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    [change] = [row for row in report["action_surface_diff"]["modified"] if row["type"] == "EFFECT_ESCALATED"]
+    assert (change["before"], change["after"]) == ("write", "external_communication")
+    assert any(
+        item["check_id"] == "SHIP-ACTION-EFFECT-ESCALATED"
+        for item in report["release_decision"]["blockers"]
+    )

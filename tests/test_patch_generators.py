@@ -170,6 +170,93 @@ def test_stale_policy_emits_remove_pointer(tmp_path: Path) -> None:
     assert patches[0].pointer == "/policies/require_approval_for_tools/0"
 
 
+def test_no_removal_for_an_entry_naming_an_unbound_catalog_tool(tmp_path: Path) -> None:
+    """#1035: the tool exists, so the entry is not stale and is never removed.
+
+    A default ``apply-patches --apply`` used to delete approval, confirmation
+    and idempotency policy for real tools this way. The manual patch carries
+    the finding's own keep-it instruction, not the catalog's "remove" text.
+    """
+
+    _, context = _manifest_with(
+        tmp_path,
+        {
+            "policies": {
+                "require_approval_for_tools": [
+                    {"tool": "create_refund", "reason": "real money"},
+                ],
+            },
+            "risk_overrides": {
+                "tools": {"create_refund": {"owner": "payments", "reason": "audit"}}
+            },
+            "checks": {
+                "ignore": [
+                    {
+                        "check_id": "SHIP-DOC-MISSING-DESCRIPTION",
+                        "tool": "create_refund",
+                        "reason": "described in the docstring",
+                    },
+                ]
+            },
+        },
+    )
+    unbound = ["binding_not_established"]
+    findings = [
+        _finding(
+            "SHIP-MANIFEST-STALE-POLICY",
+            {"policy": "approval", "tool": "create_refund", "issues": unbound},
+        ),
+        _finding(
+            "SHIP-MANIFEST-STALE-RISK-OVERRIDE",
+            {"tool": "create_refund", "issues": unbound},
+        ),
+        _finding(
+            "SHIP-MANIFEST-STALE-SUPPRESSION",
+            {
+                "check_id": "SHIP-DOC-MISSING-DESCRIPTION",
+                "tool": "create_refund",
+                "issues": unbound,
+            },
+        ),
+    ]
+    for finding in findings:
+        patches = generate_patches_for_finding(context, finding)
+        assert patches == [ManualPatch(instructions="manual fallback recommendation")], (
+            finding.check_id
+        )
+
+
+def test_a_suppression_with_an_unknown_check_id_is_stale_whatever_its_tool(
+    tmp_path: Path,
+) -> None:
+    _, context = _manifest_with(
+        tmp_path,
+        {
+            "checks": {
+                "ignore": [
+                    {
+                        "check_id": "SHIP-RETIRED-CHECK",
+                        "tool": "create_refund",
+                        "reason": "old",
+                    },
+                ]
+            },
+        },
+    )
+    finding = _finding(
+        "SHIP-MANIFEST-STALE-SUPPRESSION",
+        {
+            "check_id": "SHIP-RETIRED-CHECK",
+            "tool": "create_refund",
+            "issues": ["unknown_check_id", "binding_not_established"],
+        },
+    )
+    patches = generate_patches_for_finding(context, finding)
+    assert len(patches) == 1
+    assert isinstance(patches[0], RemovePointerPatch)
+    assert patches[0].pointer == "/checks/ignore/0"
+
+
 def test_stale_risk_override_emits_remove_pointer(tmp_path: Path) -> None:
     _, context = _manifest_with(
         tmp_path,

@@ -63,6 +63,19 @@ def _scrub_agent_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(var, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_git_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep temporary Git repositories independent of host Git settings."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    # Inherited `git -c` settings take precedence over GIT_CONFIG_COUNT.
+    monkeypatch.delenv("GIT_CONFIG_PARAMETERS", raising=False)
+    # Git has a default per-user ignore file even without global config.
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.excludesFile")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", os.devnull)
+
+
 #: How the suite is split across parallel CI jobs. ``SHIPGATE_TEST_SHARDS`` is
 #: the number of shards and ``SHIPGATE_TEST_SHARD`` the 1-based index of this
 #: one. Unset means "run everything", which is what a local run does.
