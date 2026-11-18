@@ -460,7 +460,8 @@
   "tests/test_unchanged_link_limits.py": 77.2,
   "tests/test_capability_lock_redaction.py": 0.1,
   "tests/test_control_evidence.py": 0.2,
-  "tests/test_audit_dependency_locks.py": 0.5
+  "tests/test_audit_dependency_locks.py": 0.5,
+  "tests/test_workflow_hardening.py": 1.1
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -856,6 +857,17 @@
    },
    "case_count": 7,
    "command": "python -m pytest tests/test_audit_dependency_locks.py --junitxml=audit-tests.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "fc8cbb670766 with issue #1033 increment",
+   "report_sha256": "65f109882a626a841f8f8de62fa50e473718d28557b9d3f2a2e97facc35997e6",
+   "files": {
+    "tests/test_workflow_hardening.py": 1.1
+   },
+   "case_count": 60,
+   "command": "python -m pytest tests/test_workflow_hardening.py --junitxml=workflow-hardening.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

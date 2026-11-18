@@ -203,7 +203,11 @@ merged as-is. To act on it, move any exact toolchain pin it changes in a
 `constraints/release-publish.in` pinned before the PR. A recompile refreshes
 that lock's whole closure, not only the bumped pin, so check its diff for
 unrelated movement, dropped environment markers and extras-qualified pins
-before pushing.
+before pushing. `constraints/harness.txt`, the adoption harness's lock, is
+compiled against `constraints/dev.txt` and `constraints/build-backend.txt`, so
+recompile it after either of them, in the same command:
+`python scripts/update_locks.py constraints/dev.txt constraints/harness.txt`.
+`scripts/verify_dependency_lock.py` fails while the three disagree.
 
 ## Changing the CHANGELOG
 

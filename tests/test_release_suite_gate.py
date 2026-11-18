@@ -120,7 +120,12 @@ def test_the_gate_waits_for_the_suite_and_still_starts_after_a_failed_shard(
     jobs = _jobs(name)
     gate = jobs[job]
 
-    assert gate["needs"] in ("suite", ["suite"])
+    if name == "ci.yml":
+        # CI's gate also carries `mcp-extra` into a required check (#1033;
+        # tests/test_workflow_hardening.py runs that step).
+        assert gate["needs"] == ["suite", "mcp-extra"]
+    else:
+        assert gate["needs"] in ("suite", ["suite"])
     assert "!cancelled()" in gate["if"]
     first = gate["steps"][0]
     assert first["name"] == RESULT_CHECK

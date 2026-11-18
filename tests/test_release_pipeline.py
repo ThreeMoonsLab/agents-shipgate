@@ -1171,8 +1171,9 @@ def test_release_does_not_weaken_the_coverage_floor() -> None:
     assert "coverage combine" in combined
     assert "--fail-under=85" in combined
     # And the gate has to wait for every shard, or it would combine whatever
-    # happened to have finished.
-    assert ci["jobs"]["coverage"]["needs"] == ["suite"]
+    # happened to have finished. It also waits for `mcp-extra`, which no
+    # required check names otherwise (#1033; tests/test_workflow_hardening.py).
+    assert ci["jobs"]["coverage"]["needs"] == ["suite", "mcp-extra"]
 
     for name in _RELEASE_VERIFICATIONS:
         release_test = _release_suite_step(name)
@@ -2348,8 +2349,33 @@ def test_every_publication_side_job_constrains_what_it_installs() -> None:
             _re.MULTILINE,
         )
     }
-    allowed = set(_re.findall(r"[a-z0-9][a-z0-9-]*", install.split("grep -oE")[0]))
+    allowed = _allowlisted_names()
     assert locked <= allowed, f"not allowlisted: {sorted(locked - allowed)}"
+
+
+def _allowlisted_names() -> set[str]:
+    """The names the guard's `allowed=` assignments list, and nothing else.
+
+    This used to collect every lowercase word before a `grep -oE` the script no
+    longer contained (#1033), so the "allowlist" was every word in the step,
+    comments included, and a lock adding `build` or `hooks` passed it while the
+    guard itself refused them.
+    """
+
+    script = _allowlist_script()
+    assignments = re.findall(r'^\s*allowed="(?:\$\{allowed\} )?([^"$]*)"\s*$', script, re.MULTILINE)
+    names = {name for assignment in assignments for name in assignment.split()}
+    assert {"uv", "sigstore"} <= names, assignments
+    return names
+
+
+def test_the_allowlist_parse_is_the_guards_own() -> None:
+    """The test above is only as good as the parse it compares against."""
+
+    names = _allowlisted_names()
+
+    for word in ("the", "pip", "token", "build", "hooks", "lockfile", "evilpkg"):
+        assert word not in names, word
 
 
 # --------------------------------------------------------------------------
@@ -3264,6 +3290,34 @@ def test_every_compiled_lock_is_gated_and_regenerated_by_one_command() -> None:
     assert compile_command(dev)[-3:] == ["--extra", "dev", "pyproject.toml"]
 
 
+def test_a_lock_installed_after_others_is_compiled_against_them() -> None:
+    """#1033: the adoption harness installs its own lock on top of the
+    development closure. Compiled alone, it resolved typer 0.29.1 where
+    `constraints/dev.txt` pins 0.27.3, so the third install would move the
+    closure the first one placed."""
+
+    from scripts.verify_dependency_lock import CO_INSTALLED
+
+    order = [target.lock for target in LOCK_TARGETS]
+    harness = next(target for target in LOCK_TARGETS if target.lock == "constraints/harness.txt")
+
+    assert harness.source == "harness/requirements.txt"
+    assert harness.constraints == ("constraints/dev.txt", "constraints/build-backend.txt")
+    assert compile_command(harness)[-5:] == [
+        "--constraint",
+        "constraints/dev.txt",
+        "--constraint",
+        "constraints/build-backend.txt",
+        "harness/requirements.txt",
+    ]
+    for target in LOCK_TARGETS:
+        for constraint in target.constraints:
+            # A full regeneration compiles the constraint first, and the gate
+            # checks the two still agree.
+            assert order.index(constraint) < order.index(target.lock), target.lock
+            assert any({constraint, target.lock} <= set(group) for group in CO_INSTALLED)
+
+
 # --------------------------------------------------------------------------
 # #345 / re-review — the publication jobs must be able to start at all
 # --------------------------------------------------------------------------
@@ -3324,11 +3378,13 @@ def _allowlist_script() -> str:
     return str(step["run"])
 
 
-def _run_allowlist(tmp_path: Path, lockfile: str) -> tuple[int, str]:
+def _run_allowlist(tmp_path: Path, lockfile: str | bytes) -> tuple[int, str]:
     import subprocess
-    import sys
 
-    (tmp_path / "release-toolchain.txt").write_text(lockfile, encoding="utf-8")
+    # Bytes, exactly: which bytes split a line is what these tests are about,
+    # so no newline translation may happen on the way to the file.
+    data = lockfile if isinstance(lockfile, bytes) else lockfile.encode("utf-8")
+    (tmp_path / "release-toolchain.txt").write_bytes(data)
     script = tmp_path / "allowlist.sh"
     script.write_text(_allowlist_script(), encoding="utf-8")
     result = subprocess.run(
@@ -3338,17 +3394,219 @@ def _run_allowlist(tmp_path: Path, lockfile: str) -> tuple[int, str]:
         text=True,
         check=False,
     )
-    del sys
     return result.returncode, result.stdout + result.stderr
 
 
+def _requested_by_the_guard(tmp_path: Path) -> set[str]:
+    return set((tmp_path / "requested-toolchain.txt").read_text(encoding="utf-8").split())
+
+
+def _normalized(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _pinned_names(lockfile: bytes) -> set[str]:
+    """The pins a well-formed lock carries, read independently of the guard."""
+
+    return {
+        _normalized(name)
+        for name in re.findall(
+            r"^([A-Za-z0-9][A-Za-z0-9._-]*)==", lockfile.decode("utf-8"), re.MULTILINE
+        )
+    }
+
+
+def _pip_requirement_names(path: Path) -> set[str]:
+    """What pip itself would install from a requirements file, read offline.
+
+    A requirement pip resolves on the index is its distribution name. One it
+    reads as a link instead, to a URL or a local file, is `<link: …>`, so a
+    comparison with the guard's names also fails when pip installs the right
+    name from the wrong place: `uv==0.13.6.tar.gz` is a file to pip, not `uv`.
+
+    pip's parser is internal API, so this skips rather than fails when it is
+    not importable; the guard's own tests do not depend on it.
+    """
+
+    try:
+        from pip._internal.network.session import PipSession
+        from pip._internal.req.constructors import install_req_from_parsed_requirement
+        from pip._internal.req.req_file import parse_requirements
+    except ImportError as exc:  # pragma: no cover - depends on the pip installed
+        pytest.skip(f"pip's requirements-file parser is not importable: {exc}")
+
+    read = set()
+    for parsed in parse_requirements(str(path), session=PipSession()):
+        requirement = install_req_from_parsed_requirement(parsed)
+        if requirement.link is not None or not requirement.name:
+            read.add(f"<link: {parsed.requirement.strip()}>")
+        else:
+            read.add(_normalized(requirement.name))
+    return read
+
+
+_RELEASE_LOCKS = sorted(
+    path.relative_to(REPO_ROOT).as_posix()
+    for path in (REPO_ROOT / "constraints").glob("release-*.txt")
+)
+
+
 def test_the_committed_publication_lockfile_passes_the_allowlist(tmp_path: Path) -> None:
-    code, output = _run_allowlist(
-        tmp_path, (REPO_ROOT / "constraints/release-publish.txt").read_text("utf-8")
-    )
+    lockfile = (REPO_ROOT / "constraints/release-publish.txt").read_bytes()
+    code, output = _run_allowlist(tmp_path, lockfile)
 
     assert code == 0, output
     assert "every locked distribution is on the allowlist" in output
+    assert _requested_by_the_guard(tmp_path) == _pinned_names(lockfile)
+
+
+@pytest.mark.parametrize("lock", _RELEASE_LOCKS)
+def test_the_guard_reads_every_committed_release_lock(tmp_path: Path, lock: str) -> None:
+    """Every `constraints/release-*.txt` is in the shape the guard accepts.
+
+    Only `release-publish.txt` is installed through the guard. The sealing and
+    build locks name `build` and `hatchling`, which the publication jobs must
+    never install, so for them the guard has to get as far as the allowlist,
+    with every pin read, and refuse there: not on the file's format.
+    """
+
+    assert {
+        "constraints/release-build.txt",
+        "constraints/release-publish.txt",
+        "constraints/release-seal.txt",
+    } <= set(_RELEASE_LOCKS)
+    lockfile = (REPO_ROOT / lock).read_bytes()
+    code, output = _run_allowlist(tmp_path, lockfile)
+
+    requested = _requested_by_the_guard(tmp_path)
+    assert requested == _pinned_names(lockfile), output
+    if lock == "constraints/release-publish.txt":
+        assert code == 0, output
+    else:
+        assert code != 0
+        [error] = [line for line in output.splitlines() if line.startswith("::error::")]
+        assert "which is not on the allowlist" in error, output
+        assert requested - _allowlisted_names(), lock
+
+
+@pytest.mark.parametrize("lock", _RELEASE_LOCKS)
+def test_the_guard_and_pip_read_the_same_requirements(tmp_path: Path, lock: str) -> None:
+    code, output = _run_allowlist(tmp_path, (REPO_ROOT / lock).read_bytes())
+
+    assert _requested_by_the_guard(tmp_path) == _pip_requirement_names(REPO_ROOT / lock), output
+
+
+# Each lockfile here is one pip reads as installing `evilpkg` beside `uv`, and
+# each passed the guard before #1033 with "OK: every locked distribution is on
+# the allowlist.": the guard and pip disagreed about where a line starts.
+_HIDDEN_REQUIREMENTS = {
+    # The reported case. pip joins a line onto the one above only when that
+    # one ends with a backslash; the guard skipped every indented line.
+    "indented-after-a-finished-requirement": (
+        b"uv==0.12.9 \\\n    --hash=sha256:aaaa\n    evilpkg==1.0 --hash=sha256:bbbb\n",
+        "line 3 is indented, but the line above it does not end with a backslash",
+    ),
+    # A comment is never continued, even one ending in a backslash, and it
+    # ends the requirement that was continued onto it.
+    "indented-after-a-continued-comment": (
+        b"uv==0.12.9 \\\n    --hash=sha256:aa \\\n    # via x \\\n    evilpkg==1.0\n",
+        "line 4 is indented, but the line above it does not end with a backslash",
+    ),
+    # `str.splitlines()` breaks a line where `read` does not.
+    "carriage-return": (
+        b"uv==0.12.9 \\\n    --hash=sha256:aa\n# note\revilpkg==1.0\n",
+        "control character",
+    ),
+    "form-feed": (
+        b"uv==0.12.9 \\\n    --hash=sha256:aa\n# note\x0cevilpkg==1.0\n",
+        "control character",
+    ),
+    "tab-indented": (
+        b"uv==0.12.9 \\\n    --hash=sha256:aa\n\tevilpkg==1.0\n",
+        "control character",
+    ),
+    "next-line": (
+        "uv==0.12.9 \\\n    --hash=sha256:aa\n# note\u0085evilpkg==1.0\n".encode(),
+        "line or paragraph separator",
+    ),
+    "line-separator": (
+        "uv==0.12.9 \\\n    --hash=sha256:aa\n# note evilpkg==1.0\n".encode(),
+        "line or paragraph separator",
+    ),
+    # pip decodes the file with a codec named in its first two lines; under
+    # `unicode_escape` the two characters `\n` in a comment are a newline.
+    "declared-encoding": (
+        b"# -*- coding: unicode_escape -*-\nuv==0.12.9 \\\n    --hash=sha256:aa\n"
+        b"# note\\nevilpkg==1.0\n",
+        "declares a text encoding",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_HIDDEN_REQUIREMENTS))
+def test_the_allowlist_refuses_a_requirement_it_would_not_have_seen(
+    tmp_path: Path, case: str
+) -> None:
+    lockfile, expected = _HIDDEN_REQUIREMENTS[case]
+
+    code, output = _run_allowlist(tmp_path, lockfile)
+
+    assert code != 0, output
+    assert expected in output
+    assert "OK:" not in output
+
+
+@pytest.mark.parametrize("case", sorted(_HIDDEN_REQUIREMENTS))
+def test_pip_installs_what_each_refused_lockfile_hides(tmp_path: Path, case: str) -> None:
+    """The refusals above are real: pip's own parser finds `evilpkg` in each."""
+
+    lockfile, _ = _HIDDEN_REQUIREMENTS[case]
+    path = tmp_path / "requirements.txt"
+    path.write_bytes(lockfile)
+
+    assert _pip_requirement_names(path) == {"uv", "evilpkg"}
+
+
+@pytest.mark.parametrize("suffix", [".tar.gz", ".zip"])
+def test_pip_reads_an_archive_suffixed_version_as_a_file_not_a_pin(
+    tmp_path: Path, suffix: str
+) -> None:
+    """The guard used to record `uv` for `uv==0.13.6.tar.gz`; pip installs a
+    local file of that name instead of `uv` from the index."""
+
+    lockfile = f"uv==0.13.6{suffix} \\\n    --hash=sha256:aa\n".encode()
+    path = tmp_path / "requirements.txt"
+    path.write_bytes(lockfile)
+
+    assert _pip_requirement_names(path) == {f"<link: uv==0.13.6{suffix}>"}
+    code, output = _run_allowlist(tmp_path, lockfile)
+    assert code != 0
+    assert "not an exact name==version pin" in output
+
+
+def test_the_allowlist_accepts_valid_hash_continuations(tmp_path: Path) -> None:
+    lockfile = (
+        "# header — non-ASCII text is fine in a comment\n"
+        "#\n"
+        "#   declares: uv==0.12.9\n"
+        "#\n"
+        "uv==0.12.9 \\\n"
+        "    --hash=sha256:aa \\\n"
+        "    --hash=sha256:bb\n"
+        "    # via\n"
+        "    #   -r constraints/release-publish.in\n"
+        "\n"
+        "cffi==2.1.1 ; platform_python_implementation != 'PyPy' \\\n"
+        "    --hash=sha256:cc\n"
+        "    # via cryptography\n"
+        "Typing_Extensions==4.16.0 \\\n"
+        "    --hash=sha512:dd"
+    )
+
+    code, output = _run_allowlist(tmp_path, lockfile)
+
+    assert code == 0, output
+    assert _requested_by_the_guard(tmp_path) == {"cffi", "typing-extensions", "uv"}
 
 
 @pytest.mark.parametrize(
@@ -3370,6 +3628,36 @@ def test_the_committed_publication_lockfile_passes_the_allowlist(tmp_path: Path)
         ),
         # An empty or comment-only lockfile must not be read as "nothing to check".
         ("# nothing here\n", "requests nothing"),
+        # #1033: an indented line is a hash on a continued line, or refused.
+        (
+            "uv==0.11.7 \\\n    evilpkg==1.0\n",
+            "continues the requirement above it with something other than one --hash",
+        ),
+        ("uv==0.11.7 \\\n    --hash=sha256:aa\n    --hash=sha256:bb\n", "line 3 is indented"),
+        ("uv==0.11.7 \\\n    --hash=sha256:aa --hash=sha256:bb\n", "other than one --hash"),
+        ("uv==0.11.7 \\\n    --hash=md5:aa\n", "other than one --hash"),
+        ("uv==0.11.7 --hash=sha256:aa\n", "not an exact name==version pin"),
+        ("uv==0.11.7\\\n    --hash=sha256:aa\n", "backslash that does not follow a space"),
+        ("uv==0.11.7 \\\n    --hash=sha256:aa \\\n", "continuing its last requirement into nothing"),
+        # pip reads a requirement line's options from its first word starting
+        # with `-`, so a marker may not contain one.
+        (
+            "uv==0.11.7 ; python_version >= '3' --index-url https://x.invalid \\\n"
+            "    --hash=sha256:aa\n",
+            "environment marker this guard does not accept",
+        ),
+        ("uv==0.11.7 ; ${MARKER} \\\n    --hash=sha256:aa\n", "environment marker"),
+        ("uv===0.11.7 \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
+        # pip reads a "version" ending in an archive suffix as a local file.
+        ("uv==0.11.7.tar.gz \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
+        ("uv==0.11.7.zip \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
+        ("uv==0.11.7.whl \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
+        # Only a normalized public version: no epoch, no local label.
+        ("uv==1!0.11.7 \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
+        ("uv==0.11.7+local \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
+        ("uv[extra]==0.11.7 \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
+        # Non-ASCII text is accepted in comments and nowhere else.
+        ("uv—x==0.11.7 \\\n    --hash=sha256:aa\n", "not an exact name==version pin"),
     ],
 )
 def test_the_allowlist_refuses_every_requirement_form_it_cannot_review(
