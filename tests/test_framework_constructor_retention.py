@@ -16,6 +16,52 @@ from tests.test_framework_constructor_bindings import (
 
 
 @pytest.mark.parametrize("framework", ["sdk", "adk"])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "class LookupFailure(Exception):\n    pass",
+        "def total(values):\n    return sum(len(value) for value in values)",
+        'def normalize():\n    return (lambda item: item)("known")',
+    ],
+    ids=["builtin-exception", "consumed-generator", "inline-lambda"],
+)
+def test_immediate_expressions_keep_constructor_evidence(tmp_path, framework, extra):
+    before = _files(framework, "direct", "clean", factory=False)
+    after = _files(framework, "direct", "clean", selected="[read, write]", factory=False)
+    after["app.py"] = extra + "\n\n" + after["app.py"]
+    _git(tmp_path, "init", "-q", "-b", "main")
+    base, head = _commit(tmp_path, before), _commit(tmp_path, after)
+
+    result = _compare(tmp_path, base, head, "--scope", ".")
+
+    assert result["comparison_status"] == "compared", result
+    assert {row["change"] for row in result["rows"]} == {"added"}
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "def sum(items):\n    return 0\ndef total(values):\n    return sum(len(value) for value in values)",
+        "class Base:\n    def __init_subclass__(cls):\n        pass\nclass Derived(Base):\n    pass",
+    ],
+    ids=["shadowed-consumer", "local-class-hook"],
+)
+def test_unproven_consumers_and_class_hooks_keep_partial_evidence(tmp_path, framework, extra):
+    before = _files(framework, "direct", "clean", factory=False)
+    after = _files(framework, "direct", "clean", selected="[read, write]", factory=False)
+    after["app.py"] = extra + "\n\n" + after["app.py"]
+    _git(tmp_path, "init", "-q", "-b", "main")
+    base, head = _commit(tmp_path, before), _commit(tmp_path, after)
+
+    result = _compare(tmp_path, base, head, "--scope", ".")
+
+    assert result["comparison_status"] != "compared"
+    assert result["rows"]
+    assert all(row["change"] == "not_established" for row in result["rows"])
+
+
+@pytest.mark.parametrize("framework", ["sdk", "adk"])
 @pytest.mark.parametrize("carrier", ["coroutine", "generator", "generator_expression", "lambda", "frame", "frame_alias"])
 def test_retaining_helpers_cannot_escape_a_frame_or_callable(tmp_path, framework, carrier):
     before = _files(framework, "direct", "clean", factory=False)

@@ -30,18 +30,14 @@ confirmation and idempotency policies, permission scopes, severity/risk
 overrides, and suppressions so the pipeline can inspect these declarations
 alongside the catalog and binding evidence.
 
-The current Python read cannot establish constructor-namespace ownership
-through the anonymous generator at `agents/ops_assistant.py:40`.
-The graph contains **five possible SDK tools and zero established reachable
-tools**. The reviewed inventory cannot clear that source-level uncertainty.
-Catalog entries without established binding do not create approval or scope
-coverage findings; unused declared scopes can still be reported. Interface
-findings for possible tools carry their unknown binding status.
+The SDK reader establishes the five tools bound to the ops assistant. The
+generator at `agents/ops_assistant.py:40` is consumed immediately by the
+builtin `sum`. The five reachable tools enter the readiness assessment, and
+the remaining catalog stays outside the agent's established bindings.
 
-The release decision is **insufficient_evidence**. This sample exercises a
-large catalog, deterministic merge receipts, audit metadata and conservative
-binding limits; it does not demonstrate a complete application binding or a
-blocked runtime capability.
+The release decision is **review_required**. This sample exercises a large
+catalog, deterministic merge receipts, audit metadata, and evidence-backed
+bindings that still require review.
 
 ## Why no committed goldens
 
@@ -52,9 +48,8 @@ every finding and report section through output evolution would require
 updates unrelated to this sample's binding and scale guarantees.
 
 Instead, [`tests/test_large_sample.py`](../../tests/test_large_sample.py)
-asserts the **structural** shape — decision, possible binding identities,
-source uncertainty, finding count bands and audit metadata — and enforces a **latency budget** so the gate stays fast on the CI
-critical path.
+checks the decision, reachable binding identities, finding count bands,
+and audit metadata. It also enforces a latency budget for the scan.
 
 ## Running locally
 

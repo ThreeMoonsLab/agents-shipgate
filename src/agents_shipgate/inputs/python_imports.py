@@ -3979,12 +3979,58 @@ def _external_constructor_use(
                        for key, item in zip(value.keys, value.values, strict=True))
         return False
 
+    def unshadowed_builtin(
+        home: PythonModule, home_scopes: ScopeIndex, value: ast.expr, names: frozenset[str]
+    ) -> bool:
+        return (
+            isinstance(value, ast.Name)
+            and value.id in names
+            and not home.star_import
+            and not home_scopes.enclosing_bindings(evaluation_site(home_scopes, value), value.id)
+            and not home.bindings.get(value.id)
+        )
+
+    exception_bases = frozenset({
+        "BaseException", "Exception", "IndexError", "KeyError", "LookupError",
+        "OSError", "RuntimeError", "TypeError", "ValueError",
+    })
+    generator_consumers = frozenset({"all", "any", "sum"})
+
+    def immediate_use(node: ast.Lambda | ast.GeneratorExp) -> bool:
+        parent = scopes.parents.get(node)
+        if not allow_owner_routes or not isinstance(parent, ast.Call):
+            return False
+        if isinstance(node, ast.Lambda):
+            args = node.args.posonlyargs + node.args.args
+            return (
+                parent.func is node
+                and len(parent.args) == len(args)
+                and all(isinstance(value, ast.Constant) for value in parent.args)
+                and not parent.keywords
+                and not node.args.defaults
+                and not node.args.kwonlyargs
+                and (
+                    isinstance(node.body, ast.Constant)
+                    or isinstance(node.body, ast.Name) and node.body.id in {arg.arg for arg in args}
+                )
+            )
+        return (
+            len(parent.args) == 1
+            and parent.args[0] is node
+            and not parent.keywords
+            and all(not generator.is_async for generator in node.generators)
+            and unshadowed_builtin(module, scopes, parent.func, generator_consumers)
+        )
+
     def plain_class(home: PythonModule, home_scopes: ScopeIndex, node: ast.ClassDef, *, methods: bool) -> bool:
         """A class whose creation runs no hook and whose body is inert data."""
         plain_bases = all(
-            isinstance(base, ast.Name) and base.id == "object"
-            and not home_scopes.enclosing_bindings(evaluation_site(home_scopes, base), "object")
-            and not home.bindings.get("object")
+            (
+                isinstance(base, ast.Name) and base.id == "object"
+                and not home_scopes.enclosing_bindings(evaluation_site(home_scopes, base), "object")
+                and not home.bindings.get("object")
+            )
+            or (allow_owner_routes and unshadowed_builtin(home, home_scopes, base, exception_bases))
             for base in node.bases
         )
         plain_body = all(
@@ -4015,7 +4061,8 @@ def _external_constructor_use(
         if module.path in retaining and isinstance(node, ast.ClassDef):
             # Class decorators, metaclasses and base-class hooks receive the
             # newly created class, including methods carrying this namespace.
-            # Only the inert builtin object base is established by this entry.
+            # Builtin object and the listed builtin exception bases have
+            # inert class creation for the restricted class body above.
             if not plain_class(module, scopes, node, methods=True):
                 return f"an unread class construction hook receives the constructor namespace in {module.ref}:{node.lineno}"
         if module.path in retaining and isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
@@ -4032,7 +4079,10 @@ def _external_constructor_use(
                     for keyword in decorator.keywords
                 )):
                     return f"the tool decorator's executable or unpacked configuration is unread in {module.ref}:{node.lineno}"
-        if module.path in retaining and isinstance(node, ast.Lambda | ast.GeneratorExp):
+        if (
+            module.path in retaining and isinstance(node, ast.Lambda | ast.GeneratorExp)
+            and not immediate_use(node)
+        ):
             return f"an anonymous callable or generator retains the constructor namespace in {module.ref}:{node.lineno}"
         if (isinstance(node, ast.Name | ast.Attribute) and isinstance(node.ctx, ast.Load)
                 and (node.id if isinstance(node, ast.Name) else node.attr) in machinery):
