@@ -71,8 +71,9 @@ CASES = {
         ["CODEX-CI-GATE-REMOVED"],
         "human_review_required",
     ),
-    "docs_only": ("allow", [], "human_review_required"),
-    "python_refactor": ("allow", [], "human_review_required"),
+    # A standalone diff establishes no checkout state: never a pass (#1154).
+    "docs_only": ("require_review", [], "human_review_required"),
+    "python_refactor": ("require_review", [], "human_review_required"),
     "unknown_permission_key": (
         "require_review",
         ["CODEX-UNKNOWN-PERMISSION-KEY"],
@@ -1149,7 +1150,7 @@ def test_codex_check_reads_diff_from_stdin(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert result.stderr == ""
-    assert json.loads(result.output)["decision"] == "allow"
+    assert json.loads(result.output)["decision"] == "require_review"
 
 
 def test_codex_check_accepts_a_one_sided_git_ref(tmp_path: Path) -> None:
