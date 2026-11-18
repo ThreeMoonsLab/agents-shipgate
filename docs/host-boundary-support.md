@@ -1263,6 +1263,20 @@ pull request in the repository. `check --diff` is bound to no checkout, so it
 never reports `allow`, and its coverage is `unknown` (issue
 `boundary_diff_unbound`) where it read every file it was given.
 
+### Advisory pull requests without a manifest
+
+On a repository with recognized host configuration, `init --write --ci`
+installs the [host-only advisory workflow](../examples/github-actions/14-host-only-advisory-pr.yml).
+It leaves an existing workflow intact. `doctor --json` identifies the host
+route and reports the command to inspect the declared host configuration.
+
+Advisory `verify` reports `merge_verdict: unknown` and
+`can_merge_without_human: false` when the repository has no application
+release policy. For a comparable host change, `verify` carries the same
+human-review requirement as `check` on the same inputs. When the verifier
+routes to a local boundary check, follow `control.next_action` to evaluate
+those inputs. Strict verification requires a manifest with a release policy.
+
 ### Partial comparisons
 
 A plugin directory `diff` and `verify` could not compare no longer hides the
