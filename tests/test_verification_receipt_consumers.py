@@ -169,6 +169,43 @@ def test_the_fixture_is_current_verify_output(verified: tuple[Path, Path]) -> No
     assert (out / RECEIPT).is_file()
 
 
+@pytest.mark.parametrize("agent_mode", ["0", "1"])
+def test_reproduce_returns_mismatch_as_data(
+    run: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, agent_mode: str
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", agent_mode)
+    _repo_path, out = run
+    args = ["verification", "reproduce", "--receipt", str(out / RECEIPT), "--artifacts-root", str(out)]
+    good = runner.invoke(app, args)
+    assert good.exit_code == 0, good.output
+    assert json.loads(good.stdout)["valid"] is True
+
+    with (out / "verifier.json").open("a", encoding="utf-8") as artifact:
+        artifact.write("\n")
+    failed = runner.invoke(app, args)
+    assert failed.exit_code == 3, failed.output
+    payload = json.loads(failed.stdout)
+    assert payload["valid"] is False
+    assert "verifier" in payload["mismatch"]
+    assert failed.stderr == ""
+
+
+def test_prepare_rejects_an_explicit_config_outside_the_workspace(run: tuple[Path, Path]) -> None:
+    repo, out = run
+    external = out / "shipgate.yaml"
+    external.write_text((repo / "shipgate.yaml").read_text())
+    result = runner.invoke(
+        app, ["verification", "prepare", "--workspace", str(repo), "--config", str(external),
+              "--out", str(out / "external-prepare" / "plan.json")],
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+    assert result.exit_code == 2, result.output
+    assert "Path escapes workspace" in result.stderr
+    [line] = [line for line in result.stderr.splitlines() if line.startswith("{")]
+    assert json.loads(line)["error"] == "config_error"
+    assert "Traceback" not in result.stderr
+
+
 # --- attest -----------------------------------------------------------------
 
 
