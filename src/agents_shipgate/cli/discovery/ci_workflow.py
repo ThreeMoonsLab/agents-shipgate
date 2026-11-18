@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from agents_shipgate.core.contained_write import check_output_directory
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.wheel_layout import packaged_path
 from agents_shipgate.release_source import release_engine
@@ -42,8 +44,6 @@ def _engine_selection() -> tuple[str, str | None]:
     lookup, or wheel rewrite is involved: the source SHA resolves before and
     after publication (#570).
     """
-    import os
-
     engine = release_engine()
     override = os.environ.get("AGENTS_SHIPGATE_WORKFLOW_REF")
     if override:
@@ -208,8 +208,7 @@ def write_ci_workflow(
         root_manifest = root / DEFAULT_MANIFEST_PATH
         if root_manifest.exists() or root_manifest.is_symlink():
             raise ConfigError(f"Host-only workflow requires a repository without {root_manifest.name}.")
-        if not workflows_dir.resolve().is_relative_to(root):
-            raise ConfigError("The host-only workflow destination escapes the repository.")
+    check_output_directory(workflows_dir, root=root)
 
     cross_ref = _detect_cross_reference(
         workflows_dir, exclude=target, config_value=config_value
@@ -245,17 +244,47 @@ def write_ci_workflow(
         packaged_path("_meta/host-only-advisory.yml").read_bytes()
         if host_only else _render_workflow_template(config_value).encode("utf-8")
     )
-    workflows_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        with target.open("xb") as stream:
-            stream.write(content)
-    except FileExistsError:
+    if not _create_workflow(target, content, root=root):
         return existing_workflow()
     return CiWorkflowResult(
         status="written",
         path=str(target),
         message=f"Wrote {target}",
     )
+
+
+def _create_workflow(target: Path, content: bytes, *, root: Path) -> bool:
+    """Create the workflow under the repository, returning false if it exists."""
+
+    parts = target.parent.relative_to(root).parts
+    directory_fd = None
+    destination: str | Path = target
+    if os.open in os.supports_dir_fd and os.mkdir in os.supports_dir_fd:
+        from agents_shipgate.core.verification_identity import open_directory_beneath
+
+        directory_fd = open_directory_beneath(root, parts, create=True)
+        destination = target.name
+    else:
+        # Windows does not provide directory descriptors. Check each
+        # component before creating it, and refuse links and junctions again
+        # before opening the workflow.
+        directory = root
+        for part in parts:
+            directory = directory / part
+            check_output_directory(directory, root=root)
+            directory.mkdir(exist_ok=True)
+        check_output_directory(target.parent, root=root)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    try:
+        file_fd = os.open(destination, flags, 0o666, dir_fd=directory_fd)
+    except FileExistsError:
+        return False
+    finally:
+        if directory_fd is not None:
+            os.close(directory_fd)
+    with os.fdopen(file_fd, "wb") as stream:
+        stream.write(content)
+    return True
 
 
 def _detect_cross_reference(

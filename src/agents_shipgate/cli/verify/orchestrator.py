@@ -809,10 +809,11 @@ def run_verify(
                 host_comparison = host_comparison_failure(git_root, head if archive_head else None, exc)
         if host_comparison is not None:
             host_review = None
-            if host_comparison.comparison_status == "comparable" and (base is not None or auto_base):
-                host_review = _host_only_review_action(
+            if host_comparison.comparison_status == "comparable" and host_comparison.base_commit:
+                host_review = _host_only_review_control(
                     workspace=workspace, git_root=git_root, config=config_relative,
-                    base=base, head=head if archive_head else None,
+                    base=host_comparison.base_commit,
+                    head=(host_comparison.head_commit or head) if archive_head else None,
                 )
             return run_preview(
                 workspace=workspace, config=config, base=base,
@@ -7350,9 +7351,9 @@ def _without_github_step_summary():
             os.environ["GITHUB_STEP_SUMMARY"] = prior
 
 
-def _host_only_review_action(
-    *, workspace: Path, git_root: Path, config: Path, base: str | None, head: str | None,
-) -> HumanControlAction | None:
+def _host_only_review_control(
+    *, workspace: Path, git_root: Path, config: Path, base: str, head: str | None,
+) -> AgentControl | None:
     """Check review obligations on the same Git subject as a host-only run."""
     from agents_shipgate.cli.agent_result import (
         build_agent_boundary_result,
@@ -7371,15 +7372,11 @@ def _host_only_review_action(
             manifest_text_snapshot=changes.manifest_text_snapshot,
         )
     except (OSError, ValueError, RuntimeError, AgentsShipgateError):
-        return HumanControlAction(
-            kind="stop", why="The host boundary could not be checked on this Git comparison.",
+        reason = "The host boundary could not be checked on this Git comparison."
+        return derive_agent_control(
+            reason=reason, next_action=HumanControlAction(kind="stop", why=reason),
         )
-    if result.control.human_review.required or result.decision in {"block", "require_review"}:
-        return HumanControlAction(
-            kind="stop" if result.control.must_stop else "review",
-            why=result.control.human_review.why or result.control.reason,
-        )
-    return None
+    return result.control if result.control.human_review.required else None
 
 
 @owns_current_control("preview")
@@ -7393,7 +7390,7 @@ def run_preview(
     pr_comment_style: str = "capability-review",
     auto_base: bool = False,
     _host_comparison=None,
-    _host_review: HumanControlAction | None = None,
+    _host_review: AgentControl | None = None,
     _operation: str = "preview",
 ) -> tuple[VerifierArtifact, None, int]:
     """Lightweight relevance check for ``agents-shipgate verify --preview``.
@@ -7466,7 +7463,14 @@ def run_preview(
     diff_text = ""
     notes: list[str] = []
     diff_input: DiffContext | None = None
-    if base is None and auto_base:
+    compared_base = _host_comparison.base_commit if _host_comparison is not None else None
+    compared_head = head or "HEAD"
+    if _host_comparison is not None and compared_base is not None:
+        if _host_comparison.input_identity is not None:
+            base = _host_comparison.input_identity.base_ref
+        if head is not None:
+            compared_head = _host_comparison.head_commit or head
+    elif base is None and auto_base:
         try:
             detection = detect_default_base_with_notes(root, head or "HEAD")
         except Exception:  # noqa: BLE001 - preview must never crash.
@@ -7479,10 +7483,10 @@ def run_preview(
                     f"Auto-detected base {detection.base!r} for diff context; "
                     "pass --base to override or --no-base to disable."
                 )
-    if base:
+    if comparison_base := compared_base or base:
         try:
             git_root = ensure_git_workspace(root)
-            collected = _collect_diff(git_root, base, head or "HEAD")
+            collected = _collect_diff(git_root, comparison_base, compared_head)
         except Exception as exc:  # noqa: BLE001 - preview must never crash.
             collected = _as_diff_context(exc)
         changed_files = list(collected.changed_files)
@@ -7504,7 +7508,8 @@ def run_preview(
             # The merge base, not the base ref: comparing against the tip of
             # the base branch would report its own commits as this change.
             comparison_ref = (
-                require_merge_base_sha(root, base, "HEAD") if base else "HEAD"
+                compared_base
+                or (require_merge_base_sha(root, base, "HEAD") if base else "HEAD")
             )
             worktree_paths, worktree_diff = working_tree_context(
                 root,
@@ -7518,7 +7523,7 @@ def run_preview(
                 "rests on committed evidence alone."
             )
         if worktree_paths or worktree_diff:
-            if base and diff_input is None:
+            if comparison_base and diff_input is None:
                 # One comparison, exactly as the verifier does it: overlapping
                 # paths must appear once at their effective content, not twice.
                 changed_files = list(worktree_paths)
@@ -7540,8 +7545,8 @@ def run_preview(
         root=root,
         changed_files=changed_files,
         limit=requested_root,
-        head=head,
-        base=base,
+        head=compared_head if head is not None else None,
+        base=comparison_base,
     )
     host_comparison = _host_comparison
     if host_comparison is None and not manifest_present and diff_input is None:
@@ -7632,8 +7637,13 @@ def run_preview(
     # is not configured here" would answer a question nobody asked and bury the
     # fact that the PR was never inspected — and an unadopted repo reached over a
     # shallow or blobless clone is exactly where this failure lands.
-    if diff_input is not None:
-        next_action: AgentControlAction = _diff_failure_action(
+    next_action: AgentControlAction
+    if _host_review is not None:
+        assert isinstance(_host_review.next_action, HumanControlAction)
+        next_action = _host_review.next_action
+        headline = next_action.why
+    elif diff_input is not None:
+        next_action = _diff_failure_action(
             diff_input,
             expects=(
                 f"{base}...{head or 'HEAD'}"
@@ -7752,8 +7762,6 @@ def run_preview(
                 kind="fetch_base", expects="complete Git history",
                 why="The checkout is shallow. Run git fetch --unshallow (or use fetch-depth: 0 in CI), then rerun the same comparison.",
             )
-        elif _host_review is not None:
-            next_action = _host_review
         elif _operation == "verify":
             command = [
                 "agents-shipgate", "check", "--workspace", str(requested_root),
@@ -7847,6 +7855,8 @@ def run_preview(
         reason=headline,
         next_action=next_action,
         verify_required=True,
+        human_review_why=_host_review.human_review.why if _host_review else None,
+        required_reviewers=_host_review.human_review.required_reviewers if _host_review else (),
         allowed_next_commands=(
             [next_action.command] if isinstance(next_action, CodingAgentCommandAction) else []
         ),

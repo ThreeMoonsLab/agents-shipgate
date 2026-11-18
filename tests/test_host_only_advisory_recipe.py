@@ -164,6 +164,50 @@ def test_host_only_init_installs_the_exercised_recipe_and_doctor_routes_to_host_
     assert json.loads(default.stdout)["control"] == inspected["control"]
 
 
+@pytest.mark.parametrize("relative_dir", [".github", ".github/workflows"])
+def test_host_only_workflow_requires_plain_repository_directories(
+    tmp_path: Path, relative_dir: str,
+) -> None:
+    from agents_shipgate.cli.discovery.ci_workflow import write_ci_workflow
+    from agents_shipgate.core.errors import ConfigError
+
+    linked_directory = tmp_path / relative_dir
+    linked_directory.parent.mkdir(parents=True, exist_ok=True)
+    other_directory = tmp_path / "other"
+    other_directory.mkdir()
+    try:
+        linked_directory.symlink_to(other_directory, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable")
+
+    with pytest.raises(ConfigError, match="symbolic link"):
+        write_ci_workflow(tmp_path, host_only=True)
+
+    assert not list(other_directory.iterdir())
+
+
+def test_host_only_workflow_keeps_a_file_created_while_loading_the_recipe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agents_shipgate.cli.discovery import ci_workflow
+
+    target = tmp_path / ci_workflow.WORKFLOW_RELATIVE_PATH
+    existing = b"# workflow from a concurrent writer\n"
+
+    def load_recipe(relative_path: str) -> Path:
+        assert relative_path == "_meta/host-only-advisory.yml"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(existing)
+        return RECIPE
+
+    monkeypatch.setattr(ci_workflow, "packaged_path", load_recipe)
+
+    result = ci_workflow.write_ci_workflow(tmp_path, host_only=True)
+
+    assert result.status == "skipped_existing_target"
+    assert target.read_bytes() == existing
+
+
 def test_the_pinned_version_installs_from_the_index_not_the_pr() -> None:
     """With `shipgate_version` set, the Action installs that release by name.
 
