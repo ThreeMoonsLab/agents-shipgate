@@ -1358,7 +1358,7 @@ def _evaluate_config_file(
         )
         return
     try:
-        data = tomllib.loads(resolved.new_text)
+        data = tomllib.loads(resolved.new_text.removeprefix("\ufeff"))
     except tomllib.TOMLDecodeError as exc:
         add(
             "CODEX-CONFIG-PARSE-FAILED",
@@ -1367,7 +1367,7 @@ def _evaluate_config_file(
         )
         return
     try:
-        old_data = tomllib.loads(resolved.old_text or "")
+        old_data = tomllib.loads((resolved.old_text or "").removeprefix("\ufeff"))
     except tomllib.TOMLDecodeError as exc:
         add(
             "CODEX-CONFIG-PARSE-FAILED",

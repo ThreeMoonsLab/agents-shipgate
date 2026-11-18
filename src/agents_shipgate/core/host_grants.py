@@ -388,7 +388,7 @@ class HostStaticParseCache:
         self.parse_counts[display] = self.parse_counts.get(display, 0) + 1
         try:
             if path.suffix == ".toml":
-                data = tomllib.loads(text)
+                data = tomllib.loads(text.removeprefix("\ufeff"))
             elif path.suffix in {".yml", ".yaml"}:
                 data = yaml.safe_load(text)
             elif is_vscode_mcp_path(path.as_posix()):
