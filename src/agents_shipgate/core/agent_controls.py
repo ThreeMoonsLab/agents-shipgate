@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import stat
 from pathlib import Path
 
 from agents_shipgate.invocation import render_command, retarget_command
@@ -40,6 +41,46 @@ def git_root_for(path: Path) -> Path | None:
         if (candidate / ".git").exists():
             return candidate
     return None
+
+
+def owned_git_root_for(path: Path) -> Path | None:
+    """The nearest ancestor holding a repository this user owns, or ``None``.
+
+    The stricter sibling of :func:`git_root_for`, for deciding where a command
+    may *write* (``apply-patches``' trusted roots, #1031). The nearest ``.git``
+    entry decides: it must be a directory, or a file naming a ``gitdir:`` (a
+    worktree or submodule), and on POSIX it must be owned by the current user.
+    Anything else at the nearest entry — a link, a stray file, another user's
+    directory — answers ``None`` instead of continuing upward, so it can only
+    narrow the answer, never widen it to a further ancestor.
+    """
+
+    try:
+        current = path.resolve()
+    except OSError:
+        return None
+    for candidate in (current, *current.parents):
+        marker = candidate / ".git"
+        try:
+            metadata = os.lstat(marker)
+        except OSError:
+            continue
+        if hasattr(os, "getuid") and metadata.st_uid != os.getuid():
+            return None
+        if stat.S_ISDIR(metadata.st_mode):
+            return candidate
+        if stat.S_ISREG(metadata.st_mode) and _names_a_gitdir(marker):
+            return candidate
+        return None
+    return None
+
+
+def _names_a_gitdir(marker: Path) -> bool:
+    try:
+        with marker.open("rb") as handle:
+            return handle.read(64).startswith(b"gitdir:")
+    except OSError:
+        return False
 
 
 def verify_command_for(
@@ -170,6 +211,7 @@ __all__ = [
     "FORBIDDEN_SHORTCUTS",
     "detect_command_for",
     "git_root_for",
+    "owned_git_root_for",
     "preview_command_for",
     "verify_command_for",
 ]

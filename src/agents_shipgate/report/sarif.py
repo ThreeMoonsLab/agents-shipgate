@@ -6,6 +6,7 @@ from typing import Any, get_args
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.registry import check_catalog
+from agents_shipgate.core.contained_write import write_contained
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.domain import SemanticIssueKind
 from agents_shipgate.core.privacy import sanitize_report
@@ -22,11 +23,13 @@ MAX_EVIDENCE_STRING_LENGTH = 1000
 SEMANTIC_GAP_RULE_PREFIX = "SHIP-SEMANTIC-"
 
 
-def write_sarif_report(report: ReadinessReport, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+def write_sarif_report(
+    report: ReadinessReport, path: Path, *, root: Path | None = None
+) -> None:
+    write_contained(
+        path,
         json.dumps(render_sarif_report(report), indent=2, sort_keys=True),
-        encoding="utf-8",
+        root=root,
     )
 
 

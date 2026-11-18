@@ -27,13 +27,6 @@ def parse_python_file(path: Path, *, label: str) -> ast.Module:
         raise InputParseError(f"Unable to parse {label} Python entrypoint {path}: {exc.msg}") from exc
 
 
-def display_path(path: Path, base_dir: Path) -> str:
-    try:
-        return path.resolve().relative_to(base_dir.resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
-
-
 def dotted_name(node: ast.AST | None) -> str | None:
     if isinstance(node, ast.Name):
         return node.id
