@@ -211,9 +211,11 @@ LOCK_TARGETS: tuple[LockTarget, ...] = (
 
 # Locks installed into one environment. A shared distribution pinned at two
 # versions means the second `pip install` moves what the first one placed, so
-# the closure that was tested is not the closure that ends up installed. CI
-# installs the first two; the adoption harness installs all three.
+# the closure that was tested is not the closure that ends up installed. The
+# first group is what CI installs for tests and builds (the dependency audit's
+# `test-build` subject); the adoption harness installs the second.
 CO_INSTALLED: tuple[tuple[str, ...], ...] = (
+    ("constraints/dev.txt", "constraints/build-backend.txt"),
     ("constraints/dev.txt", "constraints/build-backend.txt", "constraints/harness.txt"),
 )
 
