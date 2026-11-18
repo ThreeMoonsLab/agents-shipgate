@@ -324,6 +324,125 @@ def test_diff_context_retains_both_sides_of_a_rename(tmp_path: Path) -> None:
     assert changed_files == ["policies/review.yml", "retired.txt"]
 
 
+@pytest.mark.parametrize("committed_head", [False, True])
+def test_prepare_reads_explicit_comparison_report_from_base(tmp_path: Path, committed_head: bool) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    reference = repo / "comparison.json"
+    base_report = b'{"version":"base"}\n'
+    reference.write_bytes(base_report)
+    _commit_all(repo, "base comparison report")
+    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    reference.write_bytes(b'{"version":"head"}\n')
+    if committed_head:
+        _commit_all(repo, "change comparison report")
+    plan_path = tmp_path / "reports" / "verification-plan.json"
+
+    result = runner.invoke(app, [
+        "verification", "prepare", "--workspace", str(repo), "--base", base,
+        "--diff-from", reference.name, "--out", str(plan_path),
+        *(["--head", "HEAD"] if committed_head else []),
+    ])
+
+    assert result.exit_code == 0, result.output
+    inputs = json.loads(plan_path.read_text(encoding="utf-8"))["inputs"]
+    assert (plan_path.parent / inputs["diff_from"]["path"]).read_bytes() == base_report
+    assert inputs["options"]["diff_from_base"] == {"path": reference.name, "commit_sha": base}
+
+
+def test_live_validation_checks_the_base_comparison_report_origin(tmp_path: Path) -> None:
+    from agents_shipgate.core.verification_input_currency import validate_bound_plan_inputs
+    from agents_shipgate.schemas.verification_identity import VerificationPlan
+
+    repo = _repo_with_manifest(tmp_path)
+    (repo / "comparison.json").write_text('{"tools": []}\n', encoding="utf-8")
+    _commit_all(repo, "commit comparison report")
+    plan_path = tmp_path / "reports" / "verification-plan.json"
+    result = runner.invoke(app, [
+        "verification", "prepare", "--workspace", str(repo), "--base", "HEAD",
+        "--diff-from", "comparison.json", "--out", str(plan_path),
+    ])
+    assert result.exit_code == 0, result.output
+    plan = VerificationPlan.model_validate_json(plan_path.read_bytes())
+    validate_bound_plan_inputs(plan, root=repo, artifacts_root=plan_path.parent, live_origins=True)
+
+    binding = plan.inputs.options["diff_from_base"]
+    binding["path"] = "tools.json"
+    with pytest.raises(ValueError, match="comparison report does not match the file"):
+        validate_bound_plan_inputs(plan, root=repo, artifacts_root=plan_path.parent, live_origins=True)
+    binding["commit_sha"] = "0" * 40
+    with pytest.raises(ValueError, match="comparison report commit does not match"):
+        validate_bound_plan_inputs(plan, root=repo, artifacts_root=plan_path.parent, live_origins=True)
+
+
+def test_prepare_reports_symlinked_comparison_path_cleanly(tmp_path: Path) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    alias = tmp_path / "alias"
+    alias.symlink_to(repo, target_is_directory=True)
+    result = runner.invoke(app, [
+        "verification", "prepare", "--workspace", str(alias), "--base", "HEAD",
+        "--diff-from", str(alias / "tools.json"), "--out", str(tmp_path / "plan.json"),
+    ])
+    assert result.exit_code == 2, result.output
+    assert "--diff-from must not contain symlink components" in result.output
+
+
+def test_prepare_rejects_comparison_report_present_only_in_head(tmp_path: Path) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    reference = repo / "comparison.json"
+    reference.write_bytes(b'{"version":"head"}\n')
+    plan_path = tmp_path / "reports" / "verification-plan.json"
+
+    result = runner.invoke(app, [
+        "verification", "prepare", "--workspace", str(repo), "--base", "HEAD",
+        "--diff-from", reference.name, "--out", str(plan_path),
+    ])
+
+    assert result.exit_code == 3, result.output
+    assert "Cannot read --diff-from 'comparison.json' at 'HEAD'" in result.stderr
+    assert not plan_path.exists()
+
+
+@pytest.mark.parametrize("committed", [False, True])
+@pytest.mark.parametrize("directory_first", [False, True])
+def test_verify_accepts_swaps_between_a_file_and_a_directory(
+    tmp_path: Path, committed: bool, directory_first: bool,
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    replaced = repo / "docs" / "notes"
+    replaced.parent.mkdir()
+    member = replaced / "notes.txt"
+    if directory_first:
+        replaced.mkdir()
+        member.write_text("previous notes\n", encoding="utf-8")
+    else:
+        replaced.write_text("previous notes\n", encoding="utf-8")
+    _commit_all(repo, "original content")
+    if directory_first:
+        member.unlink()
+        replaced.rmdir()
+        replaced.write_text("current notes\n", encoding="utf-8")
+    else:
+        replaced.unlink()
+        replaced.mkdir()
+        member.write_text("current notes\n", encoding="utf-8")
+    if committed:
+        _commit_all(repo, "replace content")
+
+    result = runner.invoke(app, [
+        "verify", "--workspace", str(repo), "--base", "HEAD~1" if committed else "HEAD",
+        *(["--head", "HEAD"] if committed else []),
+        "--format", "json", "--ci-mode", "advisory",
+    ])
+
+    assert result.exit_code == 0, result.output
+    verifier = json.loads(result.output)
+    assert verifier["execution"] == "succeeded"
+    assert {"docs/notes", "docs/notes/notes.txt"} <= set(verifier["changed_files"])
+    plan_path = repo / "agents-shipgate-reports" / "verification-plan.json"
+    paths = {blob["path"] for blob in json.loads(plan_path.read_text())["inputs"]["changed_files"]}
+    assert ("docs/notes/notes.txt" if not directory_first else "docs/notes") in paths
+
+
 def test_verify_manifest_present_force_runs_even_docs_only_diff(tmp_path: Path) -> None:
     repo = _repo_with_manifest(tmp_path)
     _set_origin_main(repo)

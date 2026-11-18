@@ -386,6 +386,120 @@ updating the verifier.
 
 ---
 
+<a id="write-containment-1031"></a>
+
+## Migration Note: Unreleased — writes stay inside roots the run chooses, and every Git child runs with one environment (#1031)
+
+**What was wrong.** Write boundaries took their root from the input they were
+meant to contain, and nothing checked the files written inside them.
+
+- `apply-patches` compared each patch target with `manifest_dir`, which it
+  read from the same report as the patches. A report could name another
+  directory as its own and patch a file there, or name any YAML or JSON file of
+  the repository it ran in.
+- `output.directory` in `shipgate.yaml`, which a pull request can change, was
+  joined onto the manifest's directory unchecked, so an absolute or `..` value
+  made `scan` write and clear report files outside the workspace. Every report
+  writer also followed a link at its destination, so a committed link in the
+  reports directory, at a file or at a directory, carried a write outside it.
+- A `set_pointer` patch whose pointer ended in `-` stopped `apply-patches`
+  with a traceback instead of the documented exit `2`, and a target that was a
+  directory did the same.
+- The Git environment was written out by hand at five places that had drifted
+  apart: discovery ran Git without `GIT_ALLOW_PROTOCOL`; `authorization
+  execute` without `GIT_ATTR_NOSYSTEM`, `GIT_OPTIONAL_LOCKS` and `GIT_PAGER`;
+  and `fixture run` with the operator's whole Git configuration.
+
+**What changes.**
+
+- **`apply-patches` targets.** A target must lie under the report's
+  `manifest_dir` *and* under a root the run names itself: the new
+  `--workspace <dir>` option, or else the directory it is started in, plus the
+  git toplevel containing that directory. A toplevel counts only when its
+  `.git` is a directory or a file naming a `gitdir:`, and on POSIX only when
+  that entry is owned by the current user (Windows has no ownership check);
+  anything else at the nearest `.git` narrows the roots instead of widening
+  them. The target must load as a Shipgate manifest, the only file a generated
+  patch edits, before the patch and again once every patch for it is applied
+  in memory; a protected agent-boundary or trust-root file is refused by name. Anything else exits `5` (`other_error`, with a
+  `review` action naming the report and the resolved target) and nothing is
+  written. The `apply-patches` commands `verify` prints carry
+  `--workspace <repository>`, so they work from any directory.
+- **Pointers.** A patch pointer that does not fit its document is a malformed
+  patch: exit `2`, `malformed_patch`, and no file is written. Tokens follow
+  RFC 6901: a list index is `0` or a decimal without a leading zero, and names
+  an existing element; `-` may end only an `append_pointer`, which appends to
+  that list; `~` must be followed by `0` or `1`; nothing descends into a
+  scalar. One spelling differs from RFC 6901, as before: `/` names the whole
+  document, which no patch may target, not the member with an empty name. An
+  `append_pointer` whose last token indexes a list element now appends to that
+  element when it is a list, as a key does; it used to append to the parent
+  list and ignore the index. Every file is planned before any is written, so a
+  bad pointer in one file no longer leaves another rewritten.
+- **`output.directory`.** It must be a relative path with no `..` component.
+  An absolute path, a Windows drive or UNC path, or a `..` segment is a
+  `config_error` (exit `2`) when the manifest loads, for every command that
+  loads it. `docs/manifest-v0.1.json` carries the rule as a `pattern`.
+- **The reports directory, typed or default.** An output directory typed
+  with `--out` (`scan`, `verify`, and the GitHub Action's
+  `--out agents-shipgate-reports`) and `verify`'s default
+  `<workspace>/agents-shipgate-reports` are checked from the repository root
+  (the git toplevel, or the manifest's directory outside Git) before they are
+  resolved, and so is `output.directory`. Every component inside the
+  repository must be a plain directory, not a link or a Windows junction: a
+  reports directory that is itself a link is refused, even one pointing inside
+  the workspace, and so is a link deeper in the path. The directories above
+  the repository root are the operator's choice, and a location outside the
+  repository may still be reached through a link.
+- **Every file `scan` writes or clears** — reports, packet files, the advisory
+  scaffolds, `current-control.json` and the stale verifier artifacts it
+  removes — and `verify`'s `verification-inputs/` copies and the stale scan
+  artifacts it clears before a manifest-free run go through one contained
+  writer. Before anything is written or removed it refuses a link or
+  junction in any directory below the trusted root, a link at the destination
+  (one that stays inside the workspace included), a special file, a hard link,
+  and a spelling outside the root; where the platform supports it, the file is
+  opened with `O_NOFOLLOW` and re-checked. The trusted root is the manifest's
+  directory for `output.directory`, and the checked output directory itself for
+  `--out`. `verify` clears stale verifier artifacts the same way, so a linked
+  one is refused instead of being removed.
+- **Git.** Every Git child — discovery, `verify`'s plumbing, `fixture run`,
+  `authorization execute` and the Claude Code hook runner — runs with
+  `agents_shipgate.core.git_env.hardened_git_env()`, which holds the union of
+  the variables the copies set. The fixture also turns off hooks and commit
+  signing for the history it writes, and no longer reads the operator's global
+  or system Git configuration. The hook runner's values are written into it
+  from the same module. The zero-install `tools/shipgate-detect.py` cannot
+  import the package, so it keeps a copy, now with `GIT_ALLOW_PROTOCOL`, that
+  `tests/test_git_env.py` holds equal to the module.
+- **Shared helpers.** The path shown for a file relative to a root has one
+  implementation, and so does the walk that refuses a symlink on the way to a
+  file. On Windows, a path outside its root, and the `generated_reports` and
+  baseline paths of a scan, now print with forward slashes, as every other path
+  in a report already did. Nothing changes on POSIX.
+
+**What does not change.** No schema version, contract version, check ID or
+exit-code meaning moves, and no report field is added or removed. A manifest
+with a relative `output.directory` whose reports directory holds plain files,
+and a report applied from inside its repository, behave as before.
+
+**Who must act.**
+
+- A manifest whose `output.directory` is absolute or leaves its directory:
+  remove `output.directory`, or make it a relative path inside the manifest's
+  directory. The value is refused when the manifest loads, so `--out` does not
+  rescue that run; to write reports elsewhere afterwards, pass `scan --out`.
+  `verify` passes its own `--out`, but a base or head manifest holding such a
+  value now fails to load.
+- A reports directory that is, or contains, a symbolic or hard link, or that
+  sits below a linked directory of the repository: replace the link with a
+  plain directory or file, or choose an `--out` outside the repository.
+- A pipeline that runs `apply-patches` from outside the repository the patches
+  are for: pass `--workspace <repository>`, or run it from inside. `bootstrap`
+  already runs it from the workspace.
+
+---
+
 <a id="held-restrictions-1036"></a>
 
 ## Migration Note: Unreleased — a tightened deny or ask rule is not a widening, and a lifted denial is rated by what it restricted (#1036)
@@ -818,6 +932,19 @@ the fetch step and `--reviews` shown in `docs/organization.md`.
 `human_ack`, the bypass report's rule, and the receipt identity rules.
 `attest` stays static-by-default and calls no API: the workflow fetches the
 reviews.
+
+---
+
+## Migration Note: Unreleased — report fields in an attestation require a receipt (#1068)
+
+Every run without a receipt-bound report has `human_ack.satisfied: null`,
+empty `outstanding` and `acks` lists, a null `policy_snapshot_sha256`, and no
+report hash. A bound report without a `human_ack` block also leaves the
+acknowledgement unknown. `org bundle` publishes report provenance and privacy
+evidence only from a bound report. For review-required verdicts, a row with
+unknown acknowledgement can count as a bypass candidate in `registry report`,
+including when `--fail-on-bypass` is set. Consumers that need acknowledged
+policy evidence should use the terminal receipt and the report it binds.
 
 ---
 
@@ -6130,7 +6257,9 @@ tests on every CI run, not by convention:
     against a temporary bundled fixture copy so
     `fixture run ai_generated_refund_pr` can produce verifier artifacts.
     This allowlisted meta-CLI surface uses fixed argv, no shell, no network
-    fetch, and no user-code execution.
+    fetch, and no user-code execution. It runs with the shared hardened Git
+    environment, so the operator's global and system Git configuration is
+    not read, and with hooks and signing disabled (#1031).
   - **`fixtures.py`** — one `importlib.resources.files('agents_shipgate')`
     call to resolve the bundled fixture directory.
   - **`cli/discovery/agent_instructions/adoption_kit.py`** — one
@@ -6256,6 +6385,17 @@ publishing its own `tools/list` asserts; the effect is only ever to widen the
 analysed surface, and a source with no `binding` block resolves exactly as
 before. It does not replace `agent_bindings.declarations`, which remains the
 way an agent declares the subset of a catalog it wires.
+
+`output.directory` is narrowed (Unreleased, #1031): it must be a relative path
+inside the manifest's directory. An absolute path, a Windows drive or UNC path,
+or any `..` component is a `config_error` (exit 2) at manifest load, and
+`docs/manifest-v0.1.json` states the same rule as a `pattern` on
+`OutputConfig.directory`, held to the loader by
+`tests/test_manifest_schema_parity.py`. Because the value is refused at load,
+the recovery is to remove it or make it relative; the manifest is repository
+content, so it does not choose where reports are written outside the
+repository, and `scan --out` does. See the
+[migration note](#write-containment-1031).
 
 `policies.control_pack` (`default` | `financial-strict` | `read-only-agent`)
 is additive and changes no published schema, so there is no

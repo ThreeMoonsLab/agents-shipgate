@@ -641,26 +641,26 @@ def test_one_spelling_for_out_and_reports_dir_through_a_link_out_of_the_reposito
     symlink to a directory outside it: the writer resolved it and dropped the
     exclusion, the reader kept it, and the refusal that followed left a
     `review_publishable` pointer current over an edited tree.
+
+    Since #1031 the writer no longer follows a link inside the repository at
+    all: a pull request can commit one, and every artifact would land outside
+    the checkout. So the spelling is refused before anything is written, there
+    is no pointer to read, and the reader cannot report a current one.
     """
 
     monkeypatch.chdir(tmp_path)
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    repo = _sample_with_ignored_link(tmp_path / "repo", "lnkdir", elsewhere)
+    _sample_with_ignored_link(tmp_path / "repo", "lnkdir", elsewhere)
     same = str(tmp_path / "repo" / "lnkdir" / "rpt")
 
     verified = _verify_into("repo", Path(same))
-    assert verified.exit_code == 0, _plain(verified.output)
-    published = json.loads(verified.stdout)
-    assert published["control_state"] != "complete", published
-    assert (elsewhere / "rpt" / "current-control.json").is_file()
-
-    _edit_outside_the_declared_inputs(repo)
+    assert verified.exit_code == 2, _plain(verified.output)
+    assert "symbolic link inside the repository" in _plain(verified.output)
+    assert list(elsewhere.iterdir()) == []
 
     code, line = _outcome(_control("--workspace", "repo", "--reports-dir", same))
-    assert code == 4, line
-    assert "(workspace_changed)" in line, line
-    assert "new_tool.py" in line and "notes.txt" in line, line
+    assert code != 0, line
 
 
 def test_a_case_variant_out_is_the_repository_directory_it_names(

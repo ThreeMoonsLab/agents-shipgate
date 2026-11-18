@@ -388,7 +388,7 @@ class HostStaticParseCache:
         self.parse_counts[display] = self.parse_counts.get(display, 0) + 1
         try:
             if path.suffix == ".toml":
-                data = tomllib.loads(text)
+                data = tomllib.loads(text.removeprefix("\ufeff"))
             elif path.suffix in {".yml", ".yaml"}:
                 data = yaml.safe_load(text)
             elif is_vscode_mcp_path(path.as_posix()):
@@ -927,17 +927,6 @@ def published_setting_value(grant: dict[str, Any]) -> Any:
         ):
             return candidate
     return text
-
-
-def _display_path(path: Path, *, root: Path, home: Path) -> str:
-    try:
-        return path.resolve().relative_to(root).as_posix()
-    except ValueError:
-        pass
-    try:
-        return f"~/{path.resolve().relative_to(home).as_posix()}"
-    except ValueError:
-        return str(path)
 
 
 def _issue_source_label(source: str) -> str:

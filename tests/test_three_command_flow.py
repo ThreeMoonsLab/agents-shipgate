@@ -17,6 +17,7 @@ entries exist (and respects the containment + dry-run rules).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import shutil
 from pathlib import Path
@@ -29,6 +30,17 @@ from agents_shipgate.cli.main import app
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
 runner = CliRunner()
+
+
+def _apply_patches(root: Path, args: list[str], **kwargs):
+    """``apply-patches`` as an operator runs it: from the repository it edits.
+
+    It writes only under the working directory and the git toplevel holding
+    it, never under a directory the report names (#1031).
+    """
+
+    with contextlib.chdir(root):
+        return runner.invoke(app, ["apply-patches", *args], **kwargs)
 
 
 def _seed_with_stale_entries(tmp_path: Path) -> Path:
@@ -157,10 +169,9 @@ def test_three_command_flow_end_to_end(tmp_path: Path) -> None:
             assert "do not edit the trace" in instructions
 
     # 4. apply-patches --confidence high --apply
-    apply_result = runner.invoke(
-        app,
+    apply_result = _apply_patches(
+        workspace,
         [
-            "apply-patches",
             "--from",
             str(report_path),
             "--confidence",

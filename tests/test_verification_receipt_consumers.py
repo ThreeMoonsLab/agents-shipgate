@@ -189,6 +189,11 @@ def test_attest_binds_the_receipt_of_a_real_verify_run(
     for field in IDENTITY_FIELDS:
         assert attestation[field] == receipt[field]
         assert attestation[field]
+    report = _json(out / "report.json")
+    policy = json.dumps(report["effective_policy"], sort_keys=True, separators=(",", ":"))
+    assert attestation["policy_snapshot_sha256"] == hashlib.sha256(policy.encode()).hexdigest()
+    assert attestation["human_ack"]["satisfied"] == report["human_ack"]["satisfied"]
+    assert attestation["artifact_sha256"]["report_json"] == hashlib.sha256((out / "report.json").read_bytes()).hexdigest()
     jsonschema.validate(attestation, ATTESTATION_SCHEMA)
 
 
@@ -571,6 +576,37 @@ def test_a_run_that_states_no_outcome_owes_no_receipt(tmp_path: Path, route: str
     assert outputs["can_merge_without_human"] == "false"
     assert all(outputs[field] == "" for field in IDENTITY_FIELDS)
     assert outputs["verification_receipt_json"] == ""
+
+
+def test_attest_and_bundle_ignore_an_unbound_report(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, sample=True)
+    out = tmp_path / "verify-out"
+    assert _verify(repo, out, config="missing.yaml") == 2
+    assert not (out / RECEIPT).exists()
+    (out / "report.json").write_text(
+        json.dumps({
+            "human_ack": {"satisfied": True},
+            "effective_policy": {"ci_mode": "advisory"},
+            "privacy_audit": {"test_marker": True},
+        }),
+        encoding="utf-8",
+    )
+
+    target = out / "attestation.json"
+    result = _attest(out, target)
+
+    assert result.exit_code == 0, result.output
+    attestation = _json(target)
+    assert attestation["human_ack"]["satisfied"] is None
+    assert attestation["policy_snapshot_sha256"] is None
+    assert "report_json" not in attestation["artifact_sha256"]
+
+    result = _bundle(repo, out)
+    assert result.exit_code == 0, result.output
+    bundle = json.loads(result.output)
+    assert bundle["privacy"] == {}
+    assert bundle["source_report"] is None
+    assert "report" not in bundle["artifacts"]
 
 
 def test_the_host_route_ignores_an_earlier_runs_report(

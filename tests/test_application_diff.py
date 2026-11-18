@@ -31,7 +31,10 @@ def commit(root, files):
             path.unlink()
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content)
+            if isinstance(content, bytes):
+                path.write_bytes(content)
+            else:
+                path.write_text(content)
     git(root, 'add', '-A')
     git(root, '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
         '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-qm', 'fixture')
@@ -102,6 +105,47 @@ def test_fresh_repository_reports_actual_wiring_not_catalog(repo):
     assert git(repo, 'status', '--porcelain') == ''
     assert not any(k in result for k in ['control', 'decision', 'release_decision', 'merge_verdict'])
     assert result == run(repo, base, head)
+
+
+@pytest.mark.parametrize(
+    'encoding,header',
+    [('utf-8-sig', ''), ('cp1252', '# coding: cp1252\n')],
+)
+def test_application_reads_python_source_encoding(repo, encoding, header):
+    initial = SDK.replace('return query', 'return "café"')
+    base = commit(repo, {'agent.py': (header + initial.replace('TOOLS', '[lookup]')).encode(encoding)})
+    head = commit(repo, {'agent.py': (header + initial.replace('TOOLS', '[lookup, execute]')).encode(encoding)})
+
+    result = run(repo, base, head)
+
+    assert result['comparison_status'] == 'compared'
+    assert [(row['tool'], row['change']) for row in result['rows']] == [('execute', 'added')]
+
+
+@pytest.mark.parametrize("invalid_input", [b"# bad encoding \xff\n", b"# coding: rot13\n"])
+def test_application_names_a_file_with_unreadable_encoding(repo, invalid_input):
+    initial = SDK.replace('TOOLS', '[lookup]')
+    base = commit(repo, {'agent.py': initial})
+    head = commit(repo, {'agent.py': invalid_input + initial.encode()})
+
+    result = run(repo, base, head)
+
+    assert result['comparison_status'] in {'partial', 'not_established'}
+    assert 'Python input encoding could not be read: agent.py' in json.dumps(result)
+
+
+@pytest.mark.parametrize('terms', [2500, 3000])
+def test_deep_python_expression_does_not_crash_init_or_diff(repo, terms):
+    initial = SDK.replace('TOOLS', '[lookup]')
+    base = commit(repo, {'agent.py': initial})
+    expression = ' + '.join(['"part"'] * terms)
+    head = commit(repo, {'agent.py': initial.replace('return query', f'return {expression}')})
+
+    initialized = CliRunner().invoke(app, ['init', '--workspace', str(repo), '--json'])
+    assert initialized.exit_code == 0, initialized.output + repr(initialized.exception)
+    result = run(repo, base, head)
+    assert result['comparison_status'] in {'partial', 'not_established'}
+    assert 'agent.py' in json.dumps(result)
 
 
 def test_definition_without_wiring_does_not_become_capability(repo):

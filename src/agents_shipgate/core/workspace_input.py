@@ -74,7 +74,7 @@ def workspace_input_error(
     presence = classify_workspace(workspace)
     if presence == "present":
         return None
-    display = _display_path(workspace)
+    display = _described_workspace(workspace)
     if presence == "absent":
         return ConfigError(
             f"{option} does not exist: {display}. Point it at an existing "
@@ -110,7 +110,7 @@ def require_workspace_directory(
         return workspace
 
 
-def _display_path(workspace: Path) -> str:
+def _described_workspace(workspace: Path) -> str:
     """Absolutize for the message without requiring the path to exist.
 
     ``Path.resolve()`` is fine on a missing path, but a caller who typed a
