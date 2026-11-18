@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -71,8 +72,9 @@ CASES = {
         ["CODEX-CI-GATE-REMOVED"],
         "human_review_required",
     ),
-    "docs_only": ("allow", [], "human_review_required"),
-    "python_refactor": ("allow", [], "human_review_required"),
+    # A standalone diff establishes no checkout state: never a pass (#1154).
+    "docs_only": ("require_review", [], "human_review_required"),
+    "python_refactor": ("require_review", [], "human_review_required"),
     "unknown_permission_key": (
         "require_review",
         ["CODEX-UNKNOWN-PERMISSION-KEY"],
@@ -147,6 +149,30 @@ def test_codex_check_audit_id_is_stable(tmp_path: Path) -> None:
     second = json.loads(runner.invoke(app, args).output)
 
     assert first["audit_id"] == second["audit_id"]
+
+
+def test_malformed_toml_audit_id_is_independent_of_parser_positions(tmp_path, monkeypatch):
+    args = [
+        "check", "--workspace", str(tmp_path), "--diff", str(CORPUS / "malformed_toml.diff"),
+        "--format", "codex-boundary-json",
+    ]
+    loads = tomllib.loads
+
+    def read_with_position(positions):
+        def injected(text, *args, **kwargs):
+            try:
+                return loads(text, *args, **kwargs)
+            except tomllib.TOMLDecodeError as exc:
+                exc.lineno, exc.colno = positions
+                raise
+        monkeypatch.setattr(tomllib, "loads", injected)
+        result = runner.invoke(app, args)
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["violated_rules"][0]["id"] == "CODEX-CONFIG-PARSE-FAILED"
+        return payload["audit_id"]
+
+    assert read_with_position((None, None)) == read_with_position((1, 27))
 
 
 def test_codex_audit_id_distinguishes_detached_control_from_replayable(
@@ -1149,7 +1175,7 @@ def test_codex_check_reads_diff_from_stdin(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert result.stderr == ""
-    assert json.loads(result.output)["decision"] == "allow"
+    assert json.loads(result.output)["decision"] == "require_review"
 
 
 def test_codex_check_accepts_a_one_sided_git_ref(tmp_path: Path) -> None:

@@ -74,9 +74,9 @@ def test_host_config_has_a_read_only_route_without_tool_exports(tmp_path, zero, 
 
 
 @pytest.mark.parametrize("flags", [[], ["--ci"], ["--ci", "--agent-instructions=all"], ["--claude-code"], ["--local-review"]])
-def test_direct_init_hands_off_without_writing_any_setup(tmp_path, flags):
+def test_direct_init_hands_off_and_writes_only_the_requested_advisory_workflow(tmp_path, flags):
     write(tmp_path, ".claude/settings.json")
-    before = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*"))
+    expected = {p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*")}
     args = ["init", "--workspace", str(tmp_path), "--json", *flags]
     if "--local-review" not in flags:
         args.append("--write")
@@ -84,7 +84,12 @@ def test_direct_init_hands_off_without_writing_any_setup(tmp_path, flags):
     assert result["manifest_status"] == "not_applicable_host_review"
     assert result["placeholders"] == []
     assert not any(result["control"]["permissions"].values())
-    assert sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*")) == before
+    if "--ci" in flags:
+        assert result["workflow"]["status"] == "written"
+        expected.update({".github", ".github/workflows", ".github/workflows/agents-shipgate.yml"})
+    else:
+        assert result["workflow"] is None
+    assert {p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*")} == expected
 
 
 def test_bootstrap_hands_off_the_detect_route_without_init(tmp_path):

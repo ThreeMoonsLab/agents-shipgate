@@ -7,12 +7,14 @@ import subprocess
 import sys
 import unicodedata
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.cli.verify import command as verify_command
 from agents_shipgate.cli.verify import git as verify_git
 from agents_shipgate.cli.verify import orchestrator as verify_orchestrator
 from agents_shipgate.cli.verify.capability_review import build_capability_review
@@ -322,6 +324,125 @@ def test_diff_context_retains_both_sides_of_a_rename(tmp_path: Path) -> None:
     changed_files, _diff = verify_git.diff_context(repo, "HEAD~1", "HEAD")
 
     assert changed_files == ["policies/review.yml", "retired.txt"]
+
+
+@pytest.mark.parametrize("committed_head", [False, True])
+def test_prepare_reads_explicit_comparison_report_from_base(tmp_path: Path, committed_head: bool) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    reference = repo / "comparison.json"
+    base_report = b'{"version":"base"}\n'
+    reference.write_bytes(base_report)
+    _commit_all(repo, "base comparison report")
+    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    reference.write_bytes(b'{"version":"head"}\n')
+    if committed_head:
+        _commit_all(repo, "change comparison report")
+    plan_path = tmp_path / "reports" / "verification-plan.json"
+
+    result = runner.invoke(app, [
+        "verification", "prepare", "--workspace", str(repo), "--base", base,
+        "--diff-from", reference.name, "--out", str(plan_path),
+        *(["--head", "HEAD"] if committed_head else []),
+    ])
+
+    assert result.exit_code == 0, result.output
+    inputs = json.loads(plan_path.read_text(encoding="utf-8"))["inputs"]
+    assert (plan_path.parent / inputs["diff_from"]["path"]).read_bytes() == base_report
+    assert inputs["options"]["diff_from_base"] == {"path": reference.name, "commit_sha": base}
+
+
+def test_live_validation_checks_the_base_comparison_report_origin(tmp_path: Path) -> None:
+    from agents_shipgate.core.verification_input_currency import validate_bound_plan_inputs
+    from agents_shipgate.schemas.verification_identity import VerificationPlan
+
+    repo = _repo_with_manifest(tmp_path)
+    (repo / "comparison.json").write_text('{"tools": []}\n', encoding="utf-8")
+    _commit_all(repo, "commit comparison report")
+    plan_path = tmp_path / "reports" / "verification-plan.json"
+    result = runner.invoke(app, [
+        "verification", "prepare", "--workspace", str(repo), "--base", "HEAD",
+        "--diff-from", "comparison.json", "--out", str(plan_path),
+    ])
+    assert result.exit_code == 0, result.output
+    plan = VerificationPlan.model_validate_json(plan_path.read_bytes())
+    validate_bound_plan_inputs(plan, root=repo, artifacts_root=plan_path.parent, live_origins=True)
+
+    binding = plan.inputs.options["diff_from_base"]
+    binding["path"] = "tools.json"
+    with pytest.raises(ValueError, match="comparison report does not match the file"):
+        validate_bound_plan_inputs(plan, root=repo, artifacts_root=plan_path.parent, live_origins=True)
+    binding["commit_sha"] = "0" * 40
+    with pytest.raises(ValueError, match="comparison report commit does not match"):
+        validate_bound_plan_inputs(plan, root=repo, artifacts_root=plan_path.parent, live_origins=True)
+
+
+def test_prepare_reports_symlinked_comparison_path_cleanly(tmp_path: Path) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    alias = tmp_path / "alias"
+    alias.symlink_to(repo, target_is_directory=True)
+    result = runner.invoke(app, [
+        "verification", "prepare", "--workspace", str(alias), "--base", "HEAD",
+        "--diff-from", str(alias / "tools.json"), "--out", str(tmp_path / "plan.json"),
+    ])
+    assert result.exit_code == 2, result.output
+    assert "--diff-from must not contain symlink components" in result.output
+
+
+def test_prepare_rejects_comparison_report_present_only_in_head(tmp_path: Path) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    reference = repo / "comparison.json"
+    reference.write_bytes(b'{"version":"head"}\n')
+    plan_path = tmp_path / "reports" / "verification-plan.json"
+
+    result = runner.invoke(app, [
+        "verification", "prepare", "--workspace", str(repo), "--base", "HEAD",
+        "--diff-from", reference.name, "--out", str(plan_path),
+    ])
+
+    assert result.exit_code == 3, result.output
+    assert "Cannot read --diff-from 'comparison.json' at 'HEAD'" in result.stderr
+    assert not plan_path.exists()
+
+
+@pytest.mark.parametrize("committed", [False, True])
+@pytest.mark.parametrize("directory_first", [False, True])
+def test_verify_accepts_swaps_between_a_file_and_a_directory(
+    tmp_path: Path, committed: bool, directory_first: bool,
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    replaced = repo / "docs" / "notes"
+    replaced.parent.mkdir()
+    member = replaced / "notes.txt"
+    if directory_first:
+        replaced.mkdir()
+        member.write_text("previous notes\n", encoding="utf-8")
+    else:
+        replaced.write_text("previous notes\n", encoding="utf-8")
+    _commit_all(repo, "original content")
+    if directory_first:
+        member.unlink()
+        replaced.rmdir()
+        replaced.write_text("current notes\n", encoding="utf-8")
+    else:
+        replaced.unlink()
+        replaced.mkdir()
+        member.write_text("current notes\n", encoding="utf-8")
+    if committed:
+        _commit_all(repo, "replace content")
+
+    result = runner.invoke(app, [
+        "verify", "--workspace", str(repo), "--base", "HEAD~1" if committed else "HEAD",
+        *(["--head", "HEAD"] if committed else []),
+        "--format", "json", "--ci-mode", "advisory",
+    ])
+
+    assert result.exit_code == 0, result.output
+    verifier = json.loads(result.output)
+    assert verifier["execution"] == "succeeded"
+    assert {"docs/notes", "docs/notes/notes.txt"} <= set(verifier["changed_files"])
+    plan_path = repo / "agents-shipgate-reports" / "verification-plan.json"
+    paths = {blob["path"] for blob in json.loads(plan_path.read_text())["inputs"]["changed_files"]}
+    assert ("docs/notes/notes.txt" if not directory_first else "docs/notes") in paths
 
 
 def test_verify_manifest_present_force_runs_even_docs_only_diff(tmp_path: Path) -> None:
@@ -864,6 +985,44 @@ def test_verify_real_base_scan_enables_head_diff(tmp_path: Path) -> None:
     assert report_payload["tool_surface_diff"]["summary"]["tools_added"] == 0
     assert len(report_payload["tool_catalog"]) == 1
     assert report_payload["release_decision"]["decision"] == "insufficient_evidence"
+
+
+@pytest.mark.parametrize("format_", ["text", "json"])
+def test_verify_terminal_progress_precedes_git_archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, format_: str,
+) -> None:
+    repo = _repo_with_manifest(tmp_path)
+    events: list[str] = []
+    archive = verify_orchestrator.archive_verification_tree
+    progress = verify_command._terminal_progress
+
+    def record_archive(workspace: Path, ref: str, destination: Path) -> dict[str, str]:
+        events.append(f"archive {destination.name}")
+        return archive(workspace, ref, destination)
+
+    def record_progress(message: str) -> None:
+        events.append(message)
+        progress(message)
+
+    monkeypatch.setattr(verify_command, "sys", SimpleNamespace(stderr=SimpleNamespace(isatty=lambda: True)))
+    monkeypatch.setattr(verify_command, "_terminal_progress", record_progress)
+    monkeypatch.setattr(verify_orchestrator, "archive_verification_tree", record_archive)
+    result = runner.invoke(app, [
+        "verify", "--workspace", str(repo), "--base", "HEAD", "--head", "HEAD",
+        "--format", format_,
+    ])
+
+    assert result.exit_code == 0, result.output
+    base = "Preparing the base Git tree for verification..."
+    head = "Preparing the head Git tree for verification..."
+    if format_ == "text":
+        assert events == [base, "archive base", head, "archive head"]
+        assert base in result.stderr and head in result.stderr
+        assert base not in result.stdout and head not in result.stdout
+    else:
+        assert events == ["archive base", "archive head"]
+        assert base not in result.stderr and head not in result.stderr
+        assert json.loads(result.stdout)["base_status"] == "succeeded"
 
 
 def test_verify_text_projects_google_adk_primary_evidence_action(tmp_path: Path) -> None:
@@ -3739,6 +3898,86 @@ def test_build_verifier_preserves_trigger_state_but_scrubs_embedded_commands(
     assert verifier.trigger["next_action"]["authoritative"] is False
     assert verifier.trigger["matched_rules"][0]["action"] == "input_required"
     assert verifier.trigger["matched_rules"][0]["command"] is None
+
+
+def test_verify_preview_resolves_local_main_when_no_remote_exists(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    subprocess.run(["git", "branch", "-M", "main"], cwd=repo, check=True)
+    subprocess.run(["git", "checkout", "-b", "review"], cwd=repo, check=True)
+    (repo / "agent.py").write_text("from agents import Agent\n", encoding="utf-8")
+    _commit_all(repo, "agent change")
+
+    result = runner.invoke(app, ["verify", "--workspace", str(repo), "--preview", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["base_ref"] == "main"
+    assert payload["changed_files"] == ["agent.py"]
+
+
+def test_verify_preview_names_unresolved_base_on_another_default_branch(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+    subprocess.run(["git", "branch", "-M", "develop"], cwd=repo, check=True)
+
+    result = runner.invoke(app, ["verify", "--workspace", str(repo), "--preview", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["diff_status"]["completeness"] == "unavailable"
+    assert payload["diff_status"]["reason"] == "refs_missing"
+    assert "base_unresolved" in payload["diff_status"]["detail"]
+    assert "--base <ref>" in payload["diff_status"]["remediation"]
+    action = payload["control"]["next_action"]
+    assert action["kind"] == "fetch_base"
+    assert "--base <ref>" in action["expects"]
+    assert "--no-base" in action["expects"]
+
+
+def test_verify_preview_reports_a_missing_head_before_detecting_the_base(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _commit_all(repo, "base")
+
+    result = runner.invoke(
+        app, ["verify", "--workspace", str(repo), "--preview", "--head", "missing-head", "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    status = payload["diff_status"]
+    assert status["reason"] == "refs_missing"
+    assert "missing-head" in status["detail"]
+    assert "base_unresolved" not in status["detail"]
+
+
+def test_verify_preview_allows_setup_before_the_first_commit(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+
+    result = runner.invoke(app, ["verify", "--workspace", str(repo), "--preview", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["control"]["next_action"]["kind"] != "fetch_base"
+
+
+def test_verify_preview_keeps_no_base_in_its_verify_command(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    _write_manifest(repo)
+    _commit_all(repo, "base")
+    subprocess.run(["git", "branch", "-M", "develop"], cwd=repo, check=True)
+
+    result = runner.invoke(
+        app, ["verify", "--workspace", str(repo), "--preview", "--no-base", "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    action = json.loads(result.output)["control"]["next_action"]
+    assert action["kind"] == "verify"
+    assert "--no-base" in action["command"]
 
 
 def test_verify_preview_missing_base_without_manifest_reports_the_missing_ref(

@@ -40,6 +40,7 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.privacy import redact_and_truncate, redact_text, truncate_redacted
 from agents_shipgate.core.static_inputs import active_static_input_snapshot
 from agents_shipgate.inputs.common import list_input_directory
 from agents_shipgate.inputs.python_imports import (
@@ -294,6 +295,20 @@ def read_only_use(
     """Whether this load of a list can only read it, never change or hand it on."""
 
     parent = parents.get(node)
+    while isinstance(parent, (ast.BoolOp, ast.IfExp, ast.Attribute)):
+        if isinstance(parent, ast.IfExp) and parent.test is node:
+            break
+        if isinstance(parent, ast.Attribute):
+            if parent.value is not node:
+                return False
+            grand = parents.get(parent)
+            if isinstance(grand, ast.Call) and grand.func is parent:
+                return parent.attr in {"count", "index", "copy", "get", "keys", "values", "items"}
+            if not isinstance(parent.ctx, ast.Load):
+                return False
+        # A Boolean/conditional result or an attribute may forward the value.
+        # Its enclosing use decides whether it is read-only.
+        node, parent = parent, parents.get(parent)
     if isinstance(parent, ast.keyword):
         call = parents.get(parent)
         return isinstance(call, ast.Call) and call_reads(call, None, parent.arg)
@@ -306,11 +321,6 @@ def read_only_use(
         return parent.iter is node
     if isinstance(parent, ast.Subscript):
         return parent.value is node and isinstance(parent.ctx, ast.Load)
-    if isinstance(parent, ast.BoolOp) or (
-        isinstance(parent, ast.IfExp) and parent.test is not node
-    ):
-        # ``TOOLS or [x]`` may be the list itself: its own use decides.
-        return read_only_use(parent, parents, call_reads)
     if isinstance(parent, ast.If | ast.While | ast.IfExp | ast.Assert):
         return parent.test is node
     if isinstance(parent, ast.UnaryOp):
@@ -322,20 +332,16 @@ def read_only_use(
     if isinstance(parent, ast.Compare | ast.FormattedValue | ast.Expr | ast.BinOp):
         # A comparison, a string, a bare expression, or ``TOOLS + [x]`` (a new list).
         return True
-    if isinstance(parent, ast.Attribute) and parent.value is node:
-        grand = parents.get(parent)
-        called = isinstance(grand, ast.Call) and grand.func is parent
-        if called:
-            return parent.attr in {"count", "index", "copy", "get", "keys", "values", "items"}
-        # ``helpers.TOOLS`` handed on: ``helpers`` is read, and the attribute's
-        # own use decides. A call (``helpers.register(x)``) may change anything.
-        return isinstance(parent.ctx, ast.Load) and read_only_use(parent, parents, call_reads)
     return False
 
 
 def _source_slot_context(rows: list[str] | tuple[str, ...]) -> tuple[str, ...]:
-    """Bound supplemental refusal text; it never supplies an ownership fact."""
-    return tuple(dict.fromkeys(row[:1024] for row in rows))[:2]
+    """Bound supplemental refusal text; it never supplies an ownership fact.
+
+    Each row is redacted before it is cut, so a credential straddling the
+    bound is never published in part (#1079).
+    """
+    return tuple(dict.fromkeys(redact_and_truncate(row, 1024) or "" for row in rows))[:2]
 
 
 def _record_constructor_refusal(rows: list[str] | None, message: str) -> bool:
@@ -356,6 +362,7 @@ class _View:
     #: Bindings some code changes in place: ``id(local binding)`` or
     #: ``("module", name)``.
     changed: set[object]
+    changed_at: dict[object, ast.Name] = field(default_factory=dict)
     #: Whether this is the module the agent is built in: only there do the
     #: framework's own constructions read the list they are handed.
     entry: bool = False
@@ -1275,6 +1282,7 @@ class ListExpressions:
         self._checking_member_receivers: set[tuple[int, int]] = set()
         self._cache = cache if cache is not None else ListCache()
         self._visits = 0
+        self._local_callees: dict[tuple[int, str], bool] = {}
         self.entry = self._view(ref, tree, scopes, bindings, module, entry=True)
 
     @property
@@ -1307,7 +1315,7 @@ class ListExpressions:
         cached = self._cache.views.get(key)
         if cached is not None:
             return cached
-        view = _View(ref, tree, scopes, bindings, module, set(), entry, star_lines)
+        view = _View(ref, tree, scopes, bindings, module, set(), entry=entry, star_lines=star_lines)
         view.lookup = bindings_at(scopes, bindings)
         view.resolver = self._resolver
         view.builder_calls = self.calls
@@ -1446,7 +1454,10 @@ class ListExpressions:
 
         site = evaluation_site(view.scopes, node)
         found = view.scopes.enclosing_bindings(site, node.id)
-        view.changed.add(id(found[0]) if found else ("module", node.id))
+        key = id(found[0]) if found else ("module", node.id)
+        view.changed.add(key)
+        if view.module is None:
+            view.changed_at.setdefault(key, node)
         for binding in found:
             view.changed.add(id(binding))
             statement = view.scopes.statement_of(binding)
@@ -1881,7 +1892,11 @@ class ListExpressions:
 
         spelling = reference_spelling(call.func)
         calls = self.calls
-        if spelling is None or calls is None or view.module is None:
+        if spelling is None:
+            return False
+        if view.module is None:
+            return self._local_callee_leaves_alone(view, call, spelling, position, keyword)
+        if calls is None:
             return False
         resolution = calls.resolve(view.module, call.func)
         function = resolution.definition if resolution.resolved else None
@@ -1956,6 +1971,37 @@ class ListExpressions:
             finally:
                 self._invocation = previous
         return self._cache.callees[key]
+
+    def _local_callee_leaves_alone(
+        self, view: _View, call: ast.Call, spelling: str, position: int | None, keyword: str | None,
+    ) -> bool:
+        # A module-only adapter can prove the body of one unambiguous local
+        # function. Imported, decorated and forwarded calls remain unknown.
+        lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+        found = lookup(spelling, call)
+        if len(found) != 1 or "." in spelling or view.star_lines:
+            return False
+        function = found[0][0]
+        if (
+            not isinstance(function, ast.FunctionDef)
+            or function not in view.tree.body
+            or function.decorator_list
+            or function.lineno >= call.lineno
+        ):
+            return False
+        positional = [*function.args.posonlyargs, *function.args.args]
+        if position is not None:
+            if position >= len(positional) or any(isinstance(arg, ast.Starred) for arg in call.args[:position]):
+                return False
+            name = positional[position].arg
+        elif keyword in {arg.arg for arg in [*function.args.args, *function.args.kwonlyargs]}:
+            name = str(keyword)
+        else:
+            return False
+        key = (id(function), name)
+        if key not in self._local_callees:
+            self._local_callees[key] = parameter_left_alone(function, name, lookup)
+        return self._local_callees[key]
 
     def _agent_result_changed(
         self, view: _View, call: ast.Call, keyword: str, *, borrowed: bool = False,
@@ -3670,9 +3716,17 @@ class ListExpressions:
                 view, statement, f"`{name}` is bound only under a condition or in a loop"
             )
         if changed:
-            return self._stop(
-                view, statement, f"`{name}` may be changed in place after it is built"
-            )
+            reason = f"`{name}` may be changed in place after it is built"
+            site = view.changed_at.get(id(binding)) or view.changed_at.get(("module", name))
+            if site is not None:
+                parent = view.scopes.parents.get(site)
+                if isinstance(parent, (ast.keyword, ast.Attribute)):
+                    parent = view.scopes.parents.get(parent)
+                if isinstance(parent, ast.Call):
+                    reason += f" by the call at {view.ref}:{parent.lineno}"
+                else:
+                    reason += f" at {view.ref}:{site.lineno}"
+            return self._stop(view, statement, reason)
         if self._projection is not None and self._container_binding_changed(view, binding):
             return self._stop(view, statement, f"`{name}` or one of its projected values may be changed or handed on")
         if self._projection is not None and statement in view.tree.body and isinstance(statement.value, ast.Dict):
@@ -4136,8 +4190,11 @@ def _all_under(part: ListResolution, conditions: tuple[str, ...]) -> ListResolut
 
 
 def _source(node: ast.AST) -> str:
-    text = ast.unparse(node)
-    return text if len(text) <= 160 else text[:157] + "..."
+    # Redacted before it is cut: an expression's string literals are the
+    # user's text, and cutting first could leave the head of a credential too
+    # short for the publication-time redaction to recognise (#1079).
+    text = redact_text(ast.unparse(node)) or ""
+    return text if len(text) <= 160 else truncate_redacted(text, 157) + "..."
 
 
 def _single_target(statement: ast.Assign | ast.AnnAssign) -> str | None:

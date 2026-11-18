@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from agents_shipgate.core import evaluation_clock
 from agents_shipgate.core.evaluation_clock import (
     trust_expiry_date,
     use_evaluation_date,
@@ -161,7 +162,7 @@ def test_worker_ir_cannot_smuggle_a_release_decision() -> None:
 def test_backdated_evaluation_date_cannot_weaken_trust_expiry_clock() -> None:
     """Commit-controlled time can never move hard expiry behind wall time."""
 
-    wall_clock_today = date.today()
+    wall_clock_today = datetime.now(UTC).date()
     with use_evaluation_date(wall_clock_today - timedelta(days=3650)):
         assert trust_expiry_date() >= wall_clock_today
 
@@ -170,6 +171,22 @@ def test_future_evaluation_date_only_makes_trust_expiry_more_conservative() -> N
     future = date.today() + timedelta(days=3650)
     with use_evaluation_date(future):
         assert trust_expiry_date() == future
+
+
+@pytest.mark.parametrize("local_offset", [0, -11], ids=["UTC", "Pacific/Pago_Pago"])
+def test_trust_expiry_has_one_utc_date_across_host_zones(local_offset, monkeypatch) -> None:
+    instant = datetime(2026, 11, 17, 0, 15, tzinfo=UTC)
+    local_zone = timezone(timedelta(hours=local_offset))
+
+    class FixedClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant.astimezone(tz if tz is not None else local_zone)
+
+    monkeypatch.setattr(evaluation_clock, "datetime", FixedClock)
+    with use_evaluation_date(date(2020, 1, 1)):
+        assert trust_expiry_date() == instant.date()
+    assert evaluation_clock.evaluation_date() == instant.date()
 
 
 def test_engine_distribution_digest_is_part_of_engine_identity() -> None:

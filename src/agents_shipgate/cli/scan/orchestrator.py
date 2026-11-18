@@ -125,7 +125,7 @@ def _manifest_placeholders(
     if text is None:
         try:
             text = config_path.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             return None
     return manifest_placeholder_fields(text)
 
@@ -229,6 +229,7 @@ def _run_scan(
         plan = _plan_outputs(
             manifest=resolved.manifest,
             base_dir=resolved.base_dir,
+            operator_out=bool(output_dir),
         )
     with _perf.phase("sanitize_for_output"):
         sanitized = _sanitize_for_output(

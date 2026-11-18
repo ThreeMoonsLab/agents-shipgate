@@ -52,8 +52,10 @@ def test_committed_prose_change_preserves_structure_across_review_routes(repo, t
         workspace=repo, diff_text=diff, config_path=repo / "shipgate.yaml",
     ))
     # The structure assessment is clean, but this detached projection carries
-    # no replayable subject. The committed verifier below can grant completion.
-    assert local.decision == "allow"
+    # no replayable subject, so it reports no pass (#1154). The committed
+    # verifier below can grant completion.
+    assert local.decision == "require_review"
+    assert local.input_coverage == "unknown"
     assert local.control.state == "human_review_required"
     assert not any(local.control.permissions.model_dump().values())
     preflight = build_preflight_result(

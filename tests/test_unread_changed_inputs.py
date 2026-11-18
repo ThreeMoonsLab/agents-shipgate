@@ -221,7 +221,9 @@ def test_each_reproduction_names_its_unread_input_on_every_route(tmp_path: Path,
     assert _unread(payload["coverage"]) == [expected]
     assert payload["coverage"]["read_sources_only"] is False
     assert payload["coverage"]["unread_candidates"] == "examined"
-    assert "No static host-grant changes detected. No verdict is implied." in text
+    for output in (text, verify_text, comment):
+        assert "Changed, not compared:" in output
+        assert "No static host-grant changes detected" not in output
     assert f"  {line}" in text.splitlines()
     assert f"  {COVERAGE_BOUNDARY_WITH_UNREAD}" in text.splitlines()
     assert COVERAGE_BOUNDARY not in text

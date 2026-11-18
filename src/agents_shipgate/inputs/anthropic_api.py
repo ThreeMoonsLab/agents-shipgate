@@ -51,6 +51,7 @@ from agents_shipgate.core.domain import (
     ToolRiskHint,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.inputs.common import (
     iter_tool_items,
     load_structured_file,
@@ -403,13 +404,6 @@ def _tool_from_anthropic_definition(
 
 def _resolve(base_dir: Path, value: str) -> Path:
     return resolve_input_path(base_dir, value)
-
-
-def _display_path(path: Path, base_dir: Path) -> str:
-    try:
-        return path.resolve().relative_to(base_dir.resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
 
 
 class AnthropicAPIAdapter:

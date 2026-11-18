@@ -1412,8 +1412,12 @@ coverage appends ship at `medium` and require explicit
 `--confidence medium` to apply.
 
 `apply-patches` is dry-run by default — `--apply` is required to
-mutate files. Containment-checked: any `target_file` outside
-`report.manifest_dir` aborts with exit code 5 before SHA verification.
+mutate files. Containment-checked before SHA verification: every
+`target_file` must be the Shipgate manifest, inside `report.manifest_dir` and
+inside the repository `apply-patches` works on — `--workspace <repo>`, or the
+directory it runs in and that directory's git toplevel. Anything else aborts
+with exit code 5. The report is untrusted input, so the commands `verify`
+prints name the repository with `--workspace`.
 
 ### Step 5 (optional) · Summarize for the user
 
@@ -2119,7 +2123,9 @@ the flag, the verdict, the adoption wording, and the human route are all
 unchanged, and a proven weakening still refuses.
 
 - **What it carries.** The exact `apply-patches` command that writes those
-  answers, plus `questions[]` — open declaration questions, each tagged
+  answers, naming the repository with `--workspace` (`apply-patches` writes
+  only the Shipgate manifest, and only under the workspace it is given or,
+  without one, the directory it runs in), plus `questions[]` — open declaration questions, each tagged
   `authorable_by: "coding_agent" | "human"` — and the two counts
   `agent_authorable` / `human_authorable`, which are the real totals. The list
   is a prefix capped at six rows, ordered human-owned first (a drafted row is
@@ -2422,7 +2428,7 @@ Downstream repos generated with
 - Current attestation schema: `0.6` — [`docs/attestation-schema.v0.6.json`](attestation-schema.v0.6.json)
 - Current registry schema: `0.6` — [`docs/registry-schema.v0.6.json`](registry-schema.v0.6.json)
 - Current org evidence bundle schema: `shipgate.org_evidence_bundle/v2` — [`docs/org-evidence-bundle-schema.v2.json`](org-evidence-bundle-schema.v2.json)
-- Current host-grants inventory, baseline, and drift schemas: `0.9` — [`inventory`](host-grants-inventory-schema.v0.9.json), [`baseline`](host-grants-baseline-schema.v0.9.json), [`drift`](host-grants-drift-schema.v0.9.json). Version 0.9 adds explicit local OpenShell composition, provider profile provenance and effective-snapshot metadata, and, on a reusable workflow call whose permission ceiling holds a write scope and whose target is in the same repository, `callee_permissions` and `callee_write_scopes` (#921); historical host schemas remain frozen. See [OpenShell support](openshell-support.md) and [workflow token scopes](host-boundary-support.md#workflow-token-scopes).
+- Current host-grants [inventory](host-grants-inventory-schema.v0.10.json) and [baseline](host-grants-baseline-schema.v0.10.json) schemas are `0.10`. They bind direct repository script inputs for Claude Code command settings. The [drift schema](host-grants-drift-schema.v0.9.json) is `0.9` and continues to carry grant changes as objects. Older schemas remain available at their published URLs.
 - Optional OpenShell native trust/evidence schemas: `1` — [`trust`](openshell-native-trust-schema.v1.json), [`evidence`](openshell-native-evidence-schema.v1.json). Only explicit external trust inputs enable local execution; the default remains static. Native containment never grants merge authority. See [OpenShell support](openshell-support.md#optional-native-containment).
 - Current trigger catalog schema: `0.4` — [`docs/triggers.json`](triggers.json)
 - Current governance benchmark catalog schema: `0.2` — [`docs/governance-benchmark-catalog-schema.v0.2.json`](governance-benchmark-catalog-schema.v0.2.json)
@@ -4006,6 +4012,8 @@ skill a unique routing name and clear description.
 
 A changed repo-local `.codex/config.toml` or `.codex/hooks.json` cannot be
 parsed. Fix the malformed config or have a human review the boundary change.
+Under `verify`, the unread file also holds the release decision at
+`insufficient_evidence` (#1154), as for `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED`.
 
 ### SHIP-CODEX-BOUNDARY-UNKNOWN-PERMISSION-KEY
 
@@ -4103,13 +4111,32 @@ host trust root for approvals, sandboxing, and network constraints.
 
 A relevant diff or file was truncated, malformed, unsafe to read, traversing,
 binary, oversized, or otherwise unresolved. Supply coherent input and rerun.
+Under `verify`, a row for a file the change edits that the reader did not read
+(it could not read or parse it, cannot interpret its structure, does not open
+it, or refuses it) also holds the release decision through a policy evidence
+gap, as below (#1154). A row for a file the reader read, such as an
+instruction file whose structure is not modelled, keeps its review route.
 
 ### SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED
 
 A changed `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
 `.claude/settings(.local).json`, or `.github/workflows` file cannot be parsed,
 or its content cannot be resolved from the diff. Fix the malformed host config
-or have a human review the change.
+or have a human review the change. A file nested more than 64 levels deep is
+refused, with evidence `parser: NestingLimitExceeded` and `max_depth: 64`, and
+a JSON file whose top level, or whose MCP server map (`member`), is not an
+object with `parser: NotAnObject`.
+
+Under `verify`, a file the change edits that was not read is also a policy
+evidence gap (`source_type: agent_boundary_input`, naming the unread side).
+Strict mode exits `20` and the control is `human_review_required` (#1154);
+the decision is `insufficient_evidence`, or `blocked` beside a blocker, or
+`review_required` when an active high or critical review item outranks the
+gap. The gap is not a finding, so `checks.ignore`, a baseline or a severity
+override cannot clear it. A row that says only that the diff could not be
+turned back into text (`host_config_content_unresolved`) adds no gap when the
+file itself was read, and a file the change does not touch keeps only its
+review row.
 
 A settings file that parses but changes a top-level key outside the
 host-boundary rule allow-list, such as `outputStyle`, also raises this check,
@@ -5256,9 +5283,35 @@ So in v0.7 with the default flags:
   ManualPatch is filtered out.
 - Everything else with a ManualPatch is **never** applied.
 
-`apply-patches` enforces a **containment check**: every patch's
-`target_file` must resolve under `report.manifest_dir`. Anything
-outside aborts with exit code 5 before any SHA verification.
+`apply-patches` enforces a **containment check** before any SHA
+verification. **The report is untrusted input**: it may have been produced
+on another machine or edited by hand, and it supplies its own
+`manifest_dir` and every `target_file` beside the patches. So neither one
+sets the boundary:
+
+- Every patch's target must resolve under `report.manifest_dir` *and* under
+  the repository `apply-patches` works on: the `--workspace` you name
+  (default: the directory it runs in), or the git toplevel containing it. A
+  toplevel counts only when its `.git` is a directory, or a gitdir file,
+  that on POSIX is owned by you.
+- The target must be a Shipgate manifest, and must still load as one once
+  every patch for it is applied. Every patch the engine generates edits the
+  manifest it was generated from, so any other file — an agent instruction
+  file, a host settings file, a workflow — is refused, and a protected
+  agent-boundary or trust-root file is refused by name.
+
+Anything else aborts with exit code 5 and nothing is written. The commands
+`verify` prints name the repository with `--workspace`, so they work from any
+directory.
+
+A patch whose JSON pointer does not fit the document it edits is a
+malformed patch: exit code 2 with the `malformed_patch` error, and no file
+is written. Tokens follow RFC 6901: a list index is `0` or a decimal without
+a leading zero and names an existing element, `-` (the position after a
+list's last element) may only end an `append_pointer`, `~` must be followed
+by `0` or `1`, and nothing descends into a scalar. One spelling differs from
+RFC 6901: the pointer `/` names the whole document, as it always has here,
+not the member with an empty name.
 
 ---
 

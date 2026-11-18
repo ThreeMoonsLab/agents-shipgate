@@ -1440,7 +1440,8 @@ MCP_JSON = json.dumps({"mcpServers": {"db": {
 }}})
 #: What the host readers publish for them: key names, every such value withheld.
 SETTINGS_PUBLISHED = (
-    '{"apiKeyHelper":"<redacted>","env":{"DB_PASSWORD":"<redacted>","INTERNAL_KEY":"<redacted>"},'
+    '{"apiKeyHelper":"' + _digest("echo canary-helper-value")
+    + '","env":{"DB_PASSWORD":"<redacted>","INTERNAL_KEY":"<redacted>"},'
     '"permissions":{"allow":["Bash(npm test)"]}}'
 )
 MCP_PUBLISHED = (
@@ -1619,6 +1620,70 @@ def test_a_withheld_json_value_compares_as_the_host_readers_compare_it():
     row, = _rows(settings({"DB": "one"}), settings({"DB": "one", "EXTRA": "three"}))
     assert '"EXTRA":"<redacted>"' in row.after
     assert "three" not in row.after
+
+
+def test_action_settings_compare_the_helper_command_with_credential_text_withheld():
+    def settings(command):
+        return _workflow(_agent(settings=json.dumps({"apiKeyHelper": command})))
+
+    base = settings("helper --token example-credential-one")
+    assert _rows(base, settings("helper --token example-credential-two")) == []
+    row, = _rows(base, settings("other --token example-credential-two"))
+    assert (row.direction, row.expands) == ("changed", False)
+    _assert_absent(row.before + row.after, ("example-credential-one", "example-credential-two"))
+
+
+@pytest.mark.parametrize("credential_arg", [" --token {}", " --token='{}'", ' --token "{}"'])
+def test_action_helper_withholds_credential_urls_but_compares_other_url_queries(credential_arg):
+    def settings(credential, mode):
+        command = (
+            "helper" + credential_arg.format(f"https://example.invalid/credential?dummy={credential}")
+            + f" --endpoint https://example.invalid/tools?mode={mode}"
+        )
+        return _workflow(_agent(settings=json.dumps({"apiKeyHelper": command})))
+
+    base = settings("example-demo-one", "read")
+    assert _rows(base, settings("example-demo-two", "read")) == []
+
+    row, = _rows(base, settings("example-demo-two", "write"))
+    assert (row.direction, row.expands) == ("changed", False)
+    _assert_absent(row.before + row.after, ("example-demo-one", "example-demo-two"))
+
+
+def test_a_baseline_with_a_redacted_action_helper_requires_a_fresh_snapshot(tmp_path):
+    from agents_shipgate.cli.host_audit import host_audit_inventory
+    from agents_shipgate.core.host_grants import (
+        build_host_drift_payload,
+        build_host_grants_baseline,
+    )
+
+    workflow = _workflow(_agent(settings=SETTINGS_JSON))
+    _write(tmp_path, {SOURCE: _yaml(workflow)})
+    current = host_audit_inventory(tmp_path)
+    baseline = build_host_grants_baseline(current)
+
+    assert build_host_drift_payload(baseline=baseline, inventory=current, baseline_file="b.json")["has_drift"] is False
+    workflow_grant = next(grant for grant in baseline["inventory"]["grants"] if grant["kind"] == "workflow")
+    old_setting = next(item for item in workflow_grant["agent_launches"][0]["settings"] if item["name"] == "settings")
+    old_setting["value"] = old_setting["value"].replace(_digest("echo canary-helper-value"), "<redacted>")
+    drift = build_host_drift_payload(baseline=baseline, inventory=current, baseline_file="b.json")
+    assert drift["comparison_status"] == "incomparable"
+    assert drift["incomparable_reasons"] == ["baseline_workflow_api_key_helper_unavailable"]
+
+    # A freshly captured malformed command is distinguishable from a legacy
+    # shape that threw away its evidence. Sensitive nested text stays private.
+    settings = json.dumps({"apiKeyHelper": {"command": "synthetic-invalid-helper"}})
+    _write(tmp_path, {SOURCE: _yaml(_workflow(_agent(settings=settings)))})
+    current = host_audit_inventory(tmp_path)
+    baseline = build_host_grants_baseline(current)
+    assert '"apiKeyHelper":"<invalid-command>"' in next(
+        setting["value"]
+        for grant in baseline["inventory"]["grants"] if grant["kind"] == "workflow"
+        for launch in grant["agent_launches"]
+        for setting in launch["settings"] if setting["name"] == "settings"
+    )
+    assert "synthetic-invalid-helper" not in json.dumps(baseline)
+    assert build_host_drift_payload(baseline=baseline, inventory=current, baseline_file="b.json")["has_drift"] is False
 
 
 @pytest.mark.parametrize("name", ["settings", "mcp_config"])
@@ -1911,7 +1976,7 @@ def test_a_v0_6_baseline_without_a_workflow_stays_comparable_and_can_be_replaced
     audit = ["audit", "--host", "--workspace", str(tmp_path), "--baseline-file", str(path)]
     resaved = CliRunner().invoke(app, [*audit, "--save-baseline"])
     assert resaved.exit_code == 0, resaved.output
-    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.9"
+    assert json.loads(path.read_text())["host_grants_schema_version"] == "0.10"
 
 
 def test_the_documented_migration_from_a_v0_6_baseline_holding_a_workflow(tmp_path):
@@ -1965,11 +2030,12 @@ def test_a_current_baseline_compares_agent_launches_and_validates_against_the_sc
     path.write_text(_yaml(_reproduction(run="npm ci && claude -p 'x'", ref=HEAD_SHA)))
     inventory = host_audit_inventory(tmp_path)
     baseline = build_host_grants_baseline(inventory)
-    assert baseline["host_grants_schema_version"] == "0.9"
+    assert baseline["host_grants_schema_version"] == "0.10"
     workflow, = [grant for grant in baseline["inventory"]["grants"] if grant["kind"] == "workflow"]
     assert workflow["unread_agent_runs"] == [{"job": "review", "step": "steps[2]", "agent": "claude"}]
     for name, payload in (("inventory", inventory), ("baseline", baseline)):
-        schema = json.loads((ROOT / f"docs/host-grants-{name}-schema.v0.9.json").read_text())
+        version = "0.9" if name == "drift" else "0.10"
+        schema = json.loads((ROOT / f"docs/host-grants-{name}-schema.v{version}.json").read_text())
         Draft202012Validator(schema).validate(payload)
 
     path.write_text(_yaml(_reproduction(claude_args="--dangerously-skip-permissions", ref=HEAD_SHA)))
@@ -2035,7 +2101,8 @@ def test_a_change_that_only_adds_an_unread_step_says_what_the_workflow_does_not_
 
     result = CliRunner().invoke(app, ["diff", "--workspace", str(repo), "--base", "main"])
     assert result.exit_code == 0, result.output
-    assert "No static host-grant changes detected." in result.output
+    assert f"Changed, not compared: {SOURCE}" in result.output
+    assert "No static host-grant changes detected." not in result.output
     assert (
         f"{SOURCE} (github): compared; changed, but no grant this entry compares changed, so no row "
         "(text this entry does not read, such as a step's env or an unread agent step, is not "

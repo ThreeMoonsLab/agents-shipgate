@@ -30,6 +30,7 @@ from pathlib import Path
 import typer
 from pydantic import ValidationError
 
+from agents_shipgate.core.errors import format_validation_error
 from agents_shipgate.packet import (
     EvidencePacket,
     PacketSchemaError,
@@ -205,7 +206,7 @@ def _load_packet_or_report(payload: str) -> EvidencePacket:
             report = ReadinessReport.model_validate(parsed)
         except ValidationError as exc:
             raise PacketSchemaError(
-                f"report.json failed schema validation: {exc}"
+                format_validation_error(exc, label="report.json failed schema validation")
             ) from exc
         try:
             return build_packet_from_report(report)

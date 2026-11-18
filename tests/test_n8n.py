@@ -1498,6 +1498,77 @@ n8n:
         assert location.get("region", {}).get("startLine") is None
 
 
+def test_n8n_path_hint_redacts_a_credential_straddling_its_200th_character(tmp_path):
+    # The hint keeps the first 200 characters of the URL path. Cut first, a
+    # token straddling the cut kept its head, too short for any rule to
+    # recognise, and that head was published (#1079).
+    token = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+    prefix = "v1/" + "a" * 182 + "/"
+    assert len(prefix) + 14 == 200  # the cut lands 10 characters into the token
+    project = tmp_path / "project"
+    project.mkdir()
+    workflow = _minimal_agent_workflow(
+        {
+            "id": "http-tool",
+            "name": "Fetch Report",
+            "type": "n8n-nodes-langchain.toolHttpRequest",
+            "parameters": {
+                "description": "Fetch a report.",
+                "method": "GET",
+                "url": f"https://api.example.com/{prefix}{token}/report",
+            },
+        }
+    )
+    (project / "workflow.json").write_text(json.dumps(workflow), encoding="utf-8")
+    (project / "shipgate.yaml").write_text(
+        """
+version: "0.1"
+project:
+  name: n8n-path-hint
+agent:
+  name: n8n-agent
+environment:
+  target: local
+n8n:
+  workflows:
+    - path: workflow.json
+""",
+        encoding="utf-8",
+    )
+    manifest = load_manifest(project / "shipgate.yaml")
+
+    loaded_sources, _ = load_n8n_artifacts(manifest, project)
+
+    [tool] = [item for source in loaded_sources for item in source.tools]
+    hint = tool.annotations["path"]
+    assert len(hint) <= 200
+    assert token[:6] not in hint
+    # The marker the cut would split is dropped whole, not published in part.
+    assert hint == prefix
+    # A token wholly inside the bound is shown redacted.
+    workflow["nodes"][0]["parameters"]["url"] = f"https://api.example.com/v1/{token}/report"
+    (project / "workflow.json").write_text(json.dumps(workflow), encoding="utf-8")
+    loaded_sources, _ = load_n8n_artifacts(manifest, project)
+    [tool] = [item for source in loaded_sources for item in source.tools]
+    assert tool.annotations["path"] == "v1/[REDACTED:github_token]/report"
+
+    for url, expected in (
+        (
+            "https://sample-user:tiny-pass@api.example.com",
+            "[REDACTED:sensitive_field]@api.example.com",
+        ),
+        (
+            "https://api.example.com/v1/report?api%5Fkey=abc&page=2",
+            "v1/report?api%5Fkey=[REDACTED:sensitive_field]&page=2",
+        ),
+    ):
+        workflow["nodes"][0]["parameters"]["url"] = url
+        (project / "workflow.json").write_text(json.dumps(workflow), encoding="utf-8")
+        loaded_sources, _ = load_n8n_artifacts(manifest, project)
+        [tool] = [item for source in loaded_sources for item in source.tools]
+        assert tool.annotations["path"] == expected
+
+
 def test_n8n_artifacts_redact_names_and_record_ingress_method(tmp_path):
     project = tmp_path / "project"
     project.mkdir()

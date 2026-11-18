@@ -7,14 +7,24 @@ Per the v0.6 plan §4:
   once. (Two SHAs per patch would cause the second patch to fail after
   the first write — see plan A1.)
 - Containment check (per C13): every ``target_file`` must resolve under
-  ``report.manifest_dir``. Anything outside aborts with exit code 5.
+  ``report.manifest_dir`` *and* under a root this command trusts — the
+  ``--workspace`` the operator names (default: the working directory), or
+  the git toplevel containing it — and must be a Shipgate manifest, the only
+  file a generated patch edits. Anything else aborts with exit code 5. The
+  report is untrusted input: it supplies ``manifest_dir`` and every
+  ``target_file`` alongside the patches, so on its own it bounds nothing
+  (#1031).
+- A JSON pointer that does not fit the document it edits — a token that is
+  not an index into a list, ``-`` anywhere but the end of an append, a key
+  under a scalar — is a malformed patch: exit 2, nothing written.
 - ``--confidence`` (default ``high``) and ``--kinds`` (default: all
   non-manual) filter the patches that get applied.
 - YAML edits use ruamel.yaml round-trip preservation; JSON uses stdlib.
 
 Exit codes:
 - 0 — dry-run completed, or all patches applied.
-- 2 — ``--from`` payload malformed.
+- 2 — ``--from`` payload malformed, including a pointer that does not fit
+  its target document.
 - 4 — internal error.
 - 5 — containment violation, or a ``declare_action`` patch that could not be
   written (the manifest answers the row differently, or has changed since the
@@ -33,15 +43,19 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import typer
 from pydantic import ValidationError
 from ruamel.yaml import YAML
 
+from agents_shipgate.cli.workspace_guard import require_workspace
+from agents_shipgate.core.agent_controls import owned_git_root_for
+from agents_shipgate.core.errors import AgentsShipgateError, format_validation_error
 from agents_shipgate.schemas.declaration_continuation import (
     DECLARATION_CONTINUATION_ARTIFACT_NAME,
     AppliedDeclaration,
@@ -96,6 +110,16 @@ def apply_patches(
         "--apply",
         help="Actually mutate files. Default is dry-run.",
     ),
+    workspace: Path | None = typer.Option(
+        None,
+        "--workspace",
+        help=(
+            "The repository the report's patches are for. Patches are written "
+            "only under this directory or the git repository containing it, "
+            "never under a directory the report names. Default: the current "
+            "directory."
+        ),
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -106,6 +130,9 @@ def apply_patches(
 
     Default is dry-run (prints diffs only). Use ``--apply`` to mutate.
     """
+    # Refused before anything is read, as on every --workspace command: an
+    # absent or unreadable workspace is an invocation error (exit 2).
+    workspace = require_workspace(workspace)
     confidence_levels = _confidence_set(confidence)
     kind_set = {k.strip() for k in kinds.split(",") if k.strip()}
 
@@ -225,10 +252,12 @@ def apply_patches(
             and (p.get("kind") == "manual" or p.get("confidence") in confidence_levels)
         ]
     except (ValidationError, typer.BadParameter) as exc:
-        typer.echo(
-            f"Malformed patch in report at {from_path}: {exc}",
-            err=True,
+        label = f"Malformed patch in report at {from_path}"
+        message = (
+            format_validation_error(exc, label=label)
+            if isinstance(exc, ValidationError) else f"{label}: {exc}"
         )
+        typer.echo(message, err=True)
         import shlex as _shlex
 
         out_q = _shlex.quote(str(from_path.parent))
@@ -238,7 +267,7 @@ def apply_patches(
         )
         _emit_input_error(
             "malformed_patch",
-            str(exc),
+            message,
             next_action=rerun_command,
             next_actions=[
                 {
@@ -265,58 +294,95 @@ def apply_patches(
     # so resolving it is what places it — the check below then cannot fail for
     # it except through a traversal spelled into the path, which is exactly
     # what it should still catch.
-    violations: list[tuple[str, str]] = []
+    #
+    # ``manifest_dir`` comes from the same untrusted report as the patches, so
+    # it can only narrow the boundary, never set it. Every target must also lie
+    # under a root this run supplies itself (#1031).
+    trusted_roots = _trusted_roots(workspace)
+    #
+    # Inside those roots, a patch may edit only a Shipgate manifest: every
+    # patch the engine generates targets the manifest it was generated from,
+    # and a report naming any other file — an agent instruction file, a host
+    # settings file, a workflow — is not one this command applies (#1031).
+    violations: list[_Violation] = []
+    refusals: dict[Path, str | None] = {}
     for patch in typed_patches:
         spelled = _patch_target_spelling(patch)
         target = _resolve_target(patch, manifest_dir_resolved)
-        try:
-            target.relative_to(manifest_dir_resolved)
-        except ValueError:
-            violations.append((spelled, str(manifest_dir_resolved)))
+        if not _is_under(target, manifest_dir_resolved):
+            violations.append(
+                _Violation(spelled, target, "manifest_dir", f"not under {manifest_dir_resolved}")
+            )
+            continue
+        root = next((root for root in trusted_roots if _is_under(target, root)), None)
+        if root is None:
+            roots = " or ".join(str(root) for root in trusted_roots)
+            violations.append(_Violation(spelled, target, "trusted_root", f"not under {roots}"))
+            continue
+        if target not in refusals:
+            refusals[target] = _unpatchable_reason(target, root)
+        reason = refusals[target]
+        if reason is not None:
+            violations.append(_Violation(spelled, target, "not_manifest", reason))
     if violations:
-        message = (
-            "Containment violation: refusing to apply patches outside the "
-            "manifest directory."
+        _refuse_containment_violations(
+            from_path,
+            violations,
+            manifest_dir=manifest_dir_resolved,
+            trusted_roots=trusted_roots,
         )
-        typer.echo(f"{message.rstrip('.')}:", err=True)
-        for target, root in violations:
-            typer.echo(f"  - {target} (not under {root})", err=True)
-        _emit_input_error(
-            "other_error",
-            message,
-            next_action=(
-                f"Review {from_path}; every patch target_file must resolve "
-                f"under {manifest_dir_resolved}."
-            ),
-            next_actions=[
-                {
-                    "kind": "review",
-                    "command": None,
-                    "path": str(from_path),
-                    "why": (
-                        "The report contains a machine-applicable patch whose "
-                        "target_file escapes report.manifest_dir. "
-                        "apply-patches refuses this to preserve the "
-                        "containment boundary."
-                    ),
-                    "expects": (
-                        "All non-manual patch target_file values resolve "
-                        f"under {manifest_dir_resolved} before retrying."
-                    ),
-                }
-            ],
-        )
-        raise typer.Exit(5)
 
     grouped: dict[str, list[Patch]] = defaultdict(list)
     for patch in typed_patches:
         grouped[str(_resolve_target(patch, manifest_dir_resolved))].append(patch)
 
+    # Every file is planned in memory before any is written, so a patch whose
+    # pointer does not fit its document stops the run with nothing changed —
+    # not after the files sorted ahead of it were already rewritten.
+    plans: list[tuple[str, list[Patch], _FilePlan]] = []
+    for target_file, patches in sorted(grouped.items()):
+        try:
+            plans.append((target_file, patches, _plan_one_file(Path(target_file), patches)))
+        except MalformedPointer as exc:
+            message = f"Malformed patch in report at {from_path}: {target_file}: {exc}"
+            typer.echo(message, err=True)
+            _emit_malformed_patch_error(
+                from_path,
+                message,
+                why=(
+                    "A patch's JSON pointer does not address its target file "
+                    "the way its kind requires; nothing was written."
+                ),
+            )
+            raise typer.Exit(2) from exc
+
+    # The file a patch edits loaded as a Shipgate manifest before; it must
+    # still load as one after, or the patch has turned the manifest into a
+    # file of some other shape (#1031). Refused like any other target that is
+    # not a manifest, before anything is written.
+    broken = [
+        _Violation(
+            target_file,
+            Path(target_file),
+            "not_manifest",
+            f"the patched file would no longer load as a Shipgate manifest: {reason}",
+        )
+        for target_file, _patches, plan in plans
+        if (reason := _planned_manifest_refusal(Path(target_file), plan)) is not None
+    ]
+    if broken:
+        _refuse_containment_violations(
+            from_path,
+            broken,
+            manifest_dir=manifest_dir_resolved,
+            trusted_roots=trusted_roots,
+        )
+
     summary = _Summary()
     refused_declarations: list[tuple[str, str]] = []
     continuations: list[tuple[str, list[Patch], _FileOutcome]] = []
-    for target_file, patches in sorted(grouped.items()):
-        outcome = _apply_one_file(Path(target_file), patches, apply=apply)
+    for target_file, patches, plan in plans:
+        outcome = _commit_file_plan(Path(target_file), plan, apply=apply)
         summary.record(target_file, outcome)
         if outcome.status == "applied" and outcome.sha256_after is not None:
             continuations.append((target_file, patches, outcome))
@@ -486,7 +552,9 @@ def _emit_input_error(kind: str, message: str, **fields: object) -> None:
     emit_agent_mode_error(kind, message=message, **fields)
 
 
-def _emit_malformed_patch_error(from_path: Path, message: str) -> None:
+def _emit_malformed_patch_error(
+    from_path: Path, message: str, *, why: str | None = None
+) -> None:
     _emit_input_error(
         "malformed_patch",
         message,
@@ -499,7 +567,8 @@ def _emit_malformed_patch_error(from_path: Path, message: str) -> None:
                 "kind": "review",
                 "command": None,
                 "path": str(from_path),
-                "why": (
+                "why": why
+                or (
                     "apply-patches could not load the report payload before "
                     "validating patches."
                 ),
@@ -510,6 +579,225 @@ def _emit_malformed_patch_error(from_path: Path, message: str) -> None:
             }
         ],
     )
+
+
+def _trusted_roots(workspace: Path | None) -> list[Path]:
+    """The directories this run may write under, named by the run, not the report.
+
+    ``--workspace`` when the operator typed one, else the working directory,
+    and the git toplevel that contains it. A report produced elsewhere names
+    its own ``manifest_dir``, and the patches beside it can point anywhere that
+    value allows — which is why that value narrows the boundary and these set
+    it (#1031). The toplevel is accepted only when its ``.git`` is a directory
+    or a gitdir file owned by this user, so a stray ``.git`` in some ancestor
+    cannot widen the boundary to it.
+    """
+
+    base = (workspace if workspace is not None else Path.cwd()).resolve()
+    roots = [base]
+    toplevel = owned_git_root_for(base)
+    if toplevel is not None and toplevel != base:
+        roots.append(toplevel)
+    return roots
+
+
+@dataclass(frozen=True)
+class _Violation:
+    """One patch target this run will not write, and why."""
+
+    spelled: str
+    target: Path
+    kind: str  # "manifest_dir" | "trusted_root" | "not_manifest"
+    detail: str
+
+    def line(self) -> str:
+        shown = (
+            str(self.target)
+            if self.spelled == str(self.target)
+            else f"{self.spelled} -> {self.target}"
+        )
+        return f"  - {shown} ({self.detail})"
+
+
+def _unpatchable_reason(target: Path, root: Path) -> str | None:
+    """Why ``target`` is not a file a patch may edit, or ``None`` when it is one.
+
+    Every patch kind the engine emits edits the manifest it was generated
+    from: the stale-entry removals and the scope append name that manifest's
+    ``target_file``, and ``declare_action`` is spelled relative to its
+    directory. So the target must load as a Shipgate manifest, and a
+    protected agent-boundary or trust-root file is refused by name even if it
+    happened to parse as one.
+    """
+
+    try:
+        relative = target.relative_to(root).as_posix()
+    except ValueError:  # pragma: no cover - the caller chose a containing root
+        return "not under a trusted root"
+    if _is_protected_non_manifest(relative):
+        return (
+            "a protected agent-boundary or trust-root file, which apply-patches "
+            "never edits"
+        )
+    if not target.is_file():
+        return "not a regular file"
+    from agents_shipgate.config.loader import load_manifest
+
+    try:
+        load_manifest(target)
+    except (AgentsShipgateError, OSError, UnicodeError, ValueError):
+        return (
+            "not a Shipgate manifest; apply-patches edits only the manifest a "
+            "scan generated its patches from"
+        )
+    return None
+
+
+def _planned_manifest_refusal(target: Path, plan: _FilePlan) -> str | None:
+    """Why the planned text of ``target`` is not a Shipgate manifest, or ``None``.
+
+    Only a plan that would write is checked; a refused or unchanged group
+    leaves the file as it was.
+    """
+
+    if plan.outcome is not None or plan.new_text == plan.original_text:
+        return None
+    from agents_shipgate.config.loader import load_manifest_text
+
+    try:
+        load_manifest_text(plan.new_text, source=target)
+    except (AgentsShipgateError, ValueError) as exc:
+        return str(exc).splitlines()[0][:300]
+    return None
+
+
+def _is_protected_non_manifest(relative: str) -> bool:
+    from agents_shipgate.checks.verify import TRUST_ROOT_SURFACES
+    from agents_shipgate.core.boundary_registry import is_agent_boundary_path
+    from agents_shipgate.core.globbing import glob_match_ci
+    from agents_shipgate.core.preflight import forbidden_file_edits
+
+    if any(
+        glob_match_ci(pattern, relative)
+        for kind, pattern in TRUST_ROOT_SURFACES
+        if kind not in _MANIFEST_SURFACE_KINDS
+    ):
+        return True
+    if any(glob_match_ci(pattern, relative) for pattern in forbidden_file_edits()):
+        return True
+    return is_agent_boundary_path(relative) and not glob_match_ci(
+        "**/shipgate.yaml", relative
+    )
+
+
+#: The trust-root classes a patch may legitimately land in: the manifest, and
+#: Shipgate's own state directory, which holds nothing that loads as one.
+_MANIFEST_SURFACE_KINDS = frozenset({"manifest", "shipgate_state"})
+
+
+def _is_under(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _refuse_containment_violations(
+    from_path: Path,
+    violations: list[_Violation],
+    *,
+    manifest_dir: Path,
+    trusted_roots: list[Path],
+) -> NoReturn:
+    """Report the targets outside the boundary and stop with exit 5; nothing is written.
+
+    The recovery depends on the worst kind present. A target outside every
+    directory this run trusts — the case a report written elsewhere produces —
+    names where to run the command from. A target inside them that is not a
+    Shipgate manifest names the file. Otherwise the report contradicts its own
+    ``manifest_dir``.
+    """
+
+    kinds = {violation.kind for violation in violations}
+    if "trusted_root" in kinds:
+        roots = " or ".join(str(root) for root in trusted_roots)
+        message = (
+            "Containment violation: refusing to apply patches outside the "
+            "workspace and the git repository containing it."
+        )
+        next_action = (
+            f"Review {from_path}; run apply-patches with --workspace naming the "
+            f"repository the report's patches are for. This run writes only "
+            f"under {roots}."
+        )
+        why = (
+            "The report names a patch target outside the workspace "
+            "apply-patches was given and the repository containing it. The "
+            "report is untrusted input, so its manifest_dir cannot widen "
+            "where apply-patches writes."
+        )
+        expects = (
+            "apply-patches is run with --workspace (or from inside) the "
+            "repository that holds every patch target_file, or the report is "
+            "regenerated there."
+        )
+    elif "not_manifest" in kinds:
+        message = (
+            "Containment violation: refusing to apply patches to a file that "
+            "is not a Shipgate manifest."
+        )
+        next_action = (
+            f"Review {from_path}; every generated patch edits the Shipgate "
+            "manifest it was generated from, and this report names another file."
+        )
+        why = (
+            "The report contains a patch whose target is not a Shipgate "
+            "manifest, or is a protected agent-boundary or trust-root file. "
+            "The report is untrusted input, and apply-patches edits only the "
+            "manifest."
+        )
+        expects = (
+            "Every non-manual patch target_file is the Shipgate manifest the "
+            "scan read; regenerate the report with scan --suggest-patches."
+        )
+    else:
+        message = (
+            "Containment violation: refusing to apply patches outside the "
+            "manifest directory."
+        )
+        next_action = (
+            f"Review {from_path}; every patch target_file must resolve "
+            f"under {manifest_dir}."
+        )
+        why = (
+            "The report contains a machine-applicable patch whose "
+            "target_file escapes report.manifest_dir. "
+            "apply-patches refuses this to preserve the "
+            "containment boundary."
+        )
+        expects = (
+            "All non-manual patch target_file values resolve "
+            f"under {manifest_dir} before retrying."
+        )
+    typer.echo(f"{message.rstrip('.')}:", err=True)
+    for violation in violations:
+        typer.echo(violation.line(), err=True)
+    _emit_input_error(
+        "other_error",
+        message,
+        next_action=next_action,
+        next_actions=[
+            {
+                "kind": "review",
+                "command": None,
+                "path": str(from_path),
+                "why": why,
+                "expects": expects,
+            }
+        ],
+    )
+    raise typer.Exit(5)
 
 
 def _resolve_target(patch: Patch, manifest_dir: Path) -> Path:
@@ -639,15 +927,53 @@ class _Summary:
         }
 
 
+@dataclass
+class _FilePlan:
+    """One file's group of patches, applied in memory and not yet written.
+
+    ``outcome`` is final when the group cannot be written (missing file, SHA
+    drift, a refused declaration, an unsupported format); otherwise
+    ``new_text`` holds the bytes to write and ``outcome`` is ``None``.
+    """
+
+    patches_in_group: int
+    outcome: _FileOutcome | None = None
+    original_text: str = ""
+    new_text: str = ""
+    diff: str = ""
+    sha256_before: str = ""
+
+
 def _apply_one_file(
     path: Path, patches: list[Patch], *, apply: bool
 ) -> _FileOutcome:
     """Read once, verify SHA once, apply all in memory, write once."""
+    return _commit_file_plan(path, _plan_one_file(path, patches), apply=apply)
+
+
+def _plan_one_file(path: Path, patches: list[Patch]) -> _FilePlan:
+    """Read once, verify SHA once, and apply the whole group in memory.
+
+    Raises :class:`MalformedPointer` when a pointer does not fit the document;
+    the caller stops the run before any file is written.
+    """
     if not path.exists():
-        return _FileOutcome(
-            status="error",
+        return _FilePlan(
             patches_in_group=len(patches),
-            error=f"target file does not exist: {path}",
+            outcome=_FileOutcome(
+                status="error",
+                patches_in_group=len(patches),
+                error=f"target file does not exist: {path}",
+            ),
+        )
+    if not path.is_file():
+        return _FilePlan(
+            patches_in_group=len(patches),
+            outcome=_FileOutcome(
+                status="error",
+                patches_in_group=len(patches),
+                error=f"target is not a regular file: {path}",
+            ),
         )
     # Hashed as **bytes**, because that is what the generator hashed. Reading
     # as text normalizes CRLF to LF, so an untouched CRLF manifest produced a
@@ -665,12 +991,15 @@ def _apply_one_file(
 
     expected_shas = {p.target_sha256 for p in patches}
     if expected_shas != {current_sha}:
-        return _FileOutcome(
-            status="skipped_drift",
+        return _FilePlan(
             patches_in_group=len(patches),
-            error=(
-                "file SHA does not match patches' target_sha256 (file changed "
-                "since scan); re-run scan and re-apply."
+            outcome=_FileOutcome(
+                status="skipped_drift",
+                patches_in_group=len(patches),
+                error=(
+                    "file SHA does not match patches' target_sha256 (file changed "
+                    "since scan); re-run scan and re-apply."
+                ),
             ),
         )
 
@@ -687,17 +1016,25 @@ def _apply_one_file(
         # applied in memory before the single write, so an abort here leaves
         # the file exactly as it was. Only this one exception is caught —
         # every other failure keeps its current loudness rather than being
-        # downgraded to a summary row.
-        return _FileOutcome(
-            status="error",
+        # downgraded to a summary row. A pointer that does not fit the
+        # document (``MalformedPointer``) is not caught here: it is a malformed
+        # report, and the caller stops the whole run on it.
+        return _FilePlan(
             patches_in_group=len(patches),
-            error=str(exc),
+            outcome=_FileOutcome(
+                status="error",
+                patches_in_group=len(patches),
+                error=str(exc),
+            ),
         )
     if new_text is None:
-        return _FileOutcome(
-            status="error",
+        return _FilePlan(
             patches_in_group=len(patches),
-            error=f"unsupported target format for {path.suffix}",
+            outcome=_FileOutcome(
+                status="error",
+                patches_in_group=len(patches),
+                error=f"unsupported target format for {path.suffix}",
+            ),
         )
 
     # Converted before it is compared, so a patch that changes nothing stays a
@@ -712,21 +1049,35 @@ def _apply_one_file(
         )
     )
 
-    if apply and original_text != new_text:
-        written = new_text.encode("utf-8")
+    return _FilePlan(
+        patches_in_group=len(patches),
+        original_text=original_text,
+        new_text=new_text,
+        diff=diff,
+        sha256_before=current_sha,
+    )
+
+
+def _commit_file_plan(path: Path, plan: _FilePlan, *, apply: bool) -> _FileOutcome:
+    """Write a planned file when ``apply`` is set and it changes; report the outcome."""
+
+    if plan.outcome is not None:
+        return plan.outcome
+    if apply and plan.original_text != plan.new_text:
+        written = plan.new_text.encode("utf-8")
         path.write_bytes(written)
         return _FileOutcome(
             status="applied",
-            patches_in_group=len(patches),
-            diff=diff,
-            sha256_before=current_sha,
+            patches_in_group=plan.patches_in_group,
+            diff=plan.diff,
+            sha256_before=plan.sha256_before,
             sha256_after=hashlib.sha256(written).hexdigest(),
         )
 
     return _FileOutcome(
         status="applied" if apply else "dry_run",
-        patches_in_group=len(patches),
-        diff=diff,
+        patches_in_group=plan.patches_in_group,
+        diff=plan.diff,
     )
 
 
@@ -918,83 +1269,145 @@ def _selector_conflicts(row: dict, selector: dict) -> bool:
     )
 
 
+class MalformedPointer(ValueError):
+    """A patch's JSON pointer does not fit the document it edits (#1031).
+
+    Raised while the patches are applied in memory, before any file is
+    written, and reported as a malformed patch — exit 2 with the
+    ``malformed_patch`` envelope — instead of escaping as a traceback.
+
+    Tokens follow RFC 6901. An index into a list is ``0`` or a decimal
+    without a leading zero, and names an element that exists. ``-`` names the
+    position after the last element, so only an append may end there. ``~``
+    is an escape and must be followed by ``0`` or ``1``. Nothing descends into
+    a scalar. One spelling differs, deliberately and as before: the pointer
+    ``/`` names the whole document (which no patch may target), not RFC
+    6901's member with an empty name.
+    """
+
+
+_LIST_INDEX = re.compile(r"0|[1-9][0-9]*")
+_BAD_ESCAPE = re.compile(r"~(?![01])")
+
+
 def _split_pointer(pointer: str) -> list[str]:
-    if not pointer.startswith("/"):
-        raise ValueError(f"JSON pointer must start with '/': {pointer!r}")
+    if not isinstance(pointer, str) or not pointer.startswith("/"):
+        raise MalformedPointer(f"JSON pointer must start with '/': {pointer!r}")
     if pointer == "/":
         return []
-    return [
-        token.replace("~1", "/").replace("~0", "~")
-        for token in pointer[1:].split("/")
-    ]
+    raw_tokens = pointer[1:].split("/")
+    for raw in raw_tokens:
+        if _BAD_ESCAPE.search(raw):
+            raise MalformedPointer(
+                f"{pointer!r}: '~' must be followed by '0' or '1' in token {raw!r}"
+            )
+    return [token.replace("~1", "/").replace("~0", "~") for token in raw_tokens]
 
 
-def _navigate_parent(root: Any, tokens: list[str]) -> tuple[Any, str]:
-    """Walk to the parent of the leaf; return (parent, leaf_token)."""
+def _list_index(container: list[Any], token: str, pointer: str) -> int:
+    """The existing element ``token`` names in ``container``."""
+
+    if token == "-":
+        raise MalformedPointer(
+            f"{pointer!r}: '-' names the position after the last element of a "
+            "list; only append_pointer may end there"
+        )
+    if not _LIST_INDEX.fullmatch(token):
+        raise MalformedPointer(f"{pointer!r}: {token!r} is not an index into a list")
+    index = int(token)
+    if index >= len(container):
+        raise MalformedPointer(
+            f"{pointer!r}: index {index} is past the end of a list of {len(container)}"
+        )
+    return index
+
+
+def _descend(cursor: Any, token: str, pointer: str, *, create: bool) -> Any:
+    """One step down ``pointer``: a list by index, a mapping by key.
+
+    ``create`` adds a missing key as an empty mapping, which ``set_pointer``
+    and ``append_pointer`` have always done for a parent the manifest has not
+    written yet; ``remove_pointer`` passes ``False``.
+    """
+
+    if isinstance(cursor, list):
+        return cursor[_list_index(cursor, token, pointer)]
+    if isinstance(cursor, dict):
+        if token not in cursor:
+            if not create:
+                raise MalformedPointer(f"{pointer!r}: no key {token!r}")
+            cursor[token] = {}
+        return cursor[token]
+    raise MalformedPointer(
+        f"{pointer!r}: cannot descend into a {type(cursor).__name__} at {token!r}"
+    )
+
+
+def _walk_to_parent(
+    root: Any, tokens: list[str], pointer: str, *, create: bool
+) -> tuple[Any, str]:
+    """Walk to the container holding the leaf; return ``(parent, leaf_token)``."""
+
     parent = root
     for token in tokens[:-1]:
-        if isinstance(parent, list):
-            parent = parent[int(token)]
-        else:
-            parent = parent[token]
+        parent = _descend(parent, token, pointer, create=create)
+    if not isinstance(parent, (list, dict)):
+        raise MalformedPointer(
+            f"{pointer!r}: the parent of {tokens[-1]!r} is a "
+            f"{type(parent).__name__}, not a list or a mapping"
+        )
     return parent, tokens[-1]
 
 
 def _set_pointer(root: Any, pointer: str, value: Any) -> None:
     tokens = _split_pointer(pointer)
     if not tokens:
-        raise ValueError("set_pointer cannot target the document root")
+        raise MalformedPointer("set_pointer cannot target the document root")
     # Walk + create intermediate dicts if needed (mimics RFC 6902 'add' for
     # missing parents on YAML manifests where set is the natural op).
-    cursor = root
-    for token in tokens[:-1]:
-        if isinstance(cursor, list):
-            cursor = cursor[int(token)]
-        else:
-            if token not in cursor:
-                cursor[token] = {}
-            cursor = cursor[token]
-    leaf = tokens[-1]
-    if isinstance(cursor, list):
-        cursor[int(leaf)] = value
+    parent, leaf = _walk_to_parent(root, tokens, pointer, create=True)
+    if isinstance(parent, list):
+        parent[_list_index(parent, leaf, pointer)] = value
     else:
-        cursor[leaf] = value
+        parent[leaf] = value
 
 
 def _append_pointer(root: Any, pointer: str, value: Any) -> None:
+    """Append ``value`` to the list ``pointer`` names, creating it when absent.
+
+    A pointer ending in ``-`` under a list appends to that list (RFC 6902
+    ``add``). Any other leaf names the list itself, as a mapping key or as an
+    existing element.
+    """
+
     tokens = _split_pointer(pointer)
     if not tokens:
-        raise ValueError("append_pointer cannot target the document root")
-    cursor = root
-    for token in tokens[:-1]:
-        if isinstance(cursor, list):
-            cursor = cursor[int(token)]
-        else:
-            if token not in cursor:
-                cursor[token] = {}
-            cursor = cursor[token]
-    leaf = tokens[-1]
-    if isinstance(cursor, list):
-        cursor.append(value)
-        return
-    target = cursor.get(leaf)
-    if target is None:
-        cursor[leaf] = [value]
-    elif isinstance(target, list):
-        target.append(value)
+        raise MalformedPointer("append_pointer cannot target the document root")
+    parent, leaf = _walk_to_parent(root, tokens, pointer, create=True)
+    if isinstance(parent, list):
+        if leaf == "-":
+            parent.append(value)
+            return
+        target = parent[_list_index(parent, leaf, pointer)]
     else:
-        raise ValueError(
-            f"append_pointer target must be a list or absent; got {type(target).__name__}"
+        target = parent.get(leaf)
+        if target is None:
+            parent[leaf] = [value]
+            return
+    if not isinstance(target, list):
+        raise MalformedPointer(
+            f"{pointer!r}: append_pointer target must be a list or absent; "
+            f"got {type(target).__name__}"
         )
+    target.append(value)
 
 
 def _remove_pointer(root: Any, pointer: str) -> None:
     tokens = _split_pointer(pointer)
     if not tokens:
-        raise ValueError("remove_pointer cannot target the document root")
-    parent, leaf = _navigate_parent(root, tokens)
+        raise MalformedPointer("remove_pointer cannot target the document root")
+    parent, leaf = _walk_to_parent(root, tokens, pointer, create=False)
     if isinstance(parent, list):
-        del parent[int(leaf)]
-    else:
-        if leaf in parent:
-            del parent[leaf]
+        del parent[_list_index(parent, leaf, pointer)]
+    elif leaf in parent:
+        del parent[leaf]

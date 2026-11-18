@@ -512,6 +512,9 @@ def _servers_tools_from_toml(
         data,
         source_ref=source_ref,
         source_path=source_path,
+        on_invalid_args=lambda message: diagnostics.append(AgentResultDiagnostic(
+            level="warning", code="mcp_toml_invalid_server_arguments", message=message, path=source_ref,
+        )),
     )
     return servers, tools_from_normalized_mcp_servers(servers)
 
@@ -565,6 +568,9 @@ def _servers_tools_from_mcp_json(
         data,
         source_ref=source_ref,
         source_path=source_path,
+        on_invalid_args=lambda message: diagnostics.append(AgentResultDiagnostic(
+            level="warning", code="mcp_json_invalid_server_arguments", message=message, path=source_ref,
+        )),
     )
     return servers, tools_from_normalized_mcp_servers(servers)
 

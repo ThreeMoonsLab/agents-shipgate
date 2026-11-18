@@ -34,7 +34,7 @@ CLAUDE_SUPPORTED_KEYS = frozenset({
     "disableAllHooks", "allowManagedHooksOnly", "allowManagedPermissionRulesOnly",
     "skipDangerousModePermissionPrompt", "enableAllProjectMcpServers",
     # "MCP restrictions" in the matrix: which project `.mcp.json` servers load.
-    "enabledMcpjsonServers", "disabledMcpjsonServers",
+    "enabledMcpjsonServers",
 })
 #: "settings it runs as commands" in the matrix (#1027): the settings
 #: reference documents each as a shell command Claude Code runs, the first
@@ -60,7 +60,9 @@ CLAUDE_ENV_NAMES = frozenset({
     "RUBYLIB", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS",
     "GIT_SSH", "GIT_SSH_COMMAND", "GIT_EXEC_PATH", "GIT_ASKPASS", "SSH_ASKPASS",
 })
-CLAUDE_UNSUPPORTED_CAPABILITY_KEYS = frozenset({"forceLoginMethod", "forceLoginOrgUUID"})
+CLAUDE_UNSUPPORTED_CAPABILITY_KEYS = frozenset({
+    "forceLoginMethod", "forceLoginOrgUUID", "disabledMcpjsonServers",
+})
 
 
 def claude_env_supported(name: str) -> bool:
@@ -161,7 +163,7 @@ def claude_settings(before_text: str | None, after_text: str | None) -> dict[str
             changes += _map_changes("plugin", "marketplace:", old, new)
         elif key == "additionalDirectories":
             changes += _list_changes("additional_path", "", old, new)
-        elif key in {"enabledMcpjsonServers", "disabledMcpjsonServers"}:
+        elif key == "enabledMcpjsonServers":
             changes += _list_changes("setting", f"{key}:", old, new)
         elif key in CLAUDE_COMMAND_KEYS:
             if change := _change("command_setting", key, old, new):

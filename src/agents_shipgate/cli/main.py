@@ -62,7 +62,8 @@ _ROOT_COMMANDS: tuple[tuple[str, str, dict[str, Any]], ...] = (
         "hidden": True,
         "help": (
             "Apply patches from a scan JSON report. Dry-run by default; pass "
-            "--apply to mutate. Containment-checked against the report's "
+            "--apply to mutate. Writes only the Shipgate manifest, under "
+            "--workspace (default: the current directory) and the report's "
             "manifest_dir."
         ),
     }),
@@ -158,6 +159,11 @@ class _OnDemandGroup(typer.core.TyperGroup):
     and completion walk `list_commands` then `get_command`, so those two are
     the whole seam. A resolved command is cached on this group instance.
     """
+
+    def main(self, *args: Any, **kwargs: Any) -> Any:
+        from agents_shipgate.cli.agent_mode import run_cli_with_error_reporting
+
+        return run_cli_with_error_reporting(super().main, *args, **kwargs)
 
     def list_commands(self, ctx: Context) -> list[str]:
         return [row[0] for row in _ROOT_COMMANDS]

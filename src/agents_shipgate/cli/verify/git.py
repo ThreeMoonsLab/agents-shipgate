@@ -19,7 +19,8 @@ import yaml
 from agents_shipgate import _perf
 from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.core.errors import ConfigError
-from agents_shipgate.core.privacy import redact_text
+from agents_shipgate.core.git_env import hardened_git_env
+from agents_shipgate.core.privacy import redact_text, truncate_redacted
 from agents_shipgate.core.trust_roots import trust_root_class_for
 from agents_shipgate.core.workspace_input import workspace_input_error
 from agents_shipgate.schemas.human_authorization import canonical_https_git_endpoint
@@ -1311,15 +1312,21 @@ def _reader_path(
 class _CommitEntries:
     """One commit's tree entries, each read exactly, by its own `ls-tree`."""
 
-    def __init__(self, workspace: Path, commit: str) -> None:
+    def __init__(
+        self, workspace: Path, commit: str, *, allow_lookup: Callable[[], bool] | None = None,
+    ) -> None:
         self._workspace = workspace
         self._commit = commit
+        self._allow_lookup = allow_lookup
         self._entries: dict[str, tuple[str, str, str] | None] = {}
+        self._link_texts: dict[str, str | None] = {}
 
     def entry(self, path: str) -> tuple[str, str, str] | None:
         """``(mode, type, oid)`` of exactly this path; ``None`` for none, or a Git failure."""
 
         if path not in self._entries:
+            if self._allow_lookup is not None and not self._allow_lookup():
+                return None
             self._entries[path] = self._read(path)
         return self._entries[path]
 
@@ -1363,8 +1370,16 @@ class _CommitEntries:
         entry = self.entry(path)
         if entry is None or entry[:2] != ("120000", "blob"):
             return None
+        oid = entry[2]
+        if oid not in self._link_texts:
+            if self._allow_lookup is not None and not self._allow_lookup():
+                return None
+            self._link_texts[oid] = self._read_link_text(oid)
+        return self._link_texts[oid]
+
+    def _read_link_text(self, oid: str) -> str | None:
         data = _run_git_bounded_output(
-            self._workspace, ["cat-file", "blob", entry[2]], max_output_bytes=_MAX_LINK_TEXT_BYTES
+            self._workspace, ["cat-file", "blob", oid], max_output_bytes=_MAX_LINK_TEXT_BYTES
         )
         if data is None:
             return None
@@ -1424,8 +1439,10 @@ def blob_path_unchanged(workspace: Path, base: str, head: str | None, path: str)
     ``.agents/skills``. Its callers ask only about a limit both sides carry on
     ``path``, and a side whose reader does not read ``path`` carries none
     there: in that example it carries an ``unreadable`` limit on the link
-    instead, which is never named as unchanged, so the comparison still
-    refuses whatever this answers.
+    instead, which is never named as unchanged (only that side carries it,
+    and a link at `.claude/skills` is where a host reads configuration, so
+    :func:`unread_link_unchanged` never proves it, #1004), so the comparison
+    still refuses whatever this answers.
 
     The answer is ``False`` whenever identity cannot be proven: a path absent
     on either side, a link added, removed or given another text (even one that
@@ -1567,6 +1584,513 @@ def tree_path_absent(workspace: Path, base: str, head: str | None, path: str) ->
         if not separator or name in names or name.startswith(encoded + b"/"):
             return False
     return True
+
+
+#: Bounds on the directory an unchanged link names (#1004): the files its Git
+#: tree may hold, the bytes of their listing, and the bytes a working tree's
+#: copy may hold for hashing. Past any of them the link is not proven
+#: unchanged and keeps its limit.
+_LINKED_DIRECTORY_FILES = 10_000
+_LINKED_DIRECTORY_LISTING_BYTES = 8 * 1024 * 1024
+_LINKED_DIRECTORY_BYTES = 64 * 1024 * 1024
+#: What one comparison examines beneath all its unread directory links
+#: together (#1004 review): the files their directories hold, and the
+#: working-tree bytes it hashes. A directory several links name counts once.
+#: Past either, every link not yet proven keeps its limit, and its coverage
+#: detail says why.
+_LINKED_DIRECTORIES_FILE_BUDGET = 20_000
+_LINKED_DIRECTORIES_BYTE_BUDGET = 128 * 1024 * 1024
+#: Bounds per-entry Git work even when many aliases name the same directory.
+_LINKED_DIRECTORIES_LOOKUP_BUDGET = 1024
+_LINKED_DIRECTORY_LOCATION_ENTRIES = 60_000
+
+#: Why a link was not proven unchanged, where a bound decided it (#1004).
+#: Appended to the refused comparison's coverage detail for that link.
+LINKED_DIRECTORY_PAST_BOUND = (
+    "It was not proven unchanged because reading the directory exceeded "
+    "the file, entry, or byte limit for one link."
+)
+LINKED_DIRECTORIES_BUDGET_SPENT = (
+    "It was not proven unchanged: this comparison already examined "
+    f"{_LINKED_DIRECTORIES_FILE_BUDGET:,} files or "
+    f"{_LINKED_DIRECTORIES_BYTE_BUDGET // (1024 * 1024)} MiB beneath other unread "
+    "directory links, its bound, so this link was not examined."
+)
+LINKED_DIRECTORIES_LOOKUP_BUDGET_SPENT = (
+    "It was not proven unchanged because the directory-link proof reached "
+    f"its limit of {_LINKED_DIRECTORIES_LOOKUP_BUDGET:,} Git lookups."
+)
+_UNEXAMINED_LINK_LIMIT = (
+    "The directory-link proof did not examine this path after reaching its comparison budget."
+)
+
+
+def _linked_directory(
+    link: str, text: str | None, kind: Callable[[str], str | None]
+) -> str | None:
+    """The in-tree directory a link's own text names, walked as a filesystem walks it (#1004).
+
+    ``kind`` names an in-tree entry without following it, as for
+    :func:`_reader_path`: ``"tree"``, ``"blob"``, ``"link"`` or ``None``. One
+    hop only. The text must be relative, ``..`` may not rise above the
+    repository, and every component it passes through, and the one it ends
+    on, must be a directory: never a link (a chain), a file or nothing. Each
+    component is walked from where the last one landed, so ``missing/../dir``
+    fails at ``missing`` as the filesystem fails it, although it normalizes to
+    ``dir``. ``None`` as well for a text that is empty, absolute or holds an
+    empty component (one trailing ``/`` is allowed: it asks for the directory
+    that is required anyway), for the repository root, and for a directory
+    that holds the link itself (a loop).
+    """
+
+    if not text or "\0" in text or "\\" in text or text.startswith("/") or os.path.isabs(text):
+        return None
+    components = text.split("/")
+    if len(components) > 1 and components[-1] == "":
+        components.pop()
+    parts = link.split("/")[:-1]
+    for component in components:
+        if component == "":
+            return None
+        if component == ".":
+            continue
+        if component == "..":
+            if not parts:
+                return None
+            parts.pop()
+            continue
+        parts.append(component)
+        if kind("/".join(parts)) != "tree":
+            return None
+    if not parts:
+        return None
+    target = "/".join(parts)
+    if link == target or link.startswith(f"{target}/"):
+        return None
+    return target
+
+
+#: :func:`_linked_directory_files` and :func:`_worktree_directory_holds`
+#: answer this when a bound, not the content, decided (#1004 review).
+_PAST_BOUND = "past_bound"
+
+
+def _linked_directory_files(
+    workspace: Path, tree: str
+) -> dict[str, tuple[str, str]] | Literal["past_bound"] | None:
+    """Every file one Git tree holds, recursively: ``{path: (mode, blob)}`` (#1004).
+
+    ``None`` when the tree holds a link or a submodule, whose content no tree
+    identity binds, or on any Git failure. ``"past_bound"`` when it holds more
+    than :data:`_LINKED_DIRECTORY_FILES` files, or a listing past its byte
+    bound.
+    """
+
+    if not _GIT_OBJECT_RE.fullmatch(tree):
+        return None
+    result = _run_git_bounded_result(
+        workspace,
+        ["ls-tree", "-r", "-z", "--full-tree", tree],
+        max_output_bytes=_LINKED_DIRECTORY_LISTING_BYTES,
+    )
+    if result.payload is None:
+        return _PAST_BOUND if result.exceeded else None
+    files: dict[str, tuple[str, str]] = {}
+    for record in result.payload.split(b"\0"):
+        if not record:
+            continue
+        header, separator, name = record.partition(b"\t")
+        fields = header.split()
+        if not separator or len(fields) != 3:
+            return None
+        mode, object_type, oid = (field.decode("ascii", errors="replace") for field in fields)
+        if object_type != "blob" or mode not in {"100644", "100755"} or not _GIT_OBJECT_RE.fullmatch(oid):
+            return None
+        try:
+            files[name.decode("utf-8")] = (mode, oid)
+        except UnicodeDecodeError:
+            return None
+        if len(files) > _LINKED_DIRECTORY_FILES:
+            return _PAST_BOUND
+    return files
+
+
+def _worktree_directory_holds(
+    workspace: Path, directory: str, files: dict[str, tuple[str, str]], *, max_bytes: int
+) -> tuple[bool | Literal["past_bound"], int]:
+    """Whether a working-tree directory holds exactly ``files``, read without following a link (#1004).
+
+    Returns the answer and the bytes it read, or a count over the byte cap
+    when it hit that cap. Every entry beneath the
+    directory is typed by its own entry: a link, a special file or anything
+    that cannot be typed fails, and so does a file Git's tree does not list,
+    untracked or ignored alike. A directory holding no file is not compared,
+    as Git records none. Each file must have the tree's mode (executable or
+    not) and, by its unfiltered hash, the tree's blob.
+
+    One exception (#1004 review): a directory or link named as one the
+    repository walk never enters (`_WALK_SKIPPED_DIRECTORIES`: `.git`,
+    `node_modules`, `.venv`, `__pycache__`, `.pytest_cache` and the like) is
+    not walked, so build output and caches a local run leaves there do not
+    count as a change. That walk is the one every host's reader enumerates
+    its sources from, so no reader reads a configuration file beneath such
+    a name, at its real path or through the link. A file another reader opens
+    by a reference (a hook script, an OpenShell policy) is read and compared
+    at its own path, or carries its own limit through the link, either way
+    apart from this one. A file Git tracks beneath such a name still counts:
+    it is checked by its own entries, each directory above it included.
+
+    ``"past_bound"`` when the directory holds more entries, or more bytes
+    than ``max_bytes``, than this compares.
+    """
+
+    import stat
+
+    from agents_shipgate.core.host_grants import _WALK_SKIPPED_DIRECTORIES
+    from agents_shipgate.core.trust_roots import (
+        IdentityBoundReadSession,
+        IdentityReadBudgetExceeded,
+    )
+
+    root = Path(directory)
+    if root.drive:
+        return False, 0
+    entry_limit = 2 * _LINKED_DIRECTORY_FILES
+    # The session also inventories lexical ancestors and directories containing
+    # tracked files beneath a skipped name, and revalidates each inventory.
+    session_entry_limit = 3 * entry_limit
+    found: set[str] = set()
+    skipped: set[Path] = set()
+    visited = 0
+    pending = [root]
+    try:
+        reader = IdentityBoundReadSession(
+            workspace, max_entries=session_entry_limit, max_total_bytes=max_bytes
+        )
+        while pending:
+            parent = pending.pop()
+            names = reader.directory_entries(parent, max_entries=entry_limit - visited)
+            visited += len(names)
+            for name in names:
+                child = parent / name
+                kind = reader.directory_entry_kind(child)
+                if name in _WALK_SKIPPED_DIRECTORIES and kind in {"directory", "symlink"}:
+                    skipped.add(child)
+                elif kind == "directory":
+                    pending.append(child)
+                elif kind == "file":
+                    relative = child.relative_to(root).as_posix()
+                    if relative not in files:
+                        return False, 0
+                    found.add(relative)
+                else:
+                    return False, 0
+    except IdentityReadBudgetExceeded:
+        return _PAST_BOUND, 0
+    except (OSError, ValueError, NotImplementedError):
+        return False, 0
+
+    try:
+        for name, (mode, oid) in sorted(files.items()):
+            path = Path(name)
+            if path.drive or path.is_absolute() or ".." in path.parts:
+                return False, reader.bytes_read
+            child = root / path
+            if name not in found and not any(parent in skipped for parent in child.parents):
+                return False, reader.bytes_read
+            content, file_mode = reader.read_bytes_and_mode(child)
+            executable = bool(file_mode & stat.S_IXUSR)
+            if executable != (mode == "100755"):
+                return False, reader.bytes_read
+            # Git's unfiltered blob identity prefixes the exact bytes with
+            # their type and length, using the repository's object format.
+            algorithm = "sha1" if len(oid) == 40 else "sha256"
+            digest = hashlib.new(algorithm, usedforsecurity=False)
+            digest.update(f"blob {len(content)}\0".encode("ascii"))
+            digest.update(content)
+            if digest.hexdigest() != oid:
+                return False, reader.bytes_read
+        reader.finish()
+    except IdentityReadBudgetExceeded:
+        # Keep the caller's distinction between an entry bound and a byte
+        # bound even when the reader could reject the file before opening it.
+        if reader.entries_scanned > session_entry_limit:
+            return _PAST_BOUND, reader.bytes_read
+        return _PAST_BOUND, max_bytes + 1
+    except (OSError, ValueError, NotImplementedError):
+        return False, reader.bytes_read
+    return True, reader.bytes_read
+
+
+@dataclass
+class _LinkedTarget:
+    """What one comparison learned about one directory its links name (#1004 review).
+
+    Keyed by the directory's path and its base tree object, so every link
+    naming it shares one listing, one registry match and one working-tree
+    check, and the budget counts it once.
+    """
+
+    files: dict[str, tuple[str, str]] | None
+    #: Why it is not proven, when a bound decided: one of the two sentences.
+    bound: str | None = None
+    #: Whether a path beneath it, as a link spells it, is configuration.
+    holds_configuration: bool = False
+    #: The working-tree check, once asked.
+    worktree: bool | None = None
+
+
+class UnreadLinkProver:
+    """:func:`unread_link_unchanged` for one comparison (#1004).
+
+    A link the reader leaves unread is a limit under every host whose `**/`
+    glob it may conceal, and several links may name one directory, so each
+    link is answered once and each directory examined once, by its path and
+    tree object. All of it shares one budget,
+    :data:`_LINKED_DIRECTORIES_FILE_BUDGET` files and
+    :data:`_LINKED_DIRECTORIES_BYTE_BUDGET` working-tree bytes: past it,
+    every link not yet proven keeps its limit, and :meth:`reason` says so for
+    the comparison's coverage.
+    """
+
+    def __init__(self, workspace: Path, base: str, head: str | None) -> None:
+        from agents_shipgate.core.trust_roots import IdentityReadBudget
+
+        self._workspace = workspace
+        self._base = base
+        self._head = head
+        self._answers: dict[str, bool] = {}
+        self._reasons: dict[str, str] = {}
+        self._targets: dict[tuple[str, str], _LinkedTarget] = {}
+        self._commits: dict[str, _CommitEntries | None] = {}
+        self._files_left = _LINKED_DIRECTORIES_FILE_BUDGET
+        self._bytes_left = _LINKED_DIRECTORIES_BYTE_BUDGET
+        self._lookups_left = _LINKED_DIRECTORIES_LOOKUP_BUDGET
+        self._lookup_limit_reached = False
+        self._spent = False
+        self._location_budget = IdentityReadBudget(
+            max_entries=_LINKED_DIRECTORY_LOCATION_ENTRIES, max_total_bytes=0,
+        )
+
+    def __call__(self, path: str) -> bool:
+        if path not in self._answers:
+            proven = not self._lookup_limit_reached and self._prove(path)
+            if not proven and self._lookup_limit_reached:
+                self._reasons.setdefault(path, LINKED_DIRECTORIES_LOOKUP_BUDGET_SPENT)
+            self._answers[path] = proven
+        return self._answers[path]
+
+    def reason(self, path: str) -> str | None:
+        """Why ``path`` was not proven unchanged, where a bound decided it.
+
+        Also for a link never asked once the budget was spent: a comparison
+        stops at the first limit it cannot name, so the ones after it were not
+        examined.
+        """
+
+        from agents_shipgate.core.boundary_registry import is_host_configuration_location
+
+        if path in self._reasons:
+            return self._reasons[path]
+        if path in self._answers or is_host_configuration_location(path):
+            return None
+        if self._lookup_limit_reached:
+            return LINKED_DIRECTORIES_LOOKUP_BUDGET_SPENT
+        return _UNEXAMINED_LINK_LIMIT if self._spent else None
+
+    def _allow_lookup(self) -> bool:
+        if self._lookups_left == 0:
+            self._lookup_limit_reached = True
+            return False
+        self._lookups_left -= 1
+        return True
+
+    def _entries(self, ref: str) -> _CommitEntries | None:
+        if ref not in self._commits:
+            commit = commit_sha(self._workspace, ref)
+            self._commits[ref] = (
+                _CommitEntries(self._workspace, commit, allow_lookup=self._allow_lookup)
+                if commit else None
+            )
+        return self._commits[ref]
+
+    def _target(self, link: str, target: str, tree: str) -> _LinkedTarget:
+        from agents_shipgate.core.boundary_registry import is_host_configuration_location
+
+        key = (target, tree)
+        if key in self._targets:
+            return self._targets[key]
+        if not self._allow_lookup():
+            return _LinkedTarget(files=None, bound=LINKED_DIRECTORIES_LOOKUP_BUDGET_SPENT)
+        listed = _linked_directory_files(self._workspace, tree)
+        if listed == _PAST_BOUND:
+            facts = _LinkedTarget(files=None, bound=LINKED_DIRECTORY_PAST_BOUND)
+        elif listed is None:
+            facts = _LinkedTarget(files=None)
+        elif len(listed) > self._files_left:
+            self._spent = True
+            facts = _LinkedTarget(files=None, bound=LINKED_DIRECTORIES_BUDGET_SPENT)
+        else:
+            self._files_left -= len(listed)
+            # Asked of the first link that names this directory, and true of
+            # every other: no link reaches here at a configuration location,
+            # and beneath a link that is not one, whether a path is
+            # configuration depends on its part below the link alone
+            # (`tests/test_unchanged_link_limits.py` pins it).
+            facts = _LinkedTarget(
+                files=listed,
+                holds_configuration=any(
+                    is_host_configuration_location(f"{link}/{name}") for name in listed
+                ),
+            )
+        self._targets[key] = facts
+        return facts
+
+    def _worktree_holds(self, facts: _LinkedTarget, target: str) -> bool:
+        if facts.files is None:
+            return False
+        if facts.worktree is None:
+            per_link = _LINKED_DIRECTORY_BYTES
+            cap = min(per_link, self._bytes_left)
+            held, hashed = _worktree_directory_holds(
+                self._workspace, target, facts.files, max_bytes=cap
+            )
+            self._bytes_left = max(self._bytes_left - hashed, 0)
+            if held == _PAST_BOUND:
+                if cap < per_link and hashed > cap:
+                    self._spent = True
+                    facts.bound = LINKED_DIRECTORIES_BUDGET_SPENT
+                else:
+                    facts.bound = LINKED_DIRECTORY_PAST_BOUND
+            facts.worktree = held is True
+        return facts.worktree
+
+    def _prove(self, path: str) -> bool:
+        from pathlib import PurePosixPath
+
+        from agents_shipgate.core.boundary_registry import is_host_configuration_location
+
+        relative = PurePosixPath(path)
+        if (
+            not path
+            or relative.is_absolute()
+            or relative.as_posix() != path
+            or ".." in relative.parts
+            or "\\" in path
+            or "\0" in path
+        ):
+            return False
+        try:
+            path.encode("utf-8")
+        except UnicodeEncodeError:
+            return False
+        if is_host_configuration_location(path):
+            return False
+        base_tree = self._entries(self._base)
+        if base_tree is None:
+            return False
+        above = ["/".join(relative.parts[:index]) for index in range(1, len(relative.parts))]
+        if any(base_tree.kind(prefix) != "tree" for prefix in above) or base_tree.kind(path) != "link":
+            return False
+        text = base_tree.link_text(path)
+        target = _linked_directory(path, text, base_tree.kind)
+        target_entry = base_tree.entry(target) if target is not None else None
+        if target is None or target_entry is None:
+            return False
+        if self._spent and (target, target_entry[2]) not in self._targets:
+            self._reasons[path] = LINKED_DIRECTORIES_BUDGET_SPENT
+            return False
+        facts = self._target(path, target, target_entry[2])
+        if facts.files is None or facts.holds_configuration:
+            if facts.bound is not None:
+                self._reasons[path] = facts.bound
+            return False
+        if self._head is not None:
+            head_tree = self._entries(self._head)
+            return (
+                head_tree is not None
+                and all(head_tree.kind(prefix) == "tree" for prefix in above)
+                and head_tree.entry(path) == base_tree.entry(path)
+                and _linked_directory(path, head_tree.link_text(path), head_tree.kind) == target
+                and head_tree.entry(target) == target_entry
+            )
+
+        from agents_shipgate.core.trust_roots import (
+            IdentityBoundReadSession,
+            IdentityReadBudgetExceeded,
+        )
+
+        kinds = {"directory": "tree", "file": "blob", "symlink": "link"}
+        try:
+            reader = IdentityBoundReadSession(self._workspace, budget=self._location_budget)
+
+            def kind(entry: str) -> str | None:
+                return kinds.get(reader.directory_entry_kind(Path(entry)))
+
+            if any(kind(prefix) != "tree" for prefix in above) or kind(path) != "link":
+                return False
+            worktree_text = reader.link_target(Path(path))
+            if worktree_text != text or _linked_directory(path, worktree_text, kind) != target:
+                return False
+            held = self._worktree_holds(facts, target)
+            if held:
+                reader.finish()
+        except IdentityReadBudgetExceeded:
+            self._reasons[path] = "The comparison reached its working-tree link location entry limit."
+            return False
+        except (OSError, ValueError, NotImplementedError):
+            return False
+        if not held and facts.bound is not None:
+            self._reasons[path] = facts.bound
+        return held
+
+
+def unread_link_unchanged(workspace: Path, base: str, head: str | None, path: str) -> bool:
+    """Whether ``path`` is one unchanged in-tree directory link, left unread (#1004).
+
+    The reader reads through a directory link only at a boundary location
+    (#700); anywhere else, such as `.happy/terraform/envs/dev/modules ->
+    ../../modules`, it may conceal a `**/` match, so the reader names it as an
+    ``unreadable`` limit. This proves, from Git objects and never by following
+    the link, that such a limit hides no change and no configuration. All of
+    these must hold:
+
+    - **The link.** On both sides an entry of mode ``120000`` at ``path``
+      with the same blob, so the same text, and a directory at every
+      component above it.
+    - **Where it lands.** Its text names, in one hop, a directory inside the
+      repository that does not hold the link (:func:`_linked_directory`), the
+      same directory on both sides, with the same Git tree object, so the same
+      files, modes and bytes beneath it.
+    - **What it holds.** No link or submodule anywhere beneath it, which no
+      tree identity binds, and at most :data:`_LINKED_DIRECTORY_FILES` files.
+    - **Not configuration.** Neither ``path`` nor any path beneath it, as the
+      link spells it, is one a host reads for agent configuration
+      (:func:`~agents_shipgate.core.boundary_registry.is_host_configuration_location`),
+      so configuration cannot be moved behind an unchanged link.
+
+    ``head=None`` means the working tree, whose head is read without following
+    any link: each component by its own entry, the link by its own text, and
+    every file beneath the directory it names by its own entry and unfiltered
+    hash, which must match the base's tree exactly, untracked and ignored files
+    included, except beneath a name the repository walk never enters
+    (:func:`_worktree_directory_holds`). The base and a commit head are read
+    from their tree entries. The answer is ``False`` whenever any of this
+    cannot be proven: a link added, removed, retargeted or rewritten, a
+    changed directory, a dangling, looping, absolute or escaping link, a
+    chain, a bound reached, or any Git failure.
+
+    One question on its own; a comparison asks through
+    :class:`UnreadLinkProver`, which shares work and a budget across links.
+    """
+
+    return UnreadLinkProver(workspace, base, head)(path)
+
+
+def unread_link_prover(workspace: Path, base: str, head: str | None) -> UnreadLinkProver:
+    """The :class:`UnreadLinkProver` one comparison asks (#1004)."""
+
+    return UnreadLinkProver(workspace, base, head)
 
 
 #: Bounds on what :func:`blob_path_identities` reads (#812): one tree listing,
@@ -3345,27 +3869,14 @@ def _resolved_diff_revspec(workspace: Path, revspec: str) -> str:
 
 
 def _git_object_environment() -> dict[str, str]:
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if not key.startswith("GIT_")
-    }
-    env.update(
-        {
-            "GIT_ATTR_NOSYSTEM": "1",
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_CONFIG_SYSTEM": os.devnull,
-            "GIT_ALLOW_PROTOCOL": "",
-            "GIT_NO_LAZY_FETCH": "1",
-            "GIT_NO_REPLACE_OBJECTS": "1",
-            "GIT_OPTIONAL_LOCKS": "0",
-            "GIT_PAGER": "cat",
-            "GIT_PROTOCOL_FROM_USER": "0",
-            "GIT_TERMINAL_PROMPT": "0",
-        }
-    )
-    return env
+    """The environment every Git child of ``verify`` runs with.
+
+    Kept as this module's own name so a test can drop one protection and prove
+    the others still hold (``tests/test_capability_diff_partial_clone.py``);
+    the variables themselves live in :mod:`agents_shipgate.core.git_env`.
+    """
+
+    return hardened_git_env()
 
 
 def _run_git_dir(
@@ -3539,15 +4050,26 @@ def _run_git_bounded_result(
 def _decode_git_stderr(payload: bytes | bytearray) -> str:
     """Return Git's diagnostic text as one safe, bounded, single-line string."""
 
-    text = bytes(payload).decode("utf-8", errors="replace")
+    raw = bytes(payload)
+    if len(raw) >= _GIT_STDERR_LIMIT:
+        # The capture stopped at its limit, so its last word may be the head
+        # of a longer one: a token cut there is too short for any rule to
+        # recognise. Drop everything after the last whitespace (#1079 review).
+        whole = re.match(rb"(?s)(.*\s)\S*\Z", raw)
+        raw = whole.group(1) if whole else b""
+    text = raw.decode("utf-8", errors="replace")
     collapsed = " ".join(
         part
         for part in "".join(
             character if character.isprintable() else " " for character in text
         ).split()
     )
+    # Redacted, then bounded (#1079): Git can echo a remote URL or a header,
+    # and this text is published as a diagnostic's detail. It used to be
+    # bounded and never redacted.
+    collapsed = redact_text(collapsed) or ""
     if len(collapsed) > _GIT_STDERR_EXCERPT_CHARS:
-        collapsed = collapsed[:_GIT_STDERR_EXCERPT_CHARS].rstrip() + "…"
+        collapsed = truncate_redacted(collapsed, _GIT_STDERR_EXCERPT_CHARS).rstrip() + "…"
     return collapsed
 
 

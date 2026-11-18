@@ -26,7 +26,7 @@ from pydantic import ValidationError
 from agents_shipgate import __version__
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
 from agents_shipgate.config.loader import load_manifest
-from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.pr_approval import (
     APPROVAL_SOURCE,
     ApprovalEvaluation,
@@ -34,6 +34,7 @@ from agents_shipgate.core.pr_approval import (
     evaluate_pull_request_reviews,
 )
 from agents_shipgate.core.verification_identity import (
+    read_regular_file_beneath,
     sha256_bytes,
     validate_receipt_artifacts,
 )
@@ -158,19 +159,15 @@ def _attest_command(
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
         raise typer.Exit(3) from exc
-    report = _load_sibling_report(source, verifier)
-    verify_run_path = _resolve_verify_run_path(source, verifier, explicit=verify_run)
-    verify_run_payload = _load_optional_json_object(verify_run_path)
-    verify_run_sha256 = (
-        hashlib.sha256(verify_run_path.read_bytes()).hexdigest()
-        if verify_run_path is not None and verify_run_path.is_file()
-        else None
-    )
     receipt_path = source.with_name("verification-receipt.json")
     try:
         receipt = load_verified_receipt(verifier, receipt_path, root=source.parent)
+        report = load_attested_report(source.parent, receipt)
     except (ValueError, OSError) as exc:
         raise receipt_failure(receipt_path, exc) from exc
+    verify_run_payload, verify_run_sha256 = _load_attestation_run(
+        source, verifier, explicit=verify_run, receipt=receipt,
+    )
     receipt_payload = receipt.model_dump(mode="json") if receipt is not None else None
     receipt_sha256 = (
         hashlib.sha256(receipt_path.read_bytes()).hexdigest() if receipt is not None else None
@@ -553,10 +550,10 @@ def build_attestation_payload(
 ) -> dict[str, Any]:
     """Project a verify run onto a deterministic attestation dict.
 
-    ``report`` (the sibling ``report.json``) is optional: when present it adds
-    the declared ``human_ack`` state and a policy-snapshot hash; when absent the
-    attestation degrades gracefully (``human_ack.satisfied`` is ``null`` and
-    ``policy_snapshot_sha256`` is ``null``).
+    If passing a report, use the result of :func:`load_attested_report` with
+    the same verified receipt. It supplies the declared ``human_ack`` state
+    and policy snapshot. Unknown acknowledgement and policy evidence use
+    ``null``.
     """
     verifier_version = verifier.get("verifier_schema_version")
     if verifier_version in {"0.1", "0.2", "0.3"}:
@@ -570,9 +567,19 @@ def build_attestation_payload(
     human_review = _obj(_obj(verifier.get("control")).get("human_review"))
     if not human_review:
         human_review = _obj(verifier.get("human_review"))
-    report = report or {}
     verify_run = verify_run or {}
     verification_receipt = verification_receipt or {}
+    bound_artifacts = _obj(_obj(verification_receipt.get("artifact_manifest")).get("artifacts"))
+    report_ref = _obj(bound_artifacts.get("report_json"))
+    if not report_ref:
+        report = None
+    report = report or {}
+    artifact_hashes = _artifact_hashes(
+        {key: value for key, value in artifacts.items() if key != "report_json"},
+        base_dir=source.parent,
+    )
+    if report_digest := _clean_str(report_ref.get("sha256")):
+        artifact_hashes["report_json"] = report_digest.removeprefix("sha256:")
     human_ack = _obj(report.get("human_ack"))
     effective_policy = report.get("effective_policy")
     org_context = _clean_org_context(org_context or {})
@@ -637,7 +644,7 @@ def build_attestation_payload(
             _canonical_sha256(effective_policy) if effective_policy is not None else None
         ),
         "policy_packs": _verify_run_policy_packs(verify_run),
-        "artifact_sha256": _artifact_hashes(artifacts, base_dir=source.parent),
+        "artifact_sha256": artifact_hashes,
     }
 
 
@@ -646,48 +653,93 @@ def _load_json_object(path: Path, label: str) -> dict[str, Any]:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise InputParseError(f"{label} not found: {path}") from exc
-    except json.JSONDecodeError as exc:
+    except (ValueError, RecursionError) as exc:
         raise InputParseError(f"{label} is not valid JSON: {path}") from exc
+    except OSError as exc:
+        raise InputParseError(f"Could not read {label} at {path}: {exc}") from exc
     if not isinstance(data, dict):
         raise InputParseError(f"{label} must contain an object: {path}")
     return data
 
 
-def _load_sibling_report(source: Path, verifier: dict[str, Any]) -> dict[str, Any] | None:
-    """Best-effort read of the report.json beside verifier.json (or named in its
-    artifacts map). Absence or a parse error is fine — enrichment is optional."""
-    artifacts = _obj(verifier.get("artifacts"))
-    name = Path(str(artifacts.get("report_json", "report.json"))).name or "report.json"
-    candidate = source.parent / name
-    if not candidate.is_file():
+def load_attested_report(
+    root: Path, receipt: VerificationReceipt | None
+) -> dict[str, Any] | None:
+    """Read the exact report named by a receipt that has already validated."""
+
+    ref = receipt.artifact_manifest.artifacts.get("report_json") if receipt is not None else None
+    if ref is None:
         return None
-    try:
-        return _load_json_object(candidate, "report.json")
-    except InputParseError:
-        return None
+    if os.open in os.supports_dir_fd:
+        data = read_regular_file_beneath(root, ref.path, max_size=ref.size_bytes, label="attested report")
+    else:
+        # Platforms without dir_fd still hash and parse the same bounded bytes.
+        with (root / ref.path).open("rb") as stream:
+            data = stream.read(ref.size_bytes + 1)
+    if len(data) != ref.size_bytes or sha256_bytes(data) != ref.sha256:
+        raise ValueError("report.json does not match the terminal verification receipt")
+    report = json.loads(data)
+    if not isinstance(report, dict):
+        raise ValueError("receipt-bound report.json must contain an object")
+    return report
 
 
-def _resolve_verify_run_path(
+def _load_attestation_run(
     source: Path,
     verifier: dict[str, Any],
     *,
     explicit: Path | None,
-) -> Path | None:
+    receipt: VerificationReceipt | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Read one run, checking the consumed fields and any receipt binding."""
+
+    binding = receipt.artifact_manifest.artifacts["verify_run_json"] if receipt else None
     if explicit is not None:
-        return explicit
-    artifacts = _obj(verifier.get("artifacts"))
-    name = Path(str(artifacts.get("verify_run_json", "verify-run.json"))).name
-    candidate = source.parent / (name or "verify-run.json")
-    return candidate if candidate.is_file() else None
+        path = explicit
+    elif binding is not None:
+        path = source.parent / binding.path
+    else:
+        artifacts = _obj(verifier.get("artifacts"))
+        name = Path(str(artifacts.get("verify_run_json", "verify-run.json"))).name
+        path = source.parent / (name or "verify-run.json")
 
-
-def _load_optional_json_object(path: Path | None) -> dict[str, Any] | None:
-    if path is None or not path.is_file():
-        return None
     try:
-        return _load_json_object(path, path.name)
-    except InputParseError:
-        return None
+        if binding is not None and explicit is None and os.open in os.supports_dir_fd:
+            raw = read_regular_file_beneath(
+                source.parent, binding.path, max_size=binding.size_bytes, label="attested verify run"
+            )
+        else:
+            if not path.is_file():
+                raise OSError("expected a readable regular file")
+            with path.open("rb") as stream:
+                raw = stream.read(binding.size_bytes + 1) if binding is not None else stream.read()
+        digest = hashlib.sha256(raw).hexdigest()
+        if binding is not None and (
+            binding.sha256 != f"sha256:{digest}" or binding.size_bytes != len(raw)
+        ):
+            raise ValueError("does not match verify-run.json bound by the verification receipt")
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("expected one JSON object")
+        run_id = payload.get("run_id")
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise ValueError("expected a non-empty verification run ID")
+        for inputs in (payload.get("inputs"), _obj(payload.get("plan")).get("inputs")):
+            if inputs is None:
+                continue
+            if not isinstance(inputs, dict):
+                raise ValueError("expected verification run inputs to be an object")
+            policy_packs = inputs.get("policy_packs")
+            if policy_packs is not None and (
+                not isinstance(policy_packs, list)
+                or any(not isinstance(pack, dict) for pack in policy_packs)
+            ):
+                raise ValueError("expected policy_packs to be an array of objects")
+    except (OSError, ValueError, RecursionError) as exc:
+        if explicit is not None or receipt is not None:
+            raise InputParseError(f"Could not read verify-run.json at {path}: {exc}") from exc
+        return None, None
+    return payload, digest
 
 
 def _context_from_inputs(
@@ -699,12 +751,12 @@ def _context_from_inputs(
 ) -> tuple[dict[str, str | None], dict[str, str | None]]:
     context: dict[str, str | None] = {}
     run_context: dict[str, str | None] = {}
-    if config is not None and config.is_file():
+    if config is not None:
         try:
             manifest = load_manifest(config)
-        except Exception:
-            manifest = None
-        if manifest is not None and manifest.organization is not None:
+        except (ConfigError, InputParseError, UnicodeError, RecursionError) as exc:
+            raise InputParseError(f"Could not use --config {config}: {exc}") from exc
+        if manifest.organization is not None:
             context.update(
                 {
                     "org_id": manifest.organization.id,
@@ -1025,6 +1077,7 @@ __all__ = [
     "ATTESTATION_SCHEMA_VERSION",
     "RECEIPT_IDENTITY_FIELDS",
     "build_attestation_payload",
+    "load_attested_report",
     "load_verified_receipt",
     "receipt_error_message",
     "receipt_failure",

@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 import tomllib
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -15,6 +15,7 @@ from agents_shipgate.core.capability_lattice import (
 )
 from agents_shipgate.core.domain import LoadedToolSource, SourceSurfaceOmission, Tool
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.core.privacy import redact_text
 from agents_shipgate.core.source_warnings import (
     duplicate_mcp_server_declaration_warning,
@@ -212,11 +213,11 @@ def load_codex_config_mcp_sources(root: Path, base_dir: Path) -> list[LoadedTool
         return sources
     read_files, unread_files = _mcp_config_files(root)
     for path in read_files:
-        rel = _relative(path, root)
+        rel = _display_path(path, root, outside="resolved")
         if _is_config_path(rel, ".codex/config.toml"):
-            source_ref = _relative(path, base_dir)
+            source_ref = _display_path(path, base_dir, outside="resolved")
             try:
-                data = tomllib.loads(load_text_file(path))
+                data = tomllib.loads(load_text_file(path).removeprefix("\ufeff"))
             except (InputParseError, tomllib.TOMLDecodeError) as exc:
                 sources.append(
                     LoadedToolSource(
@@ -241,7 +242,7 @@ def load_codex_config_mcp_sources(root: Path, base_dir: Path) -> list[LoadedTool
     for path, host in unread_files:
         # Warning-only, like a file that did not parse: it carries no tools,
         # so it never collides with a per-server source, and it names the file.
-        source_ref = _relative(path, base_dir)
+        source_ref = _display_path(path, base_dir, outside="resolved")
         sources.append(
             LoadedToolSource(
                 source_id=f"unread_host_mcp_config:{source_ref}",
@@ -260,6 +261,7 @@ def normalize_codex_config_mcp_servers(
     *,
     source_ref: str,
     source_path: str,
+    on_invalid_args: Callable[[str], None] | None = None,
 ) -> list[NormalizedMcpServer]:
     servers: list[NormalizedMcpServer] = []
     servers.extend(
@@ -270,6 +272,7 @@ def normalize_codex_config_mcp_servers(
             source_id_prefix="codex_config_mcp",
             source_type="codex_config_mcp",
             pointer_prefix="mcp_servers",
+            on_invalid_args=on_invalid_args,
         )
     )
     plugins = data.get("plugins")
@@ -285,6 +288,7 @@ def normalize_codex_config_mcp_servers(
                     source_id_prefix=f"codex_plugin_config_mcp:{plugin_name}",
                     source_type="codex_config_mcp",
                     pointer_prefix=f"plugins.{plugin_name}.mcp_servers",
+                    on_invalid_args=on_invalid_args,
                 )
             )
     return servers
@@ -295,6 +299,7 @@ def normalize_mcp_json_servers(
     *,
     source_ref: str,
     source_path: str,
+    on_invalid_args: Callable[[str], None] | None = None,
 ) -> list[NormalizedMcpServer]:
     return _servers_from_mapping(
         data.get("mcpServers"),
@@ -303,6 +308,7 @@ def normalize_mcp_json_servers(
         source_id_prefix="mcp_json",
         source_type="codex_config_mcp",
         pointer_prefix="mcpServers",
+        on_invalid_args=on_invalid_args,
     )
 
 
@@ -326,6 +332,7 @@ def _servers_from_mapping(
     source_id_prefix: str,
     source_type: str,
     pointer_prefix: str,
+    on_invalid_args: Callable[[str], None] | None,
 ) -> list[NormalizedMcpServer]:
     if not isinstance(raw_servers, dict):
         return []
@@ -343,6 +350,14 @@ def _servers_from_mapping(
         # is this invariant that makes one name in two files one server to
         # reconcile rather than two surfaces to tell apart.
         source_id = f"{source_id_prefix}:{server_name}"
+        args = raw_server.get("args", [])
+        if not isinstance(args, list) or any(not isinstance(arg, str) for arg in args):
+            field = f"{source_ref}#{pointer_prefix}.{server_name}.args"
+            message = f"{field} must be an array of strings"
+            if on_invalid_args is None:
+                raise InputParseError(message)
+            on_invalid_args(message)
+            continue
         env_secret_names = tuple(_env_secret_names(raw_server))
         transport = _transport(raw_server)
         command = raw_server.get("command") if isinstance(raw_server.get("command"), str) else None
@@ -900,7 +915,7 @@ def _load_mcp_json(
     say about a file whose servers could not be read.
     """
 
-    source_ref = _relative(path, base_dir)
+    source_ref = _display_path(path, base_dir, outside="resolved")
     try:
         data, positions = load_structured_file_with_positions(path)
     except InputParseError as exc:
@@ -1114,7 +1129,7 @@ def _looks_like_local_documentation(server_name: str, server: dict[str, Any]) ->
         [
             server_name,
             str(server.get("command") or ""),
-            " ".join(str(item) for item in server.get("args") or []),
+            " ".join(str(item) for item in _as_sequence(server.get("args"))),
         ]
     )
     tokens = set(re.findall(r"[a-z0-9]+", text.lower()))
@@ -1148,7 +1163,7 @@ def _mcp_config_files(root: Path) -> tuple[list[Path], list[tuple[Path, str]]]:
                 continue
             if not child.is_file():
                 continue
-            rel = _relative(child, root)
+            rel = _display_path(child, root, outside="resolved")
             if any(_is_config_path(rel, config) for config in READ_MCP_CONFIG_FILES):
                 candidates.append(child)
                 continue
@@ -1166,13 +1181,6 @@ def _text_or_none(value: Any) -> str | None:
         return None
     text = str(value)
     return text if text else None
-
-
-def _relative(path: Path, root: Path) -> str:
-    try:
-        return path.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return str(path.resolve())
 
 
 def _json_pointer_escape(value: str) -> str:

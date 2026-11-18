@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import sys
 import tomllib
@@ -74,7 +75,9 @@ index 0000000..1111111
     assert payload["agent"] == "cursor"
     assert payload["actor"] == "cursor"
     assert payload["affected_hosts"] == ["codex"]
-    assert payload["input_coverage"] == "complete"
+    # Every file it names was read; a detached diff may not be the whole
+    # change, so its own coverage is unknown (#1154).
+    assert payload["input_coverage"] == "unknown"
     assert payload["decision"] == "block"
     assert payload["control"]["state"] == "human_review_required"
     assert payload["control"]["next_action"]["kind"] == "stop"
@@ -374,6 +377,30 @@ def test_build_server_without_sdk_raises_config_error() -> None:
         build_server()
 
 
+@pytest.mark.parametrize("pipx", [False, True])
+def test_mcp_console_exits_cleanly_without_the_extra(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pipx: bool,
+) -> None:
+    from agents_shipgate.mcp_server.server import main
+
+    monkeypatch.setitem(sys.modules, "mcp", None)
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "0")
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    if pipx:
+        (tmp_path / "pipx_metadata.json").touch()
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 2
+    result = capsys.readouterr()
+    assert result.out == ""
+    [message] = result.err.splitlines()
+    command = shlex.split(message.split("environment running the server: ", 1)[1])
+    if pipx:
+        assert command == ["pipx", "inject", tmp_path.name, "agents-shipgate[mcp]"]
+    else:
+        assert command == [sys.executable, "-P", "-m", "pip", "install", "agents-shipgate[mcp]"]
+
+
 def test_an_sdk_without_mcpserver_is_named_as_a_version_problem(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -488,6 +515,7 @@ _REQUIRED_STATEMENTS = {
         "every result stops for human routing",
         "`human_review_required`",
         "authorizes no verify command and grants no permission",
+        "`decision` is never `allow`",
         "runs no scan or verify and is not a release or merge verdict",
     ),
     "shipgate.preflight": (

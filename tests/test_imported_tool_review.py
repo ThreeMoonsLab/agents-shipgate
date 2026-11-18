@@ -707,8 +707,11 @@ def test_a_guessed_binding_is_never_an_established_addition_or_removal(repo, dir
     assert result["comparison_status"] == "partial"
     _constructor_candidate(result, "app", "lookup", direction, repo=repo, source="agent.py",
                            reason="'lookup' is bound more than once")
-    _reads_the_same(result, "app", "other", reason="executable or reflective machinery")
-    assert _rows(result) == [("app", "lookup", "not_established")]
+    # `__import__` in the agent's module is machinery that can rebind any of
+    # its names, `other` included: it keeps its row (#1146 follow-up).
+    _constructor_candidate(result, "app", "other", "changed", repo=repo, source="agent.py",
+                           reason="executable or reflective machinery")
+    assert _rows(result) == [("app", "lookup", "not_established"), ("app", "other", "not_established")]
 
 
 def test_a_guessed_name_keeps_the_agents_other_findings_in_scan(tmp_path):
@@ -2201,7 +2204,8 @@ def test_namespace_reads_in_the_chain_are_not_patches(repo, files):
     base = commit(repo, {**layout, "svc/app/agent.py": agent.format(tools="lookup")})
     head = commit(repo, {"svc/app/agent.py": agent.format(tools="lookup, refund")})
     result = run(repo, base, head, "--scope", "svc/app")
-    if "svc/app/debug.py" in files and "return sum([" in files["svc/app/debug.py"]:
+    # Both the local list comprehension and generator are consumed by builtin sum.
+    if "svc/app/debug.py" in files:
         assert result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
         assert _rows(result) == [("x", "refund", "added")]
     else:

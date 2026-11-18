@@ -33,7 +33,9 @@ from agents_shipgate.core.domain import (
     joined_doubts,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.core.privacy import is_credential_key, redact_url_credentials
+from agents_shipgate.core.python_source import parse_python
 from agents_shipgate.core.source_warnings import adk_unresolved_tool_warning
 from agents_shipgate.inputs.builder_calls import (
     BuilderCalls,
@@ -75,6 +77,7 @@ from agents_shipgate.inputs.python_imports import (
     OUTSIDE_SCOPE,
     ImportResolver,
     PythonModule,
+    Rebinding,
     Resolution,
     ScopeIndex,
     _module_bindings,
@@ -522,7 +525,7 @@ def _load_inventory_ref(
             raise
         artifacts.warnings.append(f"Optional Google ADK tool inventory {ref.path!r} failed to load.")
         return None
-    artifacts.tool_inventory_files.append(_display_path(resolve_input_path(base_dir, ref.path), base_dir))
+    artifacts.tool_inventory_files.append(_display_path(resolve_input_path(base_dir, ref.path), base_dir, outside="resolved"))
     for tool in loaded.tools:
         tool.source_type = "google_adk_inventory"
         tool.annotations["adk_inventory"] = True
@@ -545,7 +548,7 @@ def _load_eval_refs(
                 raise
             artifacts.warnings.append(f"Optional Google ADK eval artifact {ref.path!r} failed to load.")
             continue
-        _append_unique(artifacts.eval_files, _display_path(path, base_dir))
+        _append_unique(artifacts.eval_files, _display_path(path, base_dir, outside="resolved"))
 
 
 def _load_python_path(
@@ -557,10 +560,10 @@ def _load_python_path(
 ) -> list[LoadedToolSource]:
     text = load_text_file(path)
     try:
-        tree = ast.parse(text, filename=str(path))
+        tree = parse_python(text, filename=str(path))
     except SyntaxError as exc:
         raise InputParseError(f"Unable to parse Google ADK Python entrypoint {path}: {exc.msg}") from exc
-    artifacts.python_entrypoints.append(_display_path(path, base_dir))
+    artifacts.python_entrypoints.append(_display_path(path, base_dir, outside="resolved"))
     # Repository-local imports are followed inside the directory this read was
     # given, never above it (#864).
     resolver = ImportResolver(base_dir)
@@ -596,7 +599,7 @@ def _load_agent_config_path(
     if not isinstance(data, dict):
         raise InputParseError(f"Google ADK Agent Config must contain an object: {path}")
 
-    artifacts.agent_config_files.append(_display_path(path, config_base_dir))
+    artifacts.agent_config_files.append(_display_path(path, config_base_dir, outside="resolved"))
     agent_name = str(data.get("name") or path.stem)
     raw_tools = data.get("tools")
     if isinstance(raw_tools, list):
@@ -932,6 +935,9 @@ class _AdkAgentBinding:
     tool_issue_doubts: dict[str, list[str]] = field(default_factory=dict)
     constructor_issue: str | None = None
     constructor_issues: dict[str, str] = field(default_factory=dict)
+    #: The tool names machinery behind a constructor issue can rebind in
+    #: this agent's module (#1146 review); ``None`` stands for every name.
+    constructor_rebinds: list[str | None] = field(default_factory=list)
     #: Why this agent's tool list is incomplete, when it is.
     issues: list[str] = field(default_factory=list)
     #: Every ``(tool, locator)`` one construction of this name asked to bind,
@@ -1012,6 +1018,23 @@ class _AdkAgentBinding:
         self.tool_locations.pop(tool_name, None)
         if reason not in self.issues:
             self.issues.append(reason)
+
+
+def _rebound_doubts(binding: _AdkAgentBinding) -> dict[str, list[str]]:
+    """Each ``tool_issues`` reason's kinds once the constructor issue is joined (#1146).
+
+    The constructor issue doubts whether the agent holds its tools. When the
+    machinery behind it can rebind names in the agent's module (a wildcard
+    import, reflective namespace access, exec-style machinery, an unread
+    module a tool's name is imported from), it doubts those definitions too.
+    """
+
+    names = (*binding.tool_names, *binding.objects) if binding.constructor_issue is not None else ()
+    doubts = joined_doubts(binding.tool_issues, binding.tool_issue_doubts, names, DOUBT_CONSTRUCTION)
+    rebinds = set(binding.constructor_rebinds)
+    rebound = [name for name in names if None in rebinds or name in rebinds]
+    issues = {**binding.tool_issues, **{name: "" for name in names}}
+    return joined_doubts(issues, doubts, rebound, DOUBT_DEFINITION_IDENTITY)
 
 
 def _record_tool_binding(
@@ -1229,6 +1252,10 @@ class _PythonAdkExtractor:
                     binding.issues.append(message)
                 binding.constructor_issue = message
                 binding.constructor_issues[f"{self.source_ref}:{call.lineno}"] = message
+                if isinstance(constructor_issue, Rebinding) and self.module is not None and constructor_issue.module == self.module.ref:
+                    binding.constructor_rebinds.extend(
+                        sorted(constructor_issue.names) if constructor_issue.names is not None else [None]
+                    )
                 binding.handoffs_complete = False
             if any(keyword.arg is None for keyword in call.keywords):
                 # ``Agent(**config)`` hides every keyword, ``tools`` included.
@@ -1934,12 +1961,7 @@ class _PythonAdkExtractor:
                              **({name: "; ".join(filter(None, [binding.tool_issues.get(name), binding.constructor_issue]))
                                  for name in (*binding.tool_names, *binding.objects)}
                                 if binding.constructor_issue is not None else {})},
-                tool_issue_doubts=joined_doubts(
-                    binding.tool_issues,
-                    binding.tool_issue_doubts,
-                    (*binding.tool_names, *binding.objects) if binding.constructor_issue is not None else (),
-                    DOUBT_CONSTRUCTION,
-                ),
+                tool_issue_doubts=_rebound_doubts(binding),
                 tool_sites={
                     name: sorted(lines, key=lambda location: (location.rsplit(":", 1)[0], int(location.rsplit(":", 1)[1])))
                     for name, lines in binding.tool_sites.items()
@@ -4038,7 +4060,7 @@ class _PythonAdkExtractor:
                     f"Google ADK eval reference {value!r} was detected but not found."
                 )
                 continue
-            display = _display_path(path, self.base_dir)
+            display = _display_path(path, self.base_dir, outside="resolved")
             if display not in self.artifacts.eval_files:
                 _append_unique(self.artifacts.eval_files, display)
 
@@ -4084,7 +4106,7 @@ def _record_config_eval_refs(
                     f"Google ADK Agent Config eval reference {value!r} was detected but not found."
                 )
                 continue
-            display = _display_path(path, config_base_dir)
+            display = _display_path(path, config_base_dir, outside="resolved")
             if display not in artifacts.eval_files:
                 _append_unique(artifacts.eval_files, display)
 
@@ -5242,13 +5264,6 @@ def _json_schema_type(annotation: str | None) -> str:
     if annotation in {"dict", "Dict"} or text.startswith(("dict[", "Dict[")):
         return "object"
     return "string"
-
-
-def _display_path(path: Path, base_dir: Path) -> str:
-    try:
-        return path.resolve().relative_to(base_dir.resolve()).as_posix()
-    except ValueError:
-        return str(path.resolve())
 
 
 def _append_unique(values: list[str], value: str) -> None:
