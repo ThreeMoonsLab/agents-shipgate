@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from pydantic import ValidationError
 
 
 class AgentsShipgateError(Exception):
@@ -31,3 +34,30 @@ class InputParseError(AgentsShipgateError):
 
 class DiscoveryError(AgentsShipgateError):
     """Raised when workspace discovery cannot establish bounded input coverage."""
+
+
+def format_validation_error(
+    exc: ValidationError,
+    *,
+    label: str,
+    suggest: Callable[[dict[str, Any]], str | None] | None = None,
+) -> str:
+    """Describe invalid fields without serializing Pydantic's original inputs."""
+
+    from agents_shipgate.core.agent_control_envelope import single_line_text
+    from agents_shipgate.core.privacy import redact_text
+
+    lines = [f"{label}:"]
+    for error in exc.errors(include_input=False, include_context=False, include_url=False):
+        location = ".".join(str(part) for part in error["loc"]) or "<root>"
+        message = (
+            "Unrecognized discriminator tag"
+            if error["type"] == "union_tag_invalid"
+            else error["msg"]
+        )
+        if suggest is not None and (suggestion := suggest(error)):
+            message = f"{message}. Did you mean {suggestion}?"
+        safe_location = single_line_text(redact_text(location) or "")
+        safe_message = single_line_text(redact_text(message) or "")
+        lines.append(f"- {safe_location}: {safe_message}")
+    return "\n".join(lines)

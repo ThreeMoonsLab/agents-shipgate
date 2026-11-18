@@ -15,6 +15,7 @@ from pathlib import Path
 import typer
 
 from agents_shipgate import __version__
+from agents_shipgate.cli.agent_mode import mark_cli_routing_reported
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
 from agents_shipgate.fixtures import (
@@ -76,22 +77,20 @@ def self_check(
 
     if json_output:
         typer.echo(json.dumps(payload, indent=2, sort_keys=True))
-        if not payload["ready"]:
-            raise typer.Exit(4)
-        return
-
-    typer.echo(f"Agents Shipgate {payload['version']} on Python {payload['python']}")
-    typer.echo(f"Platform: {payload['platform']}")
-    typer.echo("")
-    typer.echo("Bundled fixtures:")
-    for name, result in fixture_results.items():
-        typer.echo(f"  {name:30} {result}")
-    typer.echo("")
-    typer.echo("CLI surface:")
-    for command, status in payload["cli_surface"].items():
-        typer.echo(f"  {command:25} {status}")
-    typer.echo("")
-    typer.echo("Ready: " + ("yes" if payload["ready"] else "no"))
+    else:
+        typer.echo(f"Agents Shipgate {payload['version']} on Python {payload['python']}")
+        typer.echo(f"Platform: {payload['platform']}")
+        typer.echo("")
+        typer.echo("Bundled fixtures:")
+        for name, result in fixture_results.items():
+            typer.echo(f"  {name:30} {result}")
+        typer.echo("")
+        typer.echo("CLI surface:")
+        for command, status in payload["cli_surface"].items():
+            typer.echo(f"  {command:25} {status}")
+        typer.echo("")
+        typer.echo("Ready: " + ("yes" if payload["ready"] else "no"))
+    mark_cli_routing_reported()
     if not payload["ready"]:
         raise typer.Exit(4)
 

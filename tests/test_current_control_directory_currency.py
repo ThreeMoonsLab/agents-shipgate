@@ -154,9 +154,9 @@ def test_prepare_and_worker_bind_the_directory_census(repo, committed):
         '--workspace', str(repo), '--diff', str(reports / 'verification-input.diff'),
         '--out', str(reports / 'replayed-unit.json'),
     ])
-    assert result.exit_code != 0
+    assert result.exit_code == 3, result.output
     assert not (reports / 'replayed-unit.json').exists()
-    assert 'directory membership' in str(result.exception)
+    assert 'directory membership' in result.stderr
 
 
 def test_file_source_ignores_an_unrelated_ignored_sibling(repo):

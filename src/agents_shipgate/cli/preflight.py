@@ -22,7 +22,12 @@ from agents_shipgate.core.bounded_io import (
     read_bounded_utf8_stdin,
 )
 from agents_shipgate.core.codex_boundary import parse_unified_diff
-from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
+from agents_shipgate.core.errors import (
+    AgentsShipgateError,
+    ConfigError,
+    InputParseError,
+    format_validation_error,
+)
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.core.preflight import build_preflight_result
 from agents_shipgate.core.trust_roots import inspect_lexical_path_identity
@@ -511,7 +516,7 @@ def _read_capability_request(path: Path | None) -> CapabilityRequestV1 | None:
     try:
         return CapabilityRequestV1.model_validate(payload)
     except ValidationError as exc:
-        raise ConfigError(f"Invalid {source_label}: {exc}") from exc
+        raise ConfigError(format_validation_error(exc, label=f"Invalid {source_label}")) from exc
 
 
 def _read_plan(path: Path) -> PreflightPlanV1:
@@ -533,7 +538,7 @@ def _read_plan(path: Path) -> PreflightPlanV1:
     try:
         return PreflightPlanV1.model_validate(payload)
     except ValidationError as exc:
-        raise ConfigError(f"Invalid {source_label}: {exc}") from exc
+        raise ConfigError(format_validation_error(exc, label=f"Invalid {source_label}")) from exc
 
 
 def _read_base_preflight(path: Path | None) -> AnyPreflightResult | None:
@@ -546,7 +551,7 @@ def _read_base_preflight(path: Path | None) -> AnyPreflightResult | None:
     try:
         return parse_preflight_result(payload)
     except ValidationError as exc:
-        raise ConfigError(f"Invalid {source_label}: {exc}") from exc
+        raise ConfigError(format_validation_error(exc, label=f"Invalid {source_label}")) from exc
 
 
 def _read_json_file_or_stdin(path: Path, *, label: str) -> Any:
