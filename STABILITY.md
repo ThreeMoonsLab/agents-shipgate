@@ -500,6 +500,91 @@ and a report applied from inside its repository, behave as before.
 
 ---
 
+<a id="policy-pack-not-a-workflow-1143"></a>
+
+## Migration Note: Unreleased — a policy pack is not a workflow, and a case variant of a workflow or Codex config name is compared (#1143)
+
+**What was wrong.** Two predicates disagreed with the reader about what a
+workflow is.
+
+- `check`'s workflow predicate (`core/host_boundary.py::_is_workflow_path`)
+  took any `.yml` or `.yaml` that the boundary registry's `shared` adapter
+  enumerates, and tested whether what followed its first 18 characters held a
+  `/`. It never tested the `.github/workflows/` prefix. The `shared` adapter
+  also enumerates `policies/*.shipgate.yaml` and the named boundary policies,
+  so every pack was evaluated as a GitHub workflow:
+  - a top-level `permissions: write-all` got `HOST-WORKFLOW-WRITE-ALL`, so
+    `check` answered `block`, and full `verify` published
+    `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` with `blocks_release` and a
+    `blocked` release decision;
+  - a `permissions` mapping with a `write` scope got
+    `HOST-WORKFLOW-PERMISSIONS-EXPANDED`, and an `on: pull_request_target`
+    key got `HOST-WORKFLOW-PULL-REQUEST-TARGET-ADDED`;
+  - a pack that did not parse got `HOST-CONFIG-PARSE-FAILED`, with evidence
+    `workflow_yaml_parse_failed`.
+
+  Each of these displaced the pack's own
+  `BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED` row, because the protected-surface
+  fallback skips a path that already carries a violation. The same predicate
+  compared the extension case-sensitively, so it never evaluated
+  `.github/workflows/CI.YML`.
+- The reader's parser (`HostStaticParseCache.parse` in `core/host_grants.py`)
+  chose TOML and YAML by a case-sensitive suffix. The registry matches names
+  case-insensitively, so `.github/workflows/CI.YML` was a workflow and
+  `.codex/CONFIG.TOML` the Codex config, and both went to the JSON parser.
+  Both inventories recorded a blocking `parse_failed`:
+  - `diff` and `verify` refused the comparison with no rows;
+  - `audit --host --save-baseline` refused the repository;
+  - `check` answered `require_review`, with `BOUNDARY-INPUT-INCOMPLETE`, where
+    the same `write-all` widening in `ci.yml` blocks.
+
+**What changes.**
+
+- `check` evaluates as a workflow exactly what the reader reads as one:
+  `boundary_registry.is_github_workflow_path` (#1110), which is a `.yml` or
+  `.yaml` directly in the root `.github/workflows/`, case-folded. An edit to a
+  `policies/<name>.shipgate.yaml` pack is
+  `BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED` (`require_review`) whatever keys
+  it holds, as an ordinary edit to it is.
+  - A pack edit that blocked through `HOST-WORKFLOW-WRITE-ALL` now gets
+    `require_review`.
+  - One that drew a `HOST-WORKFLOW-*` review rule or
+    `HOST-CONFIG-PARSE-FAILED` still gets `require_review`, now under the
+    pack's own rule, with that rule's evidence and fingerprint.
+- The reader chooses its parser by the case-folded suffix, and the Codex
+  grant reader folds the suffix the same way, so a parsed `CONFIG.TOML`
+  publishes the grants `config.toml` would. `CI.YML` and `Release.Yaml`
+  compare as `ci.yml` and `release.yaml` do: a `write-all` widening is a
+  `critical` widened row on `diff` and `verify`, and `block` from `check`
+  through `HOST-WORKFLOW-WRITE-ALL`.
+
+**What does not change.** These stay as they were:
+
+- every lower-case root workflow, with its grant id and `config_sha256`;
+- a nested copy such as `samples/x/.github/workflows/ci.yml`, which is
+  never evaluated as a GitHub workflow;
+- the rows `diff` and `verify` publish for a policy pack;
+- rule IDs, check IDs, schemas and the contract.
+
+No baseline saved by 1.3.0 holds an upper-case workflow or Codex config,
+because 1.3.0 refused to save one. GitHub's workflow syntax reference
+requires a `.yml` or `.yaml` extension in `.github/workflows` and says nothing
+about letter case. So a case variant stays a workflow, treated conservatively
+as every registry name is (`core/globbing.py::glob_match_ci`).
+
+**Who must act.** No configuration change is needed.
+
+- A pipeline that relied on `check` or `verify` blocking a policy-pack edit
+  through `HOST-WORKFLOW-WRITE-ALL` now gets `require_review` for it, as for
+  any pack edit.
+- A waiver for a `HOST-WORKFLOW-*` or `HOST-CONFIG-PARSE-FAILED` finding on a
+  pack path no longer matches anything and can be dropped.
+- A repository with an upper-case workflow name now gets a host comparison
+  where it got a refusal, and `block` from `check` where it got
+  `require_review`.
+
+---
+
 <a id="unreadable-host-input-1154"></a>
 
 ## Migration Note: Unreleased — a changed host configuration the reader cannot read holds the verdict at `insufficient_evidence` (#1154)

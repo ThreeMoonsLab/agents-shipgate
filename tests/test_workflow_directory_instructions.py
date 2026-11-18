@@ -16,6 +16,18 @@ evaluated for these files, so only those are workflows here too. Anything else t
 finds in that directory is read by its own adapter, as it would be anywhere
 else in the tree: the instruction files keep their adapters' hosts.
 
+#1143 asked the same question of `check` and of the parser. `check`'s own
+predicate took any `.yml`/`.yaml` the `shared` adapter enumerates and tested
+what followed the first 18 characters for a `/`, without checking the
+`.github/workflows/` prefix. It read every `policies/*.shipgate.yaml` as a
+workflow, and it skipped `CI.YML` because it compared the extension
+case-sensitively. Both now use the reader's one predicate. The parser chose
+YAML by a case-sensitive suffix, so the reader classified `CI.YML` as a
+workflow and handed it to the JSON parser, which refused the whole comparison
+as #1110 did. It now chooses by the case-folded suffix, as the registry
+matches names. The policy-pack routes are pinned in
+`tests/test_declared_policy_pack_boundary.py`.
+
 Every route case is a real two-commit repository driven through `diff` (text
 and `--json`), `verify --preview`, `audit --host --drift` against a baseline
 saved at the base commit, and `check`.
@@ -38,6 +50,7 @@ from agents_shipgate.core.boundary_registry import (
 )
 from agents_shipgate.core.host_boundary import _is_workflow_path
 from agents_shipgate.core.host_grants import (
+    HostStaticParseCache,
     _audit_hosts,
     _source_kind,
     local_reusable_target,
@@ -55,7 +68,10 @@ READ = (
     "jobs:\n  t:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n"
 )
 WRITE = READ.replace("contents: read", "contents: write")
-NOTES = "# Workflow notes\n\nKeep every job's token read-only.\n"
+WRITE_ALL = READ.replace("permissions:\n  contents: read\n", "permissions: write-all\n")
+CODEX_READ = 'approval_policy = "on-request"\nsandbox_mode = "read-only"\n'
+CODEX_WIDE = 'approval_policy = "never"\nsandbox_mode = "danger-full-access"\n'
+NOTES ="# Workflow notes\n\nKeep every job's token read-only.\n"
 EDITED_NOTES = NOTES + "\nPin every action to a commit.\n"
 SHARED_HOSTS = ("claude-code", "codex", "cursor")
 #: The hosts the registry attributes each instruction file to.
@@ -96,20 +112,61 @@ def test_only_a_root_workflow_document_is_a_workflow(path, kind, hosts):
 
 
 @pytest.mark.parametrize(
-    "path",
+    ("path", "workflow"),
     [
-        f"{WORKFLOWS}/ci.yml",
-        f"{WORKFLOWS}/release.yaml",
-        f"{WORKFLOWS}/AGENTS.md",
-        f"{WORKFLOWS}/CLAUDE.md",
-        f"{WORKFLOWS}/shared/AGENTS.md",
-        f"samples/x/{WORKFLOWS}/ci.yml",
+        (f"{WORKFLOWS}/ci.yml", True),
+        (f"{WORKFLOWS}/release.yaml", True),
+        # `check` compared the extension case-sensitively, so it never
+        # evaluated a workflow the reader reads (#1143).
+        (f"{WORKFLOWS}/CI.YML", True),
+        (f"{WORKFLOWS}/Release.Yaml", True),
+        (f"{WORKFLOWS}/AGENTS.md", False),
+        (f"{WORKFLOWS}/CLAUDE.md", False),
+        (f"{WORKFLOWS}/shared/AGENTS.md", False),
+        (f"samples/x/{WORKFLOWS}/ci.yml", False),
+        # The `shared` adapter enumerates policy packs and the manifest too.
+        # `check` read every pack as a workflow, since what followed its first
+        # 18 characters held no `/` (#1143).
+        ("policies/org.shipgate.yaml", False),
+        ("policies/agent-boundary.shipgate.yaml", False),
+        ("shipgate.yaml", False),
     ],
 )
-def test_the_reader_and_check_agree_on_what_is_a_workflow(path):
-    """`check` already evaluated only these as workflows; `diff` now reads the same set."""
+def test_the_reader_and_check_agree_on_what_is_a_workflow(path, workflow):
+    """`check` evaluates as a workflow exactly what `diff` reads as one (#1143)."""
 
-    assert (_source_kind(path) == "workflow") is _is_workflow_path(path)
+    assert boundary_adapters_for_path(path), "the registry enumerates every case"
+    assert (_source_kind(path) == "workflow") is workflow
+    assert _is_workflow_path(path) is workflow
+
+
+@pytest.mark.parametrize(
+    ("relative", "text"),
+    [
+        (f"{WORKFLOWS}/CI.YML", READ),
+        (f"{WORKFLOWS}/.YML", READ),
+        (f"{WORKFLOWS}/Release.Yaml", READ),
+        (".codex/CONFIG.TOML", CODEX_WIDE),
+        (".codex/CONFIG.TOML", "\ufeff" + CODEX_WIDE),
+    ],
+    ids=["CI.YML", ".YML", "Release.Yaml", "CONFIG.TOML", "CONFIG.TOML-with-BOM"],
+)
+def test_the_parser_follows_the_case_folded_suffix(tmp_path, relative, text):
+    """A name the registry matches case-insensitively is parsed as its lower-case spelling is.
+
+    Each spelling gets its own tree, so a case-insensitive file system cannot
+    fold the two into one file.
+    """
+
+    parsed = {}
+    for spelling in (relative, relative.lower()):
+        root = tmp_path / ("lower" if spelling == relative.lower() else "upper")
+        _write(root, {spelling: text})
+        parsed[spelling] = HostStaticParseCache().parse(root / spelling, containment_root=root)
+    data, error_kind, message = parsed[relative]
+    assert (error_kind, message) == (None, None)
+    assert isinstance(data, dict) and data
+    assert parsed[relative] == parsed[relative.lower()]
 
 
 def test_a_markdown_file_is_never_followed_as_a_reusable_workflow():
@@ -324,3 +381,116 @@ def test_markdown_alone_changing_beside_an_unchanged_workflow_yields_no_workflow
         for item in diff["coverage"]["items"]
         if item["source"] == f"{WORKFLOWS}/AGENTS.md"
     ] == [("changed_without_grant_change", SHARED_HOSTS)]
+
+
+# --- #1143: a case variant compares as its lower-case spelling ------------------
+
+
+def _spelled(rows: list[dict], name: str) -> list[tuple[str, str, bool, str]]:
+    """Rows with the source's spelling factored out, so two spellings compare."""
+
+    return sorted(
+        (row["subject"].replace(name, "<name>"), row["direction"], row["expands"], row["severity"])
+        for row in rows
+    )
+
+
+def _projection(routes: dict, source: str) -> dict:
+    """What every route decided about ``source``, with its spelling factored out."""
+
+    name = source.rsplit("/", 1)[-1]
+    diff, check = routes["diff"], routes["check"]
+    return {
+        "diff": (diff["comparison_status"], diff["incomparable_reasons"], _spelled(diff["rows"], name)),
+        "limits": sorted(str(item["limit"]) for item in diff["coverage"]["items"]),
+        "verify": (routes["verify"]["comparison_status"], _spelled(routes["verify"]["rows"], name)),
+        "check": (
+            check["decision"],
+            sorted(
+                (
+                    item["id"],
+                    str(item.get("path")).replace(name, "<name>"),
+                    json.dumps(item["evidence"], sort_keys=True).replace(name, "<name>"),
+                )
+                for item in check["violations"]
+            ),
+            _spelled(check["rows"], name),
+        ),
+        "drift": (
+            routes["drift"]["comparison_status"],
+            sorted(signal.replace(name, "<name>") for signal in routes["drift"]["expansion_signals"]),
+        ),
+        "inventory": (
+            routes["inventory"]["issues"],
+            sorted(
+                (artifact["host"], artifact["kind"], artifact["parse_status"])
+                for artifact in routes["inventory"]["artifacts"]
+                if artifact["path"] == source
+            ),
+        ),
+    }
+
+
+def _spellings(tmp_path: Path, source: str, base: str, head: str) -> dict[str, dict]:
+    """One change's routes under ``source`` and under its lower-case spelling.
+
+    Each spelling gets its own repository, so a case-insensitive file system
+    cannot fold the two into one file.
+    """
+
+    routes = {}
+    for spelling in (source, source.lower()):
+        root = tmp_path / ("lower" if spelling == source.lower() else "upper")
+        routes[spelling] = _routes(_repository(root, {spelling: base}, {spelling: head}))
+    return routes
+
+
+def test_an_upper_case_workflow_compares_as_its_lower_case_spelling(tmp_path):
+    """The reader classified `CI.YML` as a workflow and parsed it as JSON (#1143).
+
+    Both inventories recorded a blocking `parse_failed`, so `diff` and
+    `verify` refused the comparison with no rows. `check`'s own predicate
+    skipped the name and answered `require_review` for input it could not
+    read. A `write-all` widening is the same critical row and the same block
+    under either spelling. A `.Yaml` spelling takes the same path, which the
+    parser and agreement cases above pin.
+    """
+
+    name = "CI.YML"
+    source = f"{WORKFLOWS}/{name}"
+    routes = _spellings(tmp_path, source, READ, WRITE_ALL)
+    upper = routes[source]
+    diff = upper["diff"]
+    assert diff["comparison_status"] == "comparable", diff["incomparable_reasons"]
+    assert _spelled(diff["rows"], name) == [
+        (f"github {WORKFLOWS}/<name>", "widened", True, "critical")
+    ]
+    assert _rows(upper["verify"]["rows"]) == _rows(diff["rows"]) == _rows(upper["check"]["rows"])
+    assert upper["verify"]["comparison_status"] == "comparable"
+    assert upper["check"]["decision"] == "block"
+    assert [(item["id"], item["path"]) for item in upper["check"]["violations"]] == [
+        ("HOST-WORKFLOW-WRITE-ALL", source)
+    ]
+    assert "parse_failed" not in upper["text"]
+    assert _projection(upper, source) == _projection(routes[source.lower()], source.lower())
+
+
+def test_an_upper_case_codex_config_compares_as_its_lower_case_spelling(tmp_path):
+    """The same parser dispatch sent `.codex/CONFIG.TOML` to the JSON parser (#1143).
+
+    `check`'s Codex rules already read that file, while `diff` refused the
+    comparison. The Codex grant reader now folds the suffix as the parser
+    does. A parsed file that fell through to no grant reader would publish no
+    grants at all, and its widening would read as no change.
+    """
+
+    source = ".codex/CONFIG.TOML"
+    routes = _spellings(tmp_path, source, CODEX_READ, CODEX_WIDE)
+    diff = routes[source]["diff"]
+    assert diff["comparison_status"] == "comparable", diff["incomparable_reasons"]
+    # `danger-full-access` is a critical expansion, as it is in `config.toml`.
+    assert any(row["expands"] and row["severity"] == "critical" for row in diff["rows"])
+    assert "BOUNDARY-INPUT-INCOMPLETE" not in {
+        item["id"] for item in routes[source]["check"]["violations"]
+    }
+    assert _projection(routes[source], source) == _projection(routes[source.lower()], source.lower())
