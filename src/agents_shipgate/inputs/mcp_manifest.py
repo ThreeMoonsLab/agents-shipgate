@@ -217,7 +217,7 @@ def load_codex_config_mcp_sources(root: Path, base_dir: Path) -> list[LoadedTool
         if _is_config_path(rel, ".codex/config.toml"):
             source_ref = _display_path(path, base_dir, outside="resolved")
             try:
-                data = tomllib.loads(load_text_file(path))
+                data = tomllib.loads(load_text_file(path).removeprefix("\ufeff"))
             except (InputParseError, tomllib.TOMLDecodeError) as exc:
                 sources.append(
                     LoadedToolSource(

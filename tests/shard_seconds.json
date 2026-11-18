@@ -244,6 +244,7 @@
   "tests/test_init_gitignore.py": 2.9,
   "tests/test_init_scaffold_disclosure.py": 15.7,
   "tests/test_inline_hook_allow.py": 31.0,
+  "tests/test_input_encoding.py": 0.2,
   "tests/test_inputs.py": 0.4,
   "tests/test_install_hooks.py": 61.6,
   "tests/test_instruction_structure.py": 0.1,
@@ -582,6 +583,17 @@
    },
    "case_count": 1,
    "command": "python -m pytest tests/test_step_summary_isolation.py --junitxml=step-summary-isolation.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "217a1ad9b56c with issue #1042 test increment",
+   "report_sha256": "ff5a744654814e09cca7c6af3d483231add094ccfd4ad4f966c2061ad10ce0e0",
+   "files": {
+    "tests/test_input_encoding.py": 0.2
+   },
+   "case_count": 3,
+   "command": "python -m pytest tests/test_input_encoding.py -o junit_duration_report=total --junitxml=shard-weight.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {
