@@ -13,6 +13,7 @@ from typing import Any, Literal
 import yaml
 
 from agents_shipgate import __version__
+from agents_shipgate.core.paths import first_symlink_in_chain
 from agents_shipgate.published_release import ReleaseEngine, contract_floor_prose
 from agents_shipgate.release_source import release_engine
 from agents_shipgate.schemas.contract import MINIMUM_CONTROL_CONTRACT_VERSION
@@ -103,7 +104,7 @@ def load_adoption_kit_config(
             return None
     else:
         raw_path = config_path if config_path.is_absolute() else workspace / config_path
-    symlink = first_symlink_in_chain(raw_path, workspace)
+    symlink = first_symlink_in_chain(raw_path, workspace, outside="defer")
     if symlink is not None:
         raise AdoptionKitError(
             f"{symlink} is a symlink; refusing to read adoption-kit config.",
@@ -158,7 +159,7 @@ def load_adoption_kit_config(
                 path=path,
             )
         overrides_path = workspace / overrides_value
-        symlink = first_symlink_in_chain(overrides_path, workspace)
+        symlink = first_symlink_in_chain(overrides_path, workspace, outside="defer")
         if symlink is not None:
             raise AdoptionKitError(
                 f"{symlink} is a symlink; refusing to read adoption-kit overrides.",
@@ -312,32 +313,6 @@ def root_relative_path(target: str, workspace_relative_path: str) -> str:
     return workspace_relative_path.removeprefix(prefix)
 
 
-def first_symlink_in_chain(path: Path, workspace: Path) -> Path | None:
-    """Return the first existing symlink under ``workspace``.
-
-    Paths outside ``workspace`` return ``None`` here; callers do their own
-    containment checks and should report those as containment errors, not
-    symlink errors.
-    """
-
-    workspace_real = workspace.resolve()
-    try:
-        relative_parts = path.relative_to(workspace_real).parts
-    except ValueError:
-        try:
-            relative_parts = path.resolve().relative_to(workspace_real).parts
-        except ValueError:
-            return None
-    cur = workspace_real
-    for part in relative_parts:
-        cur = cur / part
-        if cur.is_symlink():
-            return cur
-        if not cur.exists():
-            return None
-    return None
-
-
 def _target(target: str) -> KitTarget:
     try:
         return KIT_TARGETS[target]
@@ -397,7 +372,7 @@ def _read_override_files(root: Path) -> dict[str, str]:
                 f"Adoption-kit overrides may not define {SIDECAR_FILENAME}: {path}",
                 path=path,
             )
-        if first_symlink_in_chain(path, root) is not None or path.is_symlink():
+        if first_symlink_in_chain(path, root, outside="defer") is not None or path.is_symlink():
             raise AdoptionKitError(
                 f"{path} is a symlink; refusing to read adoption-kit override.",
                 path=path,

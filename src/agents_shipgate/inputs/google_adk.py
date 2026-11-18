@@ -33,7 +33,9 @@ from agents_shipgate.core.domain import (
     joined_doubts,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.core.privacy import is_credential_key, redact_url_credentials
+from agents_shipgate.core.python_source import parse_python
 from agents_shipgate.core.source_warnings import adk_unresolved_tool_warning
 from agents_shipgate.inputs.builder_calls import (
     BuilderCalls,
@@ -522,7 +524,7 @@ def _load_inventory_ref(
             raise
         artifacts.warnings.append(f"Optional Google ADK tool inventory {ref.path!r} failed to load.")
         return None
-    artifacts.tool_inventory_files.append(_display_path(resolve_input_path(base_dir, ref.path), base_dir))
+    artifacts.tool_inventory_files.append(_display_path(resolve_input_path(base_dir, ref.path), base_dir, outside="resolved"))
     for tool in loaded.tools:
         tool.source_type = "google_adk_inventory"
         tool.annotations["adk_inventory"] = True
@@ -545,7 +547,7 @@ def _load_eval_refs(
                 raise
             artifacts.warnings.append(f"Optional Google ADK eval artifact {ref.path!r} failed to load.")
             continue
-        _append_unique(artifacts.eval_files, _display_path(path, base_dir))
+        _append_unique(artifacts.eval_files, _display_path(path, base_dir, outside="resolved"))
 
 
 def _load_python_path(
@@ -557,10 +559,10 @@ def _load_python_path(
 ) -> list[LoadedToolSource]:
     text = load_text_file(path)
     try:
-        tree = ast.parse(text, filename=str(path))
+        tree = parse_python(text, filename=str(path))
     except SyntaxError as exc:
         raise InputParseError(f"Unable to parse Google ADK Python entrypoint {path}: {exc.msg}") from exc
-    artifacts.python_entrypoints.append(_display_path(path, base_dir))
+    artifacts.python_entrypoints.append(_display_path(path, base_dir, outside="resolved"))
     # Repository-local imports are followed inside the directory this read was
     # given, never above it (#864).
     resolver = ImportResolver(base_dir)
@@ -596,7 +598,7 @@ def _load_agent_config_path(
     if not isinstance(data, dict):
         raise InputParseError(f"Google ADK Agent Config must contain an object: {path}")
 
-    artifacts.agent_config_files.append(_display_path(path, config_base_dir))
+    artifacts.agent_config_files.append(_display_path(path, config_base_dir, outside="resolved"))
     agent_name = str(data.get("name") or path.stem)
     raw_tools = data.get("tools")
     if isinstance(raw_tools, list):
@@ -4038,7 +4040,7 @@ class _PythonAdkExtractor:
                     f"Google ADK eval reference {value!r} was detected but not found."
                 )
                 continue
-            display = _display_path(path, self.base_dir)
+            display = _display_path(path, self.base_dir, outside="resolved")
             if display not in self.artifacts.eval_files:
                 _append_unique(self.artifacts.eval_files, display)
 
@@ -4084,7 +4086,7 @@ def _record_config_eval_refs(
                     f"Google ADK Agent Config eval reference {value!r} was detected but not found."
                 )
                 continue
-            display = _display_path(path, config_base_dir)
+            display = _display_path(path, config_base_dir, outside="resolved")
             if display not in artifacts.eval_files:
                 _append_unique(artifacts.eval_files, display)
 
@@ -5242,13 +5244,6 @@ def _json_schema_type(annotation: str | None) -> str:
     if annotation in {"dict", "Dict"} or text.startswith(("dict[", "Dict[")):
         return "object"
     return "string"
-
-
-def _display_path(path: Path, base_dir: Path) -> str:
-    try:
-        return path.resolve().relative_to(base_dir.resolve()).as_posix()
-    except ValueError:
-        return str(path.resolve())
 
 
 def _append_unique(values: list[str], value: str) -> None:

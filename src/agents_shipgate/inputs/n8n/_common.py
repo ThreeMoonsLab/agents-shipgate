@@ -104,7 +104,7 @@ def _stable_identifier_hash(value: str | None) -> str:
     return hashlib.sha256((value or "").encode("utf-8")).hexdigest()
 
 
-def _display_path(path: Path, base_dir: Path) -> str:
+def _manifest_relative(path: Path, base_dir: Path) -> str:
     return manifest_relative_path(str(path), base_dir)
 
 

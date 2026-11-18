@@ -229,6 +229,7 @@ def _run_scan(
         plan = _plan_outputs(
             manifest=resolved.manifest,
             base_dir=resolved.base_dir,
+            operator_out=bool(output_dir),
         )
     with _perf.phase("sanitize_for_output"):
         sanitized = _sanitize_for_output(
