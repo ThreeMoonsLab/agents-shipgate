@@ -5496,10 +5496,13 @@ def _write_artifacts(
         json.dumps(initial_handoff.model_dump(mode="json"), indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    # A missing or invalid manifest cannot yield a reproducible request
-    # identity.  Error artifacts remain useful diagnostics, but they are not a
-    # trusted receipt and downstream consumers must reject their absence.
-    if not config_path.is_file() or not ref_exists(git_root, verifier.head_ref):
+    # A manifest absent from the evaluated inputs cannot yield a reproducible
+    # request identity, even if another checkout has a copy at the same path.
+    if (
+        manifest_provenance_value == "absent"
+        or not config_path.is_file()
+        or not ref_exists(git_root, verifier.head_ref)
+    ):
         _publish_run_control(
             verifier=verifier,
             out_dir=verifier_path.parent,

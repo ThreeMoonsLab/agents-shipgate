@@ -275,13 +275,17 @@ def _assert_manifest_removal_stop(result, payload: dict) -> None:
         assert misroute not in rendered
 
 
-@pytest.mark.parametrize("checkout_has_manifest", [False, True])
+@pytest.mark.parametrize(
+    "checkout_manifest", [None, MANIFEST.encode(), b"\xff"], ids=["absent", "valid", "invalid"]
+)
 def test_deleting_the_manifest_with_a_resolvable_base_is_a_human_stop(
-    tmp_path: Path, checkout_has_manifest: bool,
+    tmp_path: Path, checkout_manifest: bytes | None,
 ) -> None:
     origin, _, manifest_pr = _develop_origin(tmp_path)
-    checkout = _git(origin, "rev-parse", "develop") if checkout_has_manifest else manifest_pr
+    checkout = _git(origin, "rev-parse", "develop") if checkout_manifest is not None else manifest_pr
     ci = _ci_clone(origin, tmp_path / "ci", checkout)
+    if checkout_manifest is not None:
+        (ci / "shipgate.yaml").write_bytes(checkout_manifest)
 
     for mode in ("advisory", "strict"):
         out = tmp_path / f"out-{mode}"
@@ -298,7 +302,9 @@ def test_deleting_the_manifest_with_a_resolvable_base_is_a_human_stop(
         assert payload["head_report_json"] is None
         assert not payload["trigger"]["force_run"]
         assert not (out / "report.json").exists()
+        assert not (out / "verification-plan.json").exists()
         assert not (out / "verification-receipt.json").exists()
+        assert not (out / "verify-run.json").exists()
 
 
 def test_explicit_head_can_use_a_provisional_manifest_when_the_base_never_had_it(
