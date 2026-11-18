@@ -75,6 +75,7 @@ from agents_shipgate.inputs.python_imports import (
     OUTSIDE_SCOPE,
     ImportResolver,
     PythonModule,
+    Rebinding,
     Resolution,
     ScopeIndex,
     _module_bindings,
@@ -932,6 +933,9 @@ class _AdkAgentBinding:
     tool_issue_doubts: dict[str, list[str]] = field(default_factory=dict)
     constructor_issue: str | None = None
     constructor_issues: dict[str, str] = field(default_factory=dict)
+    #: The tool names machinery behind a constructor issue can rebind in
+    #: this agent's module (#1146 review); ``None`` stands for every name.
+    constructor_rebinds: list[str | None] = field(default_factory=list)
     #: Why this agent's tool list is incomplete, when it is.
     issues: list[str] = field(default_factory=list)
     #: Every ``(tool, locator)`` one construction of this name asked to bind,
@@ -1012,6 +1016,23 @@ class _AdkAgentBinding:
         self.tool_locations.pop(tool_name, None)
         if reason not in self.issues:
             self.issues.append(reason)
+
+
+def _rebound_doubts(binding: _AdkAgentBinding) -> dict[str, list[str]]:
+    """Each ``tool_issues`` reason's kinds once the constructor issue is joined (#1146).
+
+    The constructor issue doubts whether the agent holds its tools. When the
+    machinery behind it can rebind names in the agent's module (a wildcard
+    import, reflective namespace access, exec-style machinery, an unread
+    module a tool's name is imported from), it doubts those definitions too.
+    """
+
+    names = (*binding.tool_names, *binding.objects) if binding.constructor_issue is not None else ()
+    doubts = joined_doubts(binding.tool_issues, binding.tool_issue_doubts, names, DOUBT_CONSTRUCTION)
+    rebinds = set(binding.constructor_rebinds)
+    rebound = [name for name in names if None in rebinds or name in rebinds]
+    issues = {**binding.tool_issues, **{name: "" for name in names}}
+    return joined_doubts(issues, doubts, rebound, DOUBT_DEFINITION_IDENTITY)
 
 
 def _record_tool_binding(
@@ -1229,6 +1250,10 @@ class _PythonAdkExtractor:
                     binding.issues.append(message)
                 binding.constructor_issue = message
                 binding.constructor_issues[f"{self.source_ref}:{call.lineno}"] = message
+                if isinstance(constructor_issue, Rebinding) and self.module is not None and constructor_issue.module == self.module.ref:
+                    binding.constructor_rebinds.extend(
+                        sorted(constructor_issue.names) if constructor_issue.names is not None else [None]
+                    )
                 binding.handoffs_complete = False
             if any(keyword.arg is None for keyword in call.keywords):
                 # ``Agent(**config)`` hides every keyword, ``tools`` included.
@@ -1934,12 +1959,7 @@ class _PythonAdkExtractor:
                              **({name: "; ".join(filter(None, [binding.tool_issues.get(name), binding.constructor_issue]))
                                  for name in (*binding.tool_names, *binding.objects)}
                                 if binding.constructor_issue is not None else {})},
-                tool_issue_doubts=joined_doubts(
-                    binding.tool_issues,
-                    binding.tool_issue_doubts,
-                    (*binding.tool_names, *binding.objects) if binding.constructor_issue is not None else (),
-                    DOUBT_CONSTRUCTION,
-                ),
+                tool_issue_doubts=_rebound_doubts(binding),
                 tool_sites={
                     name: sorted(lines, key=lambda location: (location.rsplit(":", 1)[0], int(location.rsplit(":", 1)[1])))
                     for name, lines in binding.tool_sites.items()

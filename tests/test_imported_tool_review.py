@@ -707,8 +707,11 @@ def test_a_guessed_binding_is_never_an_established_addition_or_removal(repo, dir
     assert result["comparison_status"] == "partial"
     _constructor_candidate(result, "app", "lookup", direction, repo=repo, source="agent.py",
                            reason="'lookup' is bound more than once")
-    _reads_the_same(result, "app", "other", reason="executable or reflective machinery")
-    assert _rows(result) == [("app", "lookup", "not_established")]
+    # `__import__` in the agent's module is machinery that can rebind any of
+    # its names, `other` included: it keeps its row (#1146 follow-up).
+    _constructor_candidate(result, "app", "other", "changed", repo=repo, source="agent.py",
+                           reason="executable or reflective machinery")
+    assert _rows(result) == [("app", "lookup", "not_established"), ("app", "other", "not_established")]
 
 
 def test_a_guessed_name_keeps_the_agents_other_findings_in_scan(tmp_path):

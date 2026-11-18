@@ -36,7 +36,7 @@ import ast
 import hashlib
 import stat
 import sys
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -234,6 +234,46 @@ class PythonModule:
     star_import: bool
     #: ``dotted.path -> line`` for ``a.b = ...`` / ``setattr(a, "b", ...)``.
     attribute_patches: dict[str, int] = field(default_factory=dict)
+
+
+class Rebinding(str):
+    """A reason, as its text, that also says which names it can rebind (#1146 review).
+
+    Code the read does not follow can rebind names in the module ``module``
+    (its ``ref``): every name when ``names`` is None (a wildcard import,
+    reflective namespace access, exec- or setattr-style machinery, a module
+    star-imported there that is not read), else only ``names`` (a named import
+    from a module that is not read). Formatting it into other text keeps the
+    words and drops the structure.
+    """
+
+    module: str
+    names: frozenset[str] | None
+
+    def __new__(cls, text: str, *, module: str, names: Iterable[str] | None = None) -> Rebinding:
+        made = super().__new__(cls, text)
+        made.module = module
+        made.names = None if names is None else frozenset(names)
+        return made
+
+
+def rebound_names(issue: object, module_ref: str | None, names: Iterable[str]) -> list[str]:
+    """Those of ``names``, bound in the module ``module_ref``, that ``issue`` can rebind (#1146 review)."""
+
+    if not isinstance(issue, Rebinding) or module_ref is None or issue.module != module_ref:
+        return []
+    return [name for name in names if issue.names is None or name in issue.names]
+
+
+def _bound_by(node: ast.Import | ast.ImportFrom) -> frozenset[str] | None:
+    """The names an import statement binds; None for a wildcard, which may bind any."""
+
+    if isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names):
+        return None
+    return frozenset(
+        alias.asname or (alias.name if isinstance(node, ast.ImportFrom) else alias.name.split(".", 1)[0])
+        for alias in node.names
+    )
 
 
 @dataclass(frozen=True)
@@ -1544,16 +1584,20 @@ class ImportResolver:
         if stop.reason == OUTSIDE_SCOPE:
             # Application code above the scope runs here, unread: the binding
             # is named, never established (#879 review).
-            return (
+            return Rebinding(
                 f"{where} imports {spelling!r} from above the read scope, which is not "
-                "read and could reassign it"
+                "read and could reassign it",
+                module=runner.ref,
+                names=_bound_by(node),
             )
         if stop.reason != MODULE_NOT_FOUND:
             raise stop
         if not relative and self._repository_provides(spelling.split("."), names):
-            return (
+            return Rebinding(
                 f"{where} imports {spelling!r}, which the repository holds outside the "
-                "read scope, which is not read and could reassign it"
+                "read scope, which is not read and could reassign it",
+                module=runner.ref,
+                names=_bound_by(node),
             )
         if guarded or not relative:
             # An optional import may be absent; an absolute import no file in
@@ -1564,9 +1608,11 @@ class ImportResolver:
         if last.endswith(_GENERATED_SUFFIXES) or last in _GENERATED_NAMES:
             # Generated at build time; it defines data.
             return None
-        return (
+        return Rebinding(
             f"{where} imports {spelling!r}, which no file in the read scope provides and "
-            "which could reassign it"
+            "which could reassign it",
+            module=runner.ref,
+            names=_bound_by(node),
         )
 
     def repository_holds(self, dotted: str, names: list[str]) -> bool:
@@ -4082,7 +4128,10 @@ def _external_constructor_use(
                         continue  # Only this actual saved initializer's independent completed same-slot proof.
                 except CallLimit as exc:
                     return f"the source-module setter is unread in {module.ref}:{node.lineno}: {exc}"
-            return f"constructor identity is unread through executable or reflective machinery in {module.ref}:{node.lineno}"
+            return Rebinding(
+                f"constructor identity is unread through executable or reflective machinery in {module.ref}:{node.lineno}",
+                module=module.ref,
+            )
         if isinstance(node, ast.Import | ast.ImportFrom):
             if _unused_reflection_import(resolver, module, node):
                 continue
@@ -4110,13 +4159,23 @@ def _external_constructor_use(
                             continue  # Only this actual Import's completed unread-field data receipt.
                     except CallLimit as exc:
                         return f"the source dictionary primitive import is unread in {module.ref}:{node.lineno}: {exc}"
-                return f"constructor identity is unread through builtin or dynamic import machinery in {module.ref}:{node.lineno}"
+                return Rebinding(
+                    f"constructor identity is unread through builtin or dynamic import machinery in {module.ref}:{node.lineno}",
+                    module=module.ref,
+                )
             if isinstance(node, ast.ImportFrom) and any(alias.name in machinery for alias in node.names):
-                return f"constructor identity is unread through imported reflection machinery in {module.ref}:{node.lineno}"
+                return Rebinding(
+                    f"constructor identity is unread through imported reflection machinery in {module.ref}:{node.lineno}",
+                    module=module.ref,
+                )
     if reflective_access(module.tree, excluded=frozenset(typing_only)) is not None:
-        return f"constructor identity is unread through reflective namespace access in {module.ref}"
+        return Rebinding(
+            f"constructor identity is unread through reflective namespace access in {module.ref}", module=module.ref
+        )
     if module.star_import and module.path in retaining:
-        return f"a wildcard import may retain or replace the framework constructor in {module.ref}"
+        return Rebinding(
+            f"a wildcard import may retain or replace the framework constructor in {module.ref}", module=module.ref
+        )
     classes = _external_constructor_paths(family) | _external_wrapper_paths(family)
     protected = classes | decorators | _external_constructor_dependency_paths(family)
 
