@@ -33,6 +33,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from agents_shipgate.core.paths import first_symlink_in_chain
+
 # Bumped only on incompatible content changes (e.g., we want to ignore an
 # additional path). v1 ignores only ``agents-shipgate-reports/``. The v=N
 # token lets a future CLI upgrade the block in place — old blocks auto-upgrade
@@ -369,28 +371,6 @@ def detect_existing_state(host: bytes) -> tuple[bool, bool]:
 # --- filesystem-facing helper -----------------------------------------------
 
 
-def _first_symlink_in_chain(path: Path, workspace: Path) -> Path | None:
-    """Return the first symlink between ``workspace`` and ``path`` (inclusive).
-
-    Same pattern as :func:`agent_instructions.apply._first_symlink_in_chain`.
-    Prevents a symlinked directory above ``.gitignore`` from routing the
-    write outside the workspace.
-    """
-    workspace_real = workspace.resolve()
-    try:
-        relative_parts = path.relative_to(workspace_real).parts
-    except ValueError:
-        return path
-    cur = workspace_real
-    for part in relative_parts:
-        cur = cur / part
-        if cur.is_symlink():
-            return cur
-        if not cur.exists():
-            return None
-    return None
-
-
 def ensure_reports_gitignore(
     workspace: Path,
     *,
@@ -415,7 +395,7 @@ def ensure_reports_gitignore(
             ),
         )
 
-    symlink = _first_symlink_in_chain(path, workspace)
+    symlink = first_symlink_in_chain(path, workspace)
     if symlink is not None:
         return GitignoreOutcome(
             status=GitignoreOutcomeStatus.SKIPPED_SYMLINK,

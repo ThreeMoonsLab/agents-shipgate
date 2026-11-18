@@ -39,15 +39,29 @@ def test_prepare_exports_auxiliary_bytes_without_losing_their_roles(repo, kind, 
     assert (reports / blob.path).read_bytes() == original.read_bytes()
     assert original.relative_to(repo).as_posix() not in {b.path for b in plan.inputs.tool_sources}
     (origin,) = plan.inputs.options["input_origins"]["external"]
-    assert origin["path"] == original.relative_to(repo).as_posix()
-    assert origin["kind"] == ("git_blob" if committed and kind != "diff_from" else "worktree")
+    from_base = committed and kind == "diff_from"
+    if from_base:
+        assert origin["kind"] == "external_snapshot"
+        assert origin["path"] is None
+        assert plan.inputs.options["diff_from_base"] == {
+            "path": original.relative_to(repo).as_posix(),
+            "commit_sha": _live(repo).head_commit_sha,
+        }
+    else:
+        assert origin["path"] == original.relative_to(repo).as_posix()
+        assert origin["kind"] == ("git_blob" if committed else "worktree")
     currency.validate_current_plan_inputs(plan, root=repo, artifacts_root=reports)
     worker(plan_path=reports / "verification-plan.json", workspace=repo,
            diff_path=reports / "verification-input.diff", out=reports / "replayed-unit.json")
     _git(repo, "update-index", "--assume-unchanged", original.relative_to(repo).as_posix())
     original.write_bytes(original.read_bytes() + b"\n")
-    with pytest.raises(ValueError, match="changed"):
+    if from_base:
+        # The portable reference came from the immutable base, so the live
+        # copy is outside this input's provenance.
         currency.validate_current_plan_inputs(plan, root=repo, artifacts_root=reports)
+    else:
+        with pytest.raises(ValueError, match="changed"):
+            currency.validate_current_plan_inputs(plan, root=repo, artifacts_root=reports)
     # Worker replay validates the captured request, not its current local
     # authority. The frozen portable copy still supplies exactly those bytes.
     worker(plan_path=reports / "verification-plan.json", workspace=repo,

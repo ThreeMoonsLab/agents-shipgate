@@ -15,6 +15,8 @@ from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
 from agents_shipgate.core.capability_diff_rows import DIRECTION_UNKNOWN, OUTSIDE_AGENT_JOBS
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.git_env import hardened_git_overrides
+from agents_shipgate.core.paths import first_symlink_in_chain
 from agents_shipgate.core.trust_roots import inspect_lexical_path_identity
 
 SETTINGS_RELATIVE_PATH = Path(".claude/settings.json")
@@ -410,25 +412,9 @@ def _ensure_repo_local_write(path: Path, workspace: Path) -> None:
         path.resolve().relative_to(workspace)
     except ValueError as exc:
         raise ConfigError(f"Hook path resolves outside workspace: {path}") from exc
-    symlink = _first_symlink_in_chain(path, workspace)
+    symlink = first_symlink_in_chain(path, workspace)
     if symlink is not None:
         raise ConfigError(f"{symlink} is a symlink; refusing to write hook files")
-
-
-def _first_symlink_in_chain(path: Path, workspace: Path) -> Path | None:
-    workspace_real = workspace.resolve()
-    try:
-        parts = path.relative_to(workspace_real).parts
-    except ValueError:
-        return path
-    cur = workspace_real
-    for part in parts:
-        cur = cur / part
-        if cur.is_symlink():
-            return cur
-        if not cur.exists():
-            return None
-    return None
 
 
 def _write_text_atomic(path: Path, content: str) -> None:
@@ -488,7 +474,24 @@ def _hook_script_text() -> str:
         .replace("__HOST_CONFIG_SURFACES_JSON__", host_config)
         .replace("__DIRECTION_UNKNOWN_JSON__", json.dumps(DIRECTION_UNKNOWN))
         .replace("__OUTSIDE_AGENT_JOBS_JSON__", json.dumps(OUTSIDE_AGENT_JOBS))
+        .replace("__HARDENED_GIT_OVERRIDES__", _hardened_git_overrides_source())
     )
+
+
+def _hardened_git_overrides_source() -> str:
+    """The hook runner's Git overrides, as Python source (#1031).
+
+    The runner cannot import Shipgate, so the overrides are written into it.
+    ``os.devnull`` is written as that expression, not as this machine's value:
+    the runner resolves it where it runs, as the CLI does.
+    """
+
+    lines = ["{"]
+    for name, value in hardened_git_overrides().items():
+        rendered = "os.devnull" if value == os.devnull else json.dumps(value)
+        lines.append(f"    {json.dumps(name)}: {rendered},")
+    lines.append("}")
+    return "\n".join(lines)
 
 
 _HOOK_SCRIPT_TEMPLATE = r'''#!/usr/bin/env python3
@@ -1775,27 +1778,18 @@ def _run_git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str] | 
     )
 
 
+# Rendered at install time from agents_shipgate.core.git_env, the environment
+# every Git child of the CLI runs with, so the two cannot drift.
+_HARDENED_GIT_OVERRIDES = __HARDENED_GIT_OVERRIDES__
+
+
 def _git_environment() -> dict[str, str]:
     env = {
         key: value
         for key, value in os.environ.items()
         if not key.startswith("GIT_")
     }
-    env.update(
-        {
-            "GIT_ALLOW_PROTOCOL": "",
-            "GIT_ATTR_NOSYSTEM": "1",
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_CONFIG_SYSTEM": os.devnull,
-            "GIT_NO_LAZY_FETCH": "1",
-            "GIT_NO_REPLACE_OBJECTS": "1",
-            "GIT_OPTIONAL_LOCKS": "0",
-            "GIT_PAGER": "cat",
-            "GIT_PROTOCOL_FROM_USER": "0",
-            "GIT_TERMINAL_PROMPT": "0",
-        }
-    )
+    env.update(_HARDENED_GIT_OVERRIDES)
     return env
 
 

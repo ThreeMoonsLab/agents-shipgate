@@ -34,6 +34,7 @@ from agents_shipgate.core.pr_approval import (
     evaluate_pull_request_reviews,
 )
 from agents_shipgate.core.verification_identity import (
+    read_regular_file_beneath,
     sha256_bytes,
     validate_receipt_artifacts,
 )
@@ -158,7 +159,6 @@ def _attest_command(
     except InputParseError as exc:
         typer.echo(f"Input parsing error: {exc}", err=True)
         raise typer.Exit(3) from exc
-    report = _load_sibling_report(source, verifier)
     verify_run_path = _resolve_verify_run_path(source, verifier, explicit=verify_run)
     verify_run_payload = _load_optional_json_object(verify_run_path)
     verify_run_sha256 = (
@@ -169,6 +169,7 @@ def _attest_command(
     receipt_path = source.with_name("verification-receipt.json")
     try:
         receipt = load_verified_receipt(verifier, receipt_path, root=source.parent)
+        report = load_attested_report(source.parent, receipt)
     except (ValueError, OSError) as exc:
         raise receipt_failure(receipt_path, exc) from exc
     receipt_payload = receipt.model_dump(mode="json") if receipt is not None else None
@@ -282,7 +283,10 @@ def _approval_from_reviews(
             + ", ".join(missing)
         )
     assert event_head is not None
-    verified_head = _verified_head_commit(receipt, root=source.parent)
+    try:
+        verified_head = verified_head_commit(receipt, root=source.parent)
+    except ValueError as exc:
+        raise _reviews_failure(str(exc), why=_VERIFY_THE_HEAD) from exc
     if event_head.lower() != verified_head:
         raise _reviews_failure(
             f"verify evaluated commit {verified_head}, but the pull request's head is "
@@ -334,9 +338,8 @@ _VERIFY_THE_HEAD = (
 )
 
 
-def _verified_head_commit(receipt: VerificationReceipt | None, *, root: Path) -> str:
-    """The commit the receipt-bound verify run evaluated, or exit 3 naming why
-    no review can be recorded against it.
+def verified_head_commit(receipt: VerificationReceipt | None, *, root: Path) -> str:
+    """The commit the receipt-bound verify run evaluated, or a ValueError.
 
     ``load_verified_receipt`` has validated the receipt's closure, its plan
     included. The plan is read again here only from bytes that hash to what
@@ -344,38 +347,33 @@ def _verified_head_commit(receipt: VerificationReceipt | None, *, root: Path) ->
     """
 
     if receipt is None:
-        raise _reviews_failure(
-            "--reviews needs the verification receipt of the verify run beside "
-            "verifier.json: only its plan says which commit was verified",
-            why=_VERIFY_THE_HEAD,
+        raise ValueError(
+            "Recording approval needs the verification receipt of the verify run beside "
+            "verifier.json because its plan identifies the verified commit"
         )
     ref = receipt.artifact_manifest.artifacts.get("verification_plan_json")
     if ref is None:  # pragma: no cover - validate_receipt_artifacts requires it
-        raise _reviews_failure("the verification receipt binds no verification plan")
+        raise ValueError("the verification receipt binds no verification plan")
     path = Path(ref.path)
     try:
         raw = (path if path.is_absolute() else root / path).read_bytes()
     except OSError as exc:
-        raise _reviews_failure(f"the verification plan could not be read: {exc}") from exc
+        raise ValueError(f"the verification plan could not be read: {exc}") from exc
     if sha256_bytes(raw) != ref.sha256:
-        raise _reviews_failure("the verification plan changed after its receipt was validated")
+        raise ValueError("the verification plan changed after its receipt was validated")
     plan = VerificationPlan.model_validate_json(raw)
     if plan.subject.subject_id != receipt.subject_id:  # pragma: no cover - validated
-        raise _reviews_failure("the verification plan is not the receipt's")
+        raise ValueError("the verification plan is not the receipt's")
     git = plan.subject.git
     if git.worktree_overlay_sha256 is not None or plan.inputs.options.get(
         "worktree_overlay_paths"
     ):
-        raise _reviews_failure(
+        raise ValueError(
             "verify evaluated uncommitted working-tree changes on top of "
-            f"{git.head_commit_sha}; a review approves a commit, not a working tree",
-            why=_VERIFY_THE_HEAD,
+            f"{git.head_commit_sha}; approval requires a committed head"
         )
     if git.head_commit_sha is None:
-        raise _reviews_failure(
-            "the verify run names no head commit, so no review can be bound to it",
-            why=_VERIFY_THE_HEAD,
-        )
+        raise ValueError("the verify run names no head commit, so no review can be bound to it")
     return git.head_commit_sha
 
 
@@ -556,10 +554,10 @@ def build_attestation_payload(
 ) -> dict[str, Any]:
     """Project a verify run onto a deterministic attestation dict.
 
-    ``report`` (the sibling ``report.json``) is optional: when present it adds
-    the declared ``human_ack`` state and a policy-snapshot hash; when absent the
-    attestation degrades gracefully (``human_ack.satisfied`` is ``null`` and
-    ``policy_snapshot_sha256`` is ``null``).
+    If passing a report, use the result of :func:`load_attested_report` with
+    the same verified receipt. It supplies the declared ``human_ack`` state
+    and policy snapshot. Unknown acknowledgement and policy evidence use
+    ``null``.
     """
     verifier_version = verifier.get("verifier_schema_version")
     if verifier_version in {"0.1", "0.2", "0.3"}:
@@ -573,9 +571,19 @@ def build_attestation_payload(
     human_review = _obj(_obj(verifier.get("control")).get("human_review"))
     if not human_review:
         human_review = _obj(verifier.get("human_review"))
-    report = report or {}
     verify_run = verify_run or {}
     verification_receipt = verification_receipt or {}
+    bound_artifacts = _obj(_obj(verification_receipt.get("artifact_manifest")).get("artifacts"))
+    report_ref = _obj(bound_artifacts.get("report_json"))
+    if not report_ref:
+        report = None
+    report = report or {}
+    artifact_hashes = _artifact_hashes(
+        {key: value for key, value in artifacts.items() if key != "report_json"},
+        base_dir=source.parent,
+    )
+    if report_digest := _clean_str(report_ref.get("sha256")):
+        artifact_hashes["report_json"] = report_digest.removeprefix("sha256:")
     human_ack = _obj(report.get("human_ack"))
     effective_policy = report.get("effective_policy")
     org_context = _clean_org_context(org_context or {})
@@ -640,7 +648,7 @@ def build_attestation_payload(
             _canonical_sha256(effective_policy) if effective_policy is not None else None
         ),
         "policy_packs": _verify_run_policy_packs(verify_run),
-        "artifact_sha256": _artifact_hashes(artifacts, base_dir=source.parent),
+        "artifact_sha256": artifact_hashes,
     }
 
 
@@ -656,18 +664,26 @@ def _load_json_object(path: Path, label: str) -> dict[str, Any]:
     return data
 
 
-def _load_sibling_report(source: Path, verifier: dict[str, Any]) -> dict[str, Any] | None:
-    """Best-effort read of the report.json beside verifier.json (or named in its
-    artifacts map). Absence or a parse error is fine — enrichment is optional."""
-    artifacts = _obj(verifier.get("artifacts"))
-    name = Path(str(artifacts.get("report_json", "report.json"))).name or "report.json"
-    candidate = source.parent / name
-    if not candidate.is_file():
+def load_attested_report(
+    root: Path, receipt: VerificationReceipt | None
+) -> dict[str, Any] | None:
+    """Read the exact report named by a receipt that has already validated."""
+
+    ref = receipt.artifact_manifest.artifacts.get("report_json") if receipt is not None else None
+    if ref is None:
         return None
-    try:
-        return _load_json_object(candidate, "report.json")
-    except InputParseError:
-        return None
+    if os.open in os.supports_dir_fd:
+        data = read_regular_file_beneath(root, ref.path, max_size=ref.size_bytes, label="attested report")
+    else:
+        # Platforms without dir_fd still hash and parse the same bounded bytes.
+        with (root / ref.path).open("rb") as stream:
+            data = stream.read(ref.size_bytes + 1)
+    if len(data) != ref.size_bytes or sha256_bytes(data) != ref.sha256:
+        raise ValueError("report.json does not match the terminal verification receipt")
+    report = json.loads(data)
+    if not isinstance(report, dict):
+        raise ValueError("receipt-bound report.json must contain an object")
+    return report
 
 
 def _resolve_verify_run_path(
@@ -1028,7 +1044,9 @@ __all__ = [
     "ATTESTATION_SCHEMA_VERSION",
     "RECEIPT_IDENTITY_FIELDS",
     "build_attestation_payload",
+    "load_attested_report",
     "load_verified_receipt",
     "receipt_error_message",
     "receipt_failure",
+    "verified_head_commit",
 ]

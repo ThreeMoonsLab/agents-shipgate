@@ -503,9 +503,11 @@ def test_a_factory_docstring_is_not_a_change(tmp_path):
         {"ai-agent/common/tools.py": MEMORY.replace("return content", '"""Save a record."""\n        return content')},
     )
     result = _compare(tmp_path, before, after, "--scope", "ai-agent")
-    (row,) = [row for row in result["rows"] if row["tool"] == "save_memory_record"]
-    assert row["change"] == "not_established"
-    assert row["before"]["definition"]["implementation_sha256"] == row["after"]["definition"]["implementation_sha256"]
+    # It reads the same on both sides, so it is no row (#1146); its agent's
+    # unread constructor is stated once, with the tool, in ``read_same``.
+    assert not [row for row in result["rows"] if row["tool"] == "save_memory_record"]
+    assert any("save_memory_record" in entry["tools"] for entry in result["read_same"])
+    assert result["comparison_status"] == "partial"
     assert any("constructor identity is not established" in gap["reason"] for gap in result["head"]["coverage_gaps"])
 
 
@@ -870,10 +872,11 @@ def test_a_value_the_read_can_follow_is_data(tmp_path, factory, call):
     # The whole tree: a README-only change derives no scope of its own (#875).
     result = _compare(tmp_path, before, after, "--scope", ".")
     if call == "make(upper)":
+        # The tool reads the same on both sides: no row (#1146). Its agent's
+        # unread constructor keeps the answer partial and is named once.
         assert result["comparison_status"] == "partial"
-        assert result["rows"] and all(row["change"] == "not_established" for row in result["rows"])
-        assert all(row["before"]["definition"]["implementation_sha256"] == row["after"]["definition"]["implementation_sha256"]
-                   for row in result["rows"])
+        assert result["rows"] == []
+        assert [(entry["agent"], entry["tools"]) for entry in result["read_same"]] == [("root", ["run"])]
         assert any("constructor identity is not established" in gap["reason"] for gap in result["head"]["coverage_gaps"])
     else:
         assert result["rows"] == [] and result["comparison_status"] == "compared", result["head"]["coverage_gaps"]
