@@ -807,9 +807,9 @@ def test_a_current_baseline_compares_mappings_and_validates_against_the_schemas(
     path.write_text(STAGING)
     inventory = host_audit_inventory(tmp_path)
     baseline = build_host_grants_baseline(inventory)
-    assert baseline["host_grants_schema_version"] == "0.9"
-    Draft202012Validator(json.loads((ROOT / "docs/host-grants-inventory-schema.v0.9.json").read_text())).validate(inventory)
-    Draft202012Validator(json.loads((ROOT / "docs/host-grants-baseline-schema.v0.9.json").read_text())).validate(baseline)
+    assert baseline["host_grants_schema_version"] == "0.10"
+    Draft202012Validator(json.loads((ROOT / "docs/host-grants-inventory-schema.v0.10.json").read_text())).validate(inventory)
+    Draft202012Validator(json.loads((ROOT / "docs/host-grants-baseline-schema.v0.10.json").read_text())).validate(baseline)
 
     unchanged = build_host_drift_payload(baseline=baseline, inventory=inventory, baseline_file="b.json")
     assert (unchanged["comparison_status"], unchanged["has_drift"]) == ("comparable", False)
