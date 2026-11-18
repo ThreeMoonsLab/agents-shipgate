@@ -10,7 +10,6 @@ from test_partial_host_comparison import _git, _repository, _write
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
-from agents_shipgate.core.errors import InputParseError
 
 
 def configured_source():
@@ -219,9 +218,8 @@ def test_portable_prepare_binds_unchanged_nested_selection_and_worker_rejects_dr
         (root / "one").write_text(POLICY.replace("enforcement: enforce", "enforcement: audit"))
     replay = CliRunner().invoke(app, ["verification", "worker", "--workspace", str(root),
         "--plan", str(plan_path), "--out", str(out / "changed-unit.json")])
-    assert replay.exit_code != 0
-    assert isinstance(replay.exception, InputParseError)
-    assert "changed since verification" in str(replay.exception)
+    assert replay.exit_code == 3, replay.output
+    assert "changed since verification" in replay.stderr
     assert not (out / "changed-unit.json").exists()
 
 

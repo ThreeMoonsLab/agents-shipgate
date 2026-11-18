@@ -410,6 +410,6 @@ def test_the_preview_plan_is_still_refused_for_worker_replay(
         env=ENV,
     )
 
-    assert result.exit_code != 0
-    assert "capture is unavailable" in str(result.exception)
+    assert result.exit_code == 3, result.output
+    assert "capture is unavailable" in result.stderr
     assert not (reports / "replayed-unit.json").exists()

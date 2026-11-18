@@ -300,7 +300,7 @@ def test_audit_publishes_the_host_and_names_why_none_is_established(tmp_path: Pa
     inventory = _audit(repo)
 
     Draft202012Validator(
-        json.loads((ROOT / "docs/host-grants-inventory-schema.v0.9.json").read_text())
+        json.loads((ROOT / "docs/host-grants-inventory-schema.v0.10.json").read_text())
     ).validate(inventory)
     mcp_path = next(path for path in head if path.endswith(".mcp.json"))
     assert {(grant["host"], grant["source"]) for grant in inventory["grants"]} == {

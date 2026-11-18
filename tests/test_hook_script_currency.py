@@ -36,6 +36,27 @@ def test_configured_verify_binds_an_ignored_hook_script(repo):
         read_current_control(out, live=lambda: _live(repo))
 
 
+def test_configured_verify_binds_ignored_command_setting_script(repo):
+    (repo / ".gitignore").write_text("agents-shipgate-reports/\nstatus.sh\n")
+    _git(repo, "add", ".gitignore")
+    _git(repo, "commit", "-m", "ignore constructed dependencies")
+    (repo / ".claude").mkdir()
+    (repo / ".claude/settings.json").write_text(json.dumps({
+        "statusLine": {"type": "command", "command": "./status.sh"},
+    }))
+    script = repo / "status.sh"
+    script.write_text("first generation")
+    _verify(repo, archive_head=False)
+    out = repo / "agents-shipgate-reports"
+    plan = json.loads((out / "verification-plan.json").read_text())
+    files = plan["inputs"]["options"]["dependency_inputs"]["files"]
+    assert any(item["path"] == "status.sh" for item in files)
+    read_current_control(out, live=lambda: _live(repo))
+    script.write_text("second generation")
+    with pytest.raises(CurrentControlUnavailable):
+        read_current_control(out, live=lambda: _live(repo))
+
+
 @pytest.mark.parametrize("path,absent", [("guard.sh", "guard.sh"), ("private/guard.sh", "private")])
 def test_configured_verify_binds_missing_ignored_script(repo, path, absent):
     (repo / ".gitignore").write_text("agents-shipgate-reports/\nguard.sh\nprivate/\n")

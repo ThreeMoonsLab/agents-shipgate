@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import sys
 import tomllib
@@ -374,6 +375,30 @@ def test_mcp_handoff_handler_is_read_only(tmp_path: Path) -> None:
 def test_build_server_without_sdk_raises_config_error() -> None:
     with pytest.raises(ConfigError, match=r"agents-shipgate\[mcp\]"):
         build_server()
+
+
+@pytest.mark.parametrize("pipx", [False, True])
+def test_mcp_console_exits_cleanly_without_the_extra(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pipx: bool,
+) -> None:
+    from agents_shipgate.mcp_server.server import main
+
+    monkeypatch.setitem(sys.modules, "mcp", None)
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "0")
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    if pipx:
+        (tmp_path / "pipx_metadata.json").touch()
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 2
+    result = capsys.readouterr()
+    assert result.out == ""
+    [message] = result.err.splitlines()
+    command = shlex.split(message.split("environment running the server: ", 1)[1])
+    if pipx:
+        assert command == ["pipx", "inject", tmp_path.name, "agents-shipgate[mcp]"]
+    else:
+        assert command == [sys.executable, "-P", "-m", "pip", "install", "agents-shipgate[mcp]"]
 
 
 def test_an_sdk_without_mcpserver_is_named_as_a_version_problem(

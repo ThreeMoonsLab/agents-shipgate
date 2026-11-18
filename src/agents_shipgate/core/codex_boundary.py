@@ -2550,6 +2550,9 @@ def _parser_error(kind: str, exc: Exception) -> dict[str, Any]:
     if isinstance(exc, NestingLimitExceeded):
         # The bound it passed, so the row says why the file was not read (#1154).
         evidence["max_depth"] = exc.limit
+    if isinstance(exc, tomllib.TOMLDecodeError):
+        # Python 3.14 added position attributes to this exception.
+        return evidence
     line = getattr(exc, "lineno", None)
     column = getattr(exc, "colno", None)
     if isinstance(line, int) and line > 0:

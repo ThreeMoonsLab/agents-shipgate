@@ -213,7 +213,7 @@ def test_the_grant_publishes_the_args_and_settings_the_rows_render(tmp_path: Pat
     for text in ("Checking", "git *", "Review", "--mode", "write"):
         assert text not in published, text
     # The generated, published schema accepts the inventory.
-    schema = json.loads((ROOT / "docs/host-grants-inventory-schema.v0.9.json").read_text(encoding="utf-8"))
+    schema = json.loads((ROOT / "docs/host-grants-inventory-schema.v0.10.json").read_text(encoding="utf-8"))
     Draft202012Validator(schema).validate(_inventory(root))
 
 

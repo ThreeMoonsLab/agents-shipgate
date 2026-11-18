@@ -11,8 +11,8 @@ from agents_shipgate.schemas.openshell_composition import (
     OpenShellSnapshotFactsV2,
 )
 
-HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.9"
-HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.9"
+HOST_GRANTS_INVENTORY_SCHEMA_VERSION = "0.10"
+HOST_GRANTS_BASELINE_SCHEMA_VERSION = "0.10"
 HOST_GRANTS_DRIFT_SCHEMA_VERSION = "0.9"
 
 HostName = Literal["codex", "claude-code", "cursor", "vscode", "github"]
@@ -1556,6 +1556,78 @@ class HostGrantsBaselineArtifactV9(RootModel[HostGrantsBaselineV9]):
 
 class HostGrantsDriftArtifactV9(RootModel[HostGrantsDriftV9]):
     root: HostGrantsDriftV9
+
+
+class HostCommandSettingScriptInputV10(HostHookScriptInputV7):
+    """A command setting's one direct repository script and capture status."""
+
+    basis: Literal["absolute_workspace_path", "repository_root_relative"] | None = None
+
+
+class HostCommandSettingGrantV10(HostCommandSettingGrantV9):
+    """A command setting with the bounded byte reading of its direct script."""
+
+    script_inputs: list[HostCommandSettingScriptInputV10] | None = Field(
+        default=None, max_length=1, exclude_if=lambda value: value is None,
+    )
+
+
+HostGrantV10 = Annotated[
+    HostMcpServerGrantV9
+    | HostPermissionRuleGrantV9
+    | HostPermissionModeGrantV2
+    | HostHookGrantV9
+    | HostSandboxGrantV2
+    | HostAdditionalPathGrantV2
+    | HostPluginGrantV2
+    | HostProfileGrantV2
+    | HostRequirementGrantV2
+    | HostWorkflowGrantV9
+    | HostInstructionGrantV2
+    | HostOpenShellPolicyGrantV9
+    | HostCommandSettingGrantV10
+    | HostEnvGrantV9,
+    Field(discriminator="kind"),
+]
+HostBaselineGrantV10 = Annotated[
+    HostMcpServerBaselineGrantV9
+    | HostPermissionRuleGrantV9
+    | HostPermissionModeGrantV2
+    | HostHookComparisonV7
+    | HostSandboxGrantV2
+    | HostAdditionalPathGrantV2
+    | HostPluginGrantV2
+    | HostProfileGrantV2
+    | HostRequirementGrantV2
+    | HostWorkflowGrantV9
+    | HostInstructionGrantV2
+    | HostOpenShellPolicyGrantV9
+    | HostCommandSettingGrantV10
+    | HostEnvGrantV9,
+    Field(discriminator="kind"),
+]
+
+
+class HostGrantsInventoryV10(HostGrantsInventoryV9):
+    host_grants_inventory_schema_version: Literal["0.10"] = "0.10"
+    grants: list[HostGrantV10] = Field(default_factory=list)
+
+
+class HostGrantsNormalizedSnapshotV10(HostGrantsNormalizedSnapshotV9):
+    grants: list[HostBaselineGrantV10] = Field(default_factory=list)
+
+
+class HostGrantsBaselineV10(HostGrantsBaselineV9):
+    host_grants_schema_version: Literal["0.10"] = "0.10"
+    inventory: HostGrantsNormalizedSnapshotV10
+
+
+class HostGrantsInventoryArtifactV10(RootModel[HostGrantsInventoryV10]):
+    root: HostGrantsInventoryV10
+
+
+class HostGrantsBaselineArtifactV10(RootModel[HostGrantsBaselineV10]):
+    root: HostGrantsBaselineV10
 
 
 __all__ = [name for name in globals() if name.startswith("Host") or name.startswith("HOST_")]

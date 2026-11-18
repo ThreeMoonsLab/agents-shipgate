@@ -10,6 +10,7 @@ import typer
 from pydantic import ValidationError
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+from agents_shipgate.core.errors import format_validation_error
 from agents_shipgate.core.findings import (
     PROVENANCE_KIND_ORDER,
     provenance_kind_counts,
@@ -57,7 +58,7 @@ def _load_report(path: Path) -> ReadinessReport:
     try:
         report = ReadinessReport.model_validate(payload)
     except ValidationError as exc:
-        raise ValueError(f"report.json failed validation: {exc}") from exc
+        raise ValueError(format_validation_error(exc, label="report.json failed validation")) from exc
 
     missing = [
         finding.id or finding.fingerprint or finding.check_id

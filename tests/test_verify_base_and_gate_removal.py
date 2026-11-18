@@ -279,8 +279,9 @@ def _assert_manifest_removal_stop(result, payload: dict) -> None:
     "checkout_manifest", [None, MANIFEST.encode(), b"\xff"], ids=["absent", "valid", "invalid"]
 )
 def test_deleting_the_manifest_with_a_resolvable_base_is_a_human_stop(
-    tmp_path: Path, checkout_manifest: bytes | None,
+    tmp_path: Path, checkout_manifest: bytes | None, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
     origin, _, manifest_pr = _develop_origin(tmp_path)
     checkout = _git(origin, "rev-parse", "develop") if checkout_manifest is not None else manifest_pr
     ci = _ci_clone(origin, tmp_path / "ci", checkout)
@@ -297,6 +298,7 @@ def test_deleting_the_manifest_with_a_resolvable_base_is_a_human_stop(
             out=out,
         )
         _assert_manifest_removal_stop(result, payload)
+        assert '"error": "config_error"' not in result.stderr
         assert payload["base_ref"] == "origin/develop"
         assert payload["head_exit_code"] == 2
         assert payload["head_report_json"] is None

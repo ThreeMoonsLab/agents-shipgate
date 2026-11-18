@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from difflib import unified_diff
 from pathlib import Path
 
+import pytest
 from jsonschema import Draft202012Validator
 from typer.testing import CliRunner
 
@@ -498,3 +500,58 @@ def test_partially_unreadable_mcp_audit_never_publishes(tmp_path: Path) -> None:
         "merge": False,
         "report_complete": False,
     }
+
+
+@pytest.mark.parametrize(("source", "before", "after", "code", "field"), [
+    (
+        ".codex/config.toml",
+        '[mcp_servers.docs]\ncommand = "docs-mcp"\nenabled_tools = ["read_page"]\n',
+        '[mcp_servers.docs]\ncommand = "docs-mcp"\nenabled_tools = ["read_page"]\n'
+        '[plugins.example.mcp_servers.invalid]\ncommand = "other-mcp"\nargs = 5\n',
+        "mcp_toml_invalid_server_arguments",
+        "plugins.example.mcp_servers.invalid.args",
+    ),
+    (
+        ".mcp.json",
+        '{"mcpServers":{"docs":{"command":"docs-mcp","enabled_tools":["read_page"]}}}\n',
+        '{"mcpServers":{"docs":{"command":"docs-mcp","enabled_tools":["read_page"]},'
+        '"invalid":{"command":"other-mcp","args":5}}}\n',
+        "mcp_json_invalid_server_arguments",
+        "mcpServers.invalid.args",
+    ),
+])
+def test_mcp_audit_reports_malformed_args_and_retains_readable_siblings(
+    tmp_path: Path, source: str, before: str, after: str, code: str, field: str,
+) -> None:
+    config_path = tmp_path / source
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(after, encoding="utf-8")
+    diff_path = tmp_path / "change.diff"
+    diff_path.write_text(
+        f"diff --git a/{source} b/{source}\n" + "".join(unified_diff(
+            before.splitlines(keepends=True), after.splitlines(keepends=True),
+            fromfile=f"a/{source}", tofile=f"b/{source}",
+        )),
+        encoding="utf-8",
+    )
+    command = ["mcp", "audit", "--workspace", str(tmp_path), "--diff", str(diff_path)]
+
+    result = runner.invoke(app, [*command, "--format", "json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["input_complete"] is False
+    assert [server["name"] for server in payload["servers"]] == ["docs"]
+    assert payload["capability_delta"]["removed"] == []
+    assert payload["capability_delta"]["unchanged"] == 1
+    assert any(
+        item["code"] == code
+        and item["path"] == source
+        and f"{field} must be an array of strings" in item["message"]
+        for item in payload["diagnostics"]
+    )
+
+    result = runner.invoke(app, [*command, "--format", "agent-json"])
+    assert result.exit_code == 0, result.output
+    control = json.loads(result.output)["control"]
+    assert control["state"] == "human_review_required"
+    assert control["permissions"]["report_complete"] is False

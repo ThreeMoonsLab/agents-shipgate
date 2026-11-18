@@ -34,6 +34,7 @@ from agents_shipgate.core.capability_payload import (
     CapabilityPayloadVersion,
     project_capability_delta,
 )
+from agents_shipgate.core.privacy import redact_text
 from agents_shipgate.core.surface_exclusions import provider_token
 from agents_shipgate.schemas.capabilities import CapabilityFactV1
 from agents_shipgate.schemas.capability_attestation import (
@@ -210,7 +211,9 @@ def project_capability_delta_attestation(
         _type=IN_TOTO_STATEMENT_TYPE,
         subject=(
             CapabilityDeltaAttestationSubject(
-                name=subject_name,
+                # The facts arrive redacted from the capability locks (#1079);
+                # the subject name is the one other string this statement adds.
+                name=redact_text(subject_name) or "",
                 digest=CapabilityDeltaSubjectDigest(
                     gitTree=head_tree_sha,
                     gitCommit=head_commit_sha,

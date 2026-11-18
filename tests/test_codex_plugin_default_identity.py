@@ -114,8 +114,8 @@ def test_prepare_worker_reject_a_new_default(repo, key, committed):
     with pytest.raises(ValueError, match="lookup candidate appeared"):
         validate_current_plan_inputs(plan, root=repo, artifacts_root=reports)
     result = CliRunner().invoke(app, command)
-    assert result.exit_code != 0
-    assert "lookup candidate appeared" in str(result.exception)
+    assert result.exit_code == 3, result.output
+    assert "lookup candidate appeared" in result.stderr
     assert not (reports / "replayed-unit.json").exists()
 
 

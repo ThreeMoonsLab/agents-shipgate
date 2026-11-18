@@ -22,7 +22,7 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -343,7 +343,7 @@ def test_ack_expiring_tomorrow_is_accepted() -> None:
 def test_backdated_evaluation_date_cannot_extend_expired_acknowledgement() -> None:
     """A forged commit date is provenance, not authority over trust decay."""
 
-    wall_clock_today = date.today()
+    wall_clock_today = datetime.now(UTC).date()
     with use_evaluation_date(wall_clock_today - timedelta(days=3650)):
         with pytest.raises(ConfigError, match=r"expired"):
             resolve_severity_overrides(
@@ -427,7 +427,7 @@ def test_rich_form_override_expiring_tomorrow_applies_cleanly() -> None:
 def test_backdated_evaluation_date_cannot_extend_expired_rich_override() -> None:
     """The production default clock remains at least the verifier wall clock."""
 
-    wall_clock_today = date.today()
+    wall_clock_today = datetime.now(UTC).date()
     with use_evaluation_date(wall_clock_today - timedelta(days=3650)):
         with pytest.raises(ConfigError, match=r"expired"):
             resolve_severity_overrides(

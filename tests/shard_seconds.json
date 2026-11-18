@@ -456,6 +456,7 @@
   "tests/test_output_directory_containment.py": 0.5,
   "tests/test_unreadable_host_input.py": 297.8,
   "tests/test_unchanged_link_limits.py": 77.2,
+  "tests/test_capability_lock_redaction.py": 0.1,
   "tests/test_workflow_hardening.py": 1.1
  },
  "measured_at": "cbff1ef0b101",
@@ -808,6 +809,17 @@
    },
    "case_count": 138,
    "command": "python -m pytest tests/test_unchanged_link_limits.py -n 2 --junitxml=unchanged-link-limits.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "fc8cbb670766 with issue #1079 capability lock redaction increment",
+   "report_sha256": "6c6cc35bae437d4278d285e058fd4ca455527e3e95997a7824cabe32a4f54010",
+   "files": {
+    "tests/test_capability_lock_redaction.py": 0.1
+   },
+   "case_count": 8,
+   "command": "python -m pytest tests/test_capability_lock_redaction.py --junitxml=capability-lock-redaction.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {
