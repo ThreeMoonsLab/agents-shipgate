@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from pathlib import Path
 
 import typer
@@ -12,7 +13,11 @@ from agents_shipgate.cli._helpers import (
     _echo_next_action_hint,
     _parse_fail_on,
 )
-from agents_shipgate.cli.agent_mode import emit_agent_mode_error, is_agent_mode
+from agents_shipgate.cli.agent_mode import (
+    emit_agent_mode_error,
+    is_agent_mode,
+    mark_cli_routing_reported,
+)
 from agents_shipgate.cli.current_workspace import (
     OutputDirectoryHoldsRepositoryContent,
     caller_path_spelling,
@@ -347,6 +352,7 @@ def verify(
                 pr_comment_style=parsed_pr_comment_style,
                 verbose=verbose,
                 auto_base=base is None and not no_base,
+                progress=_terminal_progress if stdout_format == "text" else None,
             )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
@@ -534,6 +540,7 @@ def verify(
             next_actions=[NextAction(kind="review", why=guidance).model_dump(mode="json")],
         )
         raise typer.Exit(4) from exc
+    mark_cli_routing_reported()
     raise typer.Exit(exit_code)
 
 
@@ -728,6 +735,11 @@ def _warn_if_reports_staged(workspace: Path, out: Path | None) -> None:
         f"directory).",
         err=True,
     )
+
+
+def _terminal_progress(message: str) -> None:
+    if sys.stderr.isatty():
+        typer.echo(message, err=True)
 
 
 def _resolve_verify_format(value: str | None, *, json_output: bool, preview: bool) -> str:

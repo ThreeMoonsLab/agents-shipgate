@@ -221,6 +221,19 @@ def _installed_mcp_version() -> str:
         return "version unknown"
 
 
+def _mcp_extra_install_hint() -> str:
+    import sys
+
+    from agents_shipgate.invocation import SAFE_PATH_FLAG, join_argv
+
+    prefix = Path(sys.prefix)
+    if (prefix / "pipx_metadata.json").is_file():
+        command = join_argv(["pipx", "inject", prefix.name, "agents-shipgate[mcp]"])
+    else:
+        command = join_argv([sys.executable, SAFE_PATH_FLAG, "-m", "pip", "install", "agents-shipgate[mcp]"])
+    return f"Install it into the environment running the server: {command}"
+
+
 def _load_mcp_sdk() -> tuple[Any, Any]:
     """Import the SDK 2.x server API, saying which of two problems stops it.
 
@@ -235,8 +248,7 @@ def _load_mcp_sdk() -> tuple[Any, Any]:
         import mcp  # noqa: F401
     except ImportError as exc:  # pragma: no cover - exercised only without extra.
         raise ConfigError(
-            "The MCP server requires the optional [mcp] extra. Install it "
-            'with: pip install "agents-shipgate[mcp]"'
+            f"The MCP server requires the optional [mcp] extra. {_mcp_extra_install_hint()}"
         ) from exc
     try:
         from mcp.server.mcpserver import MCPServer
@@ -273,9 +285,9 @@ _TOOL_DESCRIPTIONS = {
         "violations and advisory rows for only the host files the diff "
         "changes. Because the diff is bound to no checkout, every result stops "
         "for human routing (`control.state` `human_review_required`), "
-        "authorizes no verify command and grants no permission, even when "
-        "`decision` is `allow`. It runs no scan or verify and is not a release "
-        "or merge verdict."
+        "authorizes no verify command and grants no permission; `decision` is "
+        "never `allow`. It runs no scan or verify and is not a release or "
+        "merge verdict."
     ),
     "shipgate.preflight": (
         "Before editing, route a planned change: does it touch a protected "
@@ -471,7 +483,9 @@ def serve_stdio() -> None:
 
 
 def main() -> None:
-    serve_stdio()
+    from agents_shipgate.cli.agent_mode import run_cli_with_error_reporting
+
+    run_cli_with_error_reporting(serve_stdio)
 
 
 def _load_json_object(path: Path, label: str) -> dict[str, Any]:

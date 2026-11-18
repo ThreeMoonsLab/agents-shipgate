@@ -439,6 +439,21 @@ def test_malformed_patch_payload_exits_2(tmp_path: Path) -> None:
     assert "Malformed patch" in (result.output or "")
 
 
+def test_validation_diagnostic_withholds_an_unrecognized_patch_tag() -> None:
+    from pydantic import TypeAdapter, ValidationError
+
+    from agents_shipgate.core.errors import format_validation_error
+    from agents_shipgate.schemas.patches import Patch
+
+    with pytest.raises(ValidationError) as caught:
+        TypeAdapter(Patch).validate_python({"kind": "private-invalid-variant"})
+
+    assert "private-invalid-variant" in str(caught.value)
+    message = format_validation_error(caught.value, label="Malformed patch")
+    assert "Unrecognized discriminator tag" in message
+    assert "private-invalid-variant" not in message
+
+
 def test_unreadable_report_emits_malformed_patch_agent_mode_error(
     tmp_path: Path,
 ) -> None:

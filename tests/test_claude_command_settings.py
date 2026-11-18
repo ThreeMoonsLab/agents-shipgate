@@ -38,6 +38,7 @@ from tests.test_host_comparison_coverage import (
     SETTINGS,
     _commit,
     _diff,
+    _git,
     _not_compared,
     _repository,
     _verify_with_text,
@@ -80,6 +81,92 @@ def _routes(repo: Path, tmp_path: Path) -> tuple[str, dict, str, dict, str]:
 
 def _inventory(root: Path) -> dict:
     return host_audit_inventory(root, snapshot=build_host_boundary_snapshot(root))
+
+
+@pytest.mark.parametrize(("source", "command"), [
+    (SETTINGS, "./status.sh"),
+    (".CLAUDE/SETTINGS.JSON", "./status.sh"),
+    (SETTINGS, " \t./status.sh"),
+])
+def test_status_line_script_change_is_visible_on_all_review_routes(
+    tmp_path: Path, source: str, command: str,
+) -> None:
+    settings = {**BASE_SETTINGS, "statusLine": {"type": "command", "command": command}}
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _write(repo, source, settings)
+    _write(repo, "status.sh", "echo 'first body'\n")
+    _commit(repo, "base")
+    assert source in _git(repo, "ls-tree", "-r", "--name-only", "main").splitlines()
+    _git(repo, "checkout", "-q", "-b", "change")
+    baseline = build_host_grants_baseline(_inventory(repo))
+    _write(repo, "status.sh", "echo 'second body'\n")
+    _commit(repo, "change status line script")
+
+    text, payload, verify_text, _comparison, comment = _routes(repo, tmp_path)
+    [row] = payload["rows"]
+    assert (row["direction"], row["expands"]) == ("changed", False)
+    assert "selected script bytes changed: status.sh" in row["why"]
+    assert "launch from the repository root" in row["why"]
+    [change] = payload["review"]["changes"]
+    assert "statusLine: script status.sh bytes" in change["change"]
+    for rendered in (text, verify_text, comment, json.dumps(payload)):
+        assert "first body" not in rendered and "second body" not in rendered
+        assert "status.sh" in rendered
+
+    check = CliRunner().invoke(app, [
+        "check", "--agent", "codex", "--workspace", str(repo), "--base", "main",
+        "--head", "HEAD", "--format", "agent-boundary-json",
+    ])
+    assert check.exit_code in (0, 10, 20), check.output
+    control = json.loads(check.stdout)
+    assert any(
+        violation["path"] == "status.sh" and violation["evidence"].get("hook_script_hosts") == ["claude-code"]
+        for violation in control["violations"]
+    )
+
+    inventory = _inventory(repo)
+    grant = next(grant for grant in inventory["grants"] if grant["kind"] == "command_setting")
+    [script] = grant["script_inputs"]
+    assert (script["path"], script["basis"], script["limit"]) == ("status.sh", "repository_root_relative", None)
+    drift = build_host_drift_payload(baseline=baseline, inventory=inventory, baseline_file="b.json")
+    assert (drift["comparison_status"], drift["has_drift"], len(drift["changes"])) == ("comparable", True, 1)
+
+    baseline["host_grants_schema_version"] = "0.9"
+    for old in baseline["inventory"]["grants"]:
+        old.pop("script_inputs", None)
+    drift = build_host_drift_payload(baseline=baseline, inventory=inventory, baseline_file="legacy.json")
+    assert drift["incomparable_reasons"] == ["baseline_command_setting_script_inputs_unavailable"]
+
+
+@pytest.mark.parametrize(("argument", "expected_limit"), [
+    ('"./status.sh"', "interpreter_wrapper"),
+    ("/tmp/outside.sh", "external_executable"),
+])
+def test_external_status_line_command_reports_only_unresolved_repository_scripts(
+    tmp_path: Path, argument: str, expected_limit: str,
+) -> None:
+    settings = {**BASE_SETTINGS, "statusLine": {"type": "command", "command": f"/bin/sh {argument}"}}
+    repo = _repository(tmp_path, {SETTINGS: settings, "status.sh": "echo first\n"})
+    _write(repo, "status.sh", "echo second\n")
+    _commit(repo, "change script")
+
+    _text, payload, _verify_text, _comparison, _comment = _routes(repo, tmp_path)
+    assert payload["rows"] == []
+    limits = [item for item in payload["coverage"]["items"] if item["status"] == "script_not_resolved"]
+    if expected_limit == "interpreter_wrapper":
+        [item] = limits
+        assert (item["source"], item["side"], item["detail"]) == (
+            SETTINGS, "both", "command setting statusLine (interpreter_wrapper)",
+        )
+    else:
+        assert limits == []
+    inventory = _inventory(repo)
+    grant = next(grant for grant in inventory["grants"] if grant["kind"] == "command_setting")
+    [script] = grant["script_inputs"]
+    assert (script["path"], script["limit"]) == (None, expected_limit)
+    assert all(artifact["path"] != "status.sh" for artifact in inventory["artifacts"])
 
 
 @pytest.mark.parametrize("name", sorted(ADDITIONS))
@@ -377,4 +464,11 @@ def test_the_cold_start_oracle_supports_exactly_what_the_reader_models() -> None
     assert case["scope"] == "unsupported"
     assert sorted((change["kind"], change["key"]) for change in case["changes"]) == [
         ("command_setting", "statusLine"), ("env", "NODE_OPTIONS"), ("unsupported_setting", "env.LOG_LEVEL"),
+    ]
+
+    assert "disabledMcpjsonServers" not in oracle.CLAUDE_SUPPORTED_KEYS
+    case = oracle.claude_settings("{}", '{"disabledMcpjsonServers":["docs"]}')
+    assert case["scope"] == "unsupported"
+    assert [(change["kind"], change["key"]) for change in case["changes"]] == [
+        ("unsupported_setting", "disabledMcpjsonServers"),
     ]

@@ -329,7 +329,7 @@ def test_the_text_names_a_script_change_once_and_a_repoint_as_selection(tmp_path
     text = _diff(root)
     digest = change["change"].split(" → ")[-1]
     assert text.count(digest) == 1
-    assert "a.sh (claude-code): compared; changed; the row of the hook that runs it names this script" in text
+    assert "a.sh (claude-code): compared; changed; the row for its declaring command names this script" in text
 
     _write(root, {"a.sh": "a\n", SETTINGS: _hooks('"${CLAUDE_PROJECT_DIR}/b.sh"')})
     data = _diff(root, "--json")
@@ -480,7 +480,11 @@ def test_check_decides_as_before_on_a_script_the_change_does_not_touch(tmp_path,
     root = _repo(tmp_path, {SETTINGS: _hooks('"${CLAUDE_PROJECT_DIR}/build/hook"'), "README.md": "one\n"})
     _write(root, {"README.md": "two\n"})
     result = _check_diff(root) if mode == "diff" else _check(root, "--base", "main")
-    assert (result["decision"], result["input_coverage"]) == ("allow", "complete")
+    # A detached diff is bound to no checkout, so it never reports a pass
+    # (#1154); the decision is otherwise the one a worktree check gives.
+    assert (result["decision"], result["input_coverage"]) == (
+        ("require_review", "unknown") if mode == "diff" else ("allow", "complete")
+    )
     assert result["comparison_status"] == "comparable"
     assert not any(rule_id == "BOUNDARY-INPUT-INCOMPLETE" for rule_id, _path in _violations(result))
 

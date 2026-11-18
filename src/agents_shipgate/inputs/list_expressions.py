@@ -40,6 +40,7 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.privacy import redact_and_truncate, redact_text, truncate_redacted
 from agents_shipgate.core.static_inputs import active_static_input_snapshot
 from agents_shipgate.inputs.common import list_input_directory
 from agents_shipgate.inputs.python_imports import (
@@ -335,8 +336,12 @@ def read_only_use(
 
 
 def _source_slot_context(rows: list[str] | tuple[str, ...]) -> tuple[str, ...]:
-    """Bound supplemental refusal text; it never supplies an ownership fact."""
-    return tuple(dict.fromkeys(row[:1024] for row in rows))[:2]
+    """Bound supplemental refusal text; it never supplies an ownership fact.
+
+    Each row is redacted before it is cut, so a credential straddling the
+    bound is never published in part (#1079).
+    """
+    return tuple(dict.fromkeys(redact_and_truncate(row, 1024) or "" for row in rows))[:2]
 
 
 def _record_constructor_refusal(rows: list[str] | None, message: str) -> bool:
@@ -4185,8 +4190,11 @@ def _all_under(part: ListResolution, conditions: tuple[str, ...]) -> ListResolut
 
 
 def _source(node: ast.AST) -> str:
-    text = ast.unparse(node)
-    return text if len(text) <= 160 else text[:157] + "..."
+    # Redacted before it is cut: an expression's string literals are the
+    # user's text, and cutting first could leave the head of a credential too
+    # short for the publication-time redaction to recognise (#1079).
+    text = redact_text(ast.unparse(node)) or ""
+    return text if len(text) <= 160 else truncate_redacted(text, 157) + "..."
 
 
 def _single_target(statement: ast.Assign | ast.AnnAssign) -> str | None:

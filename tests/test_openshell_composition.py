@@ -176,7 +176,7 @@ def test_snapshot_metadata_keeps_freshness_and_field_lifetimes_explicit(tmp_path
     assert "network_policies" in facts["dynamic_fields"]
     from pathlib import Path
 
-    schema = json.loads((Path(__file__).parents[1] / "docs/host-grants-inventory-schema.v0.9.json").read_text())
+    schema = json.loads((Path(__file__).parents[1] / "docs/host-grants-inventory-schema.v0.10.json").read_text())
     Draft202012Validator(schema).validate(inv)
 
 

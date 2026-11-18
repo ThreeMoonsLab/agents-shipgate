@@ -7,7 +7,8 @@ from typing import Any, get_args
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.errors import ConfigError, InputParseError, format_validation_error
+from agents_shipgate.core.yaml_limits import BoundedSafeLoader
 from agents_shipgate.inputs.common import (
     PositionIndex,
     load_structured_file_with_positions,
@@ -85,9 +86,11 @@ def load_yaml_file(path: Path) -> dict[str, Any]:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise manifest_read_error(path, exc) from exc
+    except UnicodeDecodeError as exc:
+        raise ConfigError(f"Config file must be UTF-8: {path}") from exc
     try:
-        data = yaml.safe_load(text)
-    except yaml.YAMLError as exc:
+        data = yaml.load(text, Loader=BoundedSafeLoader)
+    except (ValueError, yaml.YAMLError, RecursionError) as exc:
         raise ConfigError(f"Invalid YAML in {path}: {exc}") from exc
     return _parsed_manifest_mapping(data, text, path)
 
@@ -107,8 +110,8 @@ def load_manifest_text(
 
     config_path = Path(source)
     try:
-        data = yaml.safe_load(text)
-    except yaml.YAMLError as exc:
+        data = yaml.load(text, Loader=BoundedSafeLoader)
+    except (ValueError, yaml.YAMLError, RecursionError) as exc:
         raise ConfigError(f"Invalid YAML in {config_path}: {exc}") from exc
     return _validate_manifest_data(
         _parsed_manifest_mapping(data, text, config_path), config_path
@@ -183,15 +186,8 @@ def _validate_manifest_data(
 
 
 def _format_validation_error(exc: ValidationError) -> str:
-    lines = ["Invalid shipgate.yaml:"]
-    for error in exc.errors():
-        location = ".".join(str(part) for part in error.get("loc", ())) or "<root>"
-        message = error.get("msg", "invalid value")
-        suggestion = _field_suggestion(error)
-        if suggestion:
-            message = f"{message}. Did you mean {suggestion}?"
-        lines.append(f"- {location}: {message}")
-    return "\n".join(lines)
+    return format_validation_error(exc, label="Invalid shipgate.yaml", suggest=_field_suggestion)
+
 
 
 def _field_suggestion(error: dict[str, Any]) -> str | None:

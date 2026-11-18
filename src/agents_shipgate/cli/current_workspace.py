@@ -291,6 +291,32 @@ def _cause(kind: LiveWorkspaceCauseKind, text: str) -> LiveWorkspaceCause:
     return LiveWorkspaceCause(kind=kind, text=published_cause_text(sentence))
 
 
+def generated_reports_exclusion(
+    workspace: Path,
+    *,
+    requested_workspace: Path,
+    comparison_ref: str,
+) -> Path | None:
+    """Exclude the default directory when it only contains uncommitted reports."""
+    from agents_shipgate.cli.verify.git import commit_sha
+
+    try:
+        reports = default_reports_dir(requested_workspace)
+        if not os.path.lexists(reports):
+            return None
+        compared = commit_sha(workspace, comparison_ref)
+        if (
+            classify_output_directory(
+                workspace, reports, compared=[compared] if compared else []
+            )
+            is not None
+        ):
+            return None
+        return worktree_exclusion(workspace, reports)
+    except Exception:  # noqa: BLE001 - no exclusion can only surface more paths.
+        return None
+
+
 def worktree_exclusion(root: Path, reports_dir: Path) -> Path | None:
     """The reports directory as a Git change-set exclusion, or ``None``.
 

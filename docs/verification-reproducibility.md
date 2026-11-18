@@ -63,6 +63,9 @@ Repository inputs describe the matching local checkout, including files read
 from its evaluated committed tree. A historical HEAD must match first; the
 reader never compares historical source bytes with a different current HEAD.
 A local manifest overlaid on an archived tree remains a `worktree` input.
+When an explicit head removes a manifest that existed at its merge base,
+`verify` stops for human review before opening the local copy or publishing
+scan artifacts.
 Generated historical comparison reports and diffs are checked in the artifact
 bundle, not looked up as source files in the checkout.
 
@@ -540,7 +543,7 @@ The plan's `evaluation_date` is content-bound provenance, derived from the
 evaluated head commit unless explicitly declared during plan preparation. It
 is not authority to extend reviewer-owned trust. Baseline exceptions, severity
 overrides, and override acknowledgements use the later of `evaluation_date`
-and the verifier's wall-clock date. A backdated commit therefore cannot keep an
+and the verifier's UTC wall-clock date. A backdated commit therefore cannot keep an
 expired grant active; a future-dated commit can only make the gate more
 restrictive. Explicit test-only `today` injection remains available inside the
 library, but neither `verify` nor portable workers expose it as a bypass.

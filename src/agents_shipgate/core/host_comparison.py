@@ -10,6 +10,7 @@ from typing import Any
 from agents_shipgate.core.boundary_registry import (
     is_claude_plugin_manifest_path,
     is_claude_plugin_marketplace_path,
+    is_host_configuration_location,
 )
 from agents_shipgate.core.capability_diff_rows import (
     CapabilityDiffRow,
@@ -68,8 +69,19 @@ IdentityAnswers = Callable[[Sequence[str]], Mapping[str, "bool | None"]]
 #: change it points to, and a link the reader does not read through (#700) is
 #: `unreadable` with no target read on either side. A source reached through
 #: a link the reader does read through qualifies only when ``unchanged`` proves
-#: the link and the file it lands on both unchanged (#822).
+#: the link and the file it lands on both unchanged (#822). An `unreadable`
+#: in-tree directory link qualifies only through ``unchanged_link`` (#1004).
 UNCHANGED_LIMIT_ISSUE_KINDS = frozenset({"unsupported", "parse_failed"})
+
+#: ``unchanged_limits[].detail`` of an unread in-tree directory link proven
+#: unchanged (#1004), in place of the reader's advice to replace the link,
+#: which no longer applies to a limit the comparison compares past.
+UNCHANGED_LINK_DETAIL = (
+    "An in-tree directory link this entry does not read through. Git shows the "
+    "link and the directory it names identical in base and head, with no link "
+    "beneath it, and no path at or beneath it is one a host reads for agent "
+    "configuration, so it was not compared."
+)
 
 
 def unchanged_limits(
@@ -77,6 +89,7 @@ def unchanged_limits(
     after: dict[str, Any],
     unchanged: Callable[[str], bool],
     absent: Callable[[str], bool] | None = None,
+    unchanged_link: Callable[[str], bool] | None = None,
 ) -> list[dict[str, str]] | None:
     """The limits both inventories share and the change did not touch, or ``None``.
 
@@ -88,6 +101,14 @@ def unchanged_limits(
     ``absent`` answers whether nothing is at a repository path on either side;
     it only lets a selected hook script both sides report missing be named
     (#702), and anything short of proof is ``False``.
+
+    ``unchanged_link`` answers whether an ``unreadable`` source is an in-tree
+    directory link the reader does not read through, identical on both sides
+    by Git identity together with the directory it names, and with no path at
+    or beneath it that a host reads for agent configuration (#1004). Only then
+    is such a limit named. A link at a configuration location is never named,
+    whatever the answer, so configuration cannot be moved behind a link.
+    Without it, ``unreadable`` refuses as it always has.
     """
 
     def blocking(inventory: dict[str, Any]) -> dict[tuple[str, str, str], dict[str, Any]]:
@@ -104,17 +125,27 @@ def unchanged_limits(
     limits: list[dict[str, str]] = []
     for key in sorted(base_issues):
         kind, host, source = key
+        detail = str(head_issues[key]["message"])
         if key in scripts:
             # A selected hook script both sides failed to read alike (#702):
             # unchanged exactly when the file the host would run is, through
             # any in-tree link on its path (#822), or when it is on neither.
             if not _script_unchanged(*scripts[key], unchanged, absent):
                 return None
+        elif kind == "unreadable":
+            # An in-tree directory link the reader leaves unread (#1004):
+            # unchanged with the directory it names, and holding no
+            # configuration. Anything else unreadable still refuses.
+            if (
+                unchanged_link is None
+                or is_host_configuration_location(source)
+                or not unchanged_link(source)
+            ):
+                return None
+            detail = UNCHANGED_LINK_DETAIL
         elif kind not in UNCHANGED_LIMIT_ISSUE_KINDS or not unchanged(source):
             return None
-        limits.append(
-            {"host": host, "limit": kind, "source": source, "detail": str(head_issues[key]["message"])}
-        )
+        limits.append({"host": host, "limit": kind, "source": source, "detail": detail})
 
     base_coverage = {item["host"]: item for item in before.get("host_coverage", [])}
     head_coverage = {item["host"]: item for item in after.get("host_coverage", [])}
@@ -419,7 +450,6 @@ def _script_differences_not_shown(
         return {
             (str(grant["host"]), str(entry["path"])): (entry.get("sha256"), entry.get("size_bytes"))
             for grant in inventory.get("grants", [])
-            if grant.get("kind") == "hook"
             for entry in grant.get("script_inputs") or []
             if entry.get("path") and entry.get("sha256")
         }
@@ -454,7 +484,7 @@ def _script_differences_not_shown(
                     entry_as_base(str(grant["host"]), entry) for entry in grant["script_inputs"]
                 ],
             }
-            if grant.get("kind") == "hook" and grant.get("script_inputs")
+            if grant.get("script_inputs")
             else grant
             for grant in after.get("grants", [])
         ],
@@ -480,7 +510,7 @@ def _unresolved_script_facts(
     after: dict[str, Any],
     changed_inputs: ChangedInputs | None,
 ) -> dict[tuple[str, str, str, str | None], dict[str, Any]]:
-    """Selected hooks whose script this entry could not resolve, as coverage facts (#702).
+    """Selected executable declarations whose script could not be resolved (#702, #1084).
 
     One ``script_not_resolved`` item per declaring file, side and host: a
     hook the host loads names a command, such as an interpreter wrapper or a
@@ -500,17 +530,18 @@ def _unresolved_script_facts(
     found: dict[tuple[str, str], dict[str, set[str]]] = {}
     for side, inventory in (("base", before), ("head", after)):
         for grant in inventory.get("grants", []):
-            if grant.get("kind") != "hook" or hook_loading_basis(grant) not in LOADED_HOOK_BASES:
+            if grant.get("kind") == "hook" and hook_loading_basis(grant) not in LOADED_HOOK_BASES:
                 continue
             for entry in grant.get("script_inputs") or []:
                 limit = entry.get("limit")
                 if entry.get("path") or not limit or limit in _NO_SCRIPT_TO_NAME:
                     continue
-                where = (
-                    str(grant["event"])
-                    if limit in {"unsupported_hook_shape", "handler_bound_exceeded"}
-                    else f"{grant['event']} handler {entry['handler']}"
-                )
+                if grant.get("kind") == "command_setting":
+                    where = f"command setting {grant['setting']}"
+                elif limit in {"unsupported_hook_shape", "handler_bound_exceeded"}:
+                    where = str(grant["event"])
+                else:
+                    where = f"{grant['event']} handler {entry['handler']}"
                 host = str(grant["host"])
                 key = (host, _file_of(str(grant["source"]), files.get(host, set())))
                 found.setdefault(key, {}).setdefault(f"{where} ({limit})", set()).add(side)
@@ -695,6 +726,7 @@ def _blocking_facts(
     after: dict[str, Any],
     scope_of: Mapping[tuple[str, str], str] | None = None,
     identities: IdentityAnswers | None = None,
+    link_notes: Mapping[str, str] | None = None,
 ) -> dict[tuple[str, str, str, str | None], dict[str, Any]]:
     """The blocking issues behind a refused or partial comparison, as coverage facts (#812).
 
@@ -708,6 +740,10 @@ def _blocking_facts(
     :data:`BLOCKING_SOURCE_IDENTITY_NOTES` (#973): whether ``identities``
     shows the file changed in this change, proves it identical, or neither.
     Without ``identities`` (a provided diff) it is never established.
+
+    ``link_notes`` says, by source, why an ``unreadable`` link was not proven
+    unchanged where a bound decided it (#1004), and ends that limit's
+    ``detail``.
     """
 
     Found = dict[tuple[str, str, str], tuple[str, str | None]]
@@ -748,6 +784,8 @@ def _blocking_facts(
         message, scope = head.get(key) or base[key]
         if side == "both":
             message = f"{message} {BLOCKING_SOURCE_IDENTITY_NOTES[answers.get(source)]}"
+        if kind == "unreadable" and link_notes and source in link_notes:
+            message = f"{message} {link_notes[source]}"
         item = facts.setdefault(
             (source, "blocking_limit", side, kind),
             {
@@ -767,11 +805,37 @@ def _blocking_facts(
     return facts
 
 
+def _link_notes(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    unchanged_link: Callable[[str], bool] | None,
+) -> dict[str, str]:
+    """Why each ``unreadable`` link a bound decided was not proven unchanged (#1004 review).
+
+    Asked of the proof's optional ``reason(source)``: a link the comparison
+    examined past a bound, or never examined because the comparison's budget
+    was spent before it. Nothing else is said, so any other unproven link
+    keeps the detail it had.
+    """
+
+    reason = getattr(unchanged_link, "reason", None)
+    if reason is None:
+        return {}
+    sources = {
+        str(issue.get("source"))
+        for inventory in (before, after)
+        for issue in inventory.get("issues", [])
+        if issue.get("blocking") and issue.get("kind") == "unreadable"
+    }
+    return {source: note for source in sorted(sources) if (note := reason(source))}
+
+
 def _blocking_coverage(
     before: dict[str, Any],
     after: dict[str, Any],
     unread: UnreadDiscovery | None = None,
     identities: IdentityAnswers | None = None,
+    link_notes: Mapping[str, str] | None = None,
 ) -> HostComparisonCoverage:
     """The sources behind a refused comparison, each with its limit and side (#812).
 
@@ -781,7 +845,9 @@ def _blocking_coverage(
     read (#821) is named beside them: it is not a source either side compared.
     """
 
-    return _group_coverage(_blocking_facts(before, after, identities=identities), unread)
+    return _group_coverage(
+        _blocking_facts(before, after, identities=identities, link_notes=link_notes), unread
+    )
 
 
 #: The digest `public_host_path` stamps after a redacted component. A source
@@ -1143,6 +1209,7 @@ def _retained_comparison(
     scopes: PluginScopes | None,
     unchanged: Callable[[str], bool] | None,
     absent: Callable[[str], bool] | None = None,
+    unchanged_link: Callable[[str], bool] | None = None,
 ) -> _Retained | None:
     """What a refused comparison can still compare, or ``None`` (#808, #702, #973).
 
@@ -1163,7 +1230,9 @@ def _retained_comparison(
     if unread_documents is not None:
         before, after, documents = unread_documents
     if scopes is not None:
-        plugins = _independent_of_plugin_scopes(before, after, scopes, unchanged, absent)
+        plugins = _independent_of_plugin_scopes(
+            before, after, scopes, unchanged, absent, unchanged_link
+        )
         if plugins is not None:
             return replace(
                 plugins,
@@ -1180,7 +1249,9 @@ def _retained_comparison(
     limits: list[dict[str, str]] | None = []
     if not (inventory_is_complete(before) and inventory_is_complete(after)):
         limits = (
-            unchanged_limits(before, after, unchanged, absent) if unchanged is not None else None
+            unchanged_limits(before, after, unchanged, absent, unchanged_link)
+            if unchanged is not None
+            else None
         )
     if limits is None:
         return None
@@ -1202,6 +1273,7 @@ def _independent_of_plugin_scopes(
     scopes: PluginScopes,
     unchanged: Callable[[str], bool] | None,
     absent: Callable[[str], bool] | None = None,
+    unchanged_link: Callable[[str], bool] | None = None,
 ) -> _Retained | None:
     """The comparison outside the plugin directories its limits are bounded by, or ``None`` (#808).
 
@@ -1296,7 +1368,7 @@ def _independent_of_plugin_scopes(
         # Whatever remains incomplete must be a limit both sides share on a
         # source the change did not touch, proven exactly as #721 proves one.
         limits = (
-            unchanged_limits(rest_before, rest_after, unchanged, absent)
+            unchanged_limits(rest_before, rest_after, unchanged, absent, unchanged_link)
             if unchanged is not None
             else None
         )
@@ -1329,6 +1401,7 @@ def compare_host_inventories(
     changed_inputs: ChangedInputs | Callable[[], ChangedInputs] | None = None,
     plugin_scopes: PluginScopes | None = None,
     absent: Callable[[str], bool] | None = None,
+    unchanged_link: Callable[[str], bool] | None = None,
 ) -> HostComparison:
     """Compare two inventories, refusing unless every limit is proven unchanged.
 
@@ -1343,6 +1416,14 @@ def compare_host_inventories(
     link and the file it lands on both are (#822); anything short of proof is
     ``False``. Without it, an incomplete inventory refuses the comparison as it
     always has.
+
+    ``unchanged_link`` answers the same for an ``unreadable`` in-tree
+    directory link the reader does not read through (#1004): the link, the
+    directory it names and everything beneath it identical by Git identity,
+    and nothing at or beneath it a path a host reads for agent configuration.
+    Without it, such a link refuses the comparison as it always has. If it
+    also has ``reason(source)``, a refused comparison's coverage detail for a
+    link ends with that reason where a bound decided it.
 
     ``identities`` is coverage's own question, asked once with every path it
     needs (#812): for each, ``True`` when its bytes are proven identical,
@@ -1393,7 +1474,9 @@ def compare_host_inventories(
     after = _script_differences_not_shown(before, after, identities)
     if not (inventory_is_complete(before) and inventory_is_complete(after)):
         shared = (
-            unchanged_limits(before, after, unchanged, absent) if unchanged is not None else None
+            unchanged_limits(before, after, unchanged, absent, unchanged_link)
+            if unchanged is not None
+            else None
         )
         if shared is None:
             if not inventory_is_complete(before):
@@ -1401,7 +1484,9 @@ def compare_host_inventories(
             if not inventory_is_complete(after):
                 reasons.append("head_inventory_incomplete")
             if coverage:
-                retained = _retained_comparison(before, after, plugin_scopes, unchanged, absent)
+                retained = _retained_comparison(
+                    before, after, plugin_scopes, unchanged, absent, unchanged_link
+                )
         else:
             limits = shared
     baseline_file = base_commit or "compared input"
@@ -1436,7 +1521,9 @@ def compare_host_inventories(
     if not coverage:
         established = None
     elif refused:
-        established = _blocking_coverage(before, after, unread, identities)
+        established = _blocking_coverage(
+            before, after, unread, identities, _link_notes(before, after, unchanged_link)
+        )
     elif retained is not None:
         # The limits that left a directory uncompared, each naming it, then
         # what the rest established, read off the inventories it compared.

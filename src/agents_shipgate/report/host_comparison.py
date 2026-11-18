@@ -603,7 +603,7 @@ def coverage_item_text(
     if item.status == "script_not_resolved":
         where = "" if item.side == "both" else f"in {item.side} only, "
         return (
-            f"{where}a hook it declares runs a script this entry does not resolve, so a "
+            f"{where}a command it declares runs a script this entry does not resolve, so a "
             f"change to that script is not shown: {_text(item.detail or '', markdown=markdown)}"
         )
     if item.status == "changed_without_grant_change" and item.detail:
@@ -631,7 +631,7 @@ def coverage_item_text(
             f"unchanged{_redacted_values_note(item.source)}"
         )
     elif item.status == "changed_without_rows" and named_by_row:
-        finding = "changed; the row of the hook that runs it names this script"
+        finding = "changed; the row for its declaring command names this script"
     elif item.status == "changed_without_rows":
         finding = "changed, but no row is attributed to this path"
     elif item.rows:
@@ -653,38 +653,35 @@ NO_CHANGE_COVERED_HEADLINE = (
     "No static host-grant changes detected in the covered comparison. No verdict is implied."
 )
 #: The source kinds a "changed, not compared" headline names (#1027): host
-#: settings, MCP configuration and hook files. A workflow names what it does
-#: not compare on its own coverage line, and an instruction document is
-#: guidance, not a setting.
-_SETTINGS_SOURCE_KINDS = frozenset({"config", "mcp", "hooks", "requirements"})
+#: settings, MCP configuration, hook files, and workflows. Recognized
+#: unread paths are named separately, regardless of their source kind.
+_NOT_COMPARED_SOURCE_KINDS = frozenset({"config", "mcp", "hooks", "requirements", "workflow"})
 #: How many changed sources that headline names before counting.
 _NOT_COMPARED_NAMES = 3
 
 
 def not_compared_headline(comparison: HostComparison, *, markdown: bool = False) -> str | None:
-    """The headline of a comparable comparison with no row in which a host settings file changed (#1027).
-
-    A settings file can change with no row: in keys no reader of this entry
-    compares, in a value the inventory redacts, or in a way the published
-    data does not attribute to a grant. "No static host-grant changes
-    detected" read as no change there, and a code-execution edit to
-    `.claude/settings.json` was presented as a no-op. So such a file is named
-    as changed, not compared, with the keys its coverage item names. ``None``
-    where no settings file changed, a row exists, or coverage was not
-    recorded: the no-change headline is then the answer it always was.
-    """
+    """Name changed unread inputs and settings or workflows with no grant row."""
 
     if comparison.comparison_status != "comparable" or comparison.rows or comparison.coverage is None:
         return None
+    coverage = comparison.coverage
     changed = [
         item
-        for item in comparison.coverage.items
-        if item.status in {"changed_without_grant_change", "changed_without_rows"}
-        and _source_kind(item.source) in _SETTINGS_SOURCE_KINDS
-        # A hook script's change is its hook's row (#702), never a setting.
-        and not _SCRIPT_NAME.search(item.source)
+        for item in coverage.items
+        if item.status == "changed_not_read"
+        or (
+            item.status in {"changed_without_grant_change", "changed_without_rows"}
+            and _source_kind(item.source) in _NOT_COMPARED_SOURCE_KINDS
+            and not _SCRIPT_NAME.search(item.source)
+        )
     ]
     if not changed:
+        if not coverage.read_sources_only:
+            return (
+                "Changed inputs were not compared. See coverage for the limits of this run. "
+                "No verdict is implied."
+            )
         return None
     named = [
         _text(item.source, markdown=markdown)

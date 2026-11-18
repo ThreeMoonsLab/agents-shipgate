@@ -14,15 +14,19 @@ MAX_HOOK_COMMAND = 8192
 MAX_HOOK_PATH = 1024
 # Reading dependencies has a separate budget from displaying handler detail.
 MAX_HOOK_SCRIPT_HANDLERS = 256
-PathBasis = Literal["project_root_placeholder", "plugin_root_placeholder", "absolute_workspace_path"]
+PathBasis = Literal[
+    "project_root_placeholder", "plugin_root_placeholder", "absolute_workspace_path",
+    "repository_root_relative",
+]
 
 #: Why one handler's command established no repository file (#702). Closed:
 #: the inventory publishes these beside the reader's own dependency limits.
 #: ``path_lookup`` is a bare command with no path- or script-shaped argument,
 #: such as ``npx prettier --write``; ``interpreter_wrapper`` is a bare command
 #: with one, such as ``python3 .claude/hooks/check.py`` or ``bash guard.sh``,
-#: whose script this grammar does not follow. ``external_executable`` is an
-#: absolute path outside the workspace.
+#: whose script this grammar does not follow. For command settings this also
+#: covers external executables with a local script-shaped argument.
+#: ``external_executable`` is an absolute path outside the workspace.
 ReferenceLimit = Literal[
     "unsupported_host",
     "not_command_handler",
@@ -156,15 +160,27 @@ def _names_a_path(argument: str) -> bool:
     return "/" in text or "$" in text or re.search(r"[A-Za-z0-9_-]\.[A-Za-z0-9]+$", text) is not None
 
 
+def _may_name_workspace_script(argument: str, workspace_root: str) -> bool:
+    text, _expanded = _unquoted(argument)
+    if text.startswith("/"):
+        return workspace_root.startswith("/") and text.startswith(f"{workspace_root}/")
+    return not text.startswith(("-", "../")) and "://" not in text and _names_a_path(text)
+
+
 def hook_script_reference(
     handler: Any, *, host: str, workspace_path: str, plugin_root: str | None = None,
+    relative_from_workspace: bool = False,
 ) -> HookScriptReference:
     """Resolve a direct executable against explicit static host path evidence.
 
     ``workspace_path`` is the original checkout's absolute path, also when the
     reader materializes a historical tree elsewhere. ``plugin_root`` is a
     unique selected in-repository plugin root, never guessed from a filename.
-    The caller must separately establish that the declaration is selected.
+    A caller evaluating command settings may explicitly compare ``./script``
+    for a launch from the repository root. With that assumption, a
+    local script-shaped argument to an external executable is reported as
+    unresolved. The caller must separately establish selection or describe
+    the launch assumption.
     """
     if host not in {"claude-code", "codex"}:
         return _limited("unsupported_host")
@@ -191,7 +207,7 @@ def hook_script_reference(
         executable, arguments = command, list(handler["args"])
         expanded = False
     else:
-        words = _shell_words(command)
+        words = _shell_words(command.lstrip(" \t") if relative_from_workspace else command)
         if words is None:
             return _limited("unsupported_shell_command")
         anchored = _anchored_executable(words[0])
@@ -231,10 +247,17 @@ def hook_script_reference(
             return HookScriptReference(path=posixpath.join(base, tail), basis=basis)
     if "$" in executable:
         return _limited("dynamic_or_conditional_path")
+    if relative_from_workspace and executable.startswith("./"):
+        relative = _relative(executable[2:])
+        if relative is None:
+            return _limited("unsupported_or_escaping_path")
+        return HookScriptReference(path=relative, basis="repository_root_relative")
     if not executable.startswith("/"):
         return _limited("working_directory_not_established")
     root = workspace_path.rstrip("/")
     if not root.startswith("/") or not executable.startswith(root + "/"):
+        if relative_from_workspace and any(_may_name_workspace_script(arg, root) for arg in arguments):
+            return _limited("interpreter_wrapper")
         return _limited("external_executable")
     relative = _relative(executable[len(root) + 1:])
     if relative is None:

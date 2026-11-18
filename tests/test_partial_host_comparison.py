@@ -587,12 +587,19 @@ def test_rows_are_withheld_where_independence_is_not_established(tmp_path: Path,
 
 @_LINKS
 @pytest.mark.parametrize(
-    ("link", "target"),
-    [("docs/proxy", "../src/pkg"), ("NOTES.md", "does/not/exist.md")],
+    ("link", "links"),
+    [
+        # The directory it names holds a link, which no Git tree identity
+        # binds, so #1004 does not name it as unchanged either. An unchanged
+        # link Git does bind is named, and the comparison is `partial` beside
+        # the broken plugin (`tests/test_unchanged_link_limits.py`).
+        ("docs/proxy", {"docs/proxy": "../src/pkg", "src/pkg/alias.txt": "a.txt"}),
+        ("NOTES.md", {"NOTES.md": "does/not/exist.md"}),
+    ],
     ids=["in-tree-directory-link", "dangling-link"],
 )
 def test_an_unreadable_link_beside_a_broken_plugin_still_refuses(
-    tmp_path: Path, link: str, target: str
+    tmp_path: Path, link: str, links: dict[str, str]
 ) -> None:
     """#808's F3 controls: a link this entry will not read through is not a
     plugin scope, and a broken plugin beside it does not make it one (#700's
@@ -602,7 +609,7 @@ def test_an_unreadable_link_beside_a_broken_plugin_still_refuses(
         tmp_path,
         {MANIFEST: PLUGIN, HOOK_FILE: HOOK, "src/pkg/a.txt": "x\n"},
         {MANIFEST: BROKEN, SETTINGS: DENY_DROPPED},
-        links={link: target},
+        links=links,
     )
 
     _text, payload = _diff(repo)
