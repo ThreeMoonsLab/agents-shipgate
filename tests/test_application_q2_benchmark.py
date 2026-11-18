@@ -229,11 +229,22 @@ def test_a_score_survives_the_summary_block(tmp_path: Path) -> None:
     assert summarize.answer_id(with_summary) == summarize.answer_id(answer)
     reworded = {**with_summary, "summary": {"findings": [{"agent": "b"}]}}
     assert summarize.answer_id(reworded) == summarize.answer_id(answer)
+    assert summarize.presentation_id(answer) is None
+    assert summarize.presentation_id(reworded) != summarize.presentation_id(with_summary)
     _write_run(tmp_path, [{"slug": "a", "status": "ok"}], {"a": with_summary})
     totals = summarize.totals(summarize.load_run(corpus, tmp_path), {"a": score})
     assert (totals["scored"], totals["stale_scores"]) == (1, [])
     moved = {**with_summary, "rows": [{"change": "added"}]}
     assert summarize.answer_id(moved) != summarize.answer_id(answer)
+    assert summarize.presentation_id(moved) == summarize.presentation_id(with_summary)
+
+
+def test_presentation_identity_keeps_scope_summaries_in_order() -> None:
+    left = {"engine": {"version": "1"}, "comparisons": [{}, {"summary": {"count": 1}}]}
+    right = {"engine": {"version": "2"}, "comparisons": [{"summary": {"count": 1}}, {}]}
+    assert summarize.answer_id(left) == summarize.answer_id(right)
+    assert summarize.presentation_id(left) != summarize.presentation_id(right)
+    assert summarize.presentation_id(left) == summarize.presentation_id({**left, "engine": {}})
 
 
 def test_the_readme_quotes_868s_levels_verbatim() -> None:
@@ -334,6 +345,144 @@ def _git_ok(command: list[str]) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(command, 0, "", "")
 
 
+def _pinned_answer(status: str = "compared", **fields) -> dict:
+    return {
+        "comparison_status": status,
+        "base": {"compared_commit": "a" * 40},
+        "head": {"compared_commit": "b" * 40},
+        "rows": [],
+        **fields,
+    }
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_retained_replay_keeps_input_pins_and_refuses_to_overwrite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupted: bool,
+) -> None:
+    corpus, corpus_path, clones, out = _runner_case(tmp_path, ("case",))
+    engine = tmp_path / "engine"
+    receipt = out / "run-inputs.json"
+    answer = _pinned_answer(summary={"findings": []})
+
+    def run_command(command, **kwargs):
+        if command[0] == "git":
+            return _git_ok(command)
+        assert receipt.is_file()
+        if interrupted:
+            raise KeyboardInterrupt
+        return subprocess.CompletedProcess(command, 0, json.dumps(answer), "")
+
+    monkeypatch.setattr(run.subprocess, "run", run_command)
+    args = ["--engine", str(engine), "--corpus", str(corpus_path), "--clones", str(clones), "--out", str(out)]
+    if interrupted:
+        with pytest.raises(KeyboardInterrupt):
+            run.main([*args, "--retain-run"])
+        assert not (out / "runs.json").exists()
+    else:
+        assert run.main([*args, "--retain-run"]) == 0
+        summarized = summarize.load_run(corpus, out)["case"]
+        assert summarized["presentation_id"] == summarize.presentation_id(answer)
+
+    before = {path.name: path.read_bytes() for path in out.iterdir()}
+    inputs = json.loads(before["run-inputs.json"])
+    assert inputs["members"] == corpus["members"]
+    assert inputs["corpus_sha256"] == hashlib.sha256(corpus_path.read_bytes()).hexdigest()
+    assert inputs["engine_launcher_sha256"] == hashlib.sha256(engine.read_bytes()).hexdigest()
+    assert inputs["fetch_requested"] is False
+    for repeat in (args, [*args, "--retain-run"]):
+        with pytest.raises(SystemExit, match="2"):
+            run.main(repeat)
+        assert {path.name: path.read_bytes() for path in out.iterdir()} == before
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("slug", "runs"), ("head", "HEAD"), ("repository", "invalid-repository")],
+)
+def test_replay_rejects_invalid_inputs_before_creating_output(
+    tmp_path: Path, field: str, value: str,
+) -> None:
+    corpus, corpus_path, clones, out = _runner_case(tmp_path, ("case",))
+    corpus["members"][0][field] = value
+    corpus_path.write_text(json.dumps(corpus), encoding="utf-8")
+    with pytest.raises(SystemExit, match="2"):
+        run.main(["--engine", str(tmp_path / "engine"), "--corpus", str(corpus_path),
+                  "--clones", str(clones), "--out", str(out), "--retain-run"])
+    assert not out.exists()
+
+
+@pytest.mark.parametrize(
+    ("input_name", "output_name"),
+    [("corpus", "runs.json"), ("corpus", "case.json"), ("engine", "runs.json"), ("engine", "case.err")],
+)
+def test_replay_refuses_to_replace_its_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    input_name: str, output_name: str,
+) -> None:
+    _, corpus, clones, out = _runner_case(tmp_path, ("case",))
+    engine = tmp_path / "engine"
+    out.mkdir()
+    for name in ("runs.json", "case.json", "case.err"):
+        (out / name).write_text(f"previous {name}", encoding="utf-8")
+    if input_name == "corpus":
+        corpus = corpus.replace(out / output_name)
+    else:
+        engine.write_text("local test launcher", encoding="utf-8")
+        engine = engine.replace(out / output_name)
+    before = {path.name: path.read_bytes() for path in out.iterdir()}
+
+    def unexpected_run(command, **kwargs):
+        pytest.fail(f"Replay started a subprocess before rejecting the overlap: {command[0]}")
+
+    monkeypatch.setattr(run.subprocess, "run", unexpected_run)
+    with pytest.raises(SystemExit, match="2"):
+        run.main(["--engine", str(engine), "--corpus", str(corpus), "--clones", str(clones), "--out", str(out)])
+    assert f"overlaps the {input_name}" in capsys.readouterr().err
+    assert {path.name: path.read_bytes() for path in out.iterdir()} == before
+
+
+@pytest.mark.parametrize(
+    ("stdout", "reason"),
+    [
+        ("malformed", "not a readable JSON comparison"),
+        ("[]", "one comparison object"),
+        (json.dumps(_pinned_answer("complete")), "invalid comparison_status"),
+        (json.dumps(_pinned_answer(head={"compared_commit": "c" * 40})), "head.compared_commit"),
+        (json.dumps(_pinned_answer(rows={})), "rows must be a list"),
+        (json.dumps(_pinned_answer(rows=[{"change": []}])), "invalid change kind"),
+        (json.dumps(_pinned_answer(rows=[{"change": "changed", "after": []}])), "after must be an object"),
+        (json.dumps(_pinned_answer(rows=[{"change": "changed", "after": {"reach": []}}])), "after.reach"),
+        (json.dumps(_pinned_answer(rows=[{"change": "changed", "after": {"reach": {"calls": "GET"}}}])),
+         "after.reach.calls"),
+        (json.dumps(_pinned_answer(rows=[{"change": "changed", "before": {"reach": {"limits": {"at": "x.py:1"}}}}])),
+         "before.reach.limits"),
+    ],
+)
+def test_a_zero_exit_with_invalid_stdout_is_retained_as_a_failed_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stdout: str, reason: str,
+) -> None:
+    corpus, corpus_path, clones, out = _runner_case(tmp_path, ("valid", "invalid"))
+    valid = _pinned_answer("not_established")
+
+    def fake_run(command, **kwargs):
+        if command[0] == "git":
+            return _git_ok(command)
+        output = stdout if kwargs["cwd"].name == "o__invalid" else json.dumps(valid)
+        return subprocess.CompletedProcess(command, 0, output, "")
+
+    monkeypatch.setattr(run.subprocess, "run", fake_run)
+    assert run.main(["--engine", str(tmp_path / "engine"), "--corpus", str(corpus_path),
+                     "--clones", str(clones), "--out", str(out), "--retain-run"]) == 1
+    good, bad = json.loads((out / "runs.json").read_text(encoding="utf-8"))
+    assert good["status"] == "ok"
+    assert bad["status"] == "invalid_output" and bad["exit_code"] == 0
+    assert reason in bad["reason"]
+    assert (out / "invalid.json").read_text(encoding="utf-8") == stdout
+    summaries = summarize.load_run(corpus, out)
+    assert summaries["valid"]["status"] == "not_established"
+    assert summaries["invalid"]["status"] == "invalid_output"
+    assert summaries["invalid"]["answer_id"] is None
+
+
 @pytest.mark.parametrize("outcome", ["success", "refused", "timeout", "unavailable", "fetch_failed"])
 def test_a_rerun_reports_current_outputs_and_fails_for_any_failed_member(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str
@@ -347,7 +496,11 @@ def test_a_rerun_reports_current_outputs_and_fails_for_any_failed_member(
                {"case": {"comparison_status": "compared", "rows": [{"change": "added"}]}})
     (out / "case.err").write_text("previous build diagnostic")
     (out / "other.json").write_text("unrelated output")
-    current = {"comparison_status": "partial", "rows": [{"change": "removed"}]}
+    corpus_path = corpus_path.replace(out / "corpus.json")
+    engine = (tmp_path / "engine").replace(out / "engine")
+    current = _pinned_answer("partial", rows=[{
+        "change": "removed", "before": {"reach": {"calls": [{"method": "GET"}], "limits": []}},
+    }])
     engine_calls = []
 
     def fake_run(command, **kwargs):
@@ -364,7 +517,7 @@ def test_a_rerun_reports_current_outputs_and_fails_for_any_failed_member(
 
     monkeypatch.setattr(run, "complete", lambda clone, sha: outcome != "unavailable")
     monkeypatch.setattr(run.subprocess, "run", fake_run)
-    args = ["--engine", str(tmp_path / "engine"), "--corpus", str(corpus_path),
+    args = ["--engine", str(engine), "--corpus", str(corpus_path),
             "--clones", str(clones), "--out", str(out)]
     if outcome == "fetch_failed":
         args.append("--fetch")
@@ -375,11 +528,13 @@ def test_a_rerun_reports_current_outputs_and_fails_for_any_failed_member(
 
     assert exit_code == (0 if outcome == "success" else 1)
     assert (out / "other.json").read_text() == "unrelated output"
+    assert json.loads(corpus_path.read_text()) == corpus and engine.is_file()
     assert summary["rows"]["added"] == 0
     assert "previous build" not in ((out / "case.err").read_text() if (out / "case.err").exists() else "")
     assert len(engine_calls) == (0 if outcome in {"unavailable", "fetch_failed"} else 1)
     if outcome == "success":
         assert (record["status"], summary["status"], summary["rows"]["removed"]) == ("ok", "partial", 1)
+        assert summary["sides_with_calls"] == 1
     else:
         expected = {"refused": "refused", "timeout": "timeout"}.get(outcome, "unavailable")
         assert record["status"] == summary["status"] == expected
@@ -404,7 +559,7 @@ def test_a_successful_member_does_not_hide_another_members_failure(
         if kwargs["cwd"].name == "o__bad" and failure == "timeout":
             raise subprocess.TimeoutExpired(command, kwargs["timeout"])
         code = 2 if kwargs["cwd"].name == "o__bad" else 0
-        return subprocess.CompletedProcess(command, code, json.dumps({"comparison_status": "partial", "rows": []}), "")
+        return subprocess.CompletedProcess(command, code, json.dumps(_pinned_answer("partial")), "")
 
     monkeypatch.setattr(run, "complete", lambda clone, sha: clone.name != "o__bad" or failure != "unavailable")
     monkeypatch.setattr(run.subprocess, "run", fake_run)
