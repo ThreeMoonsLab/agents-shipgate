@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agents_shipgate.core.contained_write import write_contained
 from agents_shipgate.packet.html import render_packet_html
 from agents_shipgate.report.human_order import ColdReaderLead, HumanArtifactContext
 from agents_shipgate.schemas.packet import EvidencePacket
@@ -31,6 +32,7 @@ def render_packet_pdf(
     sanitize_output: bool = True,
     human_context: HumanArtifactContext | None = None,
     cold_lead: ColdReaderLead | None = None,
+    root: Path | None = None,
 ) -> Path:
     """Render the packet as a PDF and write it to ``out_path``.
 
@@ -46,14 +48,15 @@ def render_packet_pdf(
             "`pipx install 'agents-shipgate[pdf]'` to enable PDF output"
         ) from exc
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
     html_str = render_packet_html(
         packet,
         sanitize_output=sanitize_output,
         human_context=human_context,
         cold_lead=cold_lead,
     )
-    HTML(string=html_str).write_pdf(str(out_path))
+    # Rendered to bytes and written here, so the PDF goes through the same
+    # contained write as every other output (#1031).
+    write_contained(out_path, HTML(string=html_str).write_pdf(), root=root)
     return out_path
 
 

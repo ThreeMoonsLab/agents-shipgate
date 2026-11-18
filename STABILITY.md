@@ -7,6 +7,15 @@ Exact source-local SDK clones have their own bindings. Unknown receivers,
 constructor/handle changes and unread lists retain explicit uncertainty.
 See [the application contract](docs/application-comparison.md).
 
+Unreleased, #1146: application comparison `0.5` succeeds the released `0.4`.
+A binding whose compared meaning was read from what is bound and is the same
+on both sides is no longer a `not_established` row: `rows` is shorter for the
+same change, and its agent's optional top-level `read_same` names it once with
+its doubts (whether the agent holds it, or which file an import search
+reaches). A doubt about which definition or settings are bound keeps the row,
+with optional `doubts`. No published schema document exists for either
+version yet (#1044).
+
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
 New in 1.3.0, runtime contract v42: an empty preflight plan no longer mints
@@ -360,6 +369,337 @@ defaults. The stable/provisional inventory, the `1.x` rules and the migration
 from the shipped `v0.15.0` contract are in
 [`docs/report-1-0-contract.md`](docs/report-1-0-contract.md). Pin a version (or
 the Action tag) for reproducible CI.
+
+---
+
+<a id="capability-lock-plugin-opt-in-1062"></a>
+## Migration Note: Unreleased — verifier capability locks record effective plugin opt-in (#1062)
+
+`verify` records `source.plugins_enabled` as `false` when plugin opt-in is
+unset or `--no-plugins` is set, and `true` when opt-in takes effect. This
+matches `capability export`. A default opt-out run now has a different
+`hashes.source_set_hash` from one produced by the earlier verifier with the
+same inputs. `capability diff` copies this hash into its `base` and `head`
+references, and `attest` copies it into `capability_lock.source_set_hash`.
+Regenerate a pinned hash from the same source and plugin setting when
+updating the verifier.
+
+---
+
+<a id="write-containment-1031"></a>
+
+## Migration Note: Unreleased — writes stay inside roots the run chooses, and every Git child runs with one environment (#1031)
+
+**What was wrong.** Write boundaries took their root from the input they were
+meant to contain, and nothing checked the files written inside them.
+
+- `apply-patches` compared each patch target with `manifest_dir`, which it
+  read from the same report as the patches. A report could name another
+  directory as its own and patch a file there, or name any YAML or JSON file of
+  the repository it ran in.
+- `output.directory` in `shipgate.yaml`, which a pull request can change, was
+  joined onto the manifest's directory unchecked, so an absolute or `..` value
+  made `scan` write and clear report files outside the workspace. Every report
+  writer also followed a link at its destination, so a committed link in the
+  reports directory, at a file or at a directory, carried a write outside it.
+- A `set_pointer` patch whose pointer ended in `-` stopped `apply-patches`
+  with a traceback instead of the documented exit `2`, and a target that was a
+  directory did the same.
+- The Git environment was written out by hand at five places that had drifted
+  apart: discovery ran Git without `GIT_ALLOW_PROTOCOL`; `authorization
+  execute` without `GIT_ATTR_NOSYSTEM`, `GIT_OPTIONAL_LOCKS` and `GIT_PAGER`;
+  and `fixture run` with the operator's whole Git configuration.
+
+**What changes.**
+
+- **`apply-patches` targets.** A target must lie under the report's
+  `manifest_dir` *and* under a root the run names itself: the new
+  `--workspace <dir>` option, or else the directory it is started in, plus the
+  git toplevel containing that directory. A toplevel counts only when its
+  `.git` is a directory or a file naming a `gitdir:`, and on POSIX only when
+  that entry is owned by the current user (Windows has no ownership check);
+  anything else at the nearest `.git` narrows the roots instead of widening
+  them. The target must load as a Shipgate manifest, the only file a generated
+  patch edits, before the patch and again once every patch for it is applied
+  in memory; a protected agent-boundary or trust-root file is refused by name. Anything else exits `5` (`other_error`, with a
+  `review` action naming the report and the resolved target) and nothing is
+  written. The `apply-patches` commands `verify` prints carry
+  `--workspace <repository>`, so they work from any directory.
+- **Pointers.** A patch pointer that does not fit its document is a malformed
+  patch: exit `2`, `malformed_patch`, and no file is written. Tokens follow
+  RFC 6901: a list index is `0` or a decimal without a leading zero, and names
+  an existing element; `-` may end only an `append_pointer`, which appends to
+  that list; `~` must be followed by `0` or `1`; nothing descends into a
+  scalar. One spelling differs from RFC 6901, as before: `/` names the whole
+  document, which no patch may target, not the member with an empty name. An
+  `append_pointer` whose last token indexes a list element now appends to that
+  element when it is a list, as a key does; it used to append to the parent
+  list and ignore the index. Every file is planned before any is written, so a
+  bad pointer in one file no longer leaves another rewritten.
+- **`output.directory`.** It must be a relative path with no `..` component.
+  An absolute path, a Windows drive or UNC path, or a `..` segment is a
+  `config_error` (exit `2`) when the manifest loads, for every command that
+  loads it. `docs/manifest-v0.1.json` carries the rule as a `pattern`.
+- **The reports directory, typed or default.** An output directory typed
+  with `--out` (`scan`, `verify`, and the GitHub Action's
+  `--out agents-shipgate-reports`) and `verify`'s default
+  `<workspace>/agents-shipgate-reports` are checked from the repository root
+  (the git toplevel, or the manifest's directory outside Git) before they are
+  resolved, and so is `output.directory`. Every component inside the
+  repository must be a plain directory, not a link or a Windows junction: a
+  reports directory that is itself a link is refused, even one pointing inside
+  the workspace, and so is a link deeper in the path. The directories above
+  the repository root are the operator's choice, and a location outside the
+  repository may still be reached through a link.
+- **Every file `scan` writes or clears** — reports, packet files, the advisory
+  scaffolds, `current-control.json` and the stale verifier artifacts it
+  removes — and `verify`'s `verification-inputs/` copies and the stale scan
+  artifacts it clears before a manifest-free run go through one contained
+  writer. Before anything is written or removed it refuses a link or
+  junction in any directory below the trusted root, a link at the destination
+  (one that stays inside the workspace included), a special file, a hard link,
+  and a spelling outside the root; where the platform supports it, the file is
+  opened with `O_NOFOLLOW` and re-checked. The trusted root is the manifest's
+  directory for `output.directory`, and the checked output directory itself for
+  `--out`. `verify` clears stale verifier artifacts the same way, so a linked
+  one is refused instead of being removed.
+- **Git.** Every Git child — discovery, `verify`'s plumbing, `fixture run`,
+  `authorization execute` and the Claude Code hook runner — runs with
+  `agents_shipgate.core.git_env.hardened_git_env()`, which holds the union of
+  the variables the copies set. The fixture also turns off hooks and commit
+  signing for the history it writes, and no longer reads the operator's global
+  or system Git configuration. The hook runner's values are written into it
+  from the same module. The zero-install `tools/shipgate-detect.py` cannot
+  import the package, so it keeps a copy, now with `GIT_ALLOW_PROTOCOL`, that
+  `tests/test_git_env.py` holds equal to the module.
+- **Shared helpers.** The path shown for a file relative to a root has one
+  implementation, and so does the walk that refuses a symlink on the way to a
+  file. On Windows, a path outside its root, and the `generated_reports` and
+  baseline paths of a scan, now print with forward slashes, as every other path
+  in a report already did. Nothing changes on POSIX.
+
+**What does not change.** No schema version, contract version, check ID or
+exit-code meaning moves, and no report field is added or removed. A manifest
+with a relative `output.directory` whose reports directory holds plain files,
+and a report applied from inside its repository, behave as before.
+
+**Who must act.**
+
+- A manifest whose `output.directory` is absolute or leaves its directory:
+  remove `output.directory`, or make it a relative path inside the manifest's
+  directory. The value is refused when the manifest loads, so `--out` does not
+  rescue that run; to write reports elsewhere afterwards, pass `scan --out`.
+  `verify` passes its own `--out`, but a base or head manifest holding such a
+  value now fails to load.
+- A reports directory that is, or contains, a symbolic or hard link, or that
+  sits below a linked directory of the repository: replace the link with a
+  plain directory or file, or choose an `--out` outside the repository.
+- A pipeline that runs `apply-patches` from outside the repository the patches
+  are for: pass `--workspace <repository>`, or run it from inside. `bootstrap`
+  already runs it from the workspace.
+
+---
+
+<a id="policy-pack-not-a-workflow-1143"></a>
+
+## Migration Note: Unreleased — a policy pack is not a workflow, and a case variant of a workflow or Codex config name is compared (#1143)
+
+**What was wrong.** Two predicates disagreed with the reader about what a
+workflow is.
+
+- `check`'s workflow predicate (`core/host_boundary.py::_is_workflow_path`)
+  took any `.yml` or `.yaml` that the boundary registry's `shared` adapter
+  enumerates, and tested whether what followed its first 18 characters held a
+  `/`. It never tested the `.github/workflows/` prefix. The `shared` adapter
+  also enumerates `policies/*.shipgate.yaml` and the named boundary policies,
+  so every pack was evaluated as a GitHub workflow:
+  - a top-level `permissions: write-all` got `HOST-WORKFLOW-WRITE-ALL`, so
+    `check` answered `block`, and full `verify` published
+    `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` with `blocks_release` and a
+    `blocked` release decision;
+  - a `permissions` mapping with a `write` scope got
+    `HOST-WORKFLOW-PERMISSIONS-EXPANDED`, and an `on: pull_request_target`
+    key got `HOST-WORKFLOW-PULL-REQUEST-TARGET-ADDED`;
+  - a pack that did not parse got `HOST-CONFIG-PARSE-FAILED`, with evidence
+    `workflow_yaml_parse_failed`.
+
+  Each of these displaced the pack's own
+  `BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED` row, because the protected-surface
+  fallback skips a path that already carries a violation. The same predicate
+  compared the extension case-sensitively, so it never evaluated
+  `.github/workflows/CI.YML`.
+- The reader's parser (`HostStaticParseCache.parse` in `core/host_grants.py`)
+  chose TOML and YAML by a case-sensitive suffix. The registry matches names
+  case-insensitively, so `.github/workflows/CI.YML` was a workflow and
+  `.codex/CONFIG.TOML` the Codex config, and both went to the JSON parser.
+  Both inventories recorded a blocking `parse_failed`:
+  - `diff` and `verify` refused the comparison with no rows;
+  - `audit --host --save-baseline` refused the repository;
+  - `check` answered `require_review`, with `BOUNDARY-INPUT-INCOMPLETE`, where
+    the same `write-all` widening in `ci.yml` blocks.
+
+**What changes.**
+
+- `check` evaluates as a workflow exactly what the reader reads as one:
+  `boundary_registry.is_github_workflow_path` (#1110), which is a `.yml` or
+  `.yaml` directly in the root `.github/workflows/`, case-folded. An edit to a
+  `policies/<name>.shipgate.yaml` pack is
+  `BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED` (`require_review`) whatever keys
+  it holds, as an ordinary edit to it is.
+  - A pack edit that blocked through `HOST-WORKFLOW-WRITE-ALL` now gets
+    `require_review`.
+  - One that drew a `HOST-WORKFLOW-*` review rule or
+    `HOST-CONFIG-PARSE-FAILED` still gets `require_review`, now under the
+    pack's own rule, with that rule's evidence and fingerprint.
+- The reader chooses its parser by the case-folded suffix, and the Codex
+  grant reader folds the suffix the same way, so a parsed `CONFIG.TOML`
+  publishes the grants `config.toml` would. `CI.YML` and `Release.Yaml`
+  compare as `ci.yml` and `release.yaml` do: a `write-all` widening is a
+  `critical` widened row on `diff` and `verify`, and `block` from `check`
+  through `HOST-WORKFLOW-WRITE-ALL`.
+
+**What does not change.** These stay as they were:
+
+- every lower-case root workflow, with its grant id and `config_sha256`;
+- a nested copy such as `samples/x/.github/workflows/ci.yml`, which is
+  never evaluated as a GitHub workflow;
+- the rows `diff` and `verify` publish for a policy pack;
+- rule IDs, check IDs, schemas and the contract.
+
+No baseline saved by 1.3.0 holds an upper-case workflow or Codex config,
+because 1.3.0 refused to save one. GitHub's workflow syntax reference
+requires a `.yml` or `.yaml` extension in `.github/workflows` and says nothing
+about letter case. So a case variant stays a workflow, treated conservatively
+as every registry name is (`core/globbing.py::glob_match_ci`).
+
+**Who must act.** No configuration change is needed.
+
+- A pipeline that relied on `check` or `verify` blocking a policy-pack edit
+  through `HOST-WORKFLOW-WRITE-ALL` now gets `require_review` for it, as for
+  any pack edit.
+- A waiver for a `HOST-WORKFLOW-*` or `HOST-CONFIG-PARSE-FAILED` finding on a
+  pack path no longer matches anything and can be dropped.
+- A repository with an upper-case workflow name now gets a host comparison
+  where it got a refusal, and `block` from `check` where it got
+  `require_review`.
+
+---
+
+<a id="unreadable-host-input-1154"></a>
+
+## Migration Note: Unreleased — a changed host configuration the reader cannot read holds the verdict at `insufficient_evidence` (#1154)
+
+**What was wrong.** A pull request that added `Bash(*)` to
+`.claude/settings.json` was `blocked`, and `verify --ci-mode strict` exited
+`20`. The same pull request with the file padded past the reader's 1 MiB
+per-file bound (still valid JSON), with one value longer than that bound, with
+a leading `// widened` line, or with its closing braces missing was
+`review_required`, exited `0`, and its control was `review_publishable`: the
+`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` blocker was gone and two medium
+review rows (`SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED`,
+`SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE`) stood in for it. A settings file whose
+`permissions.allow` was a string, an unparseable OpenShell policy and an
+unparseable base did the same. Unread tool input was already a coverage gap
+that held the decision at `insufficient_evidence`; unread host input never
+reached that path. A valid `.claude/settings.json` nested 5,000 levels deep
+made `diff`, `check` and `audit --host` exit `1` with a `RecursionError`
+traceback and `verify` exit `4` with `internal_error`; one whose top level was
+an array made `check` fail with a traceback. And `check --diff` reported
+`decision: "allow"` and `input_coverage: "complete"` beside a control that
+stopped, for an empty diff and for any other diff with no finding.
+
+**What changes.**
+
+- **Unread changed host input.** For every path the change touches (git's
+  changed-file list between the base and head) on which the boundary
+  assessment holds a row saying that file was not read, `verify` adds one
+  entry to the report's `policy_evidence_gaps[]`: kind
+  `unknown_policy_evidence`, `source_type` `agent_boundary_input`,
+  `source_ref` and `subject` the path, `policy_id` the row's check ID, a `why`
+  that names the unread side (base, head or both), and a
+  `provide_policy_evidence` action for a human. Such a row is
+  - a `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` or
+    `SHIP-CODEX-BOUNDARY-CONFIG-PARSE-FAILED` row whose evidence kind does not
+    say the file was read, other than a `*_content_unresolved` row, which says
+    only that the diff could not be turned back into text; or
+  - a `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` row for a file the reader did not
+    read: a read or parse failure, a structure it cannot interpret (a Claude
+    Code settings layer or hook file whose shape it refuses; another file the
+    inventory reads under that host, such as a nested workflow it files as
+    configuration, keeps its review route), a hook file of an
+    enabled plugin it does not open (#809), an OpenShell document it refuses,
+    or a binary file. A diff record with no content is not one: it says what
+    the supplied diff lacks (`scan --changed-files` supplies names only).
+
+  The one decision engine then reads it like any policy evidence gap. The
+  decision is `insufficient_evidence`, or `blocked` when a blocker exists, or
+  `review_required` when an active high or critical review item on a reachable
+  tool outranks the gap (the engine's existing precedence).
+  `evidence_coverage.policy_gap_count` counts it, so strict mode exits `20` in
+  all three cases, as [Exit codes](#exit-codes) already states for a policy
+  evidence gap. The verifier's control is `human_review_required` with no
+  permissions, where it was `review_publishable`: a run that did not read a
+  file the change edits did not read the change. `check` already stopped on the
+  same refs, and its `require_review` is the projection it gives
+  `insufficient_evidence`. The gap is not a finding, so `checks.ignore`, a
+  baseline or a severity override cannot clear it. The review rows stay.
+- **An unparseable base.** When only the base side does not parse, the head is
+  not judged against it: no row claims what the change added, and the gap says
+  the base version was not read. A base past the size bound is different: the
+  diff carries its text whole, so the change is judged on its rows.
+- **Final newlines.** The diff reader honours Git's `\ No newline at end of
+  file` marker on both sides. It dropped it, so a new host configuration
+  without a final newline was rebuilt with one, no longer matched the file,
+  and read as unresolved content.
+- **The size bound.** `MAX_HOST_CONFIG_BYTES` stays 1 MiB, and a file past it
+  is refused whole. Raising it for a changed file would move the cliff without
+  removing it; holding the verdict removes the reason to pad.
+- **Depth and shape.** Every host reader parses through one bound: a document
+  nested more than 64 levels (`MAX_HOST_CONFIG_DEPTH`) is refused as a file the
+  static parser rejected, `static parser rejected this json file (nested more
+  than 64 levels deep)`. `diff` names it as a `parse_failed` limit, `audit
+  --host` as a blocking `parse_failed` issue, and `check` as a
+  `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` (or Codex) row whose evidence adds
+  `parser: "NestingLimitExceeded"` and `max_depth: 64`. A JSON host
+  configuration whose top level is not an object, or an MCP file whose
+  `mcpServers`/`servers` map is not one, is a
+  `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` row (`json_parse_failed`, or
+  `old_json_parse_failed` for the base, with `parser: "NotAnObject"` and,
+  for a server map, `member`). It was read as no servers.
+- **Detached diffs.** A diff bound to no checkout (`check --diff`, stdin, MCP
+  `shipgate.check` `diff_text`) establishes no change, and its control already
+  stopped for a human on every route (#930). Its `decision` is never `allow`:
+  one that would have been is `require_review`. Its `input_coverage` is
+  `unknown` where it read every file it was given, and `issues` then names
+  `boundary_diff_unbound`; a partial read stays `partial`. The control is
+  byte for byte the stop it was, and the rows of the files the diff names
+  still compare. `risk_level` stays explanatory and the detached rule leaves
+  it alone: it reports what the rows found, `none` beside `require_review`
+  when they found nothing. The deprecated `codex-boundary-json` projection carries the
+  same `decision`. `AgentBoundaryResultV1` refuses `decision: "allow"` with
+  `input_coverage` other than `complete`, or beside a control that stops; the
+  published `agent-boundary-result-schema.v3.json` keeps its pinned bytes.
+
+**What does not change.** No schema version, field, CLI flag, exit code
+meaning, check ID or contract version; `source_type` is an existing free-text
+field and `boundary_diff_unbound` a value of the open `issues[]` list. Other
+incomplete-input rows keep their review route: an instruction file whose
+structure is not modelled (it was read), a file renamed out of a boundary
+path, a setting the reader reads but does not model, and the coverage summary
+row. A host configuration git reports identical on both sides adds no gap:
+readable, it contributes no row, so its unreadable copy keeps the
+`SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` review row it already raised, and no
+pull request in that repository fails over a file it does not touch. A
+worktree or ref-range `check` with no change is an evaluated "nothing changed"
+and still reports `allow`.
+
+**Who must act.** A strict pipeline that passed a pull request editing an
+unreadable host configuration now fails it until the file is readable or a
+human merges it. A consumer that read `review_publishable` from such a run
+sees `human_review_required`. One that read `decision: "allow"` or
+`input_coverage: "complete"` from `check --diff` or MCP `shipgate.check` sees
+`require_review` and `unknown`; switch on `control.state`, as the contract
+already says.
 
 ---
 
@@ -728,6 +1068,19 @@ changes nothing; one that needs definition changes reads the `v2` file.
 
 ---
 
+<a id="bundle-attestation-checks-1066"></a>
+## Migration Note: Unreleased — organization bundles check supplied attestations (#1066)
+
+`org bundle` exits `3` for a supplied attestation whose derived claims
+disagree with the verifier and its artifacts. The error identifies the
+field. An evaluated approval requires a receipt and must name its verified
+head commit. Review details still come from the supplied attestation.
+A legacy verifier without a receipt supports a consistency check against
+that verifier's own output. Regenerate mismatched attestations from the
+same verification run before bundling them.
+
+---
+
 <a id="attestation-approval"></a>
 
 ## Migration Note: 1.3.0 — an attestation can record who approved the change (attestation `0.6`, registry `0.5`, #1118)
@@ -782,6 +1135,19 @@ the fetch step and `--reviews` shown in `docs/organization.md`.
 `human_ack`, the bypass report's rule, and the receipt identity rules.
 `attest` stays static-by-default and calls no API: the workflow fetches the
 reviews.
+
+---
+
+## Migration Note: Unreleased — report fields in an attestation require a receipt (#1068)
+
+Every run without a receipt-bound report has `human_ack.satisfied: null`,
+empty `outstanding` and `acks` lists, a null `policy_snapshot_sha256`, and no
+report hash. A bound report without a `human_ack` block also leaves the
+acknowledgement unknown. `org bundle` publishes report provenance and privacy
+evidence only from a bound report. For review-required verdicts, a row with
+unknown acknowledgement can count as a bypass candidate in `registry report`,
+including when `--fail-on-bypass` is set. Consumers that need acknowledged
+policy evidence should use the terminal receipt and the report it binds.
 
 ---
 
@@ -1032,6 +1398,17 @@ permission is added, `report_schema_version` stays `1.0`, and
 change. The capability lock family (`capabilities.lock.json`, the lock diff
 and the capability delta attestation) stays unredacted, as before, pending
 #1079.
+
+---
+
+<a id="manifest-free-artifact-cleanup-1067"></a>
+## Migration Note: Unreleased — manifest-free verification clears earlier scan artifacts (#1067)
+
+Manifest-free `verify` and `verify --preview` remove older scan reports,
+evidence packets, capability locks, and suggested declarations and inventories
+from their output directory before comparing host configuration. If an
+artifact cannot be removed, the command exits `4` and publishes no new
+verifier. Use distinct `--out` directories to retain the earlier scan artifacts.
 
 ---
 
@@ -1372,7 +1749,7 @@ the Action exported four empty identities and the receipt's path unchecked.
   or `artifacts.report_json`). `verify` names one only for a run whose head
   scan ran, which it closes with a receipt, so a named report owes one. A
   report the verifier does not name belongs to another run (the
-  manifest-free host route leaves an earlier run's in place); the step
+  manifest-backed preview can leave an earlier run's in place); the step
   publishes nothing from it and owes nothing for it. A
   `0.1`–`0.4` label is believed only on a payload with none of the identity
   fields verifier `0.5` introduced with receipts (`request_id`, `subject_id`,
@@ -6087,7 +6464,9 @@ tests on every CI run, not by convention:
     against a temporary bundled fixture copy so
     `fixture run ai_generated_refund_pr` can produce verifier artifacts.
     This allowlisted meta-CLI surface uses fixed argv, no shell, no network
-    fetch, and no user-code execution.
+    fetch, and no user-code execution. It runs with the shared hardened Git
+    environment, so the operator's global and system Git configuration is
+    not read, and with hooks and signing disabled (#1031).
   - **`fixtures.py`** — one `importlib.resources.files('agents_shipgate')`
     call to resolve the bundled fixture directory.
   - **`cli/discovery/agent_instructions/adoption_kit.py`** — one
@@ -6213,6 +6592,17 @@ publishing its own `tools/list` asserts; the effect is only ever to widen the
 analysed surface, and a source with no `binding` block resolves exactly as
 before. It does not replace `agent_bindings.declarations`, which remains the
 way an agent declares the subset of a catalog it wires.
+
+`output.directory` is narrowed (Unreleased, #1031): it must be a relative path
+inside the manifest's directory. An absolute path, a Windows drive or UNC path,
+or any `..` component is a `config_error` (exit 2) at manifest load, and
+`docs/manifest-v0.1.json` states the same rule as a `pattern` on
+`OutputConfig.directory`, held to the loader by
+`tests/test_manifest_schema_parity.py`. Because the value is refused at load,
+the recovery is to remove it or make it relative; the manifest is repository
+content, so it does not choose where reports are written outside the
+repository, and `scan --out` does. See the
+[migration note](#write-containment-1031).
 
 `policies.control_pack` (`default` | `financial-strict` | `read-only-agent`)
 is additive and changes no published schema, so there is no

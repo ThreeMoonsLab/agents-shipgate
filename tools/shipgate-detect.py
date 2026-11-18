@@ -323,8 +323,12 @@ class DiscoveryError(RuntimeError):
 
 
 def _git_env() -> dict[str, str]:
+    # The CLI's agents_shipgate.core.git_env.hardened_git_env(), copied because
+    # this script cannot import the package; tests/test_git_env.py holds the
+    # two equal (#1031).
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env.update({
+        "GIT_ALLOW_PROTOCOL": "",
         "GIT_ATTR_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_SYSTEM": os.devnull,
         "GIT_NO_LAZY_FETCH": "1", "GIT_NO_REPLACE_OBJECTS": "1",

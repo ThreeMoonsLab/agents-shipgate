@@ -509,10 +509,19 @@ def test_prepare_binds_the_explicit_baseline_and_comparison_report(
         for key, name in (("baseline", "baseline"), ("diff_from", "comparison")):
             blob = plan["inputs"][key]
             origin = origins[blob["path"]]
-            assert origin["path"] == f"{name}-{variant}.json"
-            assert origin["kind"] == ("git_blob" if committed and key == "baseline" else "worktree")
+            original = f"{name}-{variant}.json"
+            if committed and key == "diff_from":
+                assert origin["kind"] == "external_snapshot"
+                assert origin["path"] is None
+                assert plan["inputs"]["options"]["diff_from_base"] == {
+                    "path": original,
+                    "commit_sha": _git(repo, "rev-parse", "HEAD"),
+                }
+            else:
+                assert origin["path"] == original
+                assert origin["kind"] == ("git_blob" if committed else "worktree")
             assert (tmp_path / f"out-{variant}" / blob["path"]).read_bytes() == (
-                repo / origin["path"]
+                repo / original
             ).read_bytes()
 
     assert plans[0]["inputs"]["input_set_id"] != plans[1]["inputs"]["input_set_id"]

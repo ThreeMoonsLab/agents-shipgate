@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agents_shipgate.core.contained_write import remove_contained
 from agents_shipgate.core.errors import AgentsShipgateError
 
 # These files carry an actionable verifier route or the content-addressed
@@ -28,6 +29,19 @@ VERIFIER_ROUTE_ARTIFACT_NAMES = (
     "capability-delta-attestation.v2.json",
 )
 
+# Scan output and its suggested remediation share the report's lifecycle.
+SCAN_REPORT_ARTIFACT_NAMES = (
+    "report.md",
+    "report.json",
+    "report.sarif",
+    "packet.md",
+    "packet.json",
+    "packet.html",
+    "packet.pdf",
+    "suggested-declarations.yaml",
+    "suggested-inventory.json",
+)
+
 # Every name a Shipgate run writes directly into a reports directory, whichever
 # command wrote it: the pointer, the verifier route above, the scan and packet
 # renderers and the skeletons they suggest beside a report, the capability-lock
@@ -44,23 +58,13 @@ REPORTS_DIRECTORY_ARTIFACT_NAMES: frozenset[str] = frozenset(
     {
         *VERIFIER_ROUTE_ARTIFACT_NAMES,
         "current-control.json",
-        "report.md",
-        "report.json",
-        "report.sarif",
-        "packet.md",
-        "packet.json",
-        "packet.html",
-        "packet.pdf",
+        *SCAN_REPORT_ARTIFACT_NAMES,
         "capabilities.lock.json",
         "base.capabilities.lock.json",
         "capability-lock-diff.json",
         "capability-lock-diff.md",
         "human-review-request.json",
         "human-authorization-request.json",
-        "suggested-declarations.yaml",
-        # `scan`/`verify` beside a report whose sources static extraction could
-        # not enumerate (`ci.release_decision.SUGGESTED_INVENTORY_FILENAME`).
-        "suggested-inventory.json",
         # `scenario suggest`'s default, beside the report it reads.
         "suggested-scenarios.yaml",
         # The GitHub Action's annotation and check-run payloads.
@@ -106,13 +110,10 @@ def clear_verifier_route_artifacts(out_dir: Path) -> None:
 
     for name in VERIFIER_ROUTE_ARTIFACT_NAMES:
         path = out_dir / name
-        if not (path.is_file() or path.is_symlink()):
-            continue
         try:
-            path.unlink()
-        except FileNotFoundError:
-            # Another lifecycle cleanup won the race; the invariant already
-            # holds, so the caller can continue.
-            continue
+            # A link or special file under one of these names is refused
+            # (``UnsafeOutputPathError``), never followed or silently dropped
+            # (#1031). A file another cleanup already removed is not an error.
+            remove_contained(path, root=out_dir)
         except OSError as exc:
             raise ArtifactLifecycleError(path, exc) from exc

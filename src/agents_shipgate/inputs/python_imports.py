@@ -45,6 +45,7 @@ from types import MappingProxyType
 from typing import Any
 
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.python_source import parse_python
 from agents_shipgate.inputs.common import list_input_directory, load_text_file
 
 #: Stable reason codes. The sentence that goes with each one is
@@ -255,10 +256,20 @@ class Resolution:
     #: above the read scope, which could reassign it (#879 review). A caller
     #: names the tool and reports it, never as an established binding.
     caveats: tuple[str, ...] = ()
+    #: Those of ``caveats`` that doubt only which file an import search
+    #: reaches (``sys.path``, an unread import-search carrier), not the
+    #: definition the chain read (#1146).
+    search_caveats: tuple[str, ...] = ()
 
     @property
     def resolved(self) -> bool:
         return self.definition is not None
+
+    @property
+    def search_only(self) -> bool:
+        """Every caveat is an import-search one (and there is at least one)."""
+
+        return bool(self.caveats) and all(caveat in self.search_caveats for caveat in self.caveats)
 
     def evidence(self) -> dict[str, Any]:
         """JSON-safe record of the chain: every hop and the digest it read."""
@@ -408,7 +419,9 @@ class ImportResolver:
     _importer_census: Any = None
     #: Import-search results, per this read. The key holds the parsed trees,
     #: which keeps their identity alive; see :meth:`_import_search_limit`.
-    _import_search_limits: dict[tuple[tuple[Path, ast.Module], ...], tuple[str, ...]] = field(default_factory=dict)
+    _import_search_limits: dict[
+        tuple[tuple[Path, ast.Module], ...], tuple[tuple[str, ...], tuple[str, ...]]
+    ] = field(default_factory=dict)
     _import_search_issues: dict[tuple[ast.Module, frozenset[Path]], str | None] = field(default_factory=dict)
     #: What each module adds to an import-search closure, and what it finds
     #: for its refusal, read once per read (see :meth:`_import_search_edges`
@@ -695,7 +708,19 @@ class ImportResolver:
             yield _ISSUE_FOUND, None, f"{module.ref}:{node.lineno} changes or retains {effects[node]}; import search identity is unread"
 
     def _import_search_limit(self, paths: list[Path]) -> tuple[str, ...]:
+        """The import-search caveats for one runner list, every kind together."""
+
+        unread, issues = self._import_search_parts(paths)
+        return (*unread, *issues)
+
+    def _import_search_parts(self, paths: list[Path]) -> tuple[tuple[str, ...], tuple[str, ...]]:
         """The import-search caveats for one runner list, computed once per read.
+
+        Two kinds (#1146): imports the search reaches that are not read and
+        could reassign a name (a doubt about the definition read), and what
+        :meth:`_import_search_issue` reports about the search itself
+        (``sys``/``site`` path changes, an unread carrier, a retained
+        namespace, a bound reached).
 
         Keyed by each runner's path and parsed tree. A read that has reached
         a bound is never stored (see :meth:`_import_search_issue`), and a
@@ -708,11 +733,12 @@ class ImportResolver:
         if key is not None and key in self._import_search_limits:
             return self._import_search_limits[key]
         modules, carriers, unread = self._import_search_context(paths)
-        result = unread
+        issues: tuple[str, ...] = ()
         for module in modules:
             if (issue := self._import_search_issue(module, carriers)) is not None:
-                result = (*unread, issue)
+                issues = (issue,)
                 break
+        result = (unread, issues)
         if key is not None and not self._import_search_budget_spent():
             self._import_search_limits[key] = result
         return result
@@ -860,7 +886,7 @@ class ImportResolver:
         self._parsed += 1
         try:
             text = load_text_file(path)
-            tree = ast.parse(text, filename=str(path))
+            tree = parse_python(text, filename=str(path))
         except (InputParseError, SyntaxError, ValueError, RecursionError):
             stop = _Stop(UNREADABLE_MODULE, f"{ref} could not be read or parsed")
             self._modules[path] = stop
@@ -899,12 +925,15 @@ class ImportResolver:
             outcome = self._through_import(
                 module, statement, alias, parts, steps, set()
             )
-            caveats = self._no_import_patch(outcome, steps)
+            caveats, search_caveats = self._import_caveats(outcome, steps)
         except _Stop as stop:
             return Resolution(
                 reference=reference, reason=stop.reason, detail=stop.detail, steps=tuple(steps)
             )
-        return Resolution(reference=reference, steps=tuple(steps), caveats=caveats, **outcome)
+        return Resolution(
+            reference=reference, steps=tuple(steps), caveats=caveats,
+            search_caveats=search_caveats, **outcome,
+        )
 
     def _no_attribute_patch(self, module: PythonModule, parts: list[str]) -> None:
         """Stop when this module rebinds an imported attribute on the path.
@@ -1066,7 +1095,18 @@ class ImportResolver:
         self, outcome: dict[str, Any], steps: list[dict[str, Any]],
         *, external_symbol: str | None = None,
     ) -> tuple[str, ...]:
+        """The caveats of :meth:`_import_caveats`, every kind together."""
+
+        return self._import_caveats(outcome, steps, external_symbol=external_symbol)[0]
+
+    def _import_caveats(
+        self, outcome: dict[str, Any], steps: list[dict[str, Any]],
+        *, external_symbol: str | None = None,
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
         """Stop when code that runs before the name is used may rebind it.
+
+        Returns every caveat, and those of them that doubt only which file an
+        import search reaches (#1146).
 
         Every module the chain reads, every package enclosing one of them, and
         every module those import runs before the agent receives the name:
@@ -1091,7 +1131,7 @@ class ImportResolver:
 
         defining = outcome.get("module")
         if not isinstance(defining, PythonModule) or not steps:
-            return ()
+            return (), ()
         names = sorted({step["name"] for step in steps if isinstance(step.get("name"), str)})
         runners: list[Path] = []
         for path in [*(self.scope_root / step["path"] for step in steps), defining.path]:
@@ -1248,7 +1288,8 @@ class ImportResolver:
             issue = self._above_constructor_use(context, external_symbol, retaining)
             if issue is not None:
                 raise _Stop(REBOUND_NAME, issue)
-        search_limits = self._import_search_limit(runners)
+        search_unread, search_issues = self._import_search_parts(runners)
+        search_limits = (*search_unread, *search_issues)
         if external_symbol is not None and search_limits:
             raise _Stop(REBOUND_NAME, search_limits[0])
         caveats.extend(item for item in search_limits if item not in caveats)
@@ -1298,7 +1339,9 @@ class ImportResolver:
                         f"which {self.ref(runner)} runs before the name is used",
                     )
             caveats.extend(item for item in scan.unread if item not in caveats)
-        return tuple(caveats)
+        # Only what the search itself reports; an unread import it reaches
+        # could reassign the name, a doubt about the definition (#1146).
+        return tuple(caveats), tuple(item for item in dict.fromkeys(search_issues) if item not in search_unread)
 
     def _above_constructor_context(
         self, above: _AboveScope,
@@ -1783,7 +1826,7 @@ class ImportResolver:
             text = self._layout.read(path)
             if text is not None:
                 try:
-                    tree = ast.parse(text, filename=path)
+                    tree = parse_python(text, filename=path)
                 except (SyntaxError, ValueError, RecursionError):
                     tree = None
                 if tree is not None:
@@ -1954,7 +1997,7 @@ class ImportResolver:
         ref = self.ref(path)
         try:
             text = load_text_file(path)
-            tree = ast.parse(text, filename=str(path))
+            tree = parse_python(text, filename=str(path))
         except (InputParseError, SyntaxError, ValueError, RecursionError):
             stop = _Stop(UNREADABLE_MODULE, f"{ref} could not be read or parsed")
             self._scanned[path] = stop
@@ -1971,7 +2014,7 @@ class ImportResolver:
         try:
             self._no_attribute_patch(module, parts)
             outcome = self._in_module(module, parts, steps, set())
-            caveats = self._no_import_patch(outcome, steps)
+            caveats, search_caveats = self._import_caveats(outcome, steps)
         except _Stop as stop:
             return Resolution(
                 reference=reference,
@@ -1979,7 +2022,10 @@ class ImportResolver:
                 detail=stop.detail,
                 steps=tuple(steps),
             )
-        return Resolution(reference=reference, steps=tuple(steps), caveats=caveats, **outcome)
+        return Resolution(
+            reference=reference, steps=tuple(steps), caveats=caveats,
+            search_caveats=search_caveats, **outcome,
+        )
 
     def _in_module(
         self,
@@ -3108,7 +3154,7 @@ _SOURCE_PATCHES_LIMIT = 8192
 
 
 def _module(path: Path, ref: str, tree: ast.Module, text: str, *, parsed: bool = False) -> PythonModule:
-    """``parsed``: the caller made ``tree`` as ``ast.parse(text)``, so the
+    """``parsed``: the caller made ``tree`` as ``parse_python(text)``, so the
     syntax-only patch map may come from :data:`_SOURCE_PATCHES`."""
     bindings, star_import = _module_bindings(tree)
     sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()

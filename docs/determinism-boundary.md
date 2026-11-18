@@ -188,7 +188,7 @@ Where an input shows more than one answer for a shape, the table shows the best 
 | `export_artifact — wildcard inventory` | An inventory that declares `wildcard: true` instead of listing tools. It is a reviewed file and still names nothing, so it loads at `high` and proves no surface — a reviewed statement that says nothing is not evidence. | `langchain_inventory` | `high` | `set_unproven` | `incomplete_surface` | `SHIP-INVENTORY-WILDCARD-TOOLS` |
 | `literal_registration` | An `@tool`-decorated function, or a `StructuredTool` built with a literal name, description, and an `args_schema` defined in the same file. | `langchain_function`, `langchain_structured_tool` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
 | `factory` | A tool produced by a call the parser cannot resolve — a factory, a loaded toolkit — records a dynamic tool surface and adds nothing to the catalog. | — | — | `not_extracted` | — | `SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` |
-| `dynamic_construction` | A tools list built by a comprehension, a config read, or a rebound variable records a dynamic tool surface, with the config path when the read is statically traceable. | — | — | `not_extracted` | — | `SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` |
+| `dynamic_construction` | A tool list the reader cannot resolve, a rebound member, or a list handed to code that may change it records a dynamic tool surface. A statically traceable config read names its path. | — | — | `not_extracted` | — | `SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` |
 
 </details>
 
@@ -211,7 +211,7 @@ Where an input shows more than one answer for a shape, the table shows the best 
 | `export_artifact — wildcard inventory` | An inventory that declares `wildcard: true` instead of listing tools. It is a reviewed file and still names nothing, so it loads at `high` and proves no surface — a reviewed statement that says nothing is not evidence. | `crewai_inventory` | `high` | `set_unproven` | `incomplete_surface` | `SHIP-INVENTORY-WILDCARD-TOOLS` |
 | `literal_registration` | An `@tool`-decorated function, or a `BaseTool` subclass whose name, description, and `args_schema` are literals in the same file. | `crewai_function`, `crewai_class_tool` | `medium` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
 | `factory` | A `crewai_tools` prebuilt constructor such as `FileReadTool()`. The name is read; the schema lives in the installed package, not in the repository, so the action is recorded as low-confidence metadata. | `crewai_prebuilt_tool` | `low` | `low_confidence` | `low_confidence_tool`, `incomplete_surface` | — |
-| `dynamic_construction` | A tools list built by a comprehension, a config read, or a rebound variable records a dynamic tool surface and adds nothing to the catalog. | — | — | `not_extracted` | — | `SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` |
+| `dynamic_construction` | A tool list the reader cannot resolve, a rebound member, or a list handed to code that may change it records a dynamic tool surface. Replacing or mutating an agent's tools also leaves its bindings incomplete. | — | — | `not_extracted` | — | `SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE` |
 
 </details>
 

@@ -22,6 +22,7 @@ from agents_shipgate.core.boundary_diff import (
     ResolvedFileText,
     _resolve_changed_file_text,
 )
+from agents_shipgate.core.paths import first_symlink_in_chain
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
 from agents_shipgate.schemas.manifest.tool_sources import BUILTIN_TOOL_SOURCE_TYPES
 
@@ -175,7 +176,7 @@ def _validate_added_source(
         )
     except ValueError:
         return "added tool source path resolves outside the workspace"
-    if _path_has_symlink(containment_root, candidate_relative):
+    if first_symlink_in_chain(containment_root / candidate_relative, containment_root) is not None:
         return "added tool source path must not traverse a symlink"
     try:
         candidate.resolve().relative_to(containment_root)
@@ -194,7 +195,10 @@ def _validate_added_source(
             )
             if (
                 not candidate.is_dir()
-                or _path_has_symlink(containment_root, plugin_manifest_relative)
+                or first_symlink_in_chain(
+                    containment_root / plugin_manifest_relative, containment_root
+                )
+                is not None
                 or not plugin_manifest.is_file()
             ):
                 return "Codex plugin package lacks .codex-plugin/plugin.json"
@@ -229,15 +233,6 @@ def _validate_exact_added_rows(
     if set(payload) != {"tool_sources"} or payload.get("tool_sources") != additions:
         return "added lines contain content outside the appended tool source rows"
     return None
-
-
-def _path_has_symlink(root: Path, path: PurePosixPath) -> bool:
-    current = root
-    for part in path.parts:
-        current = current / part
-        if current.is_symlink():
-            return True
-    return False
 
 
 def _unsafe(reason: str) -> ToolSourceProposalAssessment:

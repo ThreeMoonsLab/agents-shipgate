@@ -10,6 +10,7 @@ from agents_shipgate.core.action_semantics import (
     effect_phrase,
     join_phrases,
 )
+from agents_shipgate.core.contained_write import write_contained
 from agents_shipgate.core.control_packs import control_rule_summaries
 from agents_shipgate.core.disclaimers import (
     DETERMINISM_BOUNDARY_REFERENCE,
@@ -101,15 +102,16 @@ def write_markdown_report(
     *,
     sanitize_output: bool = True,
     human_context: HumanArtifactContext | None = None,
+    root: Path | None = None,
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    write_contained(
+        path,
         render_markdown_report(
             report,
             sanitize_output=sanitize_output,
             human_context=human_context,
         ),
-        encoding="utf-8",
+        root=root,
     )
 
 

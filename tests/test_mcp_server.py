@@ -74,7 +74,9 @@ index 0000000..1111111
     assert payload["agent"] == "cursor"
     assert payload["actor"] == "cursor"
     assert payload["affected_hosts"] == ["codex"]
-    assert payload["input_coverage"] == "complete"
+    # Every file it names was read; a detached diff may not be the whole
+    # change, so its own coverage is unknown (#1154).
+    assert payload["input_coverage"] == "unknown"
     assert payload["decision"] == "block"
     assert payload["control"]["state"] == "human_review_required"
     assert payload["control"]["next_action"]["kind"] == "stop"
@@ -488,6 +490,7 @@ _REQUIRED_STATEMENTS = {
         "every result stops for human routing",
         "`human_review_required`",
         "authorizes no verify command and grants no permission",
+        "`decision` is never `allow`",
         "runs no scan or verify and is not a release or merge verdict",
     ),
     "shipgate.preflight": (

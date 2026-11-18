@@ -781,10 +781,13 @@ def test_a_gated_verify_decides_as_check_does(
     else:
         assert [(item["id"], item["path"]) for item in payload["violations"]] == [finding]
         assert payload["control"]["permissions"]["merge"] is False
+        # A changed hook file the reader does not open is unread input, so
+        # the gate holds at insufficient_evidence (#1154); check stops too.
+        held = "insufficient_evidence" if finding[1] == UNREAD_HOOK else "review_required"
         assert (verifier["decision"], verifier["merge_verdict"]) == (
-            "review_required", "human_review_required"
+            held, "insufficient_evidence" if held == "insufficient_evidence" else "human_review_required"
         )
         assert verifier["can_merge_without_human"] is False
         assert boundary == [(f"SHIP-AGENT-{finding[0]}", finding[1])]
-        assert "Release gate: `review_required`" in comment
+        assert f"Release gate: `{held}`" in comment
     _never_executed(root)
