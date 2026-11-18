@@ -6486,6 +6486,10 @@ Where `canonical_evidence`:
 
 Fingerprints are stable across runs on the same input. They are the identity primitive used by suppressions and baselines.
 
+Malformed Codex TOML uses the parser kind and failure type as boundary
+evidence across Python versions. Audit IDs written by builds that included
+Python 3.14's exception positions may rotate once for those inputs.
+
 ### Trust-model invariants
 
 The scanner does not, under any circumstances:
