@@ -183,12 +183,14 @@ def is_host_configuration_location(path: str) -> bool:
     - the path is a file a reader opens (:func:`is_boundary_surface_path`):
       an adapter's exact path or glob match, a plugin manifest, marketplace
       or hook-named file, or a directory above an exact path;
-    - it is at, under or above a directory a host reads at a fixed place:
-      the directory of an exact path (`.claude`, `.codex`, `.cursor`,
-      `.vscode`, `.shipgate`, `policies`) or the literal directory of a glob
-      (`.claude/commands`, `.claude/skills`, `.cursor/rules`,
-      `.agents/skills`, `.github/workflows`, `.agents-shipgate`), so
-      `.github` and `.agents` count too;
+    - it is at, under or above a directory a host reads at a fixed place at
+      the repository root: the directory of an exact path (`.claude`,
+      `.codex`, `.cursor`, `.vscode`, `.shipgate`, `policies`) or the literal
+      directory of a glob (`.claude/commands`, `.claude/skills`,
+      `.cursor/rules`, `.agents/skills`, `.github/workflows`,
+      `.agents-shipgate`), so `.github` and `.agents` count too. These are
+      anchored at the root, as the registry reads them: a nested
+      `docs/.cursor` is not one;
     - any of its components is a directory a `**/` glob reads anywhere
       (`.claude`, `.codex`, `.github`, `.shipgate`) or a plugin manifest
       directory (`.claude-plugin`, `.codex-plugin`, any `.<name>-plugin`).

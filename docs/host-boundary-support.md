@@ -43,16 +43,23 @@ without following it. On both sides it is the same mode `120000` entry and
 link text, naming in one hop a directory inside the repository that does not
 hold the link, whose Git tree object is the same and holds no link or
 submodule; a working tree's copy is read entry by entry, untracked and ignored
-files included. A link where a host reads agent configuration keeps its
+files included, except what is untracked beneath a name the walk never enters
+(`__pycache__`, `node_modules`, `.venv` and the like). A directory several
+links name is examined once; one directory may hold 10,000 files, and one
+comparison examines 20,000 beneath all its links, past which a link keeps its
+limit and says why. A link where a host reads agent configuration keeps its
 blocking limit however unchanged, so configuration cannot be moved behind a
 link: one named like a configuration file (`AGENTS.md`, `pkg/CLAUDE.md`), one
 at, under or above `.claude`, `.codex`, `.cursor`, `.vscode`, `.shipgate`,
-`.agents`, `.agents-shipgate`, `.github` or `policies`, one inside any
-`.claude`, `.codex`, `.github`, `.shipgate` or `.<name>-plugin` directory, and
-one whose directory holds a file that through the link would be one a host
-reads, all decided by the boundary registry's own patterns. Any change to the
-link or to what it names, and a dangling, external, escaping, looping or
-chained link, still refuses.
+`.agents`, `.agents-shipgate`, `.github` or `policies` at the repository root
+(a nested `docs/.cursor` or `docs/.vscode` is not one, as this entry reads
+neither there), one inside a `.claude`, `.codex`, `.github`, `.shipgate` or
+`.<name>-plugin` directory at any depth, and one whose directory holds a file
+that through the link would be one a host reads, all decided by the boundary
+registry's own patterns. Any change to the link or to what it names, and a
+dangling, external, escaping, looping or chained link, still refuses. A
+configured `verify --head`, as the Action runs it, still refuses any committed
+link before it compares anything (#688).
 Path classification is case-insensitive so protected files cannot evade review
 on macOS or Windows. Nested `.codex/**`, `.mcp.json`, and
 `.github/workflows/**` copies remain protected for repository-wide drift and

@@ -726,6 +726,7 @@ def _blocking_facts(
     after: dict[str, Any],
     scope_of: Mapping[tuple[str, str], str] | None = None,
     identities: IdentityAnswers | None = None,
+    link_notes: Mapping[str, str] | None = None,
 ) -> dict[tuple[str, str, str, str | None], dict[str, Any]]:
     """The blocking issues behind a refused or partial comparison, as coverage facts (#812).
 
@@ -739,6 +740,10 @@ def _blocking_facts(
     :data:`BLOCKING_SOURCE_IDENTITY_NOTES` (#973): whether ``identities``
     shows the file changed in this change, proves it identical, or neither.
     Without ``identities`` (a provided diff) it is never established.
+
+    ``link_notes`` says, by source, why an ``unreadable`` link was not proven
+    unchanged where a bound decided it (#1004), and ends that limit's
+    ``detail``.
     """
 
     Found = dict[tuple[str, str, str], tuple[str, str | None]]
@@ -779,6 +784,8 @@ def _blocking_facts(
         message, scope = head.get(key) or base[key]
         if side == "both":
             message = f"{message} {BLOCKING_SOURCE_IDENTITY_NOTES[answers.get(source)]}"
+        if kind == "unreadable" and link_notes and source in link_notes:
+            message = f"{message} {link_notes[source]}"
         item = facts.setdefault(
             (source, "blocking_limit", side, kind),
             {
@@ -798,11 +805,37 @@ def _blocking_facts(
     return facts
 
 
+def _link_notes(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    unchanged_link: Callable[[str], bool] | None,
+) -> dict[str, str]:
+    """Why each ``unreadable`` link a bound decided was not proven unchanged (#1004 review).
+
+    Asked of the proof's optional ``reason(source)``: a link the comparison
+    examined past a bound, or never examined because the comparison's budget
+    was spent before it. Nothing else is said, so any other unproven link
+    keeps the detail it had.
+    """
+
+    reason = getattr(unchanged_link, "reason", None)
+    if reason is None:
+        return {}
+    sources = {
+        str(issue.get("source"))
+        for inventory in (before, after)
+        for issue in inventory.get("issues", [])
+        if issue.get("blocking") and issue.get("kind") == "unreadable"
+    }
+    return {source: note for source in sorted(sources) if (note := reason(source))}
+
+
 def _blocking_coverage(
     before: dict[str, Any],
     after: dict[str, Any],
     unread: UnreadDiscovery | None = None,
     identities: IdentityAnswers | None = None,
+    link_notes: Mapping[str, str] | None = None,
 ) -> HostComparisonCoverage:
     """The sources behind a refused comparison, each with its limit and side (#812).
 
@@ -812,7 +845,9 @@ def _blocking_coverage(
     read (#821) is named beside them: it is not a source either side compared.
     """
 
-    return _group_coverage(_blocking_facts(before, after, identities=identities), unread)
+    return _group_coverage(
+        _blocking_facts(before, after, identities=identities, link_notes=link_notes), unread
+    )
 
 
 #: The digest `public_host_path` stamps after a redacted component. A source
@@ -1386,7 +1421,9 @@ def compare_host_inventories(
     directory link the reader does not read through (#1004): the link, the
     directory it names and everything beneath it identical by Git identity,
     and nothing at or beneath it a path a host reads for agent configuration.
-    Without it, such a link refuses the comparison as it always has.
+    Without it, such a link refuses the comparison as it always has. If it
+    also has ``reason(source)``, a refused comparison's coverage detail for a
+    link ends with that reason where a bound decided it.
 
     ``identities`` is coverage's own question, asked once with every path it
     needs (#812): for each, ``True`` when its bytes are proven identical,
@@ -1484,7 +1521,9 @@ def compare_host_inventories(
     if not coverage:
         established = None
     elif refused:
-        established = _blocking_coverage(before, after, unread, identities)
+        established = _blocking_coverage(
+            before, after, unread, identities, _link_notes(before, after, unchanged_link)
+        )
     elif retained is not None:
         # The limits that left a directory uncompared, each naming it, then
         # what the rest established, read off the inventories it compared.

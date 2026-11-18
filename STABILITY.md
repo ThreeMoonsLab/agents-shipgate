@@ -409,7 +409,29 @@ row. Replayed with its real trees, it is now `comparable` with the six
   entry beneath the directory it names by its own entry, each file by its
   unfiltered hash, which must match the base's tree exactly. An untracked or
   ignored file there, an edit, a changed executable bit, a link or a special
-  file keeps the limit. No `textconv` or filter runs.
+  file keeps the limit. No `textconv` or filter runs, so a checkout with
+  `core.fileMode=false` or `core.autocrlf` that changes the bytes or the
+  executable bit on disk keeps the limit too, as #822's file proof does.
+- **Build output.** One exception to the working-tree rule: a directory or
+  link named as one the repository walk never enters (`.git`, `.hg`, `.svn`,
+  `node_modules`, `site-packages`, `.venv`, `venv`, `__pycache__`,
+  `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `.nox`) is not
+  walked, so what a local run leaves untracked there does not count as a
+  change. Every host's reader enumerates its sources from that walk, so none
+  reads a configuration file beneath such a name, at its real path or through
+  the link; a file another reader opens by reference, such as a hook script,
+  is compared at its own path or carries its own limit. A file Git tracks
+  beneath such a name still counts, checked by its own entries. Any other
+  ignored name, such as `.terraform`, still counts as a change.
+- **Bounds.** A directory several links name is listed, matched against the
+  registry and checked in the working tree once per comparison. One
+  directory may hold at most 10,000 files and, in a working tree, 64 MiB;
+  one comparison examines at most 20,000 files and 128 MiB beneath all its
+  links together. Past a bound the link keeps its limit, and the refused
+  comparison's coverage `detail` for it ends with why: `It was not proven
+  unchanged: the directory it names holds more than …` or `… this comparison
+  already examined … beneath other unread directory links, its bound, so this
+  link was not examined.`
 - **Configuration cannot be moved behind a link (owner ruling).** A link
   where a host reads agent configuration keeps its blocking limit, however
   unchanged. It is decided by the boundary registry's own patterns,
@@ -417,12 +439,15 @@ row. Replayed with its real trees, it is now `comparable` with the six
   - the link is itself a file a reader opens: an adapter's exact path or glob
     match (`AGENTS.md`, `pkg/CLAUDE.md`, `pkg/.mcp.json`), a plugin manifest,
     marketplace or hook-named file;
-  - it is at, under or above a directory a host reads at a fixed place: the
-    directory of an exact path (`.claude`, `.codex`, `.cursor`, `.vscode`,
-    `.shipgate`, `policies`) or the literal directory of a glob
-    (`.claude/commands`, `.claude/skills`, `.cursor/rules`, `.agents/skills`,
-    `.github/workflows`, `.agents-shipgate`), so `.github`, `.agents` and
-    anything under them count;
+  - it is at, under or above a directory a host reads at a fixed place at
+    the repository root: the directory of an exact path (`.claude`,
+    `.codex`, `.cursor`, `.vscode`, `.shipgate`, `policies`) or the literal
+    directory of a glob (`.claude/commands`, `.claude/skills`,
+    `.cursor/rules`, `.agents/skills`, `.github/workflows`,
+    `.agents-shipgate`), so `.github`, `.agents` and anything under them
+    count. These are anchored at the root, as the registry reads them: a
+    nested `docs/.cursor`, `docs/.vscode`, `docs/.agents` or `pkg/policies`
+    is not one, and an unchanged link there is named;
   - any of its components is a directory a `**/` glob reads anywhere
     (`.claude`, `.codex`, `.github`, `.shipgate`) or a plugin manifest
     directory (`.claude-plugin`, `.codex-plugin`, any `.<name>-plugin`);
@@ -455,6 +480,14 @@ row. Replayed with its real trees, it is now `comparable` with the six
   no evidence gap: a readable widening beside it is still `blocked` on its own
   row, and an unreadable changed settings file beside it gets its own gap and
   no other.
+- **Not in the Action yet.** A configured `verify --head` (what the Action
+  runs) archives the whole head commit, and that archive still refuses any
+  committed link, as before this change (#688's whole-tree refusal, which
+  the host-tree archive no longer applies): `Git tree contains unsupported
+  external binding at <path> (mode 120000, type blob).` followed by the
+  misleading `Fix the manifest in place`. Such a repository never reaches the
+  host comparison in the Action. `diff`, `verify` on a checkout and a
+  manifest-free `verify --head` reach it and name the link.
 - **Not changed.** The inventory, its issues and their messages, `audit
   --host`, saved host-grants baselines, which still refuse an incomplete
   inventory because a baseline acknowledges evidence (#721), drift, every

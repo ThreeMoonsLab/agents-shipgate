@@ -114,6 +114,7 @@ def _repository(
     head_links: dict[str, str] | None = None,
     head_executable: tuple[str, ...] = (),
     head_mcp: str = MCP_HEAD,
+    ignore: str = "agents-shipgate-reports/\n*.local\n",
 ) -> Path:
     """`main` holds the issue's Terraform layout beside ``files`` and ``links``; `change` adds an MCP server.
 
@@ -130,7 +131,7 @@ def _repository(
     repo.mkdir(parents=True)
     _git(repo, "init", "-q", "-b", "main")
     _write(repo, ".mcp.json", MCP_BASE)
-    _write(repo, ".gitignore", "agents-shipgate-reports/\n*.local\n")
+    _write(repo, ".gitignore", ignore)
     for name, text in ({f"{TARGET}/main.tf": MODULE} if files is None else files).items():
         _write(repo, name, text)
     for name, target in ({LINK: TEXT} if links is None else links).items():
@@ -534,6 +535,23 @@ def test_the_comparator_never_names_a_link_at_a_configuration_location() -> None
     assert unchanged_limits(inventory(LINK), inventory(LINK), everything) is None
 
 
+@pytest.mark.parametrize("link", ["docs/.cursor", "docs/.vscode", "docs/.agents"])
+def test_a_nested_copy_of_a_root_anchored_directory_is_not_a_configuration_location(
+    tmp_path: Path, link: str
+) -> None:
+    """`.cursor`, `.vscode` and `.agents` are read at the repository root only,
+    by the registry as by this rule, so an unchanged link at a nested copy
+    holding nothing a host reads is named like any other (#1004 review)."""
+
+    repo = _repository(tmp_path, {"shared/notes.txt": "x\n"}, {link: "../shared"})
+
+    payload = _diff(repo)
+
+    assert payload["comparison_status"] == "comparable"
+    assert _rows(payload) == MCP_ADDED
+    assert {limit["source"] for limit in payload["unchanged_limits"]} == {link}
+
+
 @pytest.mark.parametrize(
     ("path", "expected"),
     [
@@ -541,6 +559,9 @@ def test_the_comparator_never_names_a_link_at_a_configuration_location() -> None
         ("docs/agent", False),
         ("pkg/policies", False),
         ("pkg/.cursor", False),
+        ("docs/.vscode", False),
+        ("docs/.agents", False),
+        ("docs/.agents/skills", False),
         (f"{LINK}/main.tf", False),
         ("", True),
         (".claude", True),
@@ -607,6 +628,229 @@ def test_the_named_directory_is_walked_one_component_at_a_time(text: str, expect
     }
 
     assert _linked_directory(LINK, text, kinds.get) == expected
+
+
+# --- build output, bounds and shared work (#1004 review) ---------------------------
+
+
+def test_build_output_beneath_a_name_the_walk_skips_does_not_count_as_a_change(tmp_path: Path) -> None:
+    """A local test run leaves `__pycache__/*.pyc`, a `.venv` or `node_modules`
+    beneath a package a link names. The repository walk every host's reader
+    enumerates from never enters those names, so what is untracked there holds
+    nothing a host reads: `diff` still names the link, as `verify --head` does."""
+
+    repo = _repository(
+        tmp_path,
+        {f"{TARGET}/main.tf": MODULE, f"{TARGET}/pkg/__init__.py": "x = 1\n"},
+        None,
+        ignore="agents-shipgate-reports/\n__pycache__/\n*.pyc\n.venv/\nnode_modules/\n.terraform/\n",
+    )
+    _write(repo, f"{TARGET}/pkg/__pycache__/__init__.cpython-312.pyc", "bytecode")
+    _write(repo, f"{TARGET}/.venv/lib/site.py", "x\n")
+    _link(repo, f"{TARGET}/.venv/bin/python", "/usr/bin/python3")
+    _write(repo, f"{TARGET}/node_modules/left-pad/index.js", "x\n")
+
+    assert unread_link_unchanged(repo, "main", None, LINK)
+    payload = _diff(repo)
+    assert payload["comparison_status"] == "comparable"
+    assert _limits(payload) == _named()
+
+    # Any other ignored name still counts: only the walk's own names are exempt.
+    _write(repo, f"{TARGET}/.terraform/providers/x", "provider\n")
+    assert not unread_link_unchanged(repo, "main", None, LINK)
+
+
+def test_a_tracked_file_beneath_a_skipped_name_still_counts(tmp_path: Path) -> None:
+    vendored = f"{TARGET}/node_modules/left-pad/index.js"
+    repo = _repository(tmp_path, {f"{TARGET}/main.tf": MODULE, vendored: "x\n"}, None)
+    assert unread_link_unchanged(repo, "main", None, LINK)
+
+    _write(repo, f"{TARGET}/node_modules/left-pad/extra.js", "untracked\n")
+    assert unread_link_unchanged(repo, "main", None, LINK)
+    _write(repo, vendored, "edited\n")
+    assert not unread_link_unchanged(repo, "main", None, LINK)
+    _write(repo, vendored, "x\n")
+    assert unread_link_unchanged(repo, "main", None, LINK)
+    _remove(repo, vendored)
+    assert not unread_link_unchanged(repo, "main", None, LINK)
+    _write(repo, vendored, "x\n")
+    assert unread_link_unchanged(repo, "main", None, LINK)
+    # The skipped directory replaced by a link to the same files.
+    _write(repo, "elsewhere/left-pad/index.js", "x\n")
+    _link(repo, f"{TARGET}/node_modules", "../../../elsewhere")
+    assert not unread_link_unchanged(repo, "main", None, LINK)
+
+
+def test_a_directory_several_links_name_is_examined_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Eight environments linking one module directory list it, match it
+    against the registry and check the working tree once, and count against
+    the comparison's budget once."""
+
+    from agents_shipgate.cli.verify import git as verify_git
+
+    envs = [f".happy/terraform/envs/env{index}/modules" for index in range(8)]
+    repo = _repository(
+        tmp_path, {f"{TARGET}/main.tf": MODULE, f"{TARGET}/vars.tf": MODULE}, dict.fromkeys(envs, TEXT)
+    )
+    listings: list[str] = []
+    walks: list[str] = []
+    real_listing, real_walk = verify_git._linked_directory_files, verify_git._worktree_directory_holds
+    monkeypatch.setattr(
+        verify_git, "_linked_directory_files", lambda w, tree: listings.append(tree) or real_listing(w, tree)
+    )
+    monkeypatch.setattr(
+        verify_git,
+        "_worktree_directory_holds",
+        lambda w, d, f, **k: walks.append(d) or real_walk(w, d, f, **k),
+    )
+    # Exactly the two files the directory holds: counted once, so it suffices.
+    monkeypatch.setattr(verify_git, "_LINKED_DIRECTORIES_FILE_BUDGET", 2)
+
+    payload = _diff(repo)
+
+    assert payload["comparison_status"] == "comparable"
+    assert {limit["source"] for limit in payload["unchanged_limits"]} == set(envs)
+    assert len(listings) == 1 and walks == [TARGET]
+
+
+def test_past_the_comparison_budget_a_link_keeps_its_limit_and_says_why(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agents_shipgate.cli.verify import git as verify_git
+
+    first, second = ".happy/terraform/envs/a/modules", ".happy/terraform/envs/b/modules"
+    repo = _repository(
+        tmp_path,
+        {f"{TARGET}/main.tf": MODULE, f"{TARGET}/vars.tf": MODULE, ".happy/terraform/other/main.tf": MODULE},
+        {first: TEXT, second: "../../other"},
+    )
+    monkeypatch.setattr(verify_git, "_LINKED_DIRECTORIES_FILE_BUDGET", 2)
+
+    payload = _diff(repo)
+
+    assert payload["comparison_status"] == "incomparable"
+    assert payload["rows"] == [] and payload["unchanged_limits"] == []
+    details = {item["source"]: item["detail"] for item in payload["coverage"]["items"]}
+    assert verify_git.LINKED_DIRECTORIES_BUDGET_SPENT in details[second]
+    assert verify_git.LINKED_DIRECTORIES_BUDGET_SPENT not in details[first]
+    prover = verify_git.unread_link_prover(repo, "main", "HEAD")
+    assert prover(first) and not prover(second)
+    assert prover.reason(second) == verify_git.LINKED_DIRECTORIES_BUDGET_SPENT
+    assert prover.reason(first) is None
+
+
+def test_past_the_working_tree_byte_budget_a_link_keeps_its_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agents_shipgate.cli.verify import git as verify_git
+
+    repo = _repository(tmp_path)
+    monkeypatch.setattr(verify_git, "_LINKED_DIRECTORIES_BYTE_BUDGET", 10)
+
+    prover = verify_git.unread_link_prover(repo, "main", None)
+
+    assert not prover(LINK)
+    assert prover.reason(LINK) == verify_git.LINKED_DIRECTORIES_BUDGET_SPENT
+    # A commit head hashes nothing from a working tree.
+    assert verify_git.unread_link_prover(repo, "main", "HEAD")(LINK)
+
+
+def test_past_the_ten_thousand_file_bound_a_link_keeps_its_limit(tmp_path: Path) -> None:
+    from agents_shipgate.cli.verify import git as verify_git
+
+    files = {f"{TARGET}/f{index:05d}.tf": "" for index in range(verify_git._LINKED_DIRECTORY_FILES + 1)}
+    repo = _repository(tmp_path, files, None)
+
+    for head in ("HEAD", None):
+        prover = verify_git.unread_link_prover(repo, "main", head)
+        assert not prover(LINK)
+        assert prover.reason(LINK) == verify_git.LINKED_DIRECTORY_PAST_BOUND
+
+
+def test_past_the_per_link_byte_bound_a_working_tree_link_keeps_its_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agents_shipgate.cli.verify import git as verify_git
+
+    repo = _repository(tmp_path)
+    monkeypatch.setattr(verify_git, "_LINKED_DIRECTORY_BYTES", 10)
+
+    prover = verify_git.unread_link_prover(repo, "main", None)
+
+    assert not prover(LINK)
+    assert prover.reason(LINK) == verify_git.LINKED_DIRECTORY_PAST_BOUND
+    payload = _diff(repo)
+    assert payload["comparison_status"] == "incomparable"
+    detail = next(item["detail"] for item in payload["coverage"]["items"] if item["source"] == LINK)
+    assert verify_git.LINKED_DIRECTORY_PAST_BOUND in detail
+
+
+def test_a_submodule_beneath_the_named_directory_keeps_the_limit(tmp_path: Path) -> None:
+    repo = _repository(tmp_path, head_mcp=MCP_BASE)
+    _git(repo, "checkout", "-q", "main")
+    _git(
+        repo, "update-index", "--add", "--cacheinfo",
+        f"160000,{'1' * 40},{TARGET}/vendored",
+    )
+    _git(repo, "commit", "-q", "-m", "a submodule beneath the module directory")
+    # Not checked out: the empty directory a clone leaves.
+    (repo / TARGET / "vendored").mkdir()
+    _git(repo, "checkout", "-q", "-B", "change")
+    _write(repo, ".mcp.json", MCP_HEAD)
+    _git(repo, "commit", "-q", "-am", "change")
+    assert "160000" in _git(repo, "ls-tree", "HEAD", "--", f"{TARGET}/vendored")
+
+    assert not unread_link_unchanged(repo, "main", "HEAD", LINK)
+    assert not unread_link_unchanged(repo, "main", None, LINK)
+    assert _diff(repo)["comparison_status"] == "incomparable"
+
+
+@pytest.mark.parametrize("setting", ["fileMode", "autocrlf"])
+def test_a_checkout_conversion_fails_closed(tmp_path: Path, setting: str) -> None:
+    """With `core.fileMode=false` an executable bit Git ignores, and with
+    `core.autocrlf=true` a `CRLF` checkout, makes the working tree differ from
+    the tree by mode or unfiltered hash, so the link keeps its limit, as #822's
+    file proof does."""
+
+    repo = _repository(tmp_path, {f"{TARGET}/main.tf": "a\nb\n"}, None)
+    if setting == "fileMode":
+        _git(repo, "config", "core.fileMode", "false")
+        os.chmod(repo / TARGET / "main.tf", 0o755)
+        assert _git(repo, "status", "--porcelain") == ""
+    else:
+        _git(repo, "config", "core.autocrlf", "true")
+        (repo / TARGET / "main.tf").unlink()
+        _git(repo, "checkout", "--", f"{TARGET}/main.tf")
+        assert (repo / TARGET / "main.tf").read_bytes() == b"a\r\nb\r\n"
+
+    assert unread_link_unchanged(repo, "main", "HEAD", LINK)
+    assert not unread_link_unchanged(repo, "main", None, LINK)
+    assert _diff(repo)["comparison_status"] == "incomparable"
+
+
+@pytest.mark.parametrize(
+    "beneath",
+    [
+        "main.tf", "CLAUDE.md", "sub/AGENTS.md", "AGENTS.override.md", ".mcp.json", "x/.mcp.json",
+        ".claude/settings.json", ".claude/hooks/hooks.json", "a/.claude/hooks/hooks.json",
+        ".codex/config.toml", ".github/workflows/ci.yml", "a/.github/workflows/ci.yaml",
+        ".github/plugin/plugin.json", ".shipgate/openshell.json", ".cursor/rules/a.mdc",
+        ".cursor/mcp.json", ".vscode/mcp.json", ".agents/skills/x/SKILL.md", "policies/x.shipgate.yaml",
+        ".agents-shipgate/baseline.json", "shipgate.yaml", "hooks.json", "cfg/security-hooks.json",
+        ".claude-plugin/plugin.json", ".codex-plugin/plugin.json", "x/.grok-plugin/plugin.json",
+        ".claude-plugin/marketplace.json", "webhooks.json",
+    ],
+)
+def test_whether_a_path_beneath_a_link_is_configuration_does_not_depend_on_the_link(beneath: str) -> None:
+    """What lets one directory's registry match serve every link naming it
+    (#1004 review): beneath any link that is not itself a configuration
+    location, the answer depends on the part below the link alone."""
+
+    links = [LINK, "docs/agent", "a", "pkg/.cursor", "x/policies", "deep/er/vendor/lib", "docs/.vscode"]
+    assert not any(is_host_configuration_location(link) for link in links)
+    assert len({is_host_configuration_location(f"{link}/{beneath}") for link in links}) == 1
 
 
 # --- a partial comparison (#808) names the link too --------------------------------

@@ -1578,6 +1578,27 @@ def tree_path_absent(workspace: Path, base: str, head: str | None, path: str) ->
 _LINKED_DIRECTORY_FILES = 10_000
 _LINKED_DIRECTORY_LISTING_BYTES = 8 * 1024 * 1024
 _LINKED_DIRECTORY_BYTES = 64 * 1024 * 1024
+#: What one comparison examines beneath all its unread directory links
+#: together (#1004 review): the files their directories hold, and the
+#: working-tree bytes it hashes. A directory several links name counts once.
+#: Past either, every link not yet proven keeps its limit, and its coverage
+#: detail says why.
+_LINKED_DIRECTORIES_FILE_BUDGET = 20_000
+_LINKED_DIRECTORIES_BYTE_BUDGET = 128 * 1024 * 1024
+
+#: Why a link was not proven unchanged, where a bound decided it (#1004).
+#: Appended to the refused comparison's coverage detail for that link.
+LINKED_DIRECTORY_PAST_BOUND = (
+    "It was not proven unchanged: the directory it names holds more than "
+    f"{_LINKED_DIRECTORY_FILES:,} files or {_LINKED_DIRECTORY_BYTES // (1024 * 1024)} MiB, "
+    "past what this entry compares beneath one link."
+)
+LINKED_DIRECTORIES_BUDGET_SPENT = (
+    "It was not proven unchanged: this comparison already examined "
+    f"{_LINKED_DIRECTORIES_FILE_BUDGET:,} files or "
+    f"{_LINKED_DIRECTORIES_BYTE_BUDGET // (1024 * 1024)} MiB beneath other unread "
+    "directory links, its bound, so this link was not examined."
+)
 
 
 def _linked_directory(
@@ -1625,25 +1646,33 @@ def _linked_directory(
     return target
 
 
-def _linked_directory_files(workspace: Path, tree: str) -> dict[str, tuple[str, str]] | None:
-    """Every file one Git tree holds, recursively: ``{path: (mode, blob)}``, or ``None`` (#1004).
+#: :func:`_linked_directory_files` and :func:`_worktree_directory_holds`
+#: answer this when a bound, not the content, decided (#1004 review).
+_PAST_BOUND = "past_bound"
+
+
+def _linked_directory_files(
+    workspace: Path, tree: str
+) -> dict[str, tuple[str, str]] | Literal["past_bound"] | None:
+    """Every file one Git tree holds, recursively: ``{path: (mode, blob)}`` (#1004).
 
     ``None`` when the tree holds a link or a submodule, whose content no tree
-    identity binds, when it holds more than :data:`_LINKED_DIRECTORY_FILES`
-    files, or on any Git failure.
+    identity binds, or on any Git failure. ``"past_bound"`` when it holds more
+    than :data:`_LINKED_DIRECTORY_FILES` files, or a listing past its byte
+    bound.
     """
 
     if not _GIT_OBJECT_RE.fullmatch(tree):
         return None
-    output = _run_git_bounded_output(
+    result = _run_git_bounded_result(
         workspace,
         ["ls-tree", "-r", "-z", "--full-tree", tree],
         max_output_bytes=_LINKED_DIRECTORY_LISTING_BYTES,
     )
-    if output is None:
-        return None
+    if result.payload is None:
+        return _PAST_BOUND if result.exceeded else None
     files: dict[str, tuple[str, str]] = {}
-    for record in output.split(b"\0"):
+    for record in result.payload.split(b"\0"):
         if not record:
             continue
         header, separator, name = record.partition(b"\t")
@@ -1658,62 +1687,304 @@ def _linked_directory_files(workspace: Path, tree: str) -> dict[str, tuple[str, 
         except UnicodeDecodeError:
             return None
         if len(files) > _LINKED_DIRECTORY_FILES:
-            return None
+            return _PAST_BOUND
     return files
 
 
 def _worktree_directory_holds(
-    workspace: Path, directory: str, files: dict[str, tuple[str, str]]
-) -> bool:
+    workspace: Path, directory: str, files: dict[str, tuple[str, str]], *, max_bytes: int
+) -> tuple[bool | Literal["past_bound"], int]:
     """Whether a working-tree directory holds exactly ``files``, read without following a link (#1004).
 
-    Every entry beneath it is typed by its own entry: a link, a special file
-    or anything that cannot be typed fails, and so does a file Git's tree
-    does not list, untracked or ignored alike. A directory holding no file
-    is not compared, as Git records none. Each file must have the tree's
-    mode (executable or not) and, by its unfiltered hash, the tree's blob.
+    Returns the answer and the bytes it hashed. Every entry beneath the
+    directory is typed by its own entry: a link, a special file or anything
+    that cannot be typed fails, and so does a file Git's tree does not list,
+    untracked or ignored alike. A directory holding no file is not compared,
+    as Git records none. Each file must have the tree's mode (executable or
+    not) and, by its unfiltered hash, the tree's blob.
+
+    One exception (#1004 review): a directory or link named as one the
+    repository walk never enters (`_WALK_SKIPPED_DIRECTORIES`: `.git`,
+    `node_modules`, `.venv`, `__pycache__`, `.pytest_cache` and the like) is
+    not walked, so build output and caches a local run leaves there do not
+    count as a change. That walk is the one every host's reader enumerates
+    its sources from, so no reader reads a configuration file beneath such
+    a name, at its real path or through the link. A file another reader opens
+    by a reference (a hook script, an OpenShell policy) is read and compared
+    at its own path, or carries its own limit through the link, either way
+    apart from this one. A file Git tracks beneath such a name still counts:
+    it is checked by its own entries, each directory above it included.
+
+    ``"past_bound"`` when the directory holds more entries, or more bytes
+    than ``max_bytes``, than this compares.
     """
 
     import stat
 
+    from agents_shipgate.core.host_grants import _WALK_SKIPPED_DIRECTORIES
     from agents_shipgate.core.trust_roots import _directory_member_kind
 
+    root = workspace / directory
     found: dict[str, str] = {}
+    skipped: list[str] = []
     total = visited = 0
     pending = [""]
     while pending:
         relative = pending.pop()
         try:
-            names = sorted(os.listdir(workspace / directory / relative))
+            names = sorted(os.listdir(root / relative))
         except (OSError, ValueError):
-            return False
+            return False, total
         for name in names:
             child = f"{relative}/{name}" if relative else name
             visited += 1
             if visited > 2 * _LINKED_DIRECTORY_FILES:
-                return False
-            entry = workspace / directory / child
+                return _PAST_BOUND, total
+            entry = root / child
             try:
                 kind = _directory_member_kind(entry)
+                if name in _WALK_SKIPPED_DIRECTORIES and kind in {"directory", "symlink"}:
+                    skipped.append(child)
+                    continue
                 if kind == "directory":
                     pending.append(child)
                     continue
                 if kind != "file":
-                    return False
+                    return False, total
                 metadata = entry.lstat()
             except (OSError, ValueError):
-                return False
+                return False, total
             found[child] = "100755" if metadata.st_mode & stat.S_IXUSR else "100644"
             total += metadata.st_size
-            if len(found) > len(files) or total > _LINKED_DIRECTORY_BYTES:
-                return False
-    if found != {name: mode for name, (mode, _oid) in files.items()}:
-        return False
-    names = sorted(found)
+            if len(found) > len(files):
+                return False, total
+            if total > max_bytes:
+                return _PAST_BOUND, total
+
+    def beneath_skipped(name: str) -> bool:
+        return any(name.startswith(f"{directory}/") for directory in skipped)
+
+    if found != {name: mode for name, (mode, _oid) in files.items() if not beneath_skipped(name)}:
+        return False, total
+    for name in sorted(name for name in files if beneath_skipped(name)):
+        parts = name.split("/")
+        try:
+            if any(
+                _directory_member_kind(root / "/".join(parts[:depth])) != "directory"
+                for depth in range(1, len(parts))
+            ) or _directory_member_kind(root / name) != "file":
+                return False, total
+            metadata = (root / name).lstat()
+        except (OSError, ValueError):
+            return False, total
+        if ("100755" if metadata.st_mode & stat.S_IXUSR else "100644") != files[name][0]:
+            return False, total
+        total += metadata.st_size
+        if total > max_bytes:
+            return _PAST_BOUND, total
+    names = sorted(files)
     hashes = _unfiltered_worktree_hashes(workspace, [f"{directory}/{name}" for name in names])
-    return len(hashes) == len(names) and all(
-        hashes.get(f"{directory}/{name}") == files[name][1] for name in names
-    )
+    return (
+        len(hashes) == len(names)
+        and all(hashes.get(f"{directory}/{name}") == files[name][1] for name in names)
+    ), total
+
+
+@dataclass
+class _LinkedTarget:
+    """What one comparison learned about one directory its links name (#1004 review).
+
+    Keyed by the directory's path and its base tree object, so every link
+    naming it shares one listing, one registry match and one working-tree
+    check, and the budget counts it once.
+    """
+
+    files: dict[str, tuple[str, str]] | None
+    #: Why it is not proven, when a bound decided: one of the two sentences.
+    bound: str | None = None
+    #: Whether a path beneath it, as a link spells it, is configuration.
+    holds_configuration: bool = False
+    #: The working-tree check, once asked.
+    worktree: bool | None = None
+
+
+class UnreadLinkProver:
+    """:func:`unread_link_unchanged` for one comparison (#1004).
+
+    A link the reader leaves unread is a limit under every host whose `**/`
+    glob it may conceal, and several links may name one directory, so each
+    link is answered once and each directory examined once, by its path and
+    tree object. All of it shares one budget,
+    :data:`_LINKED_DIRECTORIES_FILE_BUDGET` files and
+    :data:`_LINKED_DIRECTORIES_BYTE_BUDGET` working-tree bytes: past it,
+    every link not yet proven keeps its limit, and :meth:`reason` says so for
+    the comparison's coverage.
+    """
+
+    def __init__(self, workspace: Path, base: str, head: str | None) -> None:
+        self._workspace = workspace
+        self._base = base
+        self._head = head
+        self._answers: dict[str, bool] = {}
+        self._reasons: dict[str, str] = {}
+        self._targets: dict[tuple[str, str], _LinkedTarget] = {}
+        self._commits: dict[str, _CommitEntries | None] = {}
+        self._files_left = _LINKED_DIRECTORIES_FILE_BUDGET
+        self._bytes_left = _LINKED_DIRECTORIES_BYTE_BUDGET
+        self._spent = False
+
+    def __call__(self, path: str) -> bool:
+        if path not in self._answers:
+            self._answers[path] = self._prove(path)
+        return self._answers[path]
+
+    def reason(self, path: str) -> str | None:
+        """Why ``path`` was not proven unchanged, where a bound decided it.
+
+        Also for a link never asked once the budget was spent: a comparison
+        stops at the first limit it cannot name, so the ones after it were not
+        examined.
+        """
+
+        from agents_shipgate.core.boundary_registry import is_host_configuration_location
+
+        if path in self._reasons:
+            return self._reasons[path]
+        if not self._spent or path in self._answers or is_host_configuration_location(path):
+            return None
+        # Only a link the proof would have examined: anything else is not one.
+        base_tree = self._entries(self._base)
+        if base_tree is None or base_tree.kind(path) != "link":
+            return None
+        return LINKED_DIRECTORIES_BUDGET_SPENT
+
+    def _entries(self, ref: str) -> _CommitEntries | None:
+        if ref not in self._commits:
+            commit = commit_sha(self._workspace, ref)
+            self._commits[ref] = _CommitEntries(self._workspace, commit) if commit else None
+        return self._commits[ref]
+
+    def _target(self, link: str, target: str, tree: str) -> _LinkedTarget:
+        from agents_shipgate.core.boundary_registry import is_host_configuration_location
+
+        key = (target, tree)
+        if key in self._targets:
+            return self._targets[key]
+        listed = _linked_directory_files(self._workspace, tree)
+        if listed == _PAST_BOUND:
+            facts = _LinkedTarget(files=None, bound=LINKED_DIRECTORY_PAST_BOUND)
+        elif listed is None:
+            facts = _LinkedTarget(files=None)
+        elif len(listed) > self._files_left:
+            self._spent = True
+            facts = _LinkedTarget(files=None, bound=LINKED_DIRECTORIES_BUDGET_SPENT)
+        else:
+            self._files_left -= len(listed)
+            # Asked of the first link that names this directory, and true of
+            # every other: no link reaches here at a configuration location,
+            # and beneath a link that is not one, whether a path is
+            # configuration depends on its part below the link alone
+            # (`tests/test_unchanged_link_limits.py` pins it).
+            facts = _LinkedTarget(
+                files=listed,
+                holds_configuration=any(
+                    is_host_configuration_location(f"{link}/{name}") for name in listed
+                ),
+            )
+        self._targets[key] = facts
+        return facts
+
+    def _worktree_holds(self, facts: _LinkedTarget, target: str) -> bool:
+        if facts.files is None:
+            return False
+        if facts.worktree is None:
+            per_link = _LINKED_DIRECTORY_BYTES
+            cap = min(per_link, self._bytes_left)
+            held, hashed = _worktree_directory_holds(
+                self._workspace, target, facts.files, max_bytes=cap
+            )
+            self._bytes_left = max(self._bytes_left - hashed, 0)
+            if held == _PAST_BOUND:
+                if cap < per_link and hashed > cap:
+                    self._spent = True
+                    facts.bound = LINKED_DIRECTORIES_BUDGET_SPENT
+                else:
+                    facts.bound = LINKED_DIRECTORY_PAST_BOUND
+            facts.worktree = held is True
+        return facts.worktree
+
+    def _prove(self, path: str) -> bool:
+        from pathlib import PurePosixPath
+
+        from agents_shipgate.core.boundary_registry import is_host_configuration_location
+
+        relative = PurePosixPath(path)
+        if (
+            not path
+            or relative.is_absolute()
+            or relative.as_posix() != path
+            or ".." in relative.parts
+            or "\\" in path
+            or "\0" in path
+        ):
+            return False
+        try:
+            path.encode("utf-8")
+        except UnicodeEncodeError:
+            return False
+        if is_host_configuration_location(path):
+            return False
+        base_tree = self._entries(self._base)
+        if base_tree is None:
+            return False
+        above = ["/".join(relative.parts[:index]) for index in range(1, len(relative.parts))]
+        if any(base_tree.kind(prefix) != "tree" for prefix in above) or base_tree.kind(path) != "link":
+            return False
+        text = base_tree.link_text(path)
+        target = _linked_directory(path, text, base_tree.kind)
+        target_entry = base_tree.entry(target) if target is not None else None
+        if target is None or target_entry is None:
+            return False
+        if self._spent and (target, target_entry[2]) not in self._targets:
+            self._reasons[path] = LINKED_DIRECTORIES_BUDGET_SPENT
+            return False
+        facts = self._target(path, target, target_entry[2])
+        if facts.files is None or facts.holds_configuration:
+            if facts.bound is not None:
+                self._reasons[path] = facts.bound
+            return False
+        if self._head is not None:
+            head_tree = self._entries(self._head)
+            return (
+                head_tree is not None
+                and all(head_tree.kind(prefix) == "tree" for prefix in above)
+                and head_tree.entry(path) == base_tree.entry(path)
+                and _linked_directory(path, head_tree.link_text(path), head_tree.kind) == target
+                and head_tree.entry(target) == target_entry
+            )
+
+        from agents_shipgate.core.trust_roots import _directory_member_kind
+
+        kinds = {"directory": "tree", "file": "blob", "symlink": "link"}
+
+        def kind(entry: str) -> str | None:
+            try:
+                return kinds.get(_directory_member_kind(self._workspace / entry))
+            except (OSError, ValueError):
+                return None
+
+        if any(kind(prefix) != "tree" for prefix in above) or kind(path) != "link":
+            return False
+        try:
+            worktree_text = os.readlink(self._workspace / path)
+        except (OSError, ValueError):
+            return False
+        if worktree_text != text or _linked_directory(path, worktree_text, kind) != target:
+            return False
+        held = self._worktree_holds(facts, target)
+        if not held and facts.bound is not None:
+            self._reasons[path] = facts.bound
+        return held
 
 
 def unread_link_unchanged(workspace: Path, base: str, head: str | None, path: str) -> bool:
@@ -1744,96 +2015,24 @@ def unread_link_unchanged(workspace: Path, base: str, head: str | None, path: st
     any link: each component by its own entry, the link by its own text, and
     every file beneath the directory it names by its own entry and unfiltered
     hash, which must match the base's tree exactly, untracked and ignored files
-    included. The base and a commit head are read from their tree entries. The
-    answer is ``False`` whenever any of this cannot be proven: a link added,
-    removed, retargeted or rewritten, a changed directory, a dangling, looping,
-    absolute or escaping link, a chain, or any Git failure.
+    included, except beneath a name the repository walk never enters
+    (:func:`_worktree_directory_holds`). The base and a commit head are read
+    from their tree entries. The answer is ``False`` whenever any of this
+    cannot be proven: a link added, removed, retargeted or rewritten, a
+    changed directory, a dangling, looping, absolute or escaping link, a
+    chain, a bound reached, or any Git failure.
+
+    One question on its own; a comparison asks through
+    :class:`UnreadLinkProver`, which shares work and a budget across links.
     """
 
-    from pathlib import PurePosixPath
-
-    from agents_shipgate.core.boundary_registry import is_host_configuration_location
-
-    relative = PurePosixPath(path)
-    if (
-        not path
-        or relative.is_absolute()
-        or relative.as_posix() != path
-        or ".." in relative.parts
-        or "\\" in path
-        or "\0" in path
-    ):
-        return False
-    try:
-        path.encode("utf-8")
-    except UnicodeEncodeError:
-        return False
-    if is_host_configuration_location(path):
-        return False
-    base_commit = commit_sha(workspace, base)
-    if base_commit is None:
-        return False
-    base_tree = _CommitEntries(workspace, base_commit)
-    above = ["/".join(relative.parts[:index]) for index in range(1, len(relative.parts))]
-    if any(base_tree.kind(prefix) != "tree" for prefix in above) or base_tree.kind(path) != "link":
-        return False
-    text = base_tree.link_text(path)
-    target = _linked_directory(path, text, base_tree.kind)
-    target_entry = base_tree.entry(target) if target is not None else None
-    if target is None or target_entry is None:
-        return False
-    files = _linked_directory_files(workspace, target_entry[2])
-    if files is None or any(is_host_configuration_location(f"{path}/{name}") for name in files):
-        return False
-    if head is not None:
-        head_commit = commit_sha(workspace, head)
-        if head_commit is None:
-            return False
-        head_tree = _CommitEntries(workspace, head_commit)
-        return (
-            all(head_tree.kind(prefix) == "tree" for prefix in above)
-            and head_tree.entry(path) == base_tree.entry(path)
-            and _linked_directory(path, head_tree.link_text(path), head_tree.kind) == target
-            and head_tree.entry(target) == target_entry
-        )
-
-    from agents_shipgate.core.trust_roots import _directory_member_kind
-
-    kinds = {"directory": "tree", "file": "blob", "symlink": "link"}
-
-    def kind(entry: str) -> str | None:
-        try:
-            return kinds.get(_directory_member_kind(workspace / entry))
-        except (OSError, ValueError):
-            return None
-
-    if any(kind(prefix) != "tree" for prefix in above) or kind(path) != "link":
-        return False
-    try:
-        worktree_text = os.readlink(workspace / path)
-    except (OSError, ValueError):
-        return False
-    if worktree_text != text or _linked_directory(path, worktree_text, kind) != target:
-        return False
-    return _worktree_directory_holds(workspace, target, files)
+    return UnreadLinkProver(workspace, base, head)(path)
 
 
-def unread_link_prover(workspace: Path, base: str, head: str | None) -> Callable[[str], bool]:
-    """:func:`unread_link_unchanged` for one comparison, each path answered once (#1004).
+def unread_link_prover(workspace: Path, base: str, head: str | None) -> UnreadLinkProver:
+    """The :class:`UnreadLinkProver` one comparison asks (#1004)."""
 
-    A link the reader leaves unread is a limit under every host whose `**/`
-    glob it may conceal, so one comparison asks about the same path several
-    times.
-    """
-
-    answers: dict[str, bool] = {}
-
-    def unchanged(path: str) -> bool:
-        if path not in answers:
-            answers[path] = unread_link_unchanged(workspace, base, head, path)
-        return answers[path]
-
-    return unchanged
+    return UnreadLinkProver(workspace, base, head)
 
 
 #: Bounds on what :func:`blob_path_identities` reads (#812): one tree listing,

@@ -450,7 +450,7 @@
   "tests/test_packaged_default_policies.py": 0.2,
   "tests/test_workflow_directory_instructions.py": 50.6,
   "tests/test_registry_drift_observation.py": 1.4,
-  "tests/test_unchanged_link_limits.py": 184.5
+  "tests/test_unchanged_link_limits.py": 77.2
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -728,13 +728,13 @@
   },
   {
    "source": "junit",
-   "measured_at": "350d30f770a9 with issue #1004 unchanged in-tree directory link increment",
-   "report_sha256": "f6d5dcd0eae9ebc4f51fda6648a37fc1ba279c5674942f3a36e360c4e1afa791",
+   "measured_at": "7473787962ad with issue #1004 unchanged in-tree directory link increment (review cycle 1)",
+   "report_sha256": "f8d64d50a70ed1b050633f665c66e4a805b8bb98fcfceafd4ca52017cbfae5aa",
    "files": {
-    "tests/test_unchanged_link_limits.py": 184.5
+    "tests/test_unchanged_link_limits.py": 77.2
    },
-   "case_count": 94,
-   "command": "python -m pytest tests/test_unchanged_link_limits.py -n 4 --junitxml=unchanged-link-limits.xml",
+   "case_count": 138,
+   "command": "python -m pytest tests/test_unchanged_link_limits.py -n 2 --junitxml=unchanged-link-limits.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]
