@@ -13,6 +13,7 @@ from itertools import islice
 from pathlib import Path
 
 from agents_shipgate.core.domain import Tool
+from agents_shipgate.core.python_source import parse_python
 from agents_shipgate.core.static_inputs import (
     active_static_input_snapshot,
     read_static_input_bytes,
@@ -80,7 +81,7 @@ def _read(path: Path, root: Path, role: str, evidence: GuardDependencyEvidence) 
         raise
     if snapshot is not None and snapshot.contains(path):
         snapshot.mark_dependency_input(path)
-    tree = ast.parse(data.decode("utf-8"), filename=str(path))
+    tree = parse_python(data, filename=path)
     if sum(1 for _ in ast.walk(tree)) > MAX_GUARD_AST_NODES:
         raise _Unresolved("dependency_ast_limit")
     evidence.inputs.append(

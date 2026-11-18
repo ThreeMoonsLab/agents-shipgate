@@ -56,6 +56,7 @@ def _write_reports(
     *,
     sanitized_payload: dict | None = None,
     human_context: HumanArtifactContext | None = None,
+    root: Path | None = None,
 ) -> None:
     if "markdown" in formats and "markdown" in paths:
         write_markdown_report(
@@ -63,15 +64,17 @@ def _write_reports(
             paths["markdown"],
             sanitize_output=False,
             human_context=human_context,
+            root=root,
         )
     if "json" in formats and "json" in paths:
         write_json_report(
             report,
             paths["json"],
             sanitized_payload=sanitized_payload,
+            root=root,
         )
     if "sarif" in formats and "sarif" in paths:
-        write_sarif_report(report, paths["sarif"])
+        write_sarif_report(report, paths["sarif"], root=root)
 
 
 def _write_packet(
@@ -81,6 +84,7 @@ def _write_packet(
     *,
     human_context: HumanArtifactContext | None = None,
     cold_lead: ColdReaderLead | None = None,
+    root: Path | None = None,
 ) -> None:
     if "md" in packet_formats and "packet_md" in paths:
         write_packet_markdown(
@@ -89,9 +93,10 @@ def _write_packet(
             sanitize_output=False,
             human_context=human_context,
             cold_lead=cold_lead,
+            root=root,
         )
     if "json" in packet_formats and "packet_json" in paths:
-        write_packet_json(packet, paths["packet_json"], sanitize_output=False)
+        write_packet_json(packet, paths["packet_json"], sanitize_output=False, root=root)
     if "html" in packet_formats and "packet_html" in paths:
         write_packet_html(
             packet,
@@ -99,6 +104,7 @@ def _write_packet(
             sanitize_output=False,
             human_context=human_context,
             cold_lead=cold_lead,
+            root=root,
         )
     if "pdf" in packet_formats and "packet_pdf" in paths:
         try:
@@ -108,6 +114,7 @@ def _write_packet(
                 sanitize_output=False,
                 human_context=human_context,
                 cold_lead=cold_lead,
+                root=root,
             )
         except PdfRendererUnavailable as exc:
             logger.warning("packet.pdf skipped: %s", exc)

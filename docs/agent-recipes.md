@@ -375,8 +375,12 @@ coverage appends ship at `medium` and require explicit
 `--confidence medium` to apply.
 
 `apply-patches` is dry-run by default — `--apply` is required to
-mutate files. Containment-checked: any `target_file` outside
-`report.manifest_dir` aborts with exit code 5 before SHA verification.
+mutate files. Containment-checked before SHA verification: every
+`target_file` must be the Shipgate manifest, inside `report.manifest_dir` and
+inside the repository `apply-patches` works on — `--workspace <repo>`, or the
+directory it runs in and that directory's git toplevel. Anything else aborts
+with exit code 5. The report is untrusted input, so the commands `verify`
+prints name the repository with `--workspace`.
 
 ### Step 5 (optional) · Summarize for the user
 

@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from agents_shipgate.core.contained_write import write_contained
 from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
 from agents_shipgate.core.privacy import sanitize_packet_payload
 from agents_shipgate.packet.evidence_matrix import unavailable_evidence_matrix
@@ -50,12 +51,12 @@ def write_packet_json(
     path: Path,
     *,
     sanitize_output: bool = True,
+    root: Path | None = None,
 ) -> None:
     """Write ``packet.json`` to ``path``. Parent dirs are created."""
 
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = serialize_packet_json(packet, sanitize_output=sanitize_output)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_contained(path, json.dumps(payload, indent=2, sort_keys=True) + "\n", root=root)
 
 
 def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
