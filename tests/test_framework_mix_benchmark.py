@@ -5,16 +5,18 @@ pull requests use, judged by hand from source. These tests hold the files to
 what the README states: every judged pull request is pinned to full commits,
 none is a member of the application development corpus or comes from a
 repository of the holdout's recorded pool, every judgment has the fields its
-level needs, the neutral frame's members are a prefix of its seeded walk, and
-the README's tables are the ones `summarize.py` counts from the sample. They
+level needs, the hours and the candidates walked are the first of their seeded
+orders, and the README's tables are the ones `summarize.py` counts from the sample. They
 fetch nothing and run no engine.
 """
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +33,10 @@ BUCKETS = {
     "autogen_ag2", "smolagents", "agno", "semantic_kernel", "mcp_server_python", "mcp_server_typescript",
     "mcp_server_other", "custom",
 }
+
+
+def _seeded(*parts: str) -> str:
+    return hashlib.sha256(":".join((SAMPLE["seed"], *parts)).encode()).hexdigest()
 
 
 def _summarize():
@@ -55,6 +61,9 @@ def test_every_judged_pull_request_is_pinned_and_unique() -> None:
         assert member["url"] == f"https://github.com/{member['repository']}/pull/{member['number']}"
         assert start <= member["created_at"] < end, member["url"]
         assert member["frame"] in SAMPLE["frames"], member["url"]
+        assert member["title"] is None or member["title"].strip(), member["url"]
+        assert isinstance(member["dossier_capped"], bool), member["url"]
+        assert isinstance(member["reread_full_patch"], bool), member["url"]
 
 
 def test_no_member_touches_the_application_corpus_or_the_holdout_pool() -> None:
@@ -94,6 +103,30 @@ def test_the_neutral_frame_is_a_prefix_of_its_seeded_walk() -> None:
     assert len(frame["hours_walked"]) == len(set(frame["hours_walked"]))
     queried = {request["hour"] for request in frame["requests"]}
     assert queried == set(frame["hours_walked"])
+
+
+def test_the_hours_and_candidates_walked_are_the_first_of_their_seeded_orders() -> None:
+    window = SAMPLE["window"]
+    start = datetime.strptime(window["created_from"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    end = datetime.strptime(window["created_before"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    hours = [
+        (start + timedelta(hours=offset)).strftime("%Y-%m-%dT%H:00:00Z")
+        for offset in range(int((end - start).total_seconds() // 3600))
+    ]
+    assert len(hours) == 2160
+    order = sorted(hours, key=lambda hour: _seeded(hour))
+    walked_hours = SAMPLE["frames"]["neutral"]["hours_walked"]
+    assert walked_hours == order[: len(walked_hours)]
+
+    # Within each frame, a member's place in the walk follows its seeded key.
+    for name in SAMPLE["frames"]:
+        members = sorted(
+            (member for member in SAMPLE["members"] if member["frame"] == name),
+            key=lambda member: member["order"],
+        )
+        prefix = () if name == "neutral" else (name.removeprefix("framework:"),)
+        keys = [_seeded(*prefix, member["url"].lower()) for member in members]
+        assert keys == sorted(keys) and len(set(keys)) == len(keys), name
 
 
 def test_each_framework_frame_counts_its_members() -> None:

@@ -312,6 +312,9 @@ def prefilter_hits(compare: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------- imports / framework tags
+# Regular expressions over import lines, not import resolution: a repository's
+# own package named `agents` reads as the OpenAI Agents SDK. The tag only
+# selects what is judged; the judgment reads the code.
 FRAMEWORK_PATTERNS = (
     ("openai_agents_sdk", r"^\s*(from agents(\.[\w.]+)? import|import agents\b)"),
     ("openai_agents_js", r"@openai/agents"),
