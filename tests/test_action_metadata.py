@@ -41,11 +41,19 @@ def test_github_script_reads_output_dir_from_env():
 
 
 def test_action_installs_from_source_when_no_pypi_version_is_set():
-    text = Path("action.yml").read_text(encoding="utf-8")
+    data = yaml.safe_load(Path("action.yml").read_text(encoding="utf-8"))
+    install = next(s for s in data["runs"]["steps"] if s["name"] == "Install Agents Shipgate")
+    installer = Path("scripts/install_action_engine.py").read_text(encoding="utf-8")
 
-    assert 'default: ""' in text
-    assert 'python -P -m pip install "${GITHUB_ACTION_PATH}"' in text
-    assert "agents-shipgate==${SHIPGATE_VERSION}" in text
+    assert data["inputs"]["shipgate_version"]["default"] == ""
+    assert '"${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/install_action_engine.py"' in (
+        install["run"]
+    )
+    # Empty `shipgate_version` installs this Action's source; set, the PyPI release.
+    assert "install_version(prepare(), exact)\n        else:\n            install_source(prepare())" in (
+        installer
+    )
+    assert 'f"{DISTRIBUTION}=={exact}"' in installer
 
 
 def test_action_has_marketplace_metadata_and_outputs():

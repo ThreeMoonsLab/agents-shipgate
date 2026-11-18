@@ -7,7 +7,7 @@ Use these when you want to know whether Agents Shipgate is even relevant to your
 A stdlib-only Python script — no `pip install`, no `pipx`, no `uv`. Just fetch and run.
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py \
+curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/v1.3.0/tools/shipgate-detect.py \
   | python3 - --workspace . --json
 ```
 
@@ -15,7 +15,7 @@ Or save it locally first:
 
 ```bash
 curl -sSL -o shipgate-detect.py \
-  https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py
+  https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/v1.3.0/tools/shipgate-detect.py
 python3 shipgate-detect.py --workspace . --json
 ```
 

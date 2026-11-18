@@ -161,7 +161,8 @@ const github = {
   }},
   paginate: async () => {
     fail('list');
-    return input.prior ? [{id: 123, body: '<!-- agents-shipgate-pr-comment -->old'}] : [];
+    return input.prior ? [{id: 123, body: '<!-- agents-shipgate-pr-comment -->old',
+                           user: {type: 'Bot', login: 'github-actions[bot]'}}] : [];
   },
 };
 const summary = {

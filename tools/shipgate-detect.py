@@ -9,7 +9,7 @@ the ``agents-shipgate`` package. Stdlib-only, one file.
 Usage::
 
     python3 tools/shipgate-detect.py [--workspace PATH] [--json]
-    curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py \\
+    curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/v1.3.0/tools/shipgate-detect.py \\
         | python3 - --workspace . --json
 
 Output mirrors :class:`agents_shipgate.cli.discovery.signals.DetectResult`

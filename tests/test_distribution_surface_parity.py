@@ -422,7 +422,11 @@ SURFACES: tuple[Surface, ...] = (
     Surface(
         "zero_install_detector",
         ("tools/shipgate-detect.py",),
-        {"agent_project_verdict": ("test_detector_verdict_matches_cli",)},
+        {
+            "agent_project_verdict": ("test_detector_verdict_matches_cli",),
+            # Its docstring tells a reader which ref to fetch it from (#1032).
+            "executable_pin": ("test_every_detector_fetch_names_the_published_release",),
+        },
     ),
     Surface(
         "emitted_ci_workflow",
@@ -2212,6 +2216,95 @@ def test_every_pre_commit_example_rev_names_the_published_release():
         f"pre-commit examples name a ref other than the published release "
         f"{expected}: {offenders}. pre-commit clones this tag; move it with "
         "the other pins (docs/release-runbook.md step 8)."
+    )
+
+
+#: The files that fetched the zero-install detector from `main` when #1032 was
+#: filed. The sweep below is repo-wide; this only keeps it from going vacuous
+#: if every one of them were reworded away from the URL.
+_DETECTOR_FETCH_FILES = (
+    ".cursorrules",
+    ".well-known/agents-shipgate.json",
+    "README.md",
+    "docs/ai-search-summary.md",
+    "docs/quickstart.md",
+    "docs/zero-install.md",
+    "llms.txt",
+    "tools/shipgate-detect.py",
+)
+
+
+def _detector_fetch_refs() -> dict[str, list[str]]:
+    """Every tracked file that fetches the detector by URL, and the refs it names.
+
+    Repository-wide rather than per registered surface: `llms.txt`,
+    `.cursorrules` and `.well-known` are not registered surfaces and still tell
+    a reader, or an agent, which detector to run. The changelogs are history.
+    """
+
+    [(_label, pattern, _why)] = [
+        shape for shape in PIN_SHAPES if shape[0] == "detector fetch ref"
+    ]
+    found: dict[str, list[str]] = {}
+    for rel in _tracked_files():
+        if rel == "CHANGELOG.md" or rel.startswith("docs/changelog/"):
+            continue
+        try:
+            text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        refs = [match.group(1) for match in pattern.finditer(text)]
+        if refs:
+            found[rel] = refs
+    return found
+
+
+def test_every_detector_fetch_names_the_published_release():
+    """The detector a page fetches is the one from the release it installs (#1032).
+
+    `main` served a detector ahead of the published CLI, and the two disagreed
+    on `.shipgate/openshell.json`. Step 8 of the release runbook needs no list
+    of these: this fails once per file until each moves with the release.
+    """
+
+    found = _detector_fetch_refs()
+    missing = [rel for rel in _DETECTOR_FETCH_FILES if rel not in found]
+    assert not missing, (
+        f"{missing} no longer fetch the detector by a URL this sweep can see; the "
+        "sweep over them is vacuous. Update _DETECTOR_FETCH_FILES if the command moved."
+    )
+    expected = _expected("detector fetch ref")
+    offenders = [
+        f"{rel}: {ref!r}"
+        for rel, refs in sorted(found.items())
+        for ref in refs
+        if ref != expected
+    ]
+    assert not offenders, (
+        f"zero-install detector URLs name a ref other than the published release "
+        f"{expected}: {offenders}. Move them with the other pins "
+        "(docs/release-runbook.md step 8)."
+    )
+
+
+def test_pin_scanner_catches_a_detector_fetched_from_another_ref():
+    """Negative control for the detector URL shape."""
+
+    url = "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/{}/tools/shipgate-detect.py"
+    current = f"v{LATEST_PUBLISHED_VERSION}"
+    assert unresolvable_pins(f"curl -sSL {url.format('main')} \\") == [
+        ("detector fetch ref", "main")
+    ]
+    assert unresolvable_pins(f'"zero_install_detector_url": "{url.format("v1.0.0")}"') == [
+        ("detector fetch ref", "v1.0.0")
+    ]
+    assert not unresolvable_pins(f"`curl -sSL {url.format(current)} | python3 - --json`")
+    # Another file at `main`, or another project's detector, is not this pin.
+    assert not unresolvable_pins(
+        "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/triggers.json"
+    )
+    assert not unresolvable_pins(
+        "https://raw.githubusercontent.com/example/other/main/tools/shipgate-detect.py"
     )
 
 
