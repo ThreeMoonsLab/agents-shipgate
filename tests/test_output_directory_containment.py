@@ -582,3 +582,42 @@ def test_verify_refuses_a_linked_directory_under_verification_inputs(
 
     assert result.exit_code != 0, result.output
     assert list(outside.iterdir()) == []
+
+
+@pytest.mark.skipif(os.name != "posix", reason="creates symbolic links")
+@pytest.mark.parametrize("preview", [False, True], ids=["verify", "preview"])
+def test_a_manifest_free_run_refuses_a_linked_stale_report_instead_of_clearing_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preview: bool
+) -> None:
+    """The stale-scan cleanup before a manifest-free run goes through the contained remover."""
+
+    _clean_environment(monkeypatch)
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    sentinel = outside / "report.json"
+    sentinel.write_text("SENTINEL\n", encoding="utf-8")
+    repo = _git_repository(tmp_path)
+    (repo / "shipgate.yaml").unlink()
+    reports = tmp_path / "operator-reports"
+    reports.mkdir()
+    (reports / "report.json").symlink_to(sentinel)
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            *(["--preview"] if preview else []),
+            "--workspace",
+            str(repo),
+            "--no-base",
+            "--out",
+            str(reports),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "symbolic link" in result.output
+    assert sentinel.read_text(encoding="utf-8") == "SENTINEL\n"
+    assert (reports / "report.json").is_symlink()

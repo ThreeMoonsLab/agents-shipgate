@@ -18,6 +18,7 @@ from typing import Any
 from agents_shipgate.core.artifact_models import N8nArtifacts
 from agents_shipgate.core.domain import AuthInfo, ToolRiskHint
 from agents_shipgate.inputs.n8n._common import (
+    _HTTP_TARGET_KEYS,
     _NodeItem,
     _redact_text,
     _string_or_none,
@@ -165,7 +166,7 @@ def _add_hint(
 
 
 def _http_path_hint(item: _NodeItem) -> str | None:
-    value = _top_level_string(item.parameters, {"url", "path", "endpoint"})
+    value = _top_level_string(item.parameters, _HTTP_TARGET_KEYS)
     if not value:
         return None
     if "://" in value:

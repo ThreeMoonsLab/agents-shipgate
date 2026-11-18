@@ -23,8 +23,13 @@ By default Agents Shipgate does not:
 
 - YAML is parsed with `yaml.safe_load`.
 - Declared local input paths are resolved relative to the manifest directory and rejected if they escape that base directory. This prevents a manifest from reading sibling repositories or absolute host files unless the source is first copied or symlinked into the reviewed workspace.
-- OpenAPI `$ref` resolution only follows internal JSON pointers beginning with `#/`.
-- `file://`, `http://`, and other external `$ref` values are left as inert schema values.
+- OpenAPI `$ref` resolution follows local JSON Pointer fragments, including
+  percent escapes and array indexes. Unread references to request bodies,
+  parameters, selected responses, or their media types mark the affected
+  tools' schema extraction incomplete. The warning identifies the pointer,
+  reference, and affected operations.
+- External `$ref` values never cause a file read or network request. Schema
+  references are retained as metadata with a warning.
 - Workspace discovery for `detect` and auto-init may invoke the local `git`
   binary (`rev-parse` and `ls-files`) with short timeouts to enumerate
   tracked/unignored files. This does not contact remotes, execute user code,
@@ -125,7 +130,8 @@ commands write where their documented `--out` options say.
     scaffolds;
   - the `current-control.json` pointer and the stale verifier artifacts it
     removes;
-  - the `verification-inputs/` copies.
+  - the `verification-inputs/` copies;
+  - the stale scan artifacts `verify` clears before a manifest-free run.
 - **What the contained writer refuses.** Before anything is written or
   removed, it refuses:
   - a link or junction in any directory below the trusted root;

@@ -9,6 +9,7 @@ from agents_shipgate.cli.discovery.placeholders import manifest_placeholder_fiel
 from agents_shipgate.core.capability_lock import build_capability_lock
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError
 from agents_shipgate.core.operation_attribution import ReconstructedOperationBase
+from agents_shipgate.inputs.protocol import _adapter_plugins_enabled
 from agents_shipgate.report.human_order import HumanArtifactContext
 from agents_shipgate.schemas.capabilities import CapabilityLockFileV1
 from agents_shipgate.schemas.common import parse_severity
@@ -200,7 +201,7 @@ def _run_scan(
                 source_count=len(inputs.loaded_sources),
                 source_warning_count=len(tools_and_agent.warnings),
                 toolkit_bound_count=len(tools_and_agent.toolkit_bounds),
-                plugins_enabled=plugins_enabled is not False,
+                plugins_enabled=_adapter_plugins_enabled(plugins_enabled),
             )
         )
     with _perf.phase("load_diff_references"):

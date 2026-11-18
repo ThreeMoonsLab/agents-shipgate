@@ -24,7 +24,11 @@ from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
 from agents_shipgate.checks.verify_policy import touched_policy_surfaces
 from agents_shipgate.ci.exit_policy import effective_fail_on
 from agents_shipgate.ci.release_decision import SUGGESTED_DECLARATIONS_FILENAME
-from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
+from agents_shipgate.cli._artifact_lifecycle import (
+    SCAN_REPORT_ARTIFACT_NAMES,
+    ArtifactLifecycleError,
+    clear_verifier_route_artifacts,
+)
 from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.current_workspace import (
     DEFAULT_REPORTS_DIR,
@@ -66,7 +70,11 @@ from agents_shipgate.core.capability_lock import (
     render_capability_lock_diff_json,
     render_capability_lock_json,
 )
-from agents_shipgate.core.contained_write import refuse_links_inside
+from agents_shipgate.core.contained_write import (
+    UnsafeOutputPathError,
+    refuse_links_inside,
+    remove_contained,
+)
 from agents_shipgate.core.current_control import (
     VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS,
     begin_current_control,
@@ -622,6 +630,8 @@ def run_verify(
         repository=_safe_repository_identity(git_root),
     )
     clear_verifier_route_artifacts(out_dir)
+    if not config_path.is_file():
+        _remove_scan_artifacts(out_dir, strict=True)
     verifier_path = out_dir / "verifier.json"
     verify_run_path = out_dir / "verify-run.json"
     pr_comment_path = out_dir / "pr-comment.md"
@@ -5177,15 +5187,9 @@ def _artifact_paths(
     }
 
 
-def _remove_scan_artifacts(out_dir: Path) -> None:
+def _remove_scan_artifacts(out_dir: Path, *, strict: bool = False) -> None:
     for name in (
-        "report.md",
-        "report.json",
-        "report.sarif",
-        "packet.md",
-        "packet.json",
-        "packet.html",
-        "packet.pdf",
+        *SCAN_REPORT_ARTIFACT_NAMES,
         "capabilities.lock.json",
         "base.capabilities.lock.json",
         "capability-lock-diff.json",
@@ -5193,15 +5197,28 @@ def _remove_scan_artifacts(out_dir: Path) -> None:
         CAPABILITY_DELTA_ATTESTATION_FILENAME,
         CAPABILITY_DELTA_ATTESTATION_V2_FILENAME,
         HUMAN_REVIEW_REQUEST_FILENAME,
-        # Remediation instructions must not outlive the report they describe:
-        # an early verifier reset would otherwise clear report.json and leave a
-        # scaffold behind asking for declarations nothing is measuring.
-        SUGGESTED_DECLARATIONS_FILENAME,
     ):
         path = out_dir / name
-        if path.is_file() or path.is_symlink():
-            with contextlib.suppress(OSError):
-                path.unlink()
+        try:
+            # The contained remover every reports-directory cleanup uses
+            # (#1031): a link or special file under one of these names is
+            # never followed or dropped. A strict cleanup refuses the run; a
+            # best-effort one leaves the entry in place, as it leaves any
+            # entry it cannot remove.
+            removed = remove_contained(path, root=out_dir)
+        except UnsafeOutputPathError:
+            if strict:
+                raise
+        except OSError as exc:
+            if strict:
+                raise ArtifactLifecycleError(path, exc) from exc
+        else:
+            # A directory under an artifact name is left alone by the remover;
+            # a strict cleanup still cannot claim the name is clear.
+            if strict and not removed and os.path.lexists(path):
+                raise ArtifactLifecycleError(
+                    path, IsADirectoryError(f"{path} is not a file")
+                )
 
 
 def _apply_authorization_overlay(
@@ -7386,6 +7403,8 @@ def run_preview(
     agent_handoff_path = out_dir / "agent-handoff.json"
     pr_comment_path = out_dir / "pr-comment.md"
     manifest_present = config_path.is_file()
+    if not manifest_present:
+        _remove_scan_artifacts(out_dir, strict=True)
 
     changed_files: list[str] = []
     diff_text = ""
