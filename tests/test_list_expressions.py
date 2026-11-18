@@ -19,16 +19,47 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
-from agents_shipgate.inputs.list_expressions import MAX_DEPTH, ListExpressions
-from agents_shipgate.inputs.python_imports import ScopeIndex, _module_bindings
+from agents_shipgate.inputs.list_expressions import MAX_DEPTH, ListExpressions, _unprovided_root
+from agents_shipgate.inputs.python_imports import (
+    MODULE_NOT_FOUND,
+    ScopeIndex,
+    _module_bindings,
+    _Stop,
+)
 from tests.test_imported_tool_bindings import _adk, _commit, _compare, _edges, _git, _sdk, _write
 
 # -- the resolver, one shape at a time ------------------------------------------
+
+
+def test_namespace_root_stat_failure_is_not_proof_of_absence(tmp_path, monkeypatch):
+    def missing_module(_module, _provider):
+        raise _Stop(MODULE_NOT_FOUND, "No module in the visible listing")
+
+    resolver = SimpleNamespace(
+        _layout=SimpleNamespace(scope="", entries=lambda _: frozenset()),
+        _listings={},
+        _installed_absolute=missing_module,
+        _import_roots=lambda: ("src",),
+        scope_root=tmp_path,
+    )
+    view = SimpleNamespace(unprovided_roots={}, resolver=resolver, module=object())
+    assert _unprovided_root(view, "operator")
+    view.unprovided_roots.clear()
+    original_lstat = Path.lstat
+
+    def cannot_inspect_src(path):
+        if path == tmp_path / "src":
+            raise PermissionError("Cannot inspect the possible import root")
+        return original_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", cannot_inspect_src)
+    assert not _unprovided_root(view, "operator")
 
 
 def _resolve(source: str, expression: str = "TOOLS"):

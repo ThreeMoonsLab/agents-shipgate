@@ -37,7 +37,10 @@ rates them by the same table (``tests/test_prompt_disabling_settings.py``).
 from __future__ import annotations
 
 import json
+import os
+import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -219,6 +222,44 @@ def _check(tmp_path: Path, range_args: list[str], format_: str, agent: str = "cl
 def _no_merge_authority(permissions: dict[str, bool]) -> None:
     assert permissions["merge"] is False
     assert permissions["report_complete"] is False
+
+
+@pytest.mark.parametrize("config_source", ["global", "command"])
+def test_check_fixtures_ignore_external_excludes(tmp_path: Path, config_source: str) -> None:
+    """Run both local-settings variants under a conflicting Git config."""
+    excludes = tmp_path / "ignore"
+    excludes.write_text("**/.claude/settings.local.json\n", encoding="utf-8")
+    child_env = os.environ.copy()
+    for key in (
+        "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS", "PYTEST_ADDOPTS",
+        "SHIPGATE_TEST_SHARD", "SHIPGATE_TEST_SHARDS",
+    ):
+        child_env.pop(key, None)
+    command = [sys.executable, "-m", "pytest", "-q"]
+    node = f"{Path(__file__).resolve()}::test_check_answers_an_unmodelled_settings_key_in_every_format"
+    command.extend(f"{node}[local_settings_enabled_plugins-{mode}]" for mode in ("worktree", "git_range"))
+    if config_source == "global":
+        config = tmp_path / "gitconfig"
+        subprocess.run(
+            ["git", "config", "--file", str(config), "core.excludesFile", str(excludes)],
+            check=True,
+        )
+        child_env["GIT_CONFIG_GLOBAL"] = str(config)
+    else:
+        # Git exports its command-line overrides to the alias subprocess.
+        command = [
+            "git", "-c", f"core.excludesFile={excludes}",
+            "-c", f"alias.shipgate-fixture=!{shlex.join(command)}", "shipgate-fixture",
+        ]
+    result = subprocess.run(
+        command,
+        cwd=Path(__file__).resolve().parents[1],
+        env=child_env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize("mode", ["worktree", "git_range"])
