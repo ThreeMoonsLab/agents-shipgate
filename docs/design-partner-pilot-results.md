@@ -32,6 +32,20 @@ entry is a statement someone else chose to publish — so they are never added
 together, and a pilot participant appears in the registry only by adding
 themselves.
 
+## Application-diff route — 2026-11-16
+
+The [application-diff protocol](application-review-pilot.md) is prepared.
+No application-route invitations, reviewer tasks, or eligible second-change
+observations have been recorded. Both reviewer-value and voluntary-reuse
+rates have a denominator of zero. The owner ruling on the released-build
+outreach gate and the qualifying release are pending.
+
+Development evidence from 2026-11-16 covers six PRs replayed from source at
+`fc8cbb670766d2f63550f1864039479d789ff6d1`. Five comparisons were partial.
+Ten direct changes in four positive cases appeared as candidates. The sixth
+case was an unsupported-framework control. The source labels were
+agent-authored and nonblind. [Development replay record](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1172).
+
 ## Enrollment and opportunity shortfall — 2026-09-05
 
 Zero invitations have gone out. The first version of this section, dated
