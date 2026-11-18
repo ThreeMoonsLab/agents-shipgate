@@ -51,6 +51,7 @@ from agents_shipgate.cli.scan.human_order import override_human_manifest_committ
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.cli.scan.path_helpers import _resolve_audit_log_path
 from agents_shipgate.config.loader import load_manifest_text
+from agents_shipgate.core.agent_boundary import is_unread_changed_input_gap
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.authorization_execution import (
@@ -4566,10 +4567,19 @@ def _derive_verifier_control(
     # read the change and reach a determination it can stand behind? Publishing
     # asserts something about an evaluated change, so no route may claim it
     # without all four parts — not the repair route, and not the human one.
+    #
+    # A changed host configuration the reader could not read is part of the
+    # change this run did not read (#1154). Its evidence gap already holds the
+    # decision at ``insufficient_evidence``; without this the human route below
+    # still offered to publish it, which `check` refuses for the same file.
     read_the_change = bool(
         execution == "succeeded"
         and release_decision is not None
         and diff_status.completeness == "complete"
+        and not any(
+            is_unread_changed_input_gap(gap)
+            for gap in release_decision.evidence_coverage.evidence_gaps
+        )
     )
     subject_evaluated = bool(
         read_the_change
