@@ -138,6 +138,60 @@ def test_check_names_same_five_changes_in_explicit_text_and_json(s1):
     assert payload["control"]["state"] != "complete"
 
 
+@pytest.mark.parametrize("target", ["worktree", "commit", "worktree-without-base"])
+def test_manifest_free_verify_preserves_check_human_stop(s1, target):
+    common = ["--workspace", str(s1)]
+    check_range = verify_range = ["--base", "main"]
+    if target == "commit":
+        common += ["--head", "HEAD"]
+    elif target == "worktree-without-base":
+        git(s1, "reset", "--mixed", "main")
+        check_range = ["--base", "HEAD"]
+        verify_range = ["--no-base"]
+    checker = CliRunner().invoke(
+        app, ["check", *common, *check_range, "--format", "agent-boundary-json"]
+    )
+    verifier = CliRunner().invoke(app, ["verify", *common, *verify_range, "--format", "json"])
+    assert checker.exit_code == verifier.exit_code == 0, checker.output + verifier.output
+
+    boundary = json.loads(checker.output)
+    result = json.loads(verifier.output)
+    assert boundary["decision"] == "block"
+    assert boundary["control"]["must_stop"] and result["control"]["must_stop"]
+    assert boundary["control"]["human_review"]["required"]
+    assert result["control"]["human_review"] == boundary["control"]["human_review"]
+    assert result["control"]["next_action"]["actor"] == "human"
+    assert result["control"]["next_action"]["command"] is None
+    assert result["merge_verdict"] == "unknown"
+    assert result["release_decision"] is None
+
+
+def test_manifest_free_verify_uses_one_automatically_selected_comparison(s1):
+    git(s1, "update-ref", "refs/remotes/origin/main", "main")
+    git(s1, "update-ref", "refs/remotes/origin/review", "HEAD")
+    git(s1, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/review")
+
+    result = CliRunner().invoke(
+        app, ["verify", "--workspace", str(s1), "--head", "HEAD", "--format", "json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    comparison = payload["host_comparison"]
+    assert comparison["base_commit"] == comparison["head_commit"]
+    assert comparison["rows"] == []
+    assert payload["changed_files"] == []
+
+
+def test_strict_manifest_free_verifier_explains_the_host_route(s1):
+    result = CliRunner().invoke(app, [
+        "verify", "--workspace", str(s1), "--base", "main", "--head", "HEAD",
+        "--ci-mode", "strict", "--format", "json",
+    ])
+    assert result.exit_code == 2
+    assert "For a host-only comparison, rerun verify in advisory mode." in result.output
+
+
 def test_verify_explicit_head_ignores_dirty_worktree(s1):
     write(s1, ".claude/settings.json", {"permissions": {"allow": ["Bash(DIRTY_CANARY)"]}})
     args = [

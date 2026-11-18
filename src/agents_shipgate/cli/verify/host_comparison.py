@@ -19,6 +19,7 @@ from agents_shipgate.cli.verify.git import (
     shallow_merge_base_is_proven,
     tree_path_absent,
     tree_sha,
+    unread_link_prover,
 )
 from agents_shipgate.core.boundary_diff import BoundaryInputIssue
 from agents_shipgate.core.boundary_registry import (
@@ -206,6 +207,9 @@ def compare_host_refs(
             unchanged=unchanged,
             identities=identities,
             absent=absent,
+            # An unread in-tree directory link Git proves unchanged, holding
+            # no configuration, is named rather than refusing (#1004).
+            unchanged_link=unread_link_prover(workspace, base_commit, compared_head),
             coverage=coverage,
             # Without coverage (`check`) the set is listed only if a removed
             # MCP server's row needs it (#929).

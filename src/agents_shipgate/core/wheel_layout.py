@@ -32,6 +32,10 @@ WHEEL_LAYOUT: tuple[tuple[str, str], ...] = (
     (".claude/commands/shipgate.md", "_meta/claude-command/shipgate.md"),
     ("docs/checks", "_meta/checks"),
     (
+        "examples/github-actions/14-host-only-advisory-pr.yml",
+        "_meta/host-only-advisory.yml",
+    ),
+    (
         "policies/codex-boundary.shipgate.yaml",
         "_meta/policies/codex-boundary.shipgate.yaml",
     ),

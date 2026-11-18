@@ -455,6 +455,7 @@
   "tests/test_git_env.py": 13.5,
   "tests/test_output_directory_containment.py": 0.5,
   "tests/test_unreadable_host_input.py": 297.8,
+  "tests/test_unchanged_link_limits.py": 77.2,
   "tests/test_control_evidence.py": 0.2
  },
  "measured_at": "cbff1ef0b101",
@@ -796,6 +797,17 @@
    },
    "case_count": 64,
    "command": "python -m pytest tests/test_unreadable_host_input.py -n 4 --junitxml=unreadable-host-input.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "7473787962ad with issue #1004 unchanged in-tree directory link increment (review cycle 1)",
+   "report_sha256": "f8d64d50a70ed1b050633f665c66e4a805b8bb98fcfceafd4ca52017cbfae5aa",
+   "files": {
+    "tests/test_unchanged_link_limits.py": 77.2
+   },
+   "case_count": 138,
+   "command": "python -m pytest tests/test_unchanged_link_limits.py -n 2 --junitxml=unchanged-link-limits.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {
