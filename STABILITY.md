@@ -13,8 +13,9 @@ on both sides is no longer a `not_established` row: `rows` is shorter for the
 same change, and its agent's optional top-level `read_same` names it once with
 its doubts (whether the agent holds it, or which file an import search
 reaches). A doubt about which definition or settings are bound keeps the row,
-with optional `doubts`. No published schema document exists for either
-version yet (#1044).
+with optional `doubts`. `compared` can become `partial` when a handoff or
+sub-agent target name is bound more than once or an MCP endpoint cannot be
+named. No published schema document exists for either version yet (#1044).
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 

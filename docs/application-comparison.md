@@ -108,11 +108,22 @@ What a finding states, and from where:
   (`implementation not read on either side`), when which definition is bound
   is not established (a name bound more than once, an import fallback, a lazy
   `__getattr__`, code run first that could rebind it, an import the read does
-  not follow that could reassign it, a name bound by name only, a handoff or
-  sub-agent target bound more than once), when what a tool object is was read
-  only in part (an MCP server's URL, command or arguments the read cannot
-  name), when the agent's settings were not read or conflict, and for any
-  doubt no reader classified. The row's `doubts` names which, and its finding
+  not follow that could reassign it, machinery in the agent's own module that
+  can rebind any of its names (a wildcard import, `globals()`/`vars()`/
+  `__dict__` writes, exec- or setattr-style calls, an unread module
+  star-imported there) or an unread module the tool's own name is imported
+  from, a name bound by name only, a handoff or sub-agent target bound more
+  than once), when what a tool object is was read only in part (an MCP
+  server's URL, command or arguments the read cannot name) and its agent is
+  already uncertain, when the agent's settings were not read or conflict, and
+  for any doubt no reader classified. A named import from an unread module
+  that binds another name (`from ..config import config`) doubts only the
+  constructor, so it stays with the agent. An object read in part on an
+  otherwise proved agent is an agent limit and no row, as before. A handoff
+  or sub-agent target whose name is bound more than once, and an MCP endpoint
+  the read cannot name, make the comparison `partial`, where it could be
+  `compared` before; the target rule does not yet look at order, so a
+  rebinding under `if __name__ == "__main__":` counts too. The row's `doubts` names which, and its finding
   says it: `reads the same on both sides, but which definition is bound is not
   established`.
 - **A question specific to the change**: a new write, process, network or
