@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
+from agents_shipgate.core.privacy import redact_text, truncate_redacted
 from agents_shipgate.schemas.common import SourceReference, parse_confidence, parse_severity
 from agents_shipgate.schemas.report import Finding
 from agents_shipgate.skill.models import SkillArtifact, TextSegment
@@ -105,10 +106,21 @@ def excerpt(text: str, line: int, *, max_len: int = 180) -> str:
     lines = text.splitlines()
     if line < 1 or line > len(lines):
         return ""
-    value = lines[line - 1].strip()
+    return bounded_excerpt(lines[line - 1], max_len=max_len)
+
+
+def bounded_excerpt(text: str, *, max_len: int = 180) -> str:
+    """``text`` redacted, then cut to ``max_len`` characters with ``...``.
+
+    Redacting after the cut published the first part of a credential that
+    straddled ``max_len``: too short for any rule to recognise by the time the
+    report redacted it (#1079).
+    """
+
+    value = redact_text(text.strip()) or ""
     if len(value) <= max_len:
         return value
-    return f"{value[:max_len]}..."
+    return f"{truncate_redacted(value, max_len)}..."
 
 
 def iter_lines(segment: TextSegment):

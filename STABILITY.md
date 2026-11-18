@@ -843,6 +843,123 @@ already says.
 
 ---
 
+<a id="lock-family-redaction-1079"></a>
+
+## Migration Note: Unreleased — the capability lock family is redacted, and the digests it computes are taken over the redacted text (#1079)
+
+**What was wrong.** `report.json`, the packet, SARIF, the PR comment and
+`verifier.json` redact every secret shape, but the capability lock family was
+built from unredacted capability facts: `capabilities.lock.json` (from
+`capability export`, the MCP `shipgate.capabilities` tool and `verify`, with
+`base.capabilities.lock.json`), `capability-lock-diff.json` and `.md` (from
+`verify` and `capability diff`), and `capability-delta-attestation.json` and
+`.v2.json`. A key in a tool name, in its owner
+(`$.capabilities[].controls.evidence_owner`), a scope, an authority source or
+a source pointer was published verbatim in the lock, in the diff's `added[]`,
+`changed[].before`/`after` and `semantic_changes[].before`/`after`, and
+throughout both attestations. A lock read back from disk was republished as it
+was. Separately, text cut to a length before the publication-time redaction
+reached it lost, when a credential straddled the cut, the characters a rule
+needs, and the credential's head was published: the n8n HTTP tool's path hint
+(200 characters), the agent's `instructions.value_preview` from an OpenAI or
+Anthropic prompt file or an ADK instruction (500), skill-review excerpts
+(180), and the Python reader's expression text in a caveat (160) and its
+source-slot refusal rows (1,024). Git's diagnostic in a `verify` diff status
+(240) was bounded and never redacted at all.
+
+**What changes.**
+
+- **Every string the family publishes is redacted** where the lock is
+  assembled, by the rules `report.json` uses: each capability's identity,
+  effect, authority, controls, evidence, risk tags and semantic assessment,
+  the lock's `source` block and `cli_version`, the `base.path`/`head.path` of
+  a lock diff, and an attestation's `subject[].name`. Diff rows, semantic
+  changes and attestation records are built from those facts, so they carry
+  the redacted text.
+- **The digests the lock computes are taken over the redacted text.** Each
+  capability digest whose input redaction changed (`identity_hash`,
+  `binding_hash`, `authority_hash`, `control_hash`, `risk_hash`,
+  `evidence_hash`) is recomputed over the redacted text by the same recipe,
+  and the capability `id` (`cap_<identity_hash>`) follows it. The lock's
+  `semantic_capability_set_hash`, `evidence_set_hash`, `source_set_hash` and
+  `definition_set_hash`, and the payload's `subject.key`,
+  `capability_set_digest` and `evidence_set_digest`, are computed from those,
+  so a consumer that recomputes one from the published file agrees with it,
+  and `tools/verify-capability-delta.py` accepts both attestations.
+  `schema_hash` and the definition digests cover text no lock publishes and
+  do not move. The in-toto `subject[].digest` (`gitTree`, `gitCommit`) names
+  repository objects, not lock content, and does not move.
+- **Ids an adapter derives from source text are not digests of what the
+  file shows.** `identity.tool_id` (`tool_v2_…`) and
+  `semantic_assessment.identity.primary_observation_id` and
+  `observation_ids[]` (`obs_v1_…`) are digests the readers take, when they
+  read a tool, of its source text: the observation's locator, or the reviewed
+  binding that names it. They are kept as they are, because they are the
+  identity `report.json`, the packet and `verifier.json` carry too, and the
+  capability `id` is taken over them. A reader cannot recompute them from the
+  published file, and anyone who can guess the redacted text, such as a
+  low-entropy credential in a tool name, can confirm the guess against them
+  by dictionary. That was already so before this change, which also published
+  the text itself. A keyed id would close it; it is not part of this change.
+- **A lock read from disk is made publishable the same way**: a committed
+  `.agents-shipgate/capabilities.lock.json` written before this change, a
+  cached base lock and a `capability diff` input republish nothing they
+  carried, and an old lock and a fresh export of the same tools get the same
+  ids, so upgrading does not read as a reidentified capability. A lock with
+  nothing to redact reads back byte for byte, and a lock-level digest whose
+  input redaction did not move keeps its stored value.
+- **Two capabilities are never merged.** Redaction is many-to-one, so two
+  tools whose identities differ only inside a credential would redact to one
+  id, and a diff keys capabilities by id. Each capability in such a group
+  keeps the identity digest and id of its source text, which do not describe
+  the published text either: the lock shows two indistinguishable names, but
+  two capabilities. Only a caller whose `tool_id`s are taken from names
+  reaches this: the shipped readers' `tool_v2_…` ids hash the raw
+  observation, and `action_surface` rejects duplicate selectors. Its diff
+  rows are best effort. A fact's id is its source digest while a twin exists
+  and its redacted digest when it is alone, and pairing runs on the redacted
+  names, which the twins share, so a twin arriving or leaving can show as a
+  `reidentified` row or an owner change that did not happen.
+- **Redact, then cut.** Every site named above is redacted before it is cut,
+  and a cut never ends inside a `[REDACTED:…]` marker: a marker the bound
+  would split is dropped whole. When Git's diagnostic fills the 8 KiB
+  capture, its last, possibly cut, word is dropped before it is read. Two
+  places that bound already-redacted text no longer cut through a marker
+  either: the blocker title in `verify`'s headline (120 characters, and its
+  byte budget) and an evidence gap's subject in its one-line headline (120),
+  which had published half of one (`create_refund_x…_[REDACTED:op…`). A sweep
+  of `src/` for text cut to a length found no other text cut before the
+  redaction that publishes it.
+- **The privacy audit does not count these read-time redactions yet.**
+  Because the sites above now redact when the text is read, the report-time
+  pass finds `[REDACTED:…]` markers there and `privacy_audit` counts none of
+  them: for the same input, `redacted_occurrence_count` and `redacted_paths`
+  can be lower than before (a prompt file's
+  `agent.instructions.value_preview` row, a reader caveat's
+  `source_warnings[][]` row). Counting redactions made before the final pass
+  is [#586](https://github.com/ThreeMoonsLab/agents-shipgate/issues/586).
+
+**Who must act.** Rotate any credential a lock, lock diff or attestation
+published, and re-run `capability export` so the committed lock no longer
+carries it. For a capability whose identity text holds a secret shape, the
+published `id` and digests, the lock's `source_set_hash` and set hashes, and a
+lock diff's `base`/`head` hashes move once; a consumer that pinned one of
+those values re-pins it. A capability, or a lock, with nothing to redact keeps
+every byte. An n8n HTTP tool whose URL path holds a secret shape can show a
+different path hint, and so a different `annotations_hash` (one
+`definition_changed` row). A skill finding whose excerpt line holds a secret
+shape publishes a different excerpt and fingerprint, so code scanning may show
+its alert as new once. A consumer that compares
+`privacy_audit.redacted_occurrence_count` across versions can see it fall
+where one of these sites redacted something.
+
+**What does not change.** No schema or schema version, field, CLI flag, check
+ID, control state or contract version moves. `privacy_audit.rules_version`
+stays `0.2`: no rule changed, only where the rules are applied.
+`verification-input.diff` remains the exact bytes of the change.
+
+---
+
 <a id="held-restrictions-1036"></a>
 
 ## Migration Note: Unreleased — a tightened deny or ask rule is not a widening, and a lifted denial is rated by what it restricted (#1036)
@@ -1535,9 +1652,10 @@ finding whose fingerprint moved.
 permission is added, `report_schema_version` stays `1.0`, and
 `publish_when_policy_ineligible` stays in-process catalog metadata, absent from
 `docs/checks.json`. `verification-input.diff` remains the exact bytes of the
-change. The capability lock family (`capabilities.lock.json`, the lock diff
-and the capability delta attestation) stays unredacted, as before, pending
-#1079.
+change. This change did not redact the capability lock family
+(`capabilities.lock.json`, the lock diff and the capability delta
+attestation); #1079 does, and every string it publishes is now redacted. See
+[that migration note](#lock-family-redaction-1079).
 
 ---
 
@@ -6227,6 +6345,19 @@ positives redaction is. Even redaction leaves camelCase names and paths that
 read as words alone, so a SARIF location keeps its file. A detected secret or instruction-like
 text is always published as a finding with its value redacted, never hidden in
 an evidence gap. See [the migration note](#secret-observations-1026).
+
+The capability lock family (`capabilities.lock.json`,
+`base.capabilities.lock.json`, `capability-lock-diff.json` and `.md`, and
+both capability delta attestations) is redacted by the same rules, where a
+lock is assembled and where one is read, and each digest the lock computes is
+taken over the redacted text, so a consumer recomputes it from the file. Ids
+an adapter derives from source text are not: `tool_id` (`tool_v2_…`) and the
+observation ids (`obs_v1_…`), here as in `report.json` and `verifier.json`,
+are digests of text the file does not show, so a reader cannot recompute them
+and can test a guess for that text against them; so are the identity digests
+of two capabilities redaction would merge. Text a reader bounds to a length is
+redacted before it is cut. Those read-time redactions are not yet counted in
+`privacy_audit` (#586). See [the migration note](#lock-family-redaction-1079).
 
 Changed-file paths are published verbatim, by decision (#742). `check` and
 `verify` name each file the change touches exactly as Git names it: in

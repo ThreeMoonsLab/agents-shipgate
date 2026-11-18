@@ -464,6 +464,45 @@ def redact_data(
     )
 
 
+def redact_and_truncate(
+    value: str | None,
+    limit: int,
+    *,
+    stats: RedactionStats | None = None,
+    path: str = "$",
+) -> str | None:
+    """Redact ``value``, then cut it to at most ``limit`` characters.
+
+    The order is the point (#1079). Cutting first can split a credential that
+    straddles the limit, and the part left before the cut may be too short for
+    any rule to recognise, so a later redaction pass publishes it in part.
+    """
+
+    redacted = redact_text(value, stats=stats, path=path)
+    if redacted is None:
+        return None
+    return truncate_redacted(redacted, limit)
+
+
+def truncate_redacted(value: str, limit: int) -> str:
+    """Cut already-redacted text to at most ``limit`` characters.
+
+    The cut never ends inside a redaction marker: a marker the limit would
+    split is dropped whole, not published as half a word.
+    """
+
+    if len(value) <= limit:
+        return value
+    cut = max(limit, 0)
+    for marker in REDACTION_MARKER_RE.finditer(value):
+        if marker.start() >= cut:
+            break
+        if marker.end() > cut:
+            cut = marker.start()
+            break
+    return value[:cut]
+
+
 def _redact_value(
     value: Any,
     *,

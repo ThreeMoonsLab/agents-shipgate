@@ -19,6 +19,7 @@ import json
 import re
 import unicodedata
 
+from agents_shipgate.core.privacy import redact_text, truncate_redacted
 from agents_shipgate.schemas.report import EvidenceCoverageDecision, EvidenceGap
 from agents_shipgate.schemas.text import has_visible_content, is_default_ignorable
 
@@ -389,9 +390,10 @@ def evidence_gap_headline(gap: EvidenceGap) -> str:
     phrase = _GAP_PHRASE.get(gap.kind, gap.kind.replace("_", " "))
     if gap.subject_kind == "tool_source":
         phrase = _SOURCE_SCOPED_GAP_PHRASE.get(gap.kind, phrase)
-    subject = one_line(gap.subject)
+    subject = one_line(redact_text(gap.subject) or "")
     if len(subject) > _MAX_SUBJECT_CHARS:
-        subject = f"{subject[: _MAX_SUBJECT_CHARS - 1].rstrip()}…"
+        # Never through a ``[REDACTED:…]`` marker (#1079 review).
+        subject = f"{truncate_redacted(subject, _MAX_SUBJECT_CHARS - 1).rstrip()}…"
     return f"{phrase} ({subject})" if subject else phrase
 
 
