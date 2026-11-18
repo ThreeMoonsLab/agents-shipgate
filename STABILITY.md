@@ -372,6 +372,146 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="unchanged-directory-links-1004"></a>
+
+## Migration Note: Unreleased — an unchanged in-tree directory link is named, not a refusal (#1004)
+
+No schema, member, reason code, check ID, limit kind or
+`minimum_control_contract_version` moves, and host-grants stays `0.9`. What
+moves is which comparisons name an unchanged limit instead of refusing, and so
+which are `comparable`.
+
+**What was wrong.** `chanzuckerberg/single-cell-data-portal#7802` changes only
+`.mcp.json`. Its four Terraform environment links, such as
+`.happy/terraform/envs/dev/modules -> ../../modules`, and the directory they
+name are identical at the merge base and the head. Such a link is not at a
+boundary location, so the reader does not read through it (#700), and a `**/`
+glob such as `**/CLAUDE.md` could match beneath it, so it is a blocking
+`unreadable` limit under every host with such a glob (`claude-code`, `codex`,
+`cursor`, `openshell`). `unreadable` was never named as unchanged (#721,
+#822), so `diff`, `verify` and the PR comment refused the whole comparison:
+`incomparable`, `base_inventory_incomplete; head_inventory_incomplete`, no
+row. Replayed with its real trees, it is now `comparable` with the six
+`.mcp.json` rows the change makes, and the four links named.
+
+| The issue's static control | `1.3.0` `diff`, `verify` and PR comment | now |
+| --- | --- | --- |
+| no link; `.mcp.json` gains a server | `comparable`, 1 row | unchanged |
+| the same, beside an unchanged `.happy/terraform/envs/dev/modules -> ../../modules` | `incomparable`, 0 rows | `comparable`, the same row; the link named in `unchanged_limits` (`limit: unreadable`) under each of the four hosts |
+
+- **The proof.** Read from Git objects, never by following the link. All of
+  these must hold:
+  - **the link:** on both sides an entry of mode `120000` at the path, with
+    the same blob (so the same text), and a directory at every component
+    above it;
+  - **where it lands:** its text names, in one hop, a directory inside the
+    repository, walked one component at a time as the filesystem walks it
+    (so `missing/../modules` fails at `missing`), that does not hold the link
+    itself;
+  - **what it holds:** the same Git tree object on both sides, so the same
+    files, modes and bytes, with no link or submodule anywhere beneath it,
+    and at most 10,000 files.
+
+  The base and a commit head are read from their tree entries. A working-tree
+  head (`diff`, `verify` without `--head`) is read without following any
+  link: each component by its own entry, the link by its own text, and every
+  entry beneath the directory it names by its own entry, each file by its
+  unfiltered hash, which must match the base's tree exactly. An untracked or
+  ignored file there, an edit, a changed executable bit, a link or a special
+  file keeps the limit. No `textconv` or filter runs, so a checkout with
+  `core.fileMode=false` or `core.autocrlf` that changes the bytes or the
+  executable bit on disk keeps the limit too, as #822's file proof does.
+- **Build output.** One exception to the working-tree rule: a directory or
+  link named as one the repository walk never enters (`.git`, `.hg`, `.svn`,
+  `node_modules`, `site-packages`, `.venv`, `venv`, `__pycache__`,
+  `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `.nox`) is not
+  walked, so what a local run leaves untracked there does not count as a
+  change. Every host's reader enumerates its sources from that walk, so none
+  reads a configuration file beneath such a name, at its real path or through
+  the link; a file another reader opens by reference, such as a hook script,
+  is compared at its own path or carries its own limit. A file Git tracks
+  beneath such a name still counts, checked by its own entries. Any other
+  ignored name, such as `.terraform`, still counts as a change.
+- **Bounds.** A directory several links name is listed, matched against the
+  registry and checked in the working tree once per comparison. One
+  directory may hold at most 10,000 files and, in a working tree, 64 MiB;
+  one comparison examines at most 20,000 files and 128 MiB beneath all its
+  links together. The comparison also caps Git lookups at 1,024 and bounds
+  working-tree directory enumeration. Past a bound the link keeps its limit,
+  and the coverage `detail` identifies the bound that prevented proof.
+- **Configuration cannot be moved behind a link (owner ruling).** A link
+  where a host reads agent configuration keeps its blocking limit, however
+  unchanged. It is decided by the boundary registry's own patterns,
+  case-insensitively (`is_host_configuration_location`):
+  - the link is itself a file a reader opens: an adapter's exact path or glob
+    match (`AGENTS.md`, `pkg/CLAUDE.md`, `pkg/.mcp.json`), a plugin manifest,
+    marketplace or hook-named file;
+  - it is at, under or above a directory a host reads at a fixed place at
+    the repository root: the directory of an exact path (`.claude`,
+    `.codex`, `.cursor`, `.vscode`, `.shipgate`, `policies`) or the literal
+    directory of a glob (`.claude/commands`, `.claude/skills`,
+    `.cursor/rules`, `.agents/skills`, `.github/workflows`,
+    `.agents-shipgate`), so `.github`, `.agents` and anything under them
+    count. These are anchored at the root, as the registry reads them: a
+    nested `docs/.cursor`, `docs/.vscode`, `docs/.agents` or `pkg/policies`
+    is not one, and an unchanged link there is named;
+  - any of its components is a directory a `**/` glob reads anywhere
+    (`.claude`, `.codex`, `.github`, `.shipgate`) or a plugin manifest
+    directory (`.claude-plugin`, `.codex-plugin`, any `.<name>-plugin`);
+  - a file beneath the directory it names would, through the link, be any of
+    the above: a `CLAUDE.md`, `AGENTS.md`, `.mcp.json`, `.claude/…`,
+    `.codex/config.toml`, `.github/workflows/*.yml`, plugin manifest or hook
+    file. A `**/` glob can match beneath any directory, so this is asked of
+    every path Git lists beneath the link, not of the link's name alone.
+- **Still refused.** A link retargeted, even to an identical copy, or
+  rewritten to name the same directory (`../../modules` to `../.././modules`);
+  a file edited, added or made executable beneath it; a link added or
+  deleted; a link replaced by a directory holding the same files, or the
+  reverse; a dangling, external, escaping or looping link; a chain; a link
+  through a link; and a directory holding a link.
+- **Who reads the proof.** One function answers it for `diff --json` and
+  `verifier.json`'s `unchanged_limits`, the `Not compared: unchanged in this
+  change and not read` list of `diff`, `verify` text and the PR comment, and
+  the unchanged limits a `partial` comparison may carry beside its withheld
+  directories ([#808](#partial-host-comparison-808)). `unchanged_limits[].detail`
+  for such a link says why it was not compared instead of repeating the
+  reader's advice to replace the link.
+- **`check`.** Its boundary result cannot name a limit (#721), so where the
+  other routes now compare past the link it refuses with
+  `unchanged_limits_not_representable`, as it does for every unchanged limit,
+  instead of `base_inventory_incomplete` / `head_inventory_incomplete`. Its
+  rows stay empty, and its decision, violations, `input_coverage` and control
+  do not move.
+- **#1154.** A changed host file the reader could not read holds `verify` at
+  `insufficient_evidence`. An unchanged link is not in the change, so it adds
+  no evidence gap: a readable widening beside it is still `blocked` on its own
+  row, and an unreadable changed settings file beside it gets its own gap and
+  no other.
+- **Not in the Action yet.** A configured `verify --head` (what the Action
+  runs) archives the whole head commit, and that archive still refuses any
+  committed link, as before this change (#688's whole-tree refusal, which
+  the host-tree archive no longer applies): `Git tree contains unsupported
+  external binding at <path> (mode 120000, type blob).` followed by the
+  misleading `Fix the manifest in place`. Such a repository never reaches the
+  host comparison in the Action. `diff`, `verify` on a checkout and a
+  manifest-free `verify --head` reach it and name the link.
+- **Not changed.** The inventory, its issues and their messages, `audit
+  --host`, saved host-grants baselines, which still refuse an incomplete
+  inventory because a baseline acknowledges evidence (#721), drift, every
+  row's value and every control state and route. The published
+  `HostComparisonLimit` description in verifier schema `0.21` still says
+  `unreadable` is only a selected hook script; that description is frozen,
+  and this note extends it.
+
+**Compatibility.** No field changes shape: `limit: unreadable` has been a
+published `unchanged_limits` value since #702. A consumer that switches on
+`comparison_status` reads `comparable` (or `partial`) where `1.3.0` read
+`incomparable` for these layouts, with the link in `unchanged_limits`, and
+`check` reads `unchanged_limits_not_representable` where it read the two
+inventory reasons.
+
+---
+
 <a id="capability-lock-plugin-opt-in-1062"></a>
 ## Migration Note: Unreleased — verifier capability locks record effective plugin opt-in (#1062)
 
@@ -497,6 +637,209 @@ and a report applied from inside its repository, behave as before.
 - A pipeline that runs `apply-patches` from outside the repository the patches
   are for: pass `--workspace <repository>`, or run it from inside. `bootstrap`
   already runs it from the workspace.
+
+---
+
+<a id="policy-pack-not-a-workflow-1143"></a>
+
+## Migration Note: Unreleased — a policy pack is not a workflow, and a case variant of a workflow or Codex config name is compared (#1143)
+
+**What was wrong.** Two predicates disagreed with the reader about what a
+workflow is.
+
+- `check`'s workflow predicate (`core/host_boundary.py::_is_workflow_path`)
+  took any `.yml` or `.yaml` that the boundary registry's `shared` adapter
+  enumerates, and tested whether what followed its first 18 characters held a
+  `/`. It never tested the `.github/workflows/` prefix. The `shared` adapter
+  also enumerates `policies/*.shipgate.yaml` and the named boundary policies,
+  so every pack was evaluated as a GitHub workflow:
+  - a top-level `permissions: write-all` got `HOST-WORKFLOW-WRITE-ALL`, so
+    `check` answered `block`, and full `verify` published
+    `SHIP-HOST-BOUNDARY-WORKFLOW-WRITE-ALL` with `blocks_release` and a
+    `blocked` release decision;
+  - a `permissions` mapping with a `write` scope got
+    `HOST-WORKFLOW-PERMISSIONS-EXPANDED`, and an `on: pull_request_target`
+    key got `HOST-WORKFLOW-PULL-REQUEST-TARGET-ADDED`;
+  - a pack that did not parse got `HOST-CONFIG-PARSE-FAILED`, with evidence
+    `workflow_yaml_parse_failed`.
+
+  Each of these displaced the pack's own
+  `BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED` row, because the protected-surface
+  fallback skips a path that already carries a violation. The same predicate
+  compared the extension case-sensitively, so it never evaluated
+  `.github/workflows/CI.YML`.
+- The reader's parser (`HostStaticParseCache.parse` in `core/host_grants.py`)
+  chose TOML and YAML by a case-sensitive suffix. The registry matches names
+  case-insensitively, so `.github/workflows/CI.YML` was a workflow and
+  `.codex/CONFIG.TOML` the Codex config, and both went to the JSON parser.
+  Both inventories recorded a blocking `parse_failed`:
+  - `diff` and `verify` refused the comparison with no rows;
+  - `audit --host --save-baseline` refused the repository;
+  - `check` answered `require_review`, with `BOUNDARY-INPUT-INCOMPLETE`, where
+    the same `write-all` widening in `ci.yml` blocks.
+
+**What changes.**
+
+- `check` evaluates as a workflow exactly what the reader reads as one:
+  `boundary_registry.is_github_workflow_path` (#1110), which is a `.yml` or
+  `.yaml` directly in the root `.github/workflows/`, case-folded. An edit to a
+  `policies/<name>.shipgate.yaml` pack is
+  `BOUNDARY-PROTECTED-SURFACE-UNCLASSIFIED` (`require_review`) whatever keys
+  it holds, as an ordinary edit to it is.
+  - A pack edit that blocked through `HOST-WORKFLOW-WRITE-ALL` now gets
+    `require_review`.
+  - One that drew a `HOST-WORKFLOW-*` review rule or
+    `HOST-CONFIG-PARSE-FAILED` still gets `require_review`, now under the
+    pack's own rule, with that rule's evidence and fingerprint.
+- The reader chooses its parser by the case-folded suffix, and the Codex
+  grant reader folds the suffix the same way, so a parsed `CONFIG.TOML`
+  publishes the grants `config.toml` would. `CI.YML` and `Release.Yaml`
+  compare as `ci.yml` and `release.yaml` do: a `write-all` widening is a
+  `critical` widened row on `diff` and `verify`, and `block` from `check`
+  through `HOST-WORKFLOW-WRITE-ALL`.
+
+**What does not change.** These stay as they were:
+
+- every lower-case root workflow, with its grant id and `config_sha256`;
+- a nested copy such as `samples/x/.github/workflows/ci.yml`, which is
+  never evaluated as a GitHub workflow;
+- the rows `diff` and `verify` publish for a policy pack;
+- rule IDs, check IDs, schemas and the contract.
+
+No baseline saved by 1.3.0 holds an upper-case workflow or Codex config,
+because 1.3.0 refused to save one. GitHub's workflow syntax reference
+requires a `.yml` or `.yaml` extension in `.github/workflows` and says nothing
+about letter case. So a case variant stays a workflow, treated conservatively
+as every registry name is (`core/globbing.py::glob_match_ci`).
+
+**Who must act.** No configuration change is needed.
+
+- A pipeline that relied on `check` or `verify` blocking a policy-pack edit
+  through `HOST-WORKFLOW-WRITE-ALL` now gets `require_review` for it, as for
+  any pack edit.
+- A waiver for a `HOST-WORKFLOW-*` or `HOST-CONFIG-PARSE-FAILED` finding on a
+  pack path no longer matches anything and can be dropped.
+- A repository with an upper-case workflow name now gets a host comparison
+  where it got a refusal, and `block` from `check` where it got
+  `require_review`.
+
+---
+
+<a id="unreadable-host-input-1154"></a>
+
+## Migration Note: Unreleased — a changed host configuration the reader cannot read holds the verdict at `insufficient_evidence` (#1154)
+
+**What was wrong.** A pull request that added `Bash(*)` to
+`.claude/settings.json` was `blocked`, and `verify --ci-mode strict` exited
+`20`. The same pull request with the file padded past the reader's 1 MiB
+per-file bound (still valid JSON), with one value longer than that bound, with
+a leading `// widened` line, or with its closing braces missing was
+`review_required`, exited `0`, and its control was `review_publishable`: the
+`SHIP-HOST-BOUNDARY-PERMISSION-WILDCARD-ALLOW` blocker was gone and two medium
+review rows (`SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED`,
+`SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE`) stood in for it. A settings file whose
+`permissions.allow` was a string, an unparseable OpenShell policy and an
+unparseable base did the same. Unread tool input was already a coverage gap
+that held the decision at `insufficient_evidence`; unread host input never
+reached that path. A valid `.claude/settings.json` nested 5,000 levels deep
+made `diff`, `check` and `audit --host` exit `1` with a `RecursionError`
+traceback and `verify` exit `4` with `internal_error`; one whose top level was
+an array made `check` fail with a traceback. And `check --diff` reported
+`decision: "allow"` and `input_coverage: "complete"` beside a control that
+stopped, for an empty diff and for any other diff with no finding.
+
+**What changes.**
+
+- **Unread changed host input.** For every path the change touches (git's
+  changed-file list between the base and head) on which the boundary
+  assessment holds a row saying that file was not read, `verify` adds one
+  entry to the report's `policy_evidence_gaps[]`: kind
+  `unknown_policy_evidence`, `source_type` `agent_boundary_input`,
+  `source_ref` and `subject` the path, `policy_id` the row's check ID, a `why`
+  that names the unread side (base, head or both), and a
+  `provide_policy_evidence` action for a human. Such a row is
+  - a `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` or
+    `SHIP-CODEX-BOUNDARY-CONFIG-PARSE-FAILED` row whose evidence kind does not
+    say the file was read, other than a `*_content_unresolved` row, which says
+    only that the diff could not be turned back into text; or
+  - a `SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` row for a file the reader did not
+    read: a read or parse failure, a structure it cannot interpret (a Claude
+    Code settings layer or hook file whose shape it refuses; another file the
+    inventory reads under that host, such as a nested workflow it files as
+    configuration, keeps its review route), a hook file of an
+    enabled plugin it does not open (#809), an OpenShell document it refuses,
+    or a binary file. A diff record with no content is not one: it says what
+    the supplied diff lacks (`scan --changed-files` supplies names only).
+
+  The one decision engine then reads it like any policy evidence gap. The
+  decision is `insufficient_evidence`, or `blocked` when a blocker exists, or
+  `review_required` when an active high or critical review item on a reachable
+  tool outranks the gap (the engine's existing precedence).
+  `evidence_coverage.policy_gap_count` counts it, so strict mode exits `20` in
+  all three cases, as [Exit codes](#exit-codes) already states for a policy
+  evidence gap. The verifier's control is `human_review_required` with no
+  permissions, where it was `review_publishable`: a run that did not read a
+  file the change edits did not read the change. `check` already stopped on the
+  same refs, and its `require_review` is the projection it gives
+  `insufficient_evidence`. The gap is not a finding, so `checks.ignore`, a
+  baseline or a severity override cannot clear it. The review rows stay.
+- **An unparseable base.** When only the base side does not parse, the head is
+  not judged against it: no row claims what the change added, and the gap says
+  the base version was not read. A base past the size bound is different: the
+  diff carries its text whole, so the change is judged on its rows.
+- **Final newlines.** The diff reader honours Git's `\ No newline at end of
+  file` marker on both sides. It dropped it, so a new host configuration
+  without a final newline was rebuilt with one, no longer matched the file,
+  and read as unresolved content.
+- **The size bound.** `MAX_HOST_CONFIG_BYTES` stays 1 MiB, and a file past it
+  is refused whole. Raising it for a changed file would move the cliff without
+  removing it; holding the verdict removes the reason to pad.
+- **Depth and shape.** Every host reader parses through one bound: a document
+  nested more than 64 levels (`MAX_HOST_CONFIG_DEPTH`) is refused as a file the
+  static parser rejected, `static parser rejected this json file (nested more
+  than 64 levels deep)`. `diff` names it as a `parse_failed` limit, `audit
+  --host` as a blocking `parse_failed` issue, and `check` as a
+  `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` (or Codex) row whose evidence adds
+  `parser: "NestingLimitExceeded"` and `max_depth: 64`. A JSON host
+  configuration whose top level is not an object, or an MCP file whose
+  `mcpServers`/`servers` map is not one, is a
+  `SHIP-HOST-BOUNDARY-CONFIG-PARSE-FAILED` row (`json_parse_failed`, or
+  `old_json_parse_failed` for the base, with `parser: "NotAnObject"` and,
+  for a server map, `member`). It was read as no servers.
+- **Detached diffs.** A diff bound to no checkout (`check --diff`, stdin, MCP
+  `shipgate.check` `diff_text`) establishes no change, and its control already
+  stopped for a human on every route (#930). Its `decision` is never `allow`:
+  one that would have been is `require_review`. Its `input_coverage` is
+  `unknown` where it read every file it was given, and `issues` then names
+  `boundary_diff_unbound`; a partial read stays `partial`. The control is
+  byte for byte the stop it was, and the rows of the files the diff names
+  still compare. `risk_level` stays explanatory and the detached rule leaves
+  it alone: it reports what the rows found, `none` beside `require_review`
+  when they found nothing. The deprecated `codex-boundary-json` projection carries the
+  same `decision`. `AgentBoundaryResultV1` refuses `decision: "allow"` with
+  `input_coverage` other than `complete`, or beside a control that stops; the
+  published `agent-boundary-result-schema.v3.json` keeps its pinned bytes.
+
+**What does not change.** No schema version, field, CLI flag, exit code
+meaning, check ID or contract version; `source_type` is an existing free-text
+field and `boundary_diff_unbound` a value of the open `issues[]` list. Other
+incomplete-input rows keep their review route: an instruction file whose
+structure is not modelled (it was read), a file renamed out of a boundary
+path, a setting the reader reads but does not model, and the coverage summary
+row. A host configuration git reports identical on both sides adds no gap:
+readable, it contributes no row, so its unreadable copy keeps the
+`SHIP-AGENT-BOUNDARY-INPUT-INCOMPLETE` review row it already raised, and no
+pull request in that repository fails over a file it does not touch. A
+worktree or ref-range `check` with no change is an evaluated "nothing changed"
+and still reports `allow`.
+
+**Who must act.** A strict pipeline that passed a pull request editing an
+unreadable host configuration now fails it until the file is readable or a
+human merges it. A consumer that read `review_publishable` from such a run
+sees `human_review_required`. One that read `decision: "allow"` or
+`input_coverage: "complete"` from `check --diff` or MCP `shipgate.check` sees
+`require_review` and `unknown`; switch on `control.state`, as the contract
+already says.
 
 ---
 

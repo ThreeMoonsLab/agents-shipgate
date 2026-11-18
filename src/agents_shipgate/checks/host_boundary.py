@@ -7,11 +7,18 @@ project MCP server declarations (``.mcp.json``, ``.cursor/mcp.json``,
 (``.github/workflows/*.yml|yaml``). Fires only when a
 :class:`VerificationContext` is present — plain ``scan``
 (``context.verification is None``) emits nothing.
+
+A changed boundary input the assessment could not read is also recorded as a
+policy evidence gap, so the release decision holds at
+``insufficient_evidence`` rather than resting on its review rows (#1154).
 """
 
 from __future__ import annotations
 
-from agents_shipgate.core.agent_boundary import assessment_for_scan_context
+from agents_shipgate.core.agent_boundary import (
+    assessment_for_scan_context,
+    unread_changed_input_gaps,
+)
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.schemas.common import SourceReference, parse_confidence, parse_severity
 from agents_shipgate.schemas.report import Finding
@@ -22,6 +29,11 @@ def run(context: ScanContext) -> list[Finding]:
     if verification is None:
         return []
     assessment = assessment_for_scan_context(context)
+    # Every row of the shared assessment, Codex rows included: this check owns
+    # the boundary's input coverage, and the gaps are recorded once.
+    context.policy_evidence_gaps.extend(
+        unread_changed_input_gaps(assessment, verification.changed_files)
+    )
     findings: list[Finding] = []
     for violated in assessment.violations:
         if not violated.id.startswith(("HOST-", "BOUNDARY-")):

@@ -133,6 +133,93 @@ BOUNDARY_ADAPTERS: tuple[BoundaryAdapterSpec, ...] = (
 )
 
 
+def _literal_directories(pattern: str) -> tuple[str, ...]:
+    """The directory components a pattern spells literally, before any wildcard."""
+
+    literal: list[str] = []
+    for part in pattern.split("/")[:-1]:
+        if any(char in part for char in "*?["):
+            break
+        literal.append(part.casefold())
+    return tuple(literal)
+
+
+#: The directories a host reads agent configuration from at a fixed place
+#: (#1004): every directory an exact path sits in, and the literal directory
+#: part of every glob not anchored by `**/`. A link at, under or above one
+#: of them can stand in for configuration.
+_ANCHORED_CONFIGURATION_DIRECTORIES: frozenset[str] = frozenset(
+    "/".join(directories[:depth])
+    for adapter in BOUNDARY_ADAPTERS
+    for pattern in (
+        *adapter.exact_paths,
+        *(glob for glob in adapter.globs if not glob.startswith("**")),
+    )
+    for directories in (_literal_directories(pattern),)
+    for depth in range(1, len(directories) + 1)
+)
+
+#: The directory names a `**/` glob reads configuration under anywhere in the
+#: repository (#1004): `.claude` for `**/.claude/hooks/hooks.json`, `.codex`,
+#: `.github` and `.shipgate`.
+_FLOATING_CONFIGURATION_DIRECTORIES: frozenset[str] = frozenset(
+    directories[0]
+    for adapter in BOUNDARY_ADAPTERS
+    for glob in adapter.globs
+    if glob.startswith("**/")
+    for directories in (_literal_directories(glob[3:]),)
+    if directories
+)
+
+
+def is_host_configuration_location(path: str) -> bool:
+    """Whether a link at ``path`` could stand in for agent configuration (#1004).
+
+    An unchanged in-tree link the reader does not read through may be named
+    as an unchanged limit, but not one where configuration could be moved
+    behind it. Decided from the name alone, by the registry's own patterns,
+    case-insensitively:
+
+    - the path is a file a reader opens (:func:`is_boundary_surface_path`):
+      an adapter's exact path or glob match, a plugin manifest, marketplace
+      or hook-named file, or a directory above an exact path;
+    - it is at, under or above a directory a host reads at a fixed place at
+      the repository root: the directory of an exact path (`.claude`,
+      `.codex`, `.cursor`, `.vscode`, `.shipgate`, `policies`) or the literal
+      directory of a glob (`.claude/commands`, `.claude/skills`,
+      `.cursor/rules`, `.agents/skills`, `.github/workflows`,
+      `.agents-shipgate`), so `.github` and `.agents` count too. These are
+      anchored at the root, as the registry reads them: a nested
+      `docs/.cursor` is not one;
+    - any of its components is a directory a `**/` glob reads anywhere
+      (`.claude`, `.codex`, `.github`, `.shipgate`) or a plugin manifest
+      directory (`.claude-plugin`, `.codex-plugin`, any `.<name>-plugin`).
+
+    A `**/` glob such as `**/CLAUDE.md` can match beneath any directory, so it
+    makes no directory a configuration location by name alone: the caller
+    asks this of every path beneath the link, from Git's listing of the
+    directory it names, as well as of the link itself.
+    """
+
+    normalized = path.replace("\\", "/").removeprefix("./").strip("/")
+    if not normalized:
+        return True
+    if is_boundary_surface_path(normalized):
+        return True
+    folded = normalized.casefold()
+    for directory in _ANCHORED_CONFIGURATION_DIRECTORIES:
+        if (
+            folded == directory
+            or folded.startswith(f"{directory}/")
+            or directory.startswith(f"{folded}/")
+        ):
+            return True
+    return any(
+        part in _FLOATING_CONFIGURATION_DIRECTORIES or _PLUGIN_MANIFEST_DIRECTORY.fullmatch(part)
+        for part in folded.split("/")
+    )
+
+
 def is_explicit_boundary_file_path(path: str) -> bool:
     """Named configuration files, excluding wildcard directory containers."""
     normalized = path.replace("\\", "/").removeprefix("./").casefold()
@@ -185,6 +272,7 @@ __all__ = [
     "boundary_hosts_for_path",
     "is_agent_boundary_path",
     "is_github_workflow_path",
+    "is_host_configuration_location",
 ]
 
 

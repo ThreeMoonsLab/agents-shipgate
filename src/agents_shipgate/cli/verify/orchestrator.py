@@ -51,6 +51,7 @@ from agents_shipgate.cli.scan.human_order import override_human_manifest_committ
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.cli.scan.path_helpers import _resolve_audit_log_path
 from agents_shipgate.config.loader import load_manifest_text
+from agents_shipgate.core.agent_boundary import is_unread_changed_input_gap
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.authorization_execution import (
@@ -173,6 +174,7 @@ from agents_shipgate.schemas.declaration_continuation import (
     DeclarationContinuationV1,
 )
 from agents_shipgate.schemas.exclusions import SurfaceExclusion
+from agents_shipgate.schemas.host_comparison import HostComparison
 from agents_shipgate.schemas.human_authorization import (
     AuthorizationEvaluationV1,
     HumanAuthorizationV1,
@@ -236,7 +238,6 @@ from .git import (
     commit_date,
     commit_sha,
     detect_default_base,
-    detect_default_base_with_notes,
     ensure_git_workspace,
     git_path,
     merge_base_sha,
@@ -520,6 +521,7 @@ def run_verify(
     authorization: Path | None = None,
     openshell_proof_config: Path | None = None,
     openshell_proof_required: bool = False,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[VerifierArtifact, ReadinessReport | None, int]:
     if openshell_proof_config is not None:
         from agents_shipgate.core.openshell_native import external_path
@@ -541,6 +543,7 @@ def run_verify(
             evaluated_ref=head,
         )
     )
+    archived_manifest_missing = archive_head and config_blob_at_head is False
     out_dir = _resolve_out_dir(
         git_root=git_root, requested_workspace=workspace.resolve(), out=out
     )
@@ -671,6 +674,9 @@ def run_verify(
     ) -> tuple[VerifierArtifact, None, int]:
         """Publish a run that stopped before any scan, on its one route (#1023)."""
 
+        unscanned_manifest_provenance = (
+            "absent" if archived_manifest_missing else configured_manifest_provenance
+        )
         verifier = _build_verifier(
             git_root=git_root,
             config_path=config_path,
@@ -681,7 +687,7 @@ def run_verify(
             trigger=evaluate(
                 paths=[],
                 diff_text="",
-                manifest_present=config_path.is_file(),
+                manifest_present=config_path.is_file() and not archived_manifest_missing,
                 user_requested=True,
                 input_status=INPUT_UNAVAILABLE,
             ),
@@ -694,7 +700,7 @@ def run_verify(
             head_status="failed",
             head_exit_code=2,
             out_dir=out_dir,
-            manifest_provenance_value=configured_manifest_provenance,
+            manifest_provenance_value=unscanned_manifest_provenance,
             ci_mode=ci_mode,
             headline_override=headline,
             first_next_action_override=action,
@@ -709,7 +715,7 @@ def run_verify(
             pr_comment_path,
             report=None,
             git_root=git_root,
-            manifest_provenance_value=configured_manifest_provenance,
+            manifest_provenance_value=unscanned_manifest_provenance,
             config_path=config_path,
             config_logical_path=config_relative.as_posix(),
             baseline_path=baseline_path,
@@ -721,9 +727,10 @@ def run_verify(
         )
         return verifier, None, 2
 
-    if not config_path.is_file() and ref_exists(git_root, head):
+    if (not config_path.is_file() or archived_manifest_missing) and ref_exists(git_root, head):
         # A deleted manifest is a removed gate, never first adoption, and a
-        # base that cannot be read cannot show which of the two this is.
+        # base that cannot be read cannot show which of the two this is. A
+        # checkout copy cannot replace a gate removed from an explicit head.
         removal = _probe_manifest_removal(
             git_root=git_root,
             config_relative=config_relative,
@@ -803,16 +810,24 @@ def run_verify(
             except (OSError, ValueError, RuntimeError, ConfigError) as exc:
                 host_comparison = host_comparison_failure(git_root, head if archive_head else None, exc)
         if host_comparison is not None:
+            host_review = None
+            if host_comparison.comparison_status == "comparable" and host_comparison.base_commit:
+                host_review = _host_only_review_control(
+                    workspace=workspace, git_root=git_root, config=config_relative,
+                    base=host_comparison.base_commit,
+                    head=(host_comparison.head_commit or head) if archive_head else None,
+                )
             return run_preview(
                 workspace=workspace, config=config, base=base,
                 head=head if archive_head else None, out=out,
                 pr_comment_style=pr_comment_style, auto_base=auto_base,
-                _host_comparison=host_comparison, _operation="verify",
+                _host_comparison=host_comparison, _host_review=host_review, _operation="verify",
             )
         preview_command = _preview_verify_command(
             workspace=git_root,
             config=config_relative,
             base=base,
+            auto_base=auto_base,
             head=head if archive_head else None,
             out=explicit_output_path(out) if out is not None else None,
             pr_comment_style=pr_comment_style,
@@ -832,6 +847,8 @@ def run_verify(
             "Correct --config, or run `agents-shipgate verify --preview --json` before "
             "initializing."
         )
+        if ci_mode == "strict":
+            message += " For a host-only comparison, rerun verify in advisory mode."
         verifier = _build_verifier(
             git_root=git_root,
             config_path=config_path,
@@ -986,7 +1003,7 @@ def run_verify(
     if tree_config_relative is not None:
         config_relative = tree_config_relative
 
-    overlay_worktree_manifest = archive_head and config_blob_at_head is False
+    overlay_worktree_manifest = archived_manifest_missing
     worktree_manifest_text: str | None = None
     if not archive_head or overlay_worktree_manifest:
         try:
@@ -1445,6 +1462,7 @@ def run_verify(
                 operation_callback=capture_base_operations,
                 engine_requirement_factory=engine_requirement,
                 run_report_dir=run_base_report_dir,
+                progress=progress,
             )
             base_notes.extend(cache_notes)
 
@@ -1485,6 +1503,8 @@ def run_verify(
         if archive_head:
             head_tmp = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-head-")
             head_tree_dir = Path(head_tmp.name) / "head"
+            if progress is not None:
+                progress("Preparing the head Git tree for verification...")
             archive_verification_tree(git_root, head, head_tree_dir)
             # Resolve once the tree exists. The snapshot matches paths lexically,
             # and on macOS the temporary directory is reached through /var while
@@ -1891,6 +1911,7 @@ def _prepare_base_report(
     operation_callback=None,
     engine_requirement_factory: Callable[[], VerificationEngineRequirement] | None = None,
     run_report_dir: Callable[[], Path] | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[
     VerifierBaseStatus,
     str | None,
@@ -2011,6 +2032,8 @@ def _prepare_base_report(
         tmp_root = Path(tmp)
         base_tree_dir = tmp_root / "base"
         base_out = tmp_root / "reports"
+        if progress is not None:
+            progress("Preparing the base Git tree for verification...")
         try:
             archive_verification_tree(git_root, base, base_tree_dir)
         except Exception as exc:  # noqa: BLE001 - optional base enrichment.
@@ -4549,10 +4572,19 @@ def _derive_verifier_control(
     # read the change and reach a determination it can stand behind? Publishing
     # asserts something about an evaluated change, so no route may claim it
     # without all four parts — not the repair route, and not the human one.
+    #
+    # A changed host configuration the reader could not read is part of the
+    # change this run did not read (#1154). Its evidence gap already holds the
+    # decision at ``insufficient_evidence``; without this the human route below
+    # still offered to publish it, which `check` refuses for the same file.
     read_the_change = bool(
         execution == "succeeded"
         and release_decision is not None
         and diff_status.completeness == "complete"
+        and not any(
+            is_unread_changed_input_gap(gap)
+            for gap in release_decision.evidence_coverage.evidence_gaps
+        )
     )
     subject_evaluated = bool(
         read_the_change
@@ -5519,10 +5551,13 @@ def _write_artifacts(
         json.dumps(initial_handoff.model_dump(mode="json"), indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    # A missing or invalid manifest cannot yield a reproducible request
-    # identity.  Error artifacts remain useful diagnostics, but they are not a
-    # trusted receipt and downstream consumers must reject their absence.
-    if not config_path.is_file() or not ref_exists(git_root, verifier.head_ref):
+    # A manifest absent from the evaluated inputs cannot yield a reproducible
+    # request identity, even if another checkout has a copy at the same path.
+    if (
+        manifest_provenance_value == "absent"
+        or not config_path.is_file()
+        or not ref_exists(git_root, verifier.head_ref)
+    ):
         _publish_run_control(
             verifier=verifier,
             out_dir=verifier_path.parent,
@@ -7289,6 +7324,7 @@ def _preview_verify_command(
     base: str | None,
     head: str | None,
     out: Path | None,
+    auto_base: bool,
     pr_comment_style: str = "capability-review",
     preview: bool = False,
     scope: ChangeScope | None = None,
@@ -7309,6 +7345,8 @@ def _preview_verify_command(
         parts.append("--preview")
     if base is not None:
         parts.extend(["--base", base])
+    elif not auto_base:
+        parts.append("--no-base")
     if head is not None:
         parts.extend(["--head", head])
     if out is not None:
@@ -7334,6 +7372,50 @@ def _without_github_step_summary():
             os.environ["GITHUB_STEP_SUMMARY"] = prior
 
 
+def _host_only_review_control(
+    *, workspace: Path, git_root: Path, config: Path, base: str, head: str | None,
+) -> AgentControl | None:
+    """Check review obligations on the same Git subject as a host-only run."""
+    from agents_shipgate.cli.agent_result import (
+        build_agent_boundary_result,
+        git_boundary_change_set,
+    )
+
+    try:
+        changes = git_boundary_change_set(
+            workspace=workspace, base=base, head=head, config_path=git_root / config,
+        )
+        result = build_agent_boundary_result(
+            workspace=git_root, requested_workspace=workspace, config=git_root / config,
+            diff_text=changes.diff_text, policy=None, input_mode=changes.mode,
+            input_issues=list(changes.issues), changed_files_override=list(changes.changed_paths),
+            base=changes.resolved_base, head=changes.resolved_head,
+            manifest_text_snapshot=changes.manifest_text_snapshot,
+        )
+    except (OSError, ValueError, RuntimeError, AgentsShipgateError):
+        reason = "The host boundary could not be checked on this Git comparison."
+        return derive_agent_control(
+            reason=reason, next_action=HumanControlAction(kind="stop", why=reason),
+        )
+    return result.control if result.control.human_review.required else None
+
+
+def _host_only_comparison_headline(comparison: HostComparison) -> str:
+    rows = len(comparison.rows)
+    if comparison.comparison_status == "comparable":
+        return (
+            f"{rows} repository-declared host capability row(s). "
+            "Advisory comparison only; no application release policy configured."
+        )
+    if comparison.comparison_status == "partial":
+        return (
+            f"Host comparison is partial: {rows} repository-declared host capability "
+            "row(s) outside what it could not compare, listed under host_comparison "
+            "in verifier.json; review its input limits before interpreting changes."
+        )
+    return "Host comparison is incomplete; review its input limits before interpreting changes."
+
+
 @owns_current_control("preview")
 def run_preview(
     *,
@@ -7345,6 +7427,7 @@ def run_preview(
     pr_comment_style: str = "capability-review",
     auto_base: bool = False,
     _host_comparison=None,
+    _host_review: AgentControl | None = None,
     _operation: str = "preview",
 ) -> tuple[VerifierArtifact, None, int]:
     """Lightweight relevance check for ``agents-shipgate verify --preview``.
@@ -7417,23 +7500,50 @@ def run_preview(
     diff_text = ""
     notes: list[str] = []
     diff_input: DiffContext | None = None
-    if base is None and auto_base:
+    base_failure_status: VerifierDiffStatus | None = None
+    base_failure_action: CodingAgentFetchBaseAction | None = None
+    compared_base = _host_comparison.base_commit if _host_comparison is not None else None
+    compared_head = head or "HEAD"
+    if _host_comparison is not None and compared_base is not None:
+        if _host_comparison.input_identity is not None:
+            base = _host_comparison.input_identity.base_ref
+        if head is not None:
+            compared_head = _host_comparison.head_commit or head
+    elif base is None and in_git and (auto_base or head is not None):
         try:
-            detection = detect_default_base_with_notes(root, head or "HEAD")
-        except Exception:  # noqa: BLE001 - preview must never crash.
-            detection = None
-        if detection is not None:
-            notes.extend(detection.notes)
-            if detection.base is not None:
-                base = detection.base
-                notes.append(
-                    f"Auto-detected base {detection.base!r} for diff context; "
-                    "pass --base to override or --no-base to disable."
+            head_available = ref_exists(root, head or "HEAD")
+            detection = resolve_verify_base(root, head or "HEAD") if head_available and auto_base else None
+        except Exception as exc:  # noqa: BLE001 - preview must never crash.
+            diff_input = _as_diff_context(exc)
+        else:
+            if head is not None and not head_available:
+                diff_input = DiffContext(
+                    completeness="unavailable",
+                    reason="refs_missing",
+                    detail=f"Head ref does not exist locally: {head}",
                 )
-    if base:
+                notes.append(diff_input.note)
+            if detection is not None:
+                notes.extend(detection.notes)
+                if detection.base is not None:
+                    base = detection.base
+                    notes.append(
+                        f"Auto-detected base {detection.base!r} for diff context; "
+                        "pass --base to override or --no-base to disable."
+                    )
+                elif not detection.resolved:
+                    base_failure_status, headline, base_failure_action = _base_unresolved_route()
+                    diff_input = DiffContext(
+                        completeness="unavailable",
+                        reason=base_failure_status.reason,
+                        detail=base_failure_status.detail or "",
+                    )
+                    notes.append(headline)
+    comparison_base = compared_base or base
+    if comparison_base:
         try:
             git_root = ensure_git_workspace(root)
-            collected = _collect_diff(git_root, base, head or "HEAD")
+            collected = _collect_diff(git_root, comparison_base, compared_head)
         except Exception as exc:  # noqa: BLE001 - preview must never crash.
             collected = _as_diff_context(exc)
         changed_files = list(collected.changed_files)
@@ -7455,7 +7565,8 @@ def run_preview(
             # The merge base, not the base ref: comparing against the tip of
             # the base branch would report its own commits as this change.
             comparison_ref = (
-                require_merge_base_sha(root, base, "HEAD") if base else "HEAD"
+                compared_base
+                or (require_merge_base_sha(root, base, "HEAD") if base else "HEAD")
             )
             worktree_paths, worktree_diff = working_tree_context(
                 root,
@@ -7469,7 +7580,7 @@ def run_preview(
                 "rests on committed evidence alone."
             )
         if worktree_paths or worktree_diff:
-            if base and diff_input is None:
+            if comparison_base and diff_input is None:
                 # One comparison, exactly as the verifier does it: overlapping
                 # paths must appear once at their effective content, not twice.
                 changed_files = list(worktree_paths)
@@ -7491,8 +7602,8 @@ def run_preview(
         root=root,
         changed_files=changed_files,
         limit=requested_root,
-        head=head,
-        base=base,
+        head=compared_head if head is not None else None,
+        base=comparison_base,
     )
     host_comparison = _host_comparison
     if host_comparison is None and not manifest_present and diff_input is None:
@@ -7554,6 +7665,7 @@ def run_preview(
         workspace=workspace,
         config=config,
         base=base,
+        auto_base=auto_base,
         head=head,
         out=explicit_output_path(out) if out is not None else None,
         pr_comment_style=pr_comment_style,
@@ -7562,6 +7674,7 @@ def run_preview(
         workspace=workspace,
         config=config,
         base=base,
+        auto_base=auto_base,
         head=head,
         out=explicit_output_path(out) if out is not None else None,
         pr_comment_style=pr_comment_style,
@@ -7583,8 +7696,14 @@ def run_preview(
     # is not configured here" would answer a question nobody asked and bury the
     # fact that the PR was never inspected — and an unadopted repo reached over a
     # shallow or blobless clone is exactly where this failure lands.
-    if diff_input is not None:
-        next_action: AgentControlAction = _diff_failure_action(
+    next_action: AgentControlAction
+    if _host_review is not None:
+        assert isinstance(_host_review.next_action, HumanControlAction)
+        assert host_comparison is not None
+        next_action = _host_review.next_action
+        headline = _host_only_comparison_headline(host_comparison)
+    elif diff_input is not None:
+        next_action = base_failure_action or _diff_failure_action(
             diff_input,
             expects=(
                 f"{base}...{head or 'HEAD'}"
@@ -7657,6 +7776,7 @@ def run_preview(
                 workspace=workspace,
                 config=config,
                 base=base,
+                auto_base=auto_base,
                 head=head,
                 out=explicit_output_path(out) if out is not None else None,
                 pr_comment_style=pr_comment_style,
@@ -7703,20 +7823,22 @@ def run_preview(
                 kind="fetch_base", expects="complete Git history",
                 why="The checkout is shallow. Run git fetch --unshallow (or use fetch-depth: 0 in CI), then rerun the same comparison.",
             )
-        headline = (
-            f"{len(host_comparison.rows)} repository-declared host capability row(s). "
-            "Advisory comparison only; no application release policy configured."
-            if host_comparison.comparison_status == "comparable"
-            # Partial (#808): the rows are known, the comparison is not whole,
-            # and the route is the incomplete one's. The rows are named where
-            # they are published: the control envelope's `capability_rows`
-            # projects a partial comparison as incomparable, with none.
-            else f"Host comparison is partial: {len(host_comparison.rows)} repository-declared "
-            "host capability row(s) outside what it could not compare, listed under "
-            "host_comparison in verifier.json; review its input limits before interpreting changes."
-            if host_comparison.comparison_status == "partial"
-            else "Host comparison is incomplete; review its input limits before interpreting changes."
-        )
+        elif _operation == "verify":
+            command = [
+                "agents-shipgate", "check", "--workspace", str(requested_root),
+                "--config", str(config_path), "--format", "agent-control-json",
+            ]
+            check_base = host_comparison.base_commit or base
+            if check_base is not None:
+                command.extend(["--base", check_base])
+            if head is not None:
+                command.extend(["--head", host_comparison.head_commit or head])
+            next_action = CodingAgentCommandAction(
+                kind="verify",
+                command=retarget_command(join_argv(command)),
+                why="Run the local boundary check on these inputs to reach a review or completion state.",
+            )
+        headline = _host_only_comparison_headline(host_comparison)
     elif resolution.contested:
         # Several projects own part of this change. `init` at the root would
         # refuse deterministically, so recommending it would be recommending
@@ -7781,6 +7903,8 @@ def run_preview(
         reason=headline,
         next_action=next_action,
         verify_required=True,
+        human_review_why=_host_review.human_review.why if _host_review else None,
+        required_reviewers=_host_review.human_review.required_reviewers if _host_review else (),
         allowed_next_commands=(
             [next_action.command] if isinstance(next_action, CodingAgentCommandAction) else []
         ),
@@ -7792,7 +7916,7 @@ def run_preview(
         head_ref=head or "HEAD",
         changed_files=changed_files,
         diff_text_available=bool(diff_text),
-        diff_status=_diff_status_artifact(diff_input),
+        diff_status=base_failure_status or _diff_status_artifact(diff_input),
         trigger=_embedded_trigger(trigger),
         base_status="not_requested",
         base_notes=notes,
