@@ -298,10 +298,10 @@ def parse_lock(lock_path: Path) -> dict[str, list[Pin]]:
     current: Pin | None = None
     in_via = False
     for number, raw in enumerate(lock_path.read_text(encoding="utf-8").splitlines(), start=1):
-        if not raw.strip():
+        body = raw.lstrip()
+        if not body:
             continue
-        if raw[:1].isspace():
-            body = raw.strip()
+        if body != raw and body.startswith(("--hash=", "#")):
             if current is None:
                 continue
             if body.startswith("--hash="):
@@ -316,9 +316,9 @@ def parse_lock(lock_path: Path) -> dict[str, list[Pin]]:
                 elif in_via:
                     current.requesters.append(comment)
             continue
-        if raw.startswith("#"):
+        if body.startswith("#"):
             continue
-        match = _PIN.match(raw)
+        match = _PIN.match(body)
         if not match:
             raise ReleaseError(
                 f"{lock_path}:{number} is neither an exact pin nor a direct URL "

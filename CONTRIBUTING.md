@@ -125,6 +125,24 @@ stale fails there by name rather than as a puzzling import error. See
 [`docs/release-runbook.md`](docs/release-runbook.md#the-environment-is-locked-and-it-is-cis)
 for which job installs which lock.
 
+### Audit the locked dependencies
+
+From the development environment that has the locked `pip-audit` installed,
+run the audit for each subject. Use a new output directory for each run.
+
+```bash
+python scripts/audit_dependency_locks.py --subject test-build --check-installed --out /tmp/shipgate-test-build-audit
+python scripts/audit_dependency_locks.py --subject release-publishing --out /tmp/shipgate-publishing-audit
+```
+
+The test and build audit uses the development and build-backend locks together.
+The publishing audit reads its lock from the same development environment.
+Each command queries PyPI advisories for the exact pins selected by the running
+interpreter's environment markers. The evidence directory includes the lock
+snapshots, sorted audited pins, pip-audit output, and `evidence.json` with
+their provenance and coverage. Exit `1` means the complete audit found known
+advisories. Exit `2` means the audit could not establish complete coverage.
+
 ### Runtime floors
 
 The `>=` floor of each `[project].dependencies` entry is the oldest version

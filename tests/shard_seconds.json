@@ -459,7 +459,8 @@
   "tests/test_unreadable_host_input.py": 297.8,
   "tests/test_unchanged_link_limits.py": 77.2,
   "tests/test_capability_lock_redaction.py": 0.1,
-  "tests/test_control_evidence.py": 0.2
+  "tests/test_control_evidence.py": 0.2,
+  "tests/test_audit_dependency_locks.py": 0.5
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -844,6 +845,17 @@
    },
    "case_count": 21,
    "command": "python -m pytest tests/test_control_evidence.py --junitxml=control-evidence.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "8882143a8b4c with issue #1167 locked dependency audit",
+   "report_sha256": "b4632c03e224ee0b5dd94535caaa33a1f927bb60d8e8a1b1727b99232ef6a18e",
+   "files": {
+    "tests/test_audit_dependency_locks.py": 0.5
+   },
+   "case_count": 7,
+   "command": "python -m pytest tests/test_audit_dependency_locks.py --junitxml=audit-tests.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]
