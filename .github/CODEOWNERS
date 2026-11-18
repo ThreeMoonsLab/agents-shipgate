@@ -1,0 +1,49 @@
+# Owners of this repository's trust roots: the files that decide what runs in
+# CI and in a release, with which tokens, which dependencies and which signer
+# it trusts, and how a vulnerability is reported. Nothing else is listed, so
+# a change outside these paths requests no owner review.
+#
+# This file records ownership. It enforces nothing until the main ruleset
+# requires code-owner review, which is #573's change, not this file's. See
+# docs/release-runbook.md § Repository security controls.
+#
+# GitHub reads the last matching line, and a path with no owner on its line
+# has none. Keep every line below owned.
+
+# CI and release workflows, and the composite action they share.
+/.github/workflows/                     @pengfei-threemoonslab
+/.github/actions/                       @pengfei-threemoonslab
+
+# The GitHub Action adopters run, and the scripts it executes in their CI.
+/action.yml                             @pengfei-threemoonslab
+/scripts/install_action_engine.py       @pengfei-threemoonslab
+/scripts/action_engine_identity.py      @pengfei-threemoonslab
+/scripts/github_action_*.py             @pengfei-threemoonslab
+/scripts/github_check_run.py            @pengfei-threemoonslab
+
+# The pre-commit hook definitions adopters run.
+/.pre-commit-hooks.yaml                 @pengfei-threemoonslab
+
+# Release trust-root and channel records.
+/.github/release-trust-roots.json       @pengfei-threemoonslab
+/.github/release-channels.json          @pengfei-threemoonslab
+
+# Scripts the release workflows run to verify, build, seal and publish.
+/scripts/_release_support.py            @pengfei-threemoonslab
+/scripts/release_*.py                   @pengfei-threemoonslab
+/scripts/verify_*.py                    @pengfei-threemoonslab
+
+# Hash-locked dependencies, build configuration and the Dependabot rules
+# that move them.
+/constraints/                           @pengfei-threemoonslab
+/pyproject.toml                         @pengfei-threemoonslab
+/hatch_build.py                         @pengfei-threemoonslab
+/.github/dependabot.yml                 @pengfei-threemoonslab
+
+# The manifests behind the required `verify` and `verify-self` checks.
+/shipgate.yaml                          @pengfei-threemoonslab
+/shipgate-self.yaml                     @pengfei-threemoonslab
+
+# The security policy, and this file.
+/SECURITY.md                            @pengfei-threemoonslab
+/.github/CODEOWNERS                     @pengfei-threemoonslab

@@ -936,6 +936,49 @@ contexts still report; otherwise the renamed job can leave PRs waiting forever.
 These settings do not supply a signer, recovery owner, qualified candidate or
 the remaining #573 release evidence.
 
+### Repository security controls
+
+[#1156](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1156) makes
+these four settings **required repository state**. They guard the repository a
+release is cut from and the private route a reporter uses, not a step of the
+pipeline. Each is the repository owner's switch: no workflow or script here
+turns one on, and a pull request cannot. Read each back with the read-only
+command beside it, and re-read them before a release with the other settings in
+this section.
+
+| Control | What it closes | Required reading | Read-only verification |
+| --- | --- | --- | --- |
+| Secret scanning | A credential already in the repository's history going unnoticed | `enabled` | `gh api repos/ThreeMoonsLab/agents-shipgate --jq .security_and_analysis.secret_scanning.status` |
+| Push protection | A push that carries a recognised credential reaching the repository | `enabled` | `gh api repos/ThreeMoonsLab/agents-shipgate --jq .security_and_analysis.secret_scanning_push_protection.status` |
+| Dependabot security updates | A locked dependency with a published advisory waiting for the weekly version update | `enabled` | `gh api repos/ThreeMoonsLab/agents-shipgate --jq .security_and_analysis.dependabot_security_updates.status` |
+| Private vulnerability reporting | The only private route being one mailbox; it turns on the form [SECURITY.md](../SECURITY.md#reporting) links | `true` | `gh api repos/ThreeMoonsLab/agents-shipgate/private-vulnerability-reporting --jq .enabled` |
+
+GitHub returns `security_and_analysis` only to a repository admin or an
+organization owner or security manager. For anyone else the block is absent and
+`--jq` prints `null`, which is not a reading. Dependabot security updates also need Dependabot
+alerts, whose read-back is `gh api -i repos/ThreeMoonsLab/agents-shipgate/vulnerability-alerts`:
+`204 No Content` when they are on, `404` when they are off.
+
+**Observed 2026-11-15** with those commands: secret scanning `disabled`, push
+protection `disabled`, Dependabot security updates `disabled`, private
+vulnerability reporting `false`. Dependabot alerts were on (`204`). The four
+controls are therefore **not yet in the required state**. When the owner turns
+them on, add the date and the read-back here; a later reading that is off again
+is a regression to fix, not a new state to record.
+
+[`.github/CODEOWNERS`](../.github/CODEOWNERS) names the owner account
+(`pengfei-threemoonslab`) for the release's trust roots: the workflows and the
+composite action, `action.yml` and the scripts it runs, the pre-commit hook
+definitions, the trust-root and channel records, the scripts the release
+workflows run, the dependency locks, build configuration and Dependabot rules,
+the manifests behind the required `verify` and `verify-self` checks,
+`SECURITY.md`, and the file itself. `tests/test_release_pipeline.py` fails when
+one of them, or a script `release.yml` or an action starts running, has no
+owner. The file assigns review; it **gates nothing** while the main ruleset
+requires no code-owner review ([§ Effective configuration observed](#effective-configuration-observed--2026-09-09)).
+Requiring it is #573's ruleset change. `gh api repos/ThreeMoonsLab/agents-shipgate/codeowners/errors`
+lists rules GitHub cannot apply; an empty `errors` array is the read-back.
+
 ### The limit worth stating plainly
 
 The workflow that runs for a tag is **the workflow at that tag** — it is part of
@@ -1046,5 +1089,6 @@ evidence, expected stop/resume condition, observed result and unresolved owner.
 Distinguish a document walkthrough from a successfully exercised recovery.
 No tabletop, access recovery, owner acceptance or effective protection is claimed
 by this procedure. Before closing #494, the owner must supply those results and
-accept the 1.x support/response commitment; #572 links that evidence alongside
-#509's signing and #573's platform controls.
+accept the 1.x response commitment (the 1.x support policy was accepted on
+2026-11-15, in #1156); #572 links that evidence alongside #509's signing and
+#573's platform controls.

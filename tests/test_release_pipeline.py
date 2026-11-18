@@ -27,6 +27,7 @@ from typing import Any
 import pytest
 import yaml
 
+from agents_shipgate.core.manifest_protection import manifest_protection
 from scripts._release_support import ReleaseError
 from scripts.release_cadence import (
     INTERVAL_DAYS,
@@ -1415,6 +1416,67 @@ def test_trust_roots_are_committed_and_fail_closed_while_unset() -> None:
     # something permissive.
     assert '= "CHANGE_ME"' in commands
     assert "configure the qualification trust root before releasing" in commands
+
+
+def _release_trust_root_paths() -> list[str]:
+    """Every path `.github/CODEOWNERS` must own, as repository-relative paths.
+
+    The scripts and manifests are read out of the files that run them, so a
+    script `release.yml` or an action starts running, or a manifest a required
+    Shipgate check starts reading, is enumerated without editing this list.
+    """
+
+    paths = {
+        "action.yml",
+        ".pre-commit-hooks.yaml",
+        ".github/release-trust-roots.json",
+        ".github/release-channels.json",
+        ".github/dependabot.yml",
+        "pyproject.toml",
+        "hatch_build.py",
+        "SECURITY.md",
+        ".github/CODEOWNERS",
+    }
+    for directory in (".github/workflows", ".github/actions", "constraints"):
+        paths.update(
+            path.relative_to(REPO_ROOT).as_posix()
+            for path in (REPO_ROOT / directory).rglob("*")
+            if path.is_file()
+        )
+    runners = [
+        WORKFLOWS / "release.yml",
+        REPO_ROOT / "action.yml",
+        *(REPO_ROOT / ".github/actions").rglob("action.yml"),
+    ]
+    for runner in runners:
+        paths.update(re.findall(r"\bscripts/[A-Za-z0-9_]+\.py\b", runner.read_text(encoding="utf-8")))
+    for workflow in ("agents-shipgate.yml", "agents-shipgate-self.yml"):
+        for job in _load_workflow(workflow)["jobs"].values():
+            for step in job.get("steps") or []:
+                if step.get("uses") == "./":
+                    paths.add(step["with"]["config"])
+    return sorted(paths)
+
+
+def test_codeowners_owns_every_release_trust_root() -> None:
+    """`.github/CODEOWNERS` names an owner for each trust root and for itself.
+
+    Read with the engine's own CODEOWNERS reader, so the last matching rule
+    decides and a rule with no valid owner removes ownership, as on GitHub.
+    The file records ownership; it gates nothing until the main ruleset
+    requires code-owner review (#573), and the runbook says so (#1156).
+    """
+
+    paths = _release_trust_root_paths()
+    # The enumeration itself must reach the scripts it exists to find.
+    assert {"scripts/release_publication.py", "scripts/install_action_engine.py"} <= set(paths)
+    assert {"shipgate.yaml", "shipgate-self.yaml"} <= set(paths)
+
+    unowned = [path for path in paths if not manifest_protection(REPO_ROOT / path).covered]
+    assert not unowned, f"Add a .github/CODEOWNERS rule for: {unowned}"
+
+    runbook = (REPO_ROOT / "docs/release-runbook.md").read_text(encoding="utf-8")
+    assert "### Repository security controls" in runbook
 
 
 # --------------------------------------------------------------------------
