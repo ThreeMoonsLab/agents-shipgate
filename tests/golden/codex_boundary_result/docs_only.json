@@ -8,7 +8,7 @@
   "subject": {
     "agent": "codex"
   },
-  "decision": "allow",
+  "decision": "require_review",
   "risk_level": "none",
   "audit_id": "agent_boundary_99c00830975905df82b8f307",
   "policy_version": "1",

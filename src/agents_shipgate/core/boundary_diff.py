@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -31,6 +31,11 @@ class DiffHunk:
     new_start: int
     new_count: int
     lines: list[tuple[str, str]] = field(default_factory=list)
+    #: A ``\ No newline at end of file`` marker followed this hunk's last row
+    #: of that side, so that side's file ends without a newline (#1154). A
+    #: rebuild that always ended a side in one no longer matched the file.
+    old_missing_final_newline: bool = False
+    new_missing_final_newline: bool = False
 
 
 @dataclass(frozen=True)
@@ -224,8 +229,10 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
         }:
             # Inside a hunk that still owes rows: this is content, whatever
             # it is spelled like. "\ No newline at end of file" is a marker
-            # rather than a row, so it consumes no budget.
+            # rather than a row, so it consumes no budget; it says which side
+            # of the row before it ends without a newline (#1154).
             if raw_line.startswith("\\"):
+                current_hunk = _with_missing_final_newline(current_hunk)
                 continue
             marker, text = raw_line[0], raw_line[1:]
             if marker == "+":
@@ -245,7 +252,10 @@ def parse_unified_diff(diff_text: str) -> list[DiffFile]:
         # refuse it.
         old_remaining = 0
         new_remaining = 0
-        if raw_line.startswith(("old mode ", "new mode ")):
+        if raw_line.startswith("\\ "):
+            # The marker after a hunk's last row, where Git prints it.
+            current_hunk = _with_missing_final_newline(current_hunk)
+        elif raw_line.startswith(("old mode ", "new mode ")):
             current["metadata_changed"] = True
         elif raw_line.startswith("deleted file mode"):
             current["is_deleted"] = True
@@ -338,6 +348,24 @@ def _parse_hunk_header(line: str) -> DiffHunk:
         old_count=int(old_count or "1"),
         new_start=int(new_start),
         new_count=int(new_count or "1"),
+    )
+
+
+def _with_missing_final_newline(hunk: DiffHunk | None) -> DiffHunk | None:
+    """Record a no-newline marker against the side of the row it follows (#1154).
+
+    A removed row's marker is the old side's, an added row's the new side's,
+    and a context row's both sides'. ``lines`` stays the same list, so rows
+    appended later still land in the recorded hunk.
+    """
+
+    if hunk is None or not hunk.lines:
+        return hunk
+    kind = hunk.lines[-1][0]
+    return replace(
+        hunk,
+        old_missing_final_newline=hunk.old_missing_final_newline or kind in {" ", "-"},
+        new_missing_final_newline=hunk.new_missing_final_newline or kind in {" ", "+"},
     )
 
 
@@ -816,7 +844,10 @@ def _new_text_from_hunks(diff_file: DiffFile) -> str:
             for kind, text in hunk.lines
             if kind in {" ", "+"}
         ]
-        return _join_lines(lines)
+        return _join_lines(
+            lines,
+            final_newline=not any(hunk.new_missing_final_newline for hunk in diff_file.hunks),
+        )
     if diff_file.added_lines:
         return _join_lines(diff_file.added_lines)
     return ""
@@ -830,7 +861,10 @@ def _old_text_from_hunks(diff_file: DiffFile) -> str | None:
             for kind, text in hunk.lines
             if kind in {" ", "-"}
         ]
-        return _join_lines(lines)
+        return _join_lines(
+            lines,
+            final_newline=not any(hunk.old_missing_final_newline for hunk in diff_file.hunks),
+        )
     if diff_file.removed_lines:
         return _join_lines(diff_file.removed_lines)
     return None
@@ -866,7 +900,26 @@ def _apply_hunks(
             return None
         lines[index : index + len(expected)] = replacement
         offset += len(replacement) - len(expected)
-    return _join_lines(lines, final_newline=text.endswith("\n"))
+    # The side being built ends without a newline exactly when Git marked it
+    # so. A marker on the other side only, which a hunk carries only when it
+    # reaches that side's end, means this side's end does have one (#1154).
+    # Without either marker the end is untouched, as it was.
+    forward = direction == "forward"
+    target_missing = any(
+        hunk.new_missing_final_newline if forward else hunk.old_missing_final_newline
+        for hunk in hunks
+    )
+    source_missing = any(
+        hunk.old_missing_final_newline if forward else hunk.new_missing_final_newline
+        for hunk in hunks
+    )
+    if target_missing:
+        final_newline = False
+    elif source_missing:
+        final_newline = True
+    else:
+        final_newline = text.endswith("\n")
+    return _join_lines(lines, final_newline=final_newline)
 
 
 def _is_insertion_only_change(diff_file: DiffFile) -> bool:
