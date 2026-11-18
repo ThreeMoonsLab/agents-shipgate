@@ -1391,15 +1391,20 @@ def run_verify(
 
     try:
         base_reference: Path | None = None
+        diff_from_base: dict[str, str] | None = None
         if diff_from_at_base:
             assert base is not None and diff_from_relative is not None
+            base_reference_commit = commit_sha(git_root, base)
             base_reference, reference_note = _diff_reference_at_base(
                 git_root=git_root,
                 base=base,
+                base_commit=base_reference_commit,
                 relative=diff_from_relative,
                 run_report_dir=run_base_report_dir,
             )
             base_notes.append(reference_note)
+            if base_reference is not None and base_reference_commit is not None:
+                diff_from_base = {"path": diff_from_relative.as_posix(), "commit_sha": base_reference_commit}
         if diff_from is not None and not diff_from_at_base:
             base_status = "diff_from_provided"
             assert static_diff_from_path is not None
@@ -1831,6 +1836,7 @@ def run_verify(
                     diff_from_path=base_report,
                     authorization_path=authorization,
                     verification_options={
+                        **({"diff_from_base": diff_from_base} if diff_from_base is not None else {}),
                         **({"openshell_native": native_observation.model_dump(mode="json")} if native_observation is not None else {}),
                         "archive_head": archive_head,
                         "baseline_mode": baseline_mode,
@@ -2680,7 +2686,7 @@ def _bind_changed_files(
         candidate = Path(os.path.abspath(os.path.normpath(os.fspath(root / relative))))
         try:
             metadata = candidate.lstat()
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
             continue
         except OSError as exc:
             raise ConfigError(
@@ -2820,6 +2826,7 @@ def _diff_reference_at_base(
     base: str,
     relative: Path,
     run_report_dir: Callable[[], Path],
+    base_commit: str | None = None,
 ) -> tuple[Path | None, str]:
     """Read an in-repository ``--diff-from`` as the base commit holds it (#1024).
 
@@ -2832,7 +2839,7 @@ def _diff_reference_at_base(
 
     spelled = relative.as_posix()
     found = regular_file_at_ref(
-        git_root, base, relative, max_bytes=_MAX_CACHED_REPORT_BYTES
+        git_root, base_commit or base, relative, max_bytes=_MAX_CACHED_REPORT_BYTES
     )
     if found.state == "present":
         assert found.data is not None
