@@ -21,15 +21,15 @@ COMMENTED = """{
     "docs": {
       "type": "http",
       "url": "https://example.test/mcp", /* a // inside a string stays */
-      "headers": {"x": "a/*b*/c",},
-    },
+      "headers": {"x": "a/*b*/c", /* block comment */},
+    }, // line comment
   },
 }
 """
 
 
 def test_comments_and_trailing_commas_parse_and_strings_are_untouched() -> None:
-    data = loads_jsonc(COMMENTED)
+    data = loads_jsonc("\ufeff" + COMMENTED)
 
     assert data == {
         "servers": {
@@ -40,6 +40,14 @@ def test_comments_and_trailing_commas_parse_and_strings_are_untouched() -> None:
             }
         }
     }
+
+
+def test_commented_trailing_comma_keeps_error_offset_on_later_input() -> None:
+    text = '\ufeff{"one": [1, /* keep the line */\n], "two": }'
+    with pytest.raises(json.JSONDecodeError) as caught:
+        loads_jsonc(text)
+    assert caught.value.pos == text.rindex("}")
+    assert caught.value.lineno == 2
 
 
 @pytest.mark.parametrize(

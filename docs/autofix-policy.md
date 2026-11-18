@@ -173,7 +173,10 @@ agents-shipgate apply-patches \
 
 So in v0.7 with the default flags:
 
-- The 3 stale-manifest removals (when unambiguous) auto-apply.
+- The 3 stale-manifest removals (when unambiguous) auto-apply. An entry
+  naming a tool that is in the tool catalog without an established binding
+  is not stale and gets only a manual keep-the-entry patch (#1035), so no
+  default run deletes a control for a tool that exists.
 - `SHIP-AUTH-SCOPE-COVERAGE-MISSING` scope appends are **skipped**
   (medium confidence). Pass `--confidence medium` to opt in — but
   read the appended scopes before merging, since adding scopes can

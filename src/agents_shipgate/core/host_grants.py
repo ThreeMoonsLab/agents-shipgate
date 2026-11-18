@@ -67,6 +67,7 @@ from agents_shipgate.core.hook_matcher_reach import (
 from agents_shipgate.core.hook_script_capture import capture_hook_script
 from agents_shipgate.core.hook_script_reference import (
     MAX_HOOK_SCRIPT_HANDLERS,
+    HookScriptReference,
     hook_script_reference,
 )
 from agents_shipgate.core.host_boundary import (
@@ -156,8 +157,9 @@ from agents_shipgate.schemas.host_grants import (
     HostGrantsBaselineV7,
     HostGrantsBaselineV8,
     HostGrantsBaselineV9,
+    HostGrantsBaselineV10,
     HostGrantsDriftV9,
-    HostGrantsInventoryV9,
+    HostGrantsInventoryV10,
 )
 
 HOST_GRANTS_SCHEMA_VERSION = HOST_GRANTS_BASELINE_SCHEMA_VERSION
@@ -182,9 +184,8 @@ _SECRET_KEY_MARKERS = frozenset(SENSITIVE_VALUE_KEYS) | {
     "private_key",
 }
 _CREDENTIAL_CONTAINER_KEYS = frozenset({"headers"})
-_SECRET_ARG_RE = re.compile(
-    r"(?i)(--?(?:api[-_]?key|auth|authorization|cookie|credential|password|secret|token))(=)(.+)"
-)
+_SECRET_ARG_FLAG = r"--?(?:api[-_]?key|auth|authorization|cookie|credential|password|secret|token)"
+_SECRET_ARG_RE = re.compile(rf"(?i)({_SECRET_ARG_FLAG})(=)(.+)")
 #: A credential header's value, with the authentication scheme that may lead
 #: it: ``Authorization: Bearer <token>`` is redacted whole. Without the
 #: optional scheme the scheme word alone was taken as the value, and the token
@@ -209,10 +210,7 @@ _ASSIGNMENT_SECRET_RE = re.compile(
     r"([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL)[A-Z0-9_]*)"
     r"(\s*=\s*)([^\s'\";,\)]+)"
 )
-_SPACE_ARG_SECRET_RE = re.compile(
-    r"(?i)(--?(?:api[-_]?key|auth|authorization|cookie|credential|password|secret|token))"
-    r"(\s+|=)([^\s'\";,\)]+)"
-)
+_SPACE_ARG_SECRET_RE = re.compile(rf"(?i)({_SECRET_ARG_FLAG})(\s+|=)([^\s'\";,\)]+)")
 #: ``curl -u user:password`` and its spellings: the part after the first
 #: ``:`` is a password. Only a value holding ``:`` is read as one, so an
 #: unrelated ``-u`` flag (``sort -u file``) keeps its argument.
@@ -517,8 +515,10 @@ class EnabledPluginHookFiles:
             scripts=frozenset(
                 (grant["host"], entry["path"])
                 for grant in snapshot.inventory["grants"]
-                if grant.get("kind") == "hook"
-                and hook_loading_basis(grant) in {"host_configuration", "project_enabled_plugin"}
+                if grant.get("kind") == "command_setting" or (
+                    grant.get("kind") == "hook"
+                    and hook_loading_basis(grant) in {"host_configuration", "project_enabled_plugin"}
+                )
                 for entry in grant.get("script_inputs") or []
                 if entry.get("path") and entry.get("basis")
             ),
@@ -3227,7 +3227,22 @@ def _server_command(command: str) -> str:
     return _withheld_string(command, _sanitize_sensitive_string(Path(first).name or first) or None)
 
 
-def _json_shape(value: Any, path: tuple[str, ...] = ()) -> Any:
+# Before the URL projection runs, remove the entire value of an explicit
+# credential flag, including quoted arguments. Match at a word boundary so
+# a flag-like substring inside an ordinary URL keeps the existing policy.
+_ACTION_HELPER_SECRET_ARG_RE = re.compile(
+    rf"(?i)(?:^|(?<=[\s;&|()]))({_SECRET_ARG_FLAG})([ \t]+|=)"
+    r"""(?:[^\s'"\\;&|()<>]++|\\.|'[^']*'|"(?:[^"\\]++|\\.)*")++"""
+)
+
+
+def _withheld_action_helper(command: str) -> str:
+    return _withheld_string(_ACTION_HELPER_SECRET_ARG_RE.sub(r"\1\2<redacted>", command))
+
+
+def _json_shape(
+    value: Any, path: tuple[str, ...] = (), *, claude_settings: bool = False,
+) -> Any:
     """A structured value's shape: what a host reader would publish of it, and no free text.
 
     Key names, numbers, booleans and ``null`` are kept. Secret-bearing values
@@ -3235,7 +3250,9 @@ def _json_shape(value: Any, path: tuple[str, ...] = ()) -> Any:
     digest: ``env`` and ``headers`` (and codex's ``http_headers`` and
     ``env_http_headers``) keep their keys, a secret-named key's value
     (``apiKeyHelper``) and the word after a secret-named argument are
-    replaced, and ``policyHelper`` is excluded. Every other string is
+    replaced, and ``policyHelper`` is excluded. An action's top-level
+    ``apiKeyHelper`` string is a command and is digested like the standalone
+    settings reader, with credential text withheld. Every other string is
     :func:`_withheld_string`, keeping only what a host reader publishes: a
     ``permissions.allow``/``ask``/``deny`` rule and a documented Claude Code
     setting's value (``defaultMode``, ``enabledMcpjsonServers`` entries) at the
@@ -3255,6 +3272,8 @@ def _json_shape(value: Any, path: tuple[str, ...] = ()) -> Any:
             key_text = str(key)
             if key_text == "policyHelper":
                 shaped[key_text] = "<excluded-dynamic-helper>"
+            elif claude_settings and not path and key_text == "apiKeyHelper":
+                shaped[key_text] = _withheld_action_helper(inner) if isinstance(inner, str) else "<invalid-command>"
             elif _is_secret_key(key_text) or parent in _CREDENTIAL_CONTAINER_KEYS:
                 shaped[key_text] = "<redacted>"
             elif key_text in _CONFIG_WITHHELD_KEYS and isinstance(inner, dict):
@@ -3286,7 +3305,7 @@ def _json_shape(value: Any, path: tuple[str, ...] = ()) -> Any:
     return value
 
 
-def _withheld_json(value: Any) -> str | None:
+def _withheld_json(value: Any, *, claude_settings: bool = False) -> str | None:
     """A structured value as it may be published: its :func:`_json_shape`, as canonical JSON.
 
     Canonical, so reformatting or reordering keys changes nothing.
@@ -3294,14 +3313,14 @@ def _withheld_json(value: Any) -> str | None:
 
     try:
         return json.dumps(
-            _json_shape(value), sort_keys=True, separators=(",", ":"),
+            _json_shape(value, claude_settings=claude_settings), sort_keys=True, separators=(",", ":"),
             ensure_ascii=False, default=str,
         )
     except (RecursionError, TypeError, ValueError):
         return None
 
 
-def _withheld_word(word: str) -> str | None:
+def _withheld_word(word: str, *, claude_settings: bool = False) -> str | None:
     """One word as it may be published: a JSON object by :func:`_withheld_json`, else as written.
 
     ``None`` for a word that starts like a JSON object and does not parse: what
@@ -3314,7 +3333,7 @@ def _withheld_word(word: str) -> str | None:
         loaded = json.loads(word)
     except (ValueError, RecursionError):
         return None
-    return _withheld_json(loaded)
+    return _withheld_json(loaded, claude_settings=claude_settings)
 
 
 #: The action inputs that hold JSON or a file path (#823 review).
@@ -3324,7 +3343,7 @@ _JSON_OR_PATH_INPUTS = frozenset({"mcp_config", "settings"})
 _PLAIN_PATH_RE = re.compile(r"(?:[A-Za-z0-9_./~@+,:=%-]|\$\{\{[ A-Za-z0-9_.\-\[\]*]*\}\})*")
 
 
-def _withheld_json_or_path(text: str) -> str | None:
+def _withheld_json_or_path(text: str, *, claude_settings: bool = False) -> str | None:
     """A ``settings`` or ``mcp_config`` value as it may be published.
 
     A JSON object by :func:`_withheld_word`, and a plain file path as
@@ -3335,7 +3354,7 @@ def _withheld_json_or_path(text: str) -> str | None:
     """
 
     if text.lstrip().startswith("{") or _PLAIN_PATH_RE.fullmatch(text):
-        return _withheld_word(text)
+        return _withheld_word(text, claude_settings=claude_settings)
     return _withheld_string(text)
 
 
@@ -3521,7 +3540,9 @@ def _published_setting(name: str, value: Any, *, arguments: str | None = None) -
         shown, redacted = _withheld_words(words, family=arguments)
         return _published_text(name, " ".join(shown), redacted=redacted)
     setting = _published_text(
-        name, _withheld_json_or_path(text) if name in _JSON_OR_PATH_INPUTS else _withheld_word(text)
+        name,
+        _withheld_json_or_path(text, claude_settings=name == "settings")
+        if name in _JSON_OR_PATH_INPUTS else _withheld_word(text),
     )
     # Read off the declared text: redaction may rewrite the expression away.
     return {**setting, "holds_expression": True} if holds_expression(text) else setting
@@ -5241,7 +5262,86 @@ def _collect_file(
         data=data, grants=grants[first_grant:], root=containment_root,
         cache=cache, issues=issues, artifacts=artifacts, plugin_root=plugin_root,
     )
+    if (
+        host == "claude-code" and kind == "config" and isinstance(data, dict)
+        and source.casefold() in _CLAUDE_PROJECT_SETTINGS_SOURCES
+    ):
+        _bind_command_setting_scripts(
+            data=data, grants=grants[first_grant:], root=containment_root,
+            cache=cache, issues=issues, artifacts=artifacts,
+        )
     return data
+
+
+def _bind_script_input(
+    ref: HookScriptReference, *, ordinal: int, grant: dict[str, Any], description: str,
+    root: Path, cache: HostStaticParseCache, issues: list[dict[str, Any]],
+    artifacts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {"handler": ordinal, "path": ref.path, "basis": ref.basis, "limit": ref.limit}
+    if ref.path is None:
+        return entry
+    shown = public_host_path(ref.path)
+    if shown != ref.path:
+        entry.update(path=shown, limit="redacted_dependency_path")
+    else:
+        if ref.path not in cache.hook_script_reads:
+            cache.hook_script_reads[ref.path] = capture_hook_script(
+                cache.reader_for(root), ref.path, absent_paths=cache.hook_script_absences,
+            )
+        entry.update(cache.hook_script_reads[ref.path])
+
+    host = grant["host"]
+    if entry.get("limit") and not any(
+        (item["kind"], item["host"], item["source"]) == ("unreadable", host, _issue_source_label(shown))
+        for item in issues
+    ):
+        # Keep the existing hook issue text and identity.
+        script_kind = "hook script" if grant["kind"] == "hook" else "command-setting script"
+        issues.append(_inventory_issue(
+            kind="unreadable", host=host, source=shown,
+            message=(
+                f"Selected {script_kind} {shown}: {entry['limit']}; its bytes were "
+                f"not compared ({description} in {grant['source']})."
+            ),
+            blocking=True,
+        ))
+    if not any(item["host"] == host and item["path"] == shown and item["kind"] == "hook_script" for item in artifacts):
+        artifacts.append(_artifact(
+            host=host, scope="repository", source=shown, kind="hook_script",
+            status="failed" if entry.get("limit") else "parsed",
+            data={"sha256": entry.get("sha256"), "size_bytes": entry.get("size_bytes")},
+        ))
+    return entry
+
+
+def _bind_command_setting_scripts(
+    *, data: dict[str, Any], grants: list[dict[str, Any]], root: Path,
+    cache: HostStaticParseCache, issues: list[dict[str, Any]], artifacts: list[dict[str, Any]],
+) -> None:
+    for grant in grants:
+        if grant.get("kind") != "command_setting" or grant.get("scope") != "repository":
+            continue
+        setting = grant["setting"]
+        value = data[setting]
+        handler = {"type": "command", "command": value}
+        if setting in CLAUDE_COMMAND_OBJECT_SETTINGS and isinstance(value, dict):
+            handler = {"type": "command", **value}
+            if "args" in handler:
+                # The settings document shell commands, not the hook exec form.
+                grant["script_inputs"] = [{"handler": 0, "limit": "unsupported_exec_form"}]
+                continue
+        ref = hook_script_reference(
+            handler, host=grant["host"], workspace_path=str(cache.reference_workspace or root),
+            relative_from_workspace=True,
+        )
+        if ref.basis == "project_root_placeholder":
+            # The hook-specific placeholder is not established for these settings.
+            ref = HookScriptReference(limit="unsupported_path_placeholder")
+        grant["script_inputs"] = [_bind_script_input(
+            ref, ordinal=0, grant=grant, description=setting, root=root, cache=cache,
+            issues=issues, artifacts=artifacts,
+        )]
 
 
 def _bind_hook_scripts(
@@ -5296,39 +5396,10 @@ def _bind_hook_scripts(
                     handler, host=grant["host"],
                     workspace_path=str(cache.reference_workspace or root), plugin_root=plugin_root,
                 )
-                entry: dict[str, Any] = {"handler": ordinal, "path": ref.path, "basis": ref.basis, "limit": ref.limit}
-                if ref.path is not None:
-                    shown = public_host_path(ref.path)
-                    if shown != ref.path:
-                        entry.update(path=shown, limit="redacted_dependency_path")
-                    else:
-                        if ref.path not in cache.hook_script_reads:
-                            cache.hook_script_reads[ref.path] = capture_hook_script(
-                                cache.reader_for(root), ref.path, absent_paths=cache.hook_script_absences,
-                            )
-                        entry.update(cache.hook_script_reads[ref.path])
-                    if entry.get("limit"):
-                        issue = _inventory_issue(
-                            kind="unreadable", host=grant["host"], source=shown,
-                            message=(
-                                f"Selected hook script {shown}: {entry['limit']}; its bytes were "
-                                f"not compared (hook {event} in {grant['source']})."
-                            ),
-                            blocking=True,
-                        )
-                        if not any(
-                            (item["kind"], item["host"], item["source"])
-                            == (issue["kind"], issue["host"], issue["source"])
-                            for item in issues
-                        ):
-                            issues.append(issue)
-                    if not any(item["host"] == grant["host"] and item["path"] == shown and item["kind"] == "hook_script" for item in artifacts):
-                        artifacts.append(_artifact(
-                            host=grant["host"], scope="repository", source=shown, kind="hook_script",
-                            status="failed" if entry.get("limit") else "parsed",
-                            data={"sha256": entry.get("sha256"), "size_bytes": entry.get("size_bytes")},
-                        ))
-                entries.append(entry)
+                entries.append(_bind_script_input(
+                    ref, ordinal=ordinal, grant=grant, description=f"hook {event}",
+                    root=root, cache=cache, issues=issues, artifacts=artifacts,
+                ))
             if entries and entries[-1].get("limit") == "handler_bound_exceeded":
                 break
         if selected and malformed:
@@ -6791,7 +6862,7 @@ def build_host_boundary_snapshot(
         "runtime_session_verified": False,
     }
     with _perf.phase("host.validate_inventory"):
-        inventory = HostGrantsInventoryV9.model_validate(payload).model_dump(mode="json")
+        inventory = HostGrantsInventoryV10.model_validate(payload).model_dump(mode="json")
     return HostBoundarySnapshot(
         inventory=inventory, cache=cache, input_failures=dict(cache.input_failures),
         plugin_reference_issue_ids=frozenset(plugin_reference_issue_ids),
@@ -6830,7 +6901,7 @@ def host_audit_inventory(
 
     if snapshot is None:
         snapshot = build_host_boundary_snapshot(workspace, scope=scope, cache=cache)
-    inventory = HostGrantsInventoryV9.model_validate(snapshot.inventory)
+    inventory = HostGrantsInventoryV10.model_validate(snapshot.inventory)
     if inventory.scope != scope:
         raise ValueError(
             f"Host boundary snapshot scope {inventory.scope!r} does not match {scope!r}"
@@ -6921,7 +6992,6 @@ def hook_dependency_limits(inventory: dict[str, Any]) -> dict[tuple[str, str], s
     return {
         (str(grant["host"]), str(entry["path"])): str(entry["limit"])
         for grant in inventory.get("grants", [])
-        if grant.get("kind") == "hook"
         for entry in grant.get("script_inputs") or []
         if entry.get("path") and entry.get("basis") and entry.get("limit")
     }
@@ -6971,7 +7041,7 @@ def without_hook_dependency_bytes(
     grants = []
     for grant in inventory.get("grants") or []:
         entries = grant.get("script_inputs")
-        if grant.get("kind") == "hook" and entries and any(
+        if entries and any(
             withheld(grant.get("host"), entry.get("path")) for entry in entries
         ):
             grant = {
@@ -7067,7 +7137,7 @@ def build_host_grants_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
             "artifacts": [compared_artifact(artifact) for artifact in normalized["artifacts"]],
         },
     }
-    return HostGrantsBaselineV9.model_validate(payload).model_dump(mode="json")
+    return HostGrantsBaselineV10.model_validate(payload).model_dump(mode="json")
 
 
 def host_comparison_baseline(inventory: dict[str, Any]) -> dict[str, Any]:
@@ -7126,7 +7196,7 @@ def load_host_grants_baseline_with_text(
                 "and repair or replace it deliberately."
             )
         return data, text
-    if version not in {"0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
+    if version not in {"0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", HOST_GRANTS_BASELINE_SCHEMA_VERSION}:
         raise ValueError(
             f"Host-grants baseline {path} has unsupported schema version "
             f"{version!r}. A human must review migration or replacement."
@@ -7135,7 +7205,8 @@ def load_host_grants_baseline_with_text(
         model = {"0.2": HostGrantsBaselineV2, "0.3": HostGrantsBaselineV3,
                  "0.4": HostGrantsBaselineV4, "0.5": HostGrantsBaselineV5,
                  "0.6": HostGrantsBaselineV6, "0.7": HostGrantsBaselineV7,
-                 "0.8": HostGrantsBaselineV8, "0.9": HostGrantsBaselineV9}[version]
+                 "0.8": HostGrantsBaselineV8, "0.9": HostGrantsBaselineV9,
+                 "0.10": HostGrantsBaselineV10}[version]
         parsed = model.model_validate(data).model_dump(mode="json")
     except ValidationError:
         return (
@@ -7359,9 +7430,9 @@ def compared_artifact(artifact: dict[str, Any] | None) -> dict[str, Any] | None:
     return {key: value for key, value in artifact.items() if key not in DISPLAY_ONLY_ARTIFACT_FIELDS}
 
 
-def hook_dependency_only_change(before: dict | None, after: dict | None) -> bool:
+def script_dependency_only_change(before: dict | None, after: dict | None) -> bool:
     """Script bytes are compared evidence, never newly granted authority."""
-    if not before or not after or before.get("kind") != "hook" or after.get("kind") != "hook":
+    if not before or not after:
         return False
     return (
         before.get("script_inputs") != after.get("script_inputs")
@@ -8523,11 +8594,11 @@ def _incomparable_payload(
 #: checkout refs (#823); the rules below narrow which older baselines that
 #: acceptance still covers.
 _COMPARABLE_BASELINE_SCHEMA_VERSIONS = frozenset(
-    {"0.4", "0.5", "0.6", "0.7", "0.8", HOST_GRANTS_BASELINE_SCHEMA_VERSION}
+    {"0.4", "0.5", "0.6", "0.7", "0.8", "0.9", HOST_GRANTS_BASELINE_SCHEMA_VERSION}
 )
 
 #: Baselines without workflow grants retain the v0.6 replacement route (#819).
-OVERWRITABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.6", "0.7", "0.8", HOST_GRANTS_BASELINE_SCHEMA_VERSION})
+OVERWRITABLE_BASELINE_SCHEMA_VERSIONS = frozenset({"0.6", "0.7", "0.8", "0.9", HOST_GRANTS_BASELINE_SCHEMA_VERSION})
 
 #: Baseline versions whose workflow grants never read step action references
 #: (#771). Such a grant's missing ``step_actions`` is not evidence that no
@@ -8542,25 +8613,44 @@ _STEP_ACTIONS_UNREAD_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", "0.5"})
 _AGENT_LAUNCHES_UNREAD_BASELINE_SCHEMA_VERSIONS = frozenset({"0.4", "0.5", "0.6"})
 
 
+def _has_redacted_action_helper(grants: list[dict[str, Any]]) -> bool:
+    """A historical action snapshot may carry no comparison evidence for its helper."""
+
+    for grant in grants:
+        if grant.get("kind") != "workflow":
+            continue
+        for launch in grant.get("agent_launches", []):
+            for setting in launch.get("settings", []):
+                value = setting.get("value")
+                if setting.get("name") != "settings" or not isinstance(value, str) or not value.startswith("{"):
+                    continue
+                # Values in the normalized baseline have already been sanitized.
+                try:
+                    shape = json.loads(value)
+                except (ValueError, RecursionError):
+                    continue
+                if isinstance(shape, dict) and shape.get("apiKeyHelper") == "<redacted>":
+                    return True
+    return False
+
+
 def build_host_drift_payload(
     *, baseline: dict[str, Any], inventory: dict[str, Any], baseline_file: str
 ) -> dict[str, Any]:
     reasons: list[str] = []
-    # A baseline from before #702 never read script bytes. Only a hook whose
-    # current reading binds a script cannot be compared against it; for every
-    # other hook the current entries hold limits alone and are left out.
+    # Historical snapshots may predate script capture for this grant kind.
     unread_scripts = {
         str(grant.get("grant_id"))
         for grant in (baseline.get("inventory") or {}).get("grants", [])
-        if grant.get("kind") == "hook" and grant.get("scope") == "repository"
-        and grant.get("script_inputs") is None
+        if grant.get("script_inputs") is None
     }
-    if any(
-        str(grant.get("grant_id")) in unread_scripts
-        and any(entry.get("path") and entry.get("basis") for entry in grant.get("script_inputs") or [])
-        for grant in inventory.get("grants", [])
-    ):
-        reasons.append("baseline_hook_script_inputs_unavailable")
+    for kind in ("hook", "command_setting"):
+        if any(
+            grant.get("kind") == kind and str(grant.get("grant_id")) in unread_scripts
+            and any(entry.get("path") and entry.get("basis") for entry in grant.get("script_inputs") or [])
+            for grant in inventory.get("grants", [])
+        ):
+            reasons.append(f"baseline_{kind}_script_inputs_unavailable")
     if baseline.get("host_grants_schema_version") == "0.1":
         reasons.append("baseline_schema_v0.1_lacks_typed_grants_and_scope")
     elif baseline.get("host_grants_schema_version") not in _COMPARABLE_BASELINE_SCHEMA_VERSIONS:
@@ -8583,6 +8673,8 @@ def build_host_drift_payload(
             # Such a call's missing ``secret_mappings`` is not evidence that it
             # passed no named secret: those snapshots never read them (#693).
             reasons.append("baseline_reusable_workflow_secret_mappings_unavailable")
+    if _has_redacted_action_helper((baseline.get("inventory") or {}).get("grants", [])):
+        reasons.append("baseline_workflow_api_key_helper_unavailable")
     if not inventory_is_complete(inventory):
         reasons.append("current_inventory_incomplete")
     baseline_scope = baseline.get("scope")

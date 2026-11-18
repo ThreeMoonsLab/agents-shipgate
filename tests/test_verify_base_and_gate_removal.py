@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 from typer.testing import CliRunner
@@ -120,6 +122,55 @@ def _ci_clone(origin: Path, destination: Path, sha: str) -> Path:
     _git(destination, "fetch", "-q", "origin", "+refs/heads/*:refs/remotes/origin/*")
     _git(destination, "checkout", "-q", "--detach", sha)
     return destination
+
+
+
+def test_committed_verify_sarif_locates_findings_from_repository_root(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    sample = Path(__file__).resolve().parents[1] / "samples" / "support_refund_agent"
+    scope = "services/refund agent"
+    shutil.copytree(sample, repo / scope)
+    _write(repo / "shipgate.yaml", MANIFEST)
+    _git(repo, "init", "-q", "-b", "main")
+    head = _commit(repo, "Add root and nested manifests")
+    out = tmp_path / "reports"
+
+    result = runner.invoke(
+        app,
+        [
+            "verify", "--workspace", str(repo), "--config", f"{scope}/shipgate.yaml",
+            "--base", head, "--head", head, "--out", str(out), "--ci-mode", "advisory",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    sarif = json.loads((out / "report.sarif").read_text(encoding="utf-8"))
+    results = sarif["runs"][0]["results"]
+    locations = [
+        location["physicalLocation"]
+        for item in results
+        for location in item.get("locations", [])
+    ]
+    uris = {location["artifactLocation"]["uri"] for location in locations}
+    assert "services/refund%20agent/shipgate.yaml" in uris
+    assert "services/refund%20agent/specs/support-tools.openapi.yaml" in uris
+    assert all(
+        unquote(uri).startswith(f"{scope}/") and (repo / unquote(uri)).is_file()
+        for uri in uris
+    )
+    approval = next(item for item in results if item["ruleId"] == "SHIP-POLICY-APPROVAL-MISSING")
+    assert len(approval["locations"]) == 2
+    assert all(
+        location["physicalLocation"]["region"]["startLine"] > 1
+        for location in approval["locations"]
+    )
+    semantic = [item for item in results if item["ruleId"].startswith("SHIP-SEMANTIC-")]
+    assert semantic
+    assert all(
+        item["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+        == "services/refund%20agent/shipgate.yaml"
+        for item in semantic
+    )
 
 
 def _develop_origin(tmp_path: Path) -> tuple[Path, str, str]:
@@ -279,8 +330,9 @@ def _assert_manifest_removal_stop(result, payload: dict) -> None:
     "checkout_manifest", [None, MANIFEST.encode(), b"\xff"], ids=["absent", "valid", "invalid"]
 )
 def test_deleting_the_manifest_with_a_resolvable_base_is_a_human_stop(
-    tmp_path: Path, checkout_manifest: bytes | None,
+    tmp_path: Path, checkout_manifest: bytes | None, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
     origin, _, manifest_pr = _develop_origin(tmp_path)
     checkout = _git(origin, "rev-parse", "develop") if checkout_manifest is not None else manifest_pr
     ci = _ci_clone(origin, tmp_path / "ci", checkout)
@@ -297,6 +349,7 @@ def test_deleting_the_manifest_with_a_resolvable_base_is_a_human_stop(
             out=out,
         )
         _assert_manifest_removal_stop(result, payload)
+        assert '"error": "config_error"' not in result.stderr
         assert payload["base_ref"] == "origin/develop"
         assert payload["head_exit_code"] == 2
         assert payload["head_report_json"] is None

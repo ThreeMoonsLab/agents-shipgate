@@ -494,3 +494,129 @@ def test_attest_cli_missing_verifier_returns_3(tmp_path: Path) -> None:
     result = runner.invoke(app, ["attest", "--from", str(tmp_path / "missing.json")])
     assert result.exit_code == 3
     assert "not found" in result.output
+
+
+def test_attest_refuses_explicit_unreadable_inputs(tmp_path: Path) -> None:
+    source = tmp_path / "verifier.json"
+    source.write_text(json.dumps(_verifier_payload()))
+    malformed_config = tmp_path / "bad.yaml"
+    malformed_config.write_text("version: [")
+    undecodable_config = tmp_path / "undecodable.yaml"
+    undecodable_config.write_bytes(b"version: \xff")
+    nested_config = tmp_path / "nested.yaml"
+    nested_config.write_text("version: " + "[" * 3000 + "0" + "]" * 3000)
+    corrupt_run = tmp_path / "invalid-run.json"
+    corrupt_run.write_text("{")
+    wrong_object = tmp_path / "not-a-run.json"
+    wrong_object.write_text('{"unknown": "value"}')
+
+    for flag, path in (
+        ("--config", malformed_config),
+        ("--config", undecodable_config),
+        ("--config", nested_config),
+        ("--config", tmp_path / "missing.yaml"),
+        ("--verify-run", tmp_path / "missing-run.json"),
+        ("--verify-run", corrupt_run),
+        ("--verify-run", wrong_object),
+    ):
+        result = runner.invoke(app, ["attest", "--from", str(source), flag, str(path), "--json"])
+        assert result.exit_code == 3, (flag, path, result.output)
+        assert path.name in result.stderr
+        assert result.stdout == ""
+
+
+def test_attest_never_hashes_an_implicit_corrupt_verify_run(tmp_path: Path) -> None:
+    source = tmp_path / "verifier.json"
+    source.write_text(json.dumps(_verifier_payload()))
+    verify_run = source.with_name("verify-run.json")
+    verify_run.write_bytes(b"{")
+    args = ["attest", "--from", str(source), "--json"]
+
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["run_id"] is None and payload["verify_run_sha256"] is None
+
+    raw = b'{"run_id": "sha256:' + b'a' * 64 + b'"}\n'
+    verify_run.write_bytes(raw)
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["run_id"] == "sha256:" + "a" * 64
+    assert payload["verify_run_sha256"] == hashlib.sha256(raw).hexdigest()
+
+
+@pytest.mark.parametrize("nested_plan", [False, True])
+@pytest.mark.parametrize("broken_policy_packs", [7, {"name": "not-a-list"}, [7]])
+def test_attest_rejects_or_omits_unreadable_policy_pack_evidence(
+    tmp_path: Path, nested_plan: bool, broken_policy_packs: object,
+) -> None:
+    source = tmp_path / "verifier.json"
+    source.write_text(json.dumps(_verifier_payload()))
+    verify_run = source.with_name("verify-run.json")
+    inputs = {"policy_packs": broken_policy_packs}
+    placement = {"plan": {"inputs": inputs}} if nested_plan else {"inputs": inputs}
+    verify_run.write_text(json.dumps({"run_id": "legacy-run", **placement}))
+    args = ["attest", "--from", str(source), "--json"]
+
+    explicit = runner.invoke(app, [*args, "--verify-run", str(verify_run)])
+    assert explicit.exit_code == 3, explicit.output
+    assert explicit.stdout == ""
+    assert "expected policy_packs to be an array of objects" in explicit.stderr
+
+    implicit = runner.invoke(app, args)
+    assert implicit.exit_code == 0, implicit.output
+    payload = json.loads(implicit.stdout)
+    assert payload["run_id"] is None
+    assert payload["verify_run_sha256"] is None
+    assert payload["policy_packs"] == []
+
+
+def test_attest_still_reads_a_valid_no_receipt_legacy_run(tmp_path: Path) -> None:
+    source = tmp_path / "verifier.json"
+    source.write_text(json.dumps(_verifier_payload()))
+    verify_run = tmp_path / "legacy-run.json"
+    raw = json.dumps({
+        "run_id": "legacy-run",
+        "inputs": {"policy_packs": [{"path": "policies/review.yaml", "status": "verified"}]},
+    }).encode("utf-8")
+    verify_run.write_bytes(raw)
+
+    result = runner.invoke(
+        app, ["attest", "--from", str(source), "--verify-run", str(verify_run), "--json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["run_id"] == "legacy-run"
+    assert payload["verify_run_sha256"] == hashlib.sha256(raw).hexdigest()
+    assert [(pack["path"], pack["status"]) for pack in payload["policy_packs"]] == [
+        ("policies/review.yaml", "verified"),
+    ]
+
+
+def test_attest_requires_the_verify_run_bytes_bound_by_the_receipt(tmp_path: Path) -> None:
+    out = tmp_path / "reports"
+    verified = runner.invoke(app, ["fixture", "run", "ai_generated_refund_pr", "--out", str(out)])
+    assert verified.exit_code == 0, verified.output
+    receipt = json.loads((out / "verification-receipt.json").read_bytes())
+    binding = receipt["artifact_manifest"]["artifacts"]["verify_run_json"]
+    raw = (out / binding["path"]).read_bytes()
+    copied_run = tmp_path / "copied-run.json"
+    copied_run.write_bytes(raw)
+    args = ["attest", "--from", str(out / "verifier.json"), "--json"]
+
+    implicit = runner.invoke(app, args)
+    assert implicit.exit_code == 0, implicit.output
+    assert json.loads(implicit.stdout)["verify_run_sha256"] == binding["sha256"].removeprefix("sha256:")
+
+    explicit_args = [*args, "--verify-run", str(copied_run)]
+    copied = runner.invoke(app, explicit_args)
+    assert copied.exit_code == 0, copied.output
+    assert json.loads(copied.stdout) == json.loads(implicit.stdout)
+
+    copied_run.write_bytes(raw + b"\n")
+    mismatched = runner.invoke(app, explicit_args)
+    assert mismatched.exit_code == 3, mismatched.output
+    assert mismatched.stdout == ""
+    assert "does not match verify-run.json bound by the verification receipt" in mismatched.stderr

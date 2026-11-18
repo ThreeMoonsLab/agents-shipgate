@@ -161,7 +161,7 @@ def test_the_real_pair_publishes_a_shape_and_no_text(tmp_path: Path) -> None:
     for fragment in ("git[[:space:]]", "scratchpad_dir", "/rewind", "checkpointing"):
         assert fragment not in published
     Draft202012Validator(
-        json.loads((ROOT / "docs/host-grants-inventory-schema.v0.9.json").read_text(encoding="utf-8"))
+        json.loads((ROOT / "docs/host-grants-inventory-schema.v0.10.json").read_text(encoding="utf-8"))
     ).validate(_inventory(repo))
 
 
@@ -670,7 +670,7 @@ def test_a_digest_only_edit_is_told_apart_from_one_that_explains_itself(tmp_path
 
 
 def test_the_schema_accepts_a_shape_and_a_limit_and_refuses_both(tmp_path: Path) -> None:
-    schema = json.loads((ROOT / "docs/host-grants-inventory-schema.v0.9.json").read_text(encoding="utf-8"))
+    schema = json.loads((ROOT / "docs/host-grants-inventory-schema.v0.10.json").read_text(encoding="utf-8"))
     repo = _repository(
         tmp_path,
         {SETTINGS: {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "make"}]}]}}},

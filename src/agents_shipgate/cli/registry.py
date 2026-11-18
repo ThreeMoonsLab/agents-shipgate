@@ -40,6 +40,7 @@ from agents_shipgate.core.drift_observation import (
     drift_report_needs_review,
     parse_event_time,
 )
+from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.schemas.registry import (
     REGISTRY_LATE_DEFAULTED_FIELDS,
     REGISTRY_LATE_OPTIONAL_FIELDS,
@@ -68,6 +69,7 @@ registry_app = typer.Typer(
 class LoadedRegistry:
     rows: list[RegistryRowV1]
     skipped: list[RegistrySkippedRowV1]
+    present: bool
 
 
 def _row_from_attestation(
@@ -211,25 +213,29 @@ def _hashed_row(row: RegistryRowV1) -> dict[str, Any]:
     return payload
 
 
-def _load_registry(registry_path: Path) -> LoadedRegistry:
-    if not registry_path.is_file():
-        return LoadedRegistry(rows=[], skipped=[])
+def _load_registry(registry_path: Path, *, required: bool = False) -> LoadedRegistry:
+    try:
+        if registry_path.exists() and not registry_path.is_file():
+            raise OSError("expected a regular ledger file")
+        text = registry_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        if required:
+            raise InputParseError(f"Registry does not exist: {registry_path}") from exc
+        return LoadedRegistry(rows=[], skipped=[], present=False)
+    except (OSError, UnicodeError) as exc:
+        raise InputParseError(f"Could not read registry {registry_path}: {exc}") from exc
     rows: list[RegistryRowV1] = []
     skipped: list[RegistrySkippedRowV1] = []
-    for line_number, line in enumerate(
-        registry_path.read_text(encoding="utf-8").splitlines(), start=1
-    ):
+    for line_number, line in enumerate(text.splitlines(), start=1):
         line = line.strip()
         if not line:
             continue
         try:
             loaded = json.loads(line)
-        except json.JSONDecodeError as exc:
+        except (ValueError, RecursionError) as exc:
+            reason = exc.msg if isinstance(exc, json.JSONDecodeError) else "value exceeds JSON reader limits"
             skipped.append(
-                RegistrySkippedRowV1(
-                    line=line_number,
-                    reason=f"invalid_json: {exc.msg}",
-                )
+                RegistrySkippedRowV1(line=line_number, reason=f"invalid_json: {reason}")
             )
             continue
         if not isinstance(loaded, dict):
@@ -249,7 +255,7 @@ def _load_registry(registry_path: Path) -> LoadedRegistry:
                     reason=f"schema_validation_error: {exc.errors()[0]['msg']}",
                 )
             )
-    return LoadedRegistry(rows=rows, skipped=skipped)
+    return LoadedRegistry(rows=rows, skipped=skipped, present=True)
 
 
 def _load_rows(registry_path: Path) -> list[RegistryRowV1]:
@@ -941,16 +947,20 @@ def _echo_drift_report(payload: RegistryDriftReportV1, *, registry: Path, skippe
 
 @registry_app.command("summary")
 def registry_summary(
-    registry: Path = typer.Option(DEFAULT_REGISTRY_PATH, "--registry"),
+    registry: Path | None = typer.Option(None, "--registry"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     """Summarize the ledger for cross-repo governance reporting."""
-    loaded = _load_registry(registry)
-    payload = _registry_summary_payload(registry, loaded)
+    path = registry if registry is not None else DEFAULT_REGISTRY_PATH
+    loaded = _load_registry(path, required=registry is not None)
+    payload = _registry_summary_payload(path, loaded)
     if json_output:
         typer.echo(payload.model_dump_json(indent=2))
         return
-    typer.echo(f"{payload.count} row(s) in {registry}")
+    if not loaded.present:
+        typer.echo(f"No default registry found at {path}.")
+        return
+    typer.echo(f"{payload.count} row(s) in {path}")
     if payload.by_row_kind.get("drift_observation"):
         typer.echo(
             f"Attestations: {payload.by_row_kind.get('attestation', 0)}; "
@@ -964,7 +974,7 @@ def registry_summary(
 
 @registry_app.command("verify")
 def registry_verify(
-    registry: Path = typer.Option(DEFAULT_REGISTRY_PATH, "--registry"),
+    registry: Path | None = typer.Option(None, "--registry"),
     json_output: bool = typer.Option(False, "--json"),
     fail_on_issue: bool = typer.Option(
         False,
@@ -973,23 +983,23 @@ def registry_verify(
     ),
 ) -> None:
     """Verify row ids and optional per-repo hash-chain links."""
-    loaded = _load_registry(registry)
-    payload = _registry_verify_payload(registry, loaded)
+    path = registry if registry is not None else DEFAULT_REGISTRY_PATH
+    loaded = _load_registry(path, required=registry is not None)
+    payload = _registry_verify_payload(path, loaded)
     if json_output:
         typer.echo(payload.model_dump_json(indent=2))
-        if fail_on_issue and not payload.ok:
-            raise typer.Exit(20)
-        return
-    if payload.ok:
-        typer.echo(f"Registry verified: {payload.row_count} row(s) in {registry}")
+    elif not loaded.present:
+        typer.echo(f"No default registry found at {path}.")
+    elif payload.ok:
+        typer.echo(f"Registry verified: {payload.row_count} row(s) in {path}")
     else:
-        typer.echo(f"Registry has {payload.issue_count} issue(s) in {registry}")
+        typer.echo(f"Registry has {payload.issue_count} issue(s) in {path}")
         for issue in payload.issues:
             row = issue.row_id or "unknown"
             typer.echo(f"- {issue.kind}: {row} {issue.message}")
-    if payload.skipped_count:
+    if not json_output and payload.skipped_count:
         typer.echo(f"Skipped {payload.skipped_count} malformed row(s).", err=True)
-    if fail_on_issue and not payload.ok:
+    if fail_on_issue and loaded.present and not payload.ok:
         raise typer.Exit(20)
 
 
@@ -1003,6 +1013,7 @@ def _registry_summary_payload(
     rows = [row for row in every_row if row.row_kind == "attestation"]
     return RegistrySummaryV1(
         registry=str(registry),
+        registry_present=loaded.present,
         count=len(every_row),
         skipped_count=len(loaded.skipped),
         skipped_rows=loaded.skipped,
@@ -1107,10 +1118,11 @@ def _registry_verify_payload(
     issue_count = len(issues) + len(loaded.skipped)
     return RegistryVerificationResultV1(
         registry=str(registry),
+        registry_present=loaded.present,
         row_count=len(loaded.rows),
         skipped_count=len(loaded.skipped),
         skipped_rows=loaded.skipped,
         issue_count=issue_count,
-        ok=issue_count == 0,
+        ok=loaded.present and issue_count == 0,
         issues=issues,
     )

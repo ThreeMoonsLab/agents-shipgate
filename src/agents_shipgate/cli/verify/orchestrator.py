@@ -100,6 +100,7 @@ from agents_shipgate.core.manifest_provenance import (
 )
 from agents_shipgate.core.operation_attribution import ReconstructedOperationBase
 from agents_shipgate.core.paths import display_path as _display_path
+from agents_shipgate.core.privacy import truncate_redacted
 from agents_shipgate.core.static_inputs import (
     StaticInputSnapshot,
     activate_static_input_snapshot,
@@ -4250,7 +4251,9 @@ def _bounded(value: str, max_chars: int) -> str:
         return value
     if max_chars <= len(_ELLIPSIS):
         return _ELLIPSIS[:max_chars]
-    return value[: max_chars - len(_ELLIPSIS)].rstrip() + _ELLIPSIS
+    # Never through a ``[REDACTED:…]`` marker: half of one reads as text the
+    # repository wrote (#1079 review).
+    return truncate_redacted(value, max_chars - len(_ELLIPSIS)).rstrip() + _ELLIPSIS
 
 
 def _bounded_bytes(value: str, max_bytes: int) -> str:
@@ -4263,7 +4266,9 @@ def _bounded_bytes(value: str, max_bytes: int) -> str:
     if max_bytes <= len(marker):
         return ""
     kept = encoded[: max_bytes - len(marker)].decode("utf-8", errors="ignore")
-    return kept.rstrip() + _ELLIPSIS
+    # ``kept`` is a codepoint prefix of ``value``; shorten it further rather
+    # than end inside a ``[REDACTED:…]`` marker (#1079 review).
+    return truncate_redacted(value, len(kept)).rstrip() + _ELLIPSIS
 
 
 def _fit_sentences(sentences: Sequence[str], budget: int) -> str:

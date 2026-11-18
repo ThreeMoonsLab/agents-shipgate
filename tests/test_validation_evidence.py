@@ -189,6 +189,26 @@ def test_validation_loader_rejects_wrong_declarative_shape(tmp_path):
         load_validation_artifacts(config, tmp_path)
 
 
+def test_validation_loader_preserves_unicode_separators_in_jsonl(tmp_path):
+    event = {"tool": "lookup", "action": "override", "reason": "line\u2028separator", "actor": "reviewer"}
+    (tmp_path / "override-log.jsonl").write_text(
+        json.dumps(event, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    config = ValidationConfig(
+        mode="human_in_the_loop",
+        evidence=ValidationEvidenceConfig(
+            override_logs=[ArtifactPathConfig(path="override-log.jsonl")]
+        ),
+    )
+
+    artifacts = load_validation_artifacts(config, tmp_path)
+
+    assert artifacts is not None
+    assert len(artifacts.override_events) == 1
+    assert artifacts.override_events[0]["reason"] == event["reason"]
+    assert artifacts.warnings == []
+
+
 def test_validation_loader_optional_malformed_jsonl_warns(tmp_path):
     (tmp_path / "override-log.jsonl").write_text("{bad-json}\n", encoding="utf-8")
     config = ValidationConfig(

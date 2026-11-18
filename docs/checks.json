@@ -574,7 +574,7 @@
       "evidence_fields": [
         "change"
       ],
-      "fires_when": "An action changes to a higher-risk effect such as read to write or write to destructive.",
+      "fires_when": "An action changes to a higher-risk effect such as read to write or write to destructive. It blocks only when a reviewed or structural claim establishes the higher effect; an escalation that only wording in a name or description supports is published as a medium, non-blocking advisory that does not move the verdict.",
       "floor_severity": "high",
       "id": "SHIP-ACTION-EFFECT-ESCALATED",
       "mvp_tier": "lifecycle",
@@ -658,7 +658,7 @@
       "evidence_fields": [
         "change"
       ],
-      "fires_when": "A previously true action safeguard is false or absent in the head surface.",
+      "fires_when": "A previously true action safeguard is false or absent in the head surface. It blocks only when the action's effect is established by a reviewed or structural claim; on an action whose effect only wording supports it is a medium, non-blocking advisory that does not move the verdict.",
       "floor_severity": null,
       "id": "SHIP-ACTION-SAFEGUARD-REMOVED",
       "mvp_tier": "lifecycle",
@@ -2381,9 +2381,10 @@
       "dynamic_default": false,
       "evidence_fields": [
         "policy",
-        "tool"
+        "tool",
+        "issues"
       ],
-      "fires_when": "A policy entry names a tool that is not loaded.",
+      "fires_when": "A policy entry names a tool that is not loaded. When the tool is in the tool catalog but its binding to the agent is not established, the finding says so with issues [binding_not_established] and never carries a removal patch.",
       "floor_severity": null,
       "id": "SHIP-MANIFEST-STALE-POLICY",
       "mvp_tier": "hygiene",
@@ -2401,9 +2402,10 @@
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-manifest-stale-risk-override",
       "dynamic_default": false,
       "evidence_fields": [
-        "tool"
+        "tool",
+        "issues"
       ],
-      "fires_when": "risk_overrides.tools contains a tool that is not loaded.",
+      "fires_when": "risk_overrides.tools contains a tool that is not loaded. When the tool is in the tool catalog but its binding to the agent is not established, the finding says so with issues [binding_not_established] and never carries a removal patch.",
       "floor_severity": null,
       "id": "SHIP-MANIFEST-STALE-RISK-OVERRIDE",
       "mvp_tier": "hygiene",
@@ -2425,7 +2427,7 @@
         "tool",
         "issues"
       ],
-      "fires_when": "checks.ignore contains an unknown check_id or a tool name that is not loaded.",
+      "fires_when": "checks.ignore contains an unknown check_id or a tool name that is not loaded. A tool in the tool catalog whose binding to the agent is not established is reported as binding_not_established, not missing_tool, and is not proposed for removal unless the check_id is also unknown.",
       "floor_severity": null,
       "id": "SHIP-MANIFEST-STALE-SUPPRESSION",
       "mvp_tier": "hygiene",
@@ -2830,7 +2832,7 @@
     {
       "autofix_safe": false,
       "category": "scope",
-      "default_severity": "high",
+      "default_severity": "medium",
       "description": "Tool appears to overlap with a manifest prohibited action.",
       "docs_url": "https://github.com/ThreeMoonsLab/agents-shipgate/blob/main/docs/checks.md#ship-scope-prohibited-tool-present",
       "dynamic_default": false,
@@ -2838,7 +2840,7 @@
         "prohibited_action",
         "risk_tags"
       ],
-      "fires_when": "Tool name/description/risk tags overlap prohibited_actions without a mitigating policy.",
+      "fires_when": "A tool's name and description share two words with a prohibited action, one of them the action's verb (its listed verbs, else a noun naming one, else its leading word), or the tool's risk tags match the action, without a mitigating policy. A tool whose name contains every word of the action's \"without\" clause is that safeguard and is not compared by words. The match is lexical, so it is published as a non-blocking advisory finding and never moves the verdict.",
       "floor_severity": "medium",
       "id": "SHIP-SCOPE-PROHIBITED-TOOL-PRESENT",
       "mvp_tier": "core",

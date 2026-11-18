@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 import tomllib
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -261,6 +261,7 @@ def normalize_codex_config_mcp_servers(
     *,
     source_ref: str,
     source_path: str,
+    on_invalid_args: Callable[[str], None] | None = None,
 ) -> list[NormalizedMcpServer]:
     servers: list[NormalizedMcpServer] = []
     servers.extend(
@@ -271,6 +272,7 @@ def normalize_codex_config_mcp_servers(
             source_id_prefix="codex_config_mcp",
             source_type="codex_config_mcp",
             pointer_prefix="mcp_servers",
+            on_invalid_args=on_invalid_args,
         )
     )
     plugins = data.get("plugins")
@@ -286,6 +288,7 @@ def normalize_codex_config_mcp_servers(
                     source_id_prefix=f"codex_plugin_config_mcp:{plugin_name}",
                     source_type="codex_config_mcp",
                     pointer_prefix=f"plugins.{plugin_name}.mcp_servers",
+                    on_invalid_args=on_invalid_args,
                 )
             )
     return servers
@@ -296,6 +299,7 @@ def normalize_mcp_json_servers(
     *,
     source_ref: str,
     source_path: str,
+    on_invalid_args: Callable[[str], None] | None = None,
 ) -> list[NormalizedMcpServer]:
     return _servers_from_mapping(
         data.get("mcpServers"),
@@ -304,6 +308,7 @@ def normalize_mcp_json_servers(
         source_id_prefix="mcp_json",
         source_type="codex_config_mcp",
         pointer_prefix="mcpServers",
+        on_invalid_args=on_invalid_args,
     )
 
 
@@ -327,6 +332,7 @@ def _servers_from_mapping(
     source_id_prefix: str,
     source_type: str,
     pointer_prefix: str,
+    on_invalid_args: Callable[[str], None] | None,
 ) -> list[NormalizedMcpServer]:
     if not isinstance(raw_servers, dict):
         return []
@@ -344,6 +350,14 @@ def _servers_from_mapping(
         # is this invariant that makes one name in two files one server to
         # reconcile rather than two surfaces to tell apart.
         source_id = f"{source_id_prefix}:{server_name}"
+        args = raw_server.get("args", [])
+        if not isinstance(args, list) or any(not isinstance(arg, str) for arg in args):
+            field = f"{source_ref}#{pointer_prefix}.{server_name}.args"
+            message = f"{field} must be an array of strings"
+            if on_invalid_args is None:
+                raise InputParseError(message)
+            on_invalid_args(message)
+            continue
         env_secret_names = tuple(_env_secret_names(raw_server))
         transport = _transport(raw_server)
         command = raw_server.get("command") if isinstance(raw_server.get("command"), str) else None
@@ -1115,7 +1129,7 @@ def _looks_like_local_documentation(server_name: str, server: dict[str, Any]) ->
         [
             server_name,
             str(server.get("command") or ""),
-            " ".join(str(item) for item in server.get("args") or []),
+            " ".join(str(item) for item in _as_sequence(server.get("args"))),
         ]
     )
     tokens = set(re.findall(r"[a-z0-9]+", text.lower()))

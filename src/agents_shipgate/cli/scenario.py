@@ -19,6 +19,7 @@ import yaml
 from pydantic import ValidationError
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
+from agents_shipgate.core.errors import format_validation_error
 from agents_shipgate.core.finding_refs import finding_tool_names
 from agents_shipgate.schemas.report import (
     Finding,
@@ -172,7 +173,7 @@ def load_report_json(path: Path) -> ReadinessReport:
     try:
         return ReadinessReport.model_validate(payload)
     except ValidationError as exc:
-        raise ScenarioInputError(f"report.json failed validation: {exc}") from exc
+        raise ScenarioInputError(format_validation_error(exc, label="report.json failed validation")) from exc
 
 
 def scenario_yaml_payload(report: ReadinessReport) -> dict[str, list[dict[str, Any]]]:

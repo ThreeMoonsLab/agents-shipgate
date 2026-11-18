@@ -14,6 +14,7 @@ from typing import Any
 import typer
 from pydantic import ValidationError
 
+from agents_shipgate.cli.agent_mode import emit_cli_error_line
 from agents_shipgate.cli.verify.git import (
     active_replace_refs,
     ensure_git_workspace,
@@ -26,7 +27,7 @@ from agents_shipgate.core.authorization_execution import (
     ensure_authorization_runtime_is_external,
     execute_pinned_git_push,
 )
-from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.errors import ConfigError, format_validation_error
 from agents_shipgate.core.human_authorization import (
     default_human_authorization_trust_policy_path,
     evaluate_human_authorization,
@@ -407,17 +408,18 @@ def _emit_authorization_error(error_kind: str, exc: Exception, guidance: str) ->
         why=guidance,
         expects="A fresh valid receipt and externally signed authorization closure.",
     ).model_dump(mode="json")
-    typer.echo(
-        json.dumps(
-            {
-                "error": error_kind,
-                "message": str(exc),
-                "next_action": guidance,
-                "next_actions": [action],
-            },
-            sort_keys=True,
-        ),
-        err=True,
+    message = (
+        format_validation_error(exc, label="Invalid authorization input")
+        if isinstance(exc, ValidationError) else str(exc)
+    )
+    emit_cli_error_line(
+        {
+            "error": error_kind,
+            "message": message,
+            "next_action": guidance,
+            "next_actions": [action],
+        },
+        sort_keys=True,
     )
 
 

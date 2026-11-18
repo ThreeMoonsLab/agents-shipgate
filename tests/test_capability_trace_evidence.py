@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from agents_shipgate.core.artifact_models import OpenAIApiArtifacts
@@ -79,6 +80,26 @@ def _context(
         framework_artifacts=bag,
         capability_facts=facts,
     )
+
+
+def test_trace_loader_splits_jsonl_on_lf_only(tmp_path):
+    note = "line\u2028separator\u2029paragraph"
+    (tmp_path / "traces.jsonl").write_bytes(
+        (json.dumps({"tool": "lookup", "reason": note}, ensure_ascii=False)
+         + '\r\n\r\n{"tool":"summarize"}\r\n').encode("utf-8")
+    )
+    warnings = []
+    _, traces = load_trace_artifacts(
+        [ArtifactPathConfig(path="traces.jsonl")],
+        tmp_path,
+        warnings,
+        label="test",
+        source_type="validation_agent_trace",
+    )
+    assert [trace["tool_name"] for trace in traces] == ["lookup", "summarize"]
+    assert traces[0]["reason"] == note
+    assert [trace[TRACE_SOURCE_KEY]["source_line"] for trace in traces] == [1, 3]
+    assert warnings == []
 
 
 def test_trace_loader_keeps_allowlisted_scalars_and_source_metadata(tmp_path):

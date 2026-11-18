@@ -122,7 +122,8 @@ def score_record(record: dict[str, Any]) -> dict[str, Any]:
     suffix = " " + record["kind"]
     on_file = [row for row in rows if str(row.get("subject", "")).endswith(suffix)]
     other = [row for row in rows if row not in on_file]
-    changes = [c for c in expectation.get("changes", []) if c["kind"] != "unsupported_setting"]
+    all_changes = expectation.get("changes", [])
+    changes = [change for change in all_changes if change["kind"] != "unsupported_setting"]
     missing = [c for c in changes if not any(_row_matches(row, c) for row in on_file)]
     unexpected = [row for row in on_file if not any(_row_matches(row, c) for c in changes)]
     commands = len(record.get("commands") or [])
@@ -145,7 +146,7 @@ def score_record(record: dict[str, Any]) -> dict[str, Any]:
         "missing": len(missing), "unexpected": len(unexpected),
         "commands": commands, "comparison_seconds": seconds,
         "install_seconds": record.get("install_seconds"), "clone_seconds": record.get("clone_seconds"),
-        "changed_case": bool(changes), "success": success,
+        "changed_case": bool(all_changes), "success": success,
         "missing_detail": "; ".join(f"{c['kind']} {c['key']} {c['direction']}" for c in missing),
         "unexpected_detail": "; ".join(f"{r['before']} -> {r['after']} ({r['direction']})" for r in unexpected),
         "unclassified_keys": ",".join(expectation.get("unclassified_keys", [])),

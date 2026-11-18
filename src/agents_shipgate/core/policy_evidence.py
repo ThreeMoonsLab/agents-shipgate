@@ -32,6 +32,33 @@ _POLICY_EVIDENCE_LABELS = {
 }
 
 
+#: Evidence read from wording alone: a keyword or a pattern in a name or
+#: description. Under #1055 (Option A) evidence of this kind never moves a
+#: release verdict.
+LEXICAL_EVIDENCE_BASES: frozenset[str] = frozenset({"inferred_keyword", "inferred_regex"})
+
+
+def is_lexical_only_support(support: FindingSupport) -> bool:
+    """Whether everything keeping ``support`` ineligible is lexical evidence.
+
+    True when at least one predicate is not an eligible match and every such
+    predicate rests only on :data:`LEXICAL_EVIDENCE_BASES`. A predicate that is
+    unsupported for any other reason — a protocol default, an unknown basis, a
+    structural claim below high confidence — makes it false, so that weakness
+    still reaches the evidence-gap route it always had.
+    """
+
+    weak = [
+        row
+        for row in support.predicates
+        if not (row.status == "matched" and row.policy_eligible)
+    ]
+    return bool(weak) and all(
+        row.evidence_bases and set(row.evidence_bases) <= LEXICAL_EVIDENCE_BASES
+        for row in weak
+    )
+
+
 def _join_evidence_labels(bases: set[EvidenceBasis]) -> str:
     if not bases:
         raise ValueError("at least one evidence basis is required")

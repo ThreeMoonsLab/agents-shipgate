@@ -13,8 +13,9 @@ on both sides is no longer a `not_established` row: `rows` is shorter for the
 same change, and its agent's optional top-level `read_same` names it once with
 its doubts (whether the agent holds it, or which file an import search
 reaches). A doubt about which definition or settings are bound keeps the row,
-with optional `doubts`. No published schema document exists for either
-version yet (#1044).
+with optional `doubts`. `compared` can become `partial` when a handoff or
+sub-agent target name is bound more than once or an MCP endpoint cannot be
+named. No published schema document exists for either version yet (#1044).
 
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
@@ -843,6 +844,123 @@ already says.
 
 ---
 
+<a id="lock-family-redaction-1079"></a>
+
+## Migration Note: Unreleased — the capability lock family is redacted, and the digests it computes are taken over the redacted text (#1079)
+
+**What was wrong.** `report.json`, the packet, SARIF, the PR comment and
+`verifier.json` redact every secret shape, but the capability lock family was
+built from unredacted capability facts: `capabilities.lock.json` (from
+`capability export`, the MCP `shipgate.capabilities` tool and `verify`, with
+`base.capabilities.lock.json`), `capability-lock-diff.json` and `.md` (from
+`verify` and `capability diff`), and `capability-delta-attestation.json` and
+`.v2.json`. A key in a tool name, in its owner
+(`$.capabilities[].controls.evidence_owner`), a scope, an authority source or
+a source pointer was published verbatim in the lock, in the diff's `added[]`,
+`changed[].before`/`after` and `semantic_changes[].before`/`after`, and
+throughout both attestations. A lock read back from disk was republished as it
+was. Separately, text cut to a length before the publication-time redaction
+reached it lost, when a credential straddled the cut, the characters a rule
+needs, and the credential's head was published: the n8n HTTP tool's path hint
+(200 characters), the agent's `instructions.value_preview` from an OpenAI or
+Anthropic prompt file or an ADK instruction (500), skill-review excerpts
+(180), and the Python reader's expression text in a caveat (160) and its
+source-slot refusal rows (1,024). Git's diagnostic in a `verify` diff status
+(240) was bounded and never redacted at all.
+
+**What changes.**
+
+- **Every string the family publishes is redacted** where the lock is
+  assembled, by the rules `report.json` uses: each capability's identity,
+  effect, authority, controls, evidence, risk tags and semantic assessment,
+  the lock's `source` block and `cli_version`, the `base.path`/`head.path` of
+  a lock diff, and an attestation's `subject[].name`. Diff rows, semantic
+  changes and attestation records are built from those facts, so they carry
+  the redacted text.
+- **The digests the lock computes are taken over the redacted text.** Each
+  capability digest whose input redaction changed (`identity_hash`,
+  `binding_hash`, `authority_hash`, `control_hash`, `risk_hash`,
+  `evidence_hash`) is recomputed over the redacted text by the same recipe,
+  and the capability `id` (`cap_<identity_hash>`) follows it. The lock's
+  `semantic_capability_set_hash`, `evidence_set_hash`, `source_set_hash` and
+  `definition_set_hash`, and the payload's `subject.key`,
+  `capability_set_digest` and `evidence_set_digest`, are computed from those,
+  so a consumer that recomputes one from the published file agrees with it,
+  and `tools/verify-capability-delta.py` accepts both attestations.
+  `schema_hash` and the definition digests cover text no lock publishes and
+  do not move. The in-toto `subject[].digest` (`gitTree`, `gitCommit`) names
+  repository objects, not lock content, and does not move.
+- **Ids an adapter derives from source text are not digests of what the
+  file shows.** `identity.tool_id` (`tool_v2_…`) and
+  `semantic_assessment.identity.primary_observation_id` and
+  `observation_ids[]` (`obs_v1_…`) are digests the readers take, when they
+  read a tool, of its source text: the observation's locator, or the reviewed
+  binding that names it. They are kept as they are, because they are the
+  identity `report.json`, the packet and `verifier.json` carry too, and the
+  capability `id` is taken over them. A reader cannot recompute them from the
+  published file, and anyone who can guess the redacted text, such as a
+  low-entropy credential in a tool name, can confirm the guess against them
+  by dictionary. That was already so before this change, which also published
+  the text itself. A keyed id would close it; it is not part of this change.
+- **A lock read from disk is made publishable the same way**: a committed
+  `.agents-shipgate/capabilities.lock.json` written before this change, a
+  cached base lock and a `capability diff` input republish nothing they
+  carried, and an old lock and a fresh export of the same tools get the same
+  ids, so upgrading does not read as a reidentified capability. A lock with
+  nothing to redact reads back byte for byte, and a lock-level digest whose
+  input redaction did not move keeps its stored value.
+- **Two capabilities are never merged.** Redaction is many-to-one, so two
+  tools whose identities differ only inside a credential would redact to one
+  id, and a diff keys capabilities by id. Each capability in such a group
+  keeps the identity digest and id of its source text, which do not describe
+  the published text either: the lock shows two indistinguishable names, but
+  two capabilities. Only a caller whose `tool_id`s are taken from names
+  reaches this: the shipped readers' `tool_v2_…` ids hash the raw
+  observation, and `action_surface` rejects duplicate selectors. Its diff
+  rows are best effort. A fact's id is its source digest while a twin exists
+  and its redacted digest when it is alone, and pairing runs on the redacted
+  names, which the twins share, so a twin arriving or leaving can show as a
+  `reidentified` row or an owner change that did not happen.
+- **Redact, then cut.** Every site named above is redacted before it is cut,
+  and a cut never ends inside a `[REDACTED:…]` marker: a marker the bound
+  would split is dropped whole. When Git's diagnostic fills the 8 KiB
+  capture, its last, possibly cut, word is dropped before it is read. Two
+  places that bound already-redacted text no longer cut through a marker
+  either: the blocker title in `verify`'s headline (120 characters, and its
+  byte budget) and an evidence gap's subject in its one-line headline (120),
+  which had published half of one (`create_refund_x…_[REDACTED:op…`). A sweep
+  of `src/` for text cut to a length found no other text cut before the
+  redaction that publishes it.
+- **The privacy audit does not count these read-time redactions yet.**
+  Because the sites above now redact when the text is read, the report-time
+  pass finds `[REDACTED:…]` markers there and `privacy_audit` counts none of
+  them: for the same input, `redacted_occurrence_count` and `redacted_paths`
+  can be lower than before (a prompt file's
+  `agent.instructions.value_preview` row, a reader caveat's
+  `source_warnings[][]` row). Counting redactions made before the final pass
+  is [#586](https://github.com/ThreeMoonsLab/agents-shipgate/issues/586).
+
+**Who must act.** Rotate any credential a lock, lock diff or attestation
+published, and re-run `capability export` so the committed lock no longer
+carries it. For a capability whose identity text holds a secret shape, the
+published `id` and digests, the lock's `source_set_hash` and set hashes, and a
+lock diff's `base`/`head` hashes move once; a consumer that pinned one of
+those values re-pins it. A capability, or a lock, with nothing to redact keeps
+every byte. An n8n HTTP tool whose URL path holds a secret shape can show a
+different path hint, and so a different `annotations_hash` (one
+`definition_changed` row). A skill finding whose excerpt line holds a secret
+shape publishes a different excerpt and fingerprint, so code scanning may show
+its alert as new once. A consumer that compares
+`privacy_audit.redacted_occurrence_count` across versions can see it fall
+where one of these sites redacted something.
+
+**What does not change.** No schema or schema version, field, CLI flag, check
+ID, control state or contract version moves. `privacy_audit.rules_version`
+stays `0.2`: no rule changed, only where the rules are applied.
+`verification-input.diff` remains the exact bytes of the change.
+
+---
+
 <a id="held-restrictions-1036"></a>
 
 ## Migration Note: Unreleased — a tightened deny or ask rule is not a widening, and a lifted denial is rated by what it restricted (#1036)
@@ -1138,6 +1256,147 @@ decision, risk level, policy id, rule id or check ID moves. The frozen
 `audit_id` or `policy_set_sha256` from one of the runs above sees a new value
 for the same input once. A contributor's `./shipgate` and an editable install
 now report the policy digests a released wheel reports.
+
+---
+
+<a id="lexical-advisories-1035"></a>
+
+## Migration Note: Unreleased — keyword evidence no longer blocks or gaps three checks, and stale-manifest checks read the catalog (#1035)
+
+**What was wrong.** Three checks turned weak evidence into verdicts or harmful
+patches.
+
+- `SHIP-ACTION-EFFECT-ESCALATED` compared the conservative effect, which
+  counts keyword risk hints, and blocked as `critical` with
+  `protocol_structure` support. Rewording a reviewed `write` tool's
+  description to "the customer gets an email" moved a `passed` base to
+  `blocked`, with or without `--no-heuristics`.
+- `SHIP-SCOPE-PROHIBITED-TOOL-PRESENT` matched by substring, so `or` matched
+  "priority", "for" and "order". Adding "for a customer" to a description
+  raised a non-waivable gap: `passed` became `insufficient_evidence`, and
+  neither `checks.ignore` nor `--no-heuristics` cleared it.
+- The stale-manifest checks compared policies, suppressions and risk overrides
+  with the proven-reachable tools only. On
+  `samples/large_multi_framework_agent` (63 catalog tools, none proven
+  reachable) they called `create_refund`, `terminate_account` and
+  `crm.delete_customer_data` missing, with `confidence: high` removal patches
+  that a default `apply-patches --apply` would apply, deleting their approval,
+  confirmation and idempotency policies.
+
+**What changes.** The owner ruling on #1055 (Option A: lexical heuristics
+never move the verdict) is applied to these checks through one in-process
+catalog flag, `advisory_when_policy_ineligible`. It is not catalog wire
+surface and is absent from `docs/checks.json`.
+
+- **Effect escalation.** It blocks only when the head effect can drive hard
+  controls and a policy-eligible claim places it above the base effect. An
+  escalation that only wording supports is a `medium`, non-blocking finding
+  with `provenance_kind: keyword_heuristic` and the claims' real bases
+  (`inferred_keyword`). That finding raises no evidence gap and is never a
+  blocker or review item, so it adds nothing to the verdict, and
+  `--no-heuristics` filters it. Other checks can still read the same keyword:
+  on the #1035 reproduction (a reviewed `write` tool whose description gains
+  "the customer gets an email") `--diff-from` moves `blocked` to
+  `review_required`, not to `passed`, because `SHIP-MCP-PERMISSION-EXPANDED`
+  reports the keyword-driven capability change as a review item, and the head
+  scan alone is `insufficient_evidence` from the keyword effect claim's
+  `mixed_policy_evidence` gap. Both are the remainder of #1055. An escalation
+  backed by other non-authoritative evidence, such as a protocol default,
+  raises an evidence gap as before.
+- **Safeguard removal.** It blocks only when the action's effect can drive
+  hard controls. Otherwise it is a `medium` advisory under the same rule. A
+  removed `rollback` is `critical` only when `destructive` is established.
+- **Prohibited actions.** The match compares whole-word stems, never
+  substrings. The tool's name and description must share at least two words
+  with the prohibited action, and one of them must be the action's verb.
+  - **The action's verb.** Every listed action verb the action contains,
+    adjacent or not ("delete, export or share customer data"). A noun that
+    names one counts as that verb ("Prevent **deletion** of customer data").
+    Only when there is none does the leading word count ("tweet"). So "Customer
+    data must never be **exported**" needs `export`, and a shared subject
+    ("customer", "data") is never enough.
+  - **The tool's side** is every word of its name (split on punctuation and
+    camelCase) and description, wherever the verb sits: "Permanently delete
+    customer records", `records.bulk_delete`.
+  - **Synonyms** come from an explicit table, applied to every word on both
+    sides: delete/purge/remove/erase/wipe/destroy, update/modify/edit/change,
+    buy/purchase, execute/run, terminate/close, create/issue/make,
+    share/disclose, plus nouns that name an action (deletion, approval,
+    payment, …). "shut down" reads as `shutdown` and "e-mail" as `email`.
+  - **More connectives are stopwords:** `or`, `in`, `of`, `on`, `by`, `never`,
+    and others.
+  - **Qualifier clauses.** Words after `without`, `unless`, `except` or
+    `outside` are not part of the action. When a tool's name contains *every*
+    word of a `without` clause, the tool is that safeguard, and the word
+    comparison is skipped for it: `send_email_preview` against "send external
+    email without preview". The risk-tag rules still run for it. A tool that
+    shares only part of the clause is still compared:
+    `crm.send_customer_email` against "send email without customer consent".
+
+  A match is a `medium`, non-blocking advisory finding (`default_severity`
+  `high` → `medium`), never an evidence gap.
+- **Advisory framing.** A lexical advisory is labelled
+  `Advisory (lexical evidence, does not gate)` in its `misalignments[]` entry,
+  which is listed after every gating one, suggests no scenario, and is no
+  longer counted in `capability_facts[]` (which tools are selected, their
+  `control_status`, `related_findings`). The packet's evidence matrix lists it
+  as a note, not a missing control, so it changes no row's `evidence_present`.
+- **Stale manifest entries.** An entry naming a catalog tool whose binding is
+  not established is reported as such, with `evidence.issues:
+  ["binding_not_established"]`, a manual keep-the-entry patch and
+  `suggested_patch_kind: manual`. It never gets a `remove_pointer` patch. An
+  entry naming a tool absent from the catalog is unchanged, evidence and
+  fingerprint included.
+
+**What does not change.** No check ID is added, removed or renamed. The
+blocking conditions only narrow, as [Check IDs](#check-ids) allows. The
+prohibited-action matcher both narrows and widens.
+
+- **It narrows.** It drops substring false matches. One is a word inside
+  another word: `or` in "priority", "order", "for". Another is an overlap with
+  no shared verb: "for a customer", or "Customer data must never be exported"
+  against a tool that adds a comment with customer data. It also drops a tool
+  named for the whole `without` safeguard (`send_email_preview`). On the
+  review probes, every other match `origin/main` made is kept.
+- **It widens.** It catches inflections and synonyms the substring match
+  missed: `cancel orders` against `cancel_order`, `terminate accounts` against
+  `terminate_account`, `issue refunds` against `stripe.create_refund`, and
+  "Prevent deletion of customer data".
+- **Known false positives.** It still matches some tools that share the verb
+  and an unrelated word, all as advisories.
+  - Homographs, some through the synonym table: "issue refunds" against
+    `github.create_issue` (a GitHub issue *about* refunds), or against
+    `jira.comment_on_issue`.
+  - A generic shared noun: "close customer accounts" against `close_ticket`
+    ("Close a customer's support ticket"), "remove users" against
+    `remove_label`, "purge backups" against `delete_draft` ("…a draft note
+    about backups").
+
+  A `checks.ignore` entry with a reason silences one. Recall is preferred
+  because a miss leaves the check with no output at all.
+
+Every match it adds is an advisory that cannot move the verdict. A
+policy-eligible escalation blocks as before, with the same evidence, support
+and fingerprint. No schema, contract or control state moves.
+
+**Who must act.** Nothing is required. A pipeline that relied on a
+keyword-only escalation blocking, or on a prohibited-action word match making
+the run `insufficient_evidence`, should declare the effect under
+`action_surface.actions[].effect` (a reviewed escalation blocks) or read the
+advisory findings. Two kinds of baseline entry rotate once and reappear as new
+findings:
+
+- stale-manifest findings about catalog tools, which carry the corrected
+  statement and a new `evidence.issues`;
+- a removed-`rollback` `SHIP-ACTION-SAFEGUARD-REMOVED` on an action whose
+  `destructive` effect only a keyword supplied. It still blocks when the
+  action has an established effect, but its `change.severity` is now `high`
+  instead of `critical`, and that value is part of the fingerprinted evidence.
+
+The keyword gaps that remain (a risk-hint effect claim above a reviewed
+declaration, `SHIP-SCHEMA-BROAD-FREE-TEXT`, `SHIP-SCOPE-TOOL-OUTSIDE-PURPOSE`,
+and others) and `SHIP-MCP-PERMISSION-EXPANDED` on a keyword-driven capability
+change are the rest of #1055.
 
 ---
 
@@ -1676,9 +1935,10 @@ finding whose fingerprint moved.
 permission is added, `report_schema_version` stays `1.0`, and
 `publish_when_policy_ineligible` stays in-process catalog metadata, absent from
 `docs/checks.json`. `verification-input.diff` remains the exact bytes of the
-change. The capability lock family (`capabilities.lock.json`, the lock diff
-and the capability delta attestation) stays unredacted, as before, pending
-#1079.
+change. This change did not redact the capability lock family
+(`capabilities.lock.json`, the lock diff and the capability delta
+attestation); #1079 does, and every string it publishes is now redacted. See
+[that migration note](#lock-family-redaction-1079).
 
 ---
 
@@ -6369,6 +6629,19 @@ read as words alone, so a SARIF location keeps its file. A detected secret or in
 text is always published as a finding with its value redacted, never hidden in
 an evidence gap. See [the migration note](#secret-observations-1026).
 
+The capability lock family (`capabilities.lock.json`,
+`base.capabilities.lock.json`, `capability-lock-diff.json` and `.md`, and
+both capability delta attestations) is redacted by the same rules, where a
+lock is assembled and where one is read, and each digest the lock computes is
+taken over the redacted text, so a consumer recomputes it from the file. Ids
+an adapter derives from source text are not: `tool_id` (`tool_v2_…`) and the
+observation ids (`obs_v1_…`), here as in `report.json` and `verifier.json`,
+are digests of text the file does not show, so a reader cannot recompute them
+and can test a guess for that text against them; so are the identity digests
+of two capabilities redaction would merge. Text a reader bounds to a length is
+redacted before it is cut. Those read-time redactions are not yet counted in
+`privacy_audit` (#586). See [the migration note](#lock-family-redaction-1079).
+
 Changed-file paths are published verbatim, by decision (#742). `check` and
 `verify` name each file the change touches exactly as Git names it: in
 `changed_files[]`, `trigger.changed_files[]`, `affected_files[].path`,
@@ -6626,6 +6899,10 @@ Where `canonical_evidence`:
 - **Excludes** the `source_provenance` evidence key (so adding local HITL provenance does not rotate existing baselines or suppressions)
 
 Fingerprints are stable across runs on the same input. They are the identity primitive used by suppressions and baselines.
+
+Malformed Codex TOML uses the parser kind and failure type as boundary
+evidence across Python versions. Audit IDs written by builds that included
+Python 3.14's exception positions may rotate once for those inputs.
 
 ### Trust-model invariants
 

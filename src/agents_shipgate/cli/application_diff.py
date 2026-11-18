@@ -2177,12 +2177,14 @@ def run_application_diff(
     )
     if base_ref is None:
         # Keep the established missing-base diagnostic and recovery wording.
-        _resolve_base(workspace, None, head_commit)
+        _resolve_base(workspace, None, head_commit, worktree=False)
         raise ConfigError("No comparison base is available.")
     if not base_ref.strip() or base_ref.startswith("-"):
         raise typer.BadParameter("Base ref must be non-empty and cannot start with a dash.")
     requested_base_commit = commit_sha(workspace, base_ref)
-    _, base_commit = _resolve_base(workspace, requested_base_commit or base_ref, head_commit)
+    _, base_commit = _resolve_base(
+        workspace, requested_base_commit or base_ref, head_commit, worktree=False,
+    )
     for side, ref, commit in (("base", base_ref, base_commit), ("head", head, head_commit)):
         if promised_objects_missing(workspace, commit):
             # A partial clone: name the hydration it needs before anything

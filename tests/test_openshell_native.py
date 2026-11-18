@@ -390,4 +390,5 @@ def test_worker_cannot_import_native_proof_plan(repo, tmp_path):
     verify(repo, "--openshell-proof-config", str(path))
     plan = repo / "agents-shipgate-reports/verification-plan.json"
     result = CliRunner().invoke(app, ["verification", "worker", "--workspace", str(repo), "--plan", str(plan)])
-    assert result.exit_code != 0 and "cannot be imported" in str(result.exception)
+    assert result.exit_code == 3, result.output
+    assert "cannot be imported" in result.stderr

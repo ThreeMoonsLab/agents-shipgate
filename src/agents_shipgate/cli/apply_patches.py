@@ -55,7 +55,7 @@ from ruamel.yaml import YAML
 
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_controls import owned_git_root_for
-from agents_shipgate.core.errors import AgentsShipgateError
+from agents_shipgate.core.errors import AgentsShipgateError, format_validation_error
 from agents_shipgate.schemas.declaration_continuation import (
     DECLARATION_CONTINUATION_ARTIFACT_NAME,
     AppliedDeclaration,
@@ -252,10 +252,12 @@ def apply_patches(
             and (p.get("kind") == "manual" or p.get("confidence") in confidence_levels)
         ]
     except (ValidationError, typer.BadParameter) as exc:
-        typer.echo(
-            f"Malformed patch in report at {from_path}: {exc}",
-            err=True,
+        label = f"Malformed patch in report at {from_path}"
+        message = (
+            format_validation_error(exc, label=label)
+            if isinstance(exc, ValidationError) else f"{label}: {exc}"
         )
+        typer.echo(message, err=True)
         import shlex as _shlex
 
         out_q = _shlex.quote(str(from_path.parent))
@@ -265,7 +267,7 @@ def apply_patches(
         )
         _emit_input_error(
             "malformed_patch",
-            str(exc),
+            message,
             next_action=rerun_command,
             next_actions=[
                 {

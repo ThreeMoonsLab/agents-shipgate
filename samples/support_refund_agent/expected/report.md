@@ -38,7 +38,7 @@ Fail policy: ci_mode=advisory, fail_on=[none], new_findings_only=false, would_fa
 
 - Critical: 3
 - High: 10
-- Medium: 2
+- Medium: 4
 - Low: 0
 - Suppressed: 0
 - Status: Release blockers detected (legacy; see Release Decision above)
@@ -90,7 +90,7 @@ Reviewer triage signal only. Provenance kind does not change severity, release d
 | --- | ---: |
 | `static_declaration` | 15 |
 | `ast_extraction` | 0 |
-| `keyword_heuristic` | 0 |
+| `keyword_heuristic` | 2 |
 | `regex_heuristic` | 0 |
 | `policy_pack` | 0 |
 | `runtime_trace` | 0 |
@@ -134,7 +134,7 @@ Policy/control gaps:
 - HIGH policy\_gap \[gmail.send\_customer\_email\]: gmail.send\_customer\_email lacks a declared confirmation policy. (at .agents-shipgate/mcp-tools.json)
   Requires: Destructive, external, or customer actions require confirmation.
   Release implication: Release review must verify explicit user confirmation before shipping.
-- 10 more in report.json
+- 12 more in report.json
 
 Release implication:
 
@@ -224,6 +224,11 @@ No local runtime trace artifacts were declared for capability evidence.
 ### Schema
 
 - MEDIUM: SHIP-SCHEMA-FREEFORM-OUTPUT [send\_email\_preview] - send\_email\_preview returns free-form text output
+
+### Scope
+
+- MEDIUM: SHIP-SCOPE-PROHIBITED-TOOL-PRESENT [gmail.send\_customer\_email] - gmail.send\_customer\_email appears to overlap with a prohibited action
+- MEDIUM: SHIP-SCOPE-PROHIBITED-TOOL-PRESENT [stripe.create\_refund] - stripe.create\_refund appears to overlap with a prohibited action
 
 ### Side Effects
 

@@ -30,10 +30,10 @@ from agents_shipgate.core.host_grants import (
     load_host_grants_baseline,
 )
 from agents_shipgate.schemas.host_grants import (
-    HostGrantsBaselineV9,
+    HostGrantsBaselineV10,
     HostGrantsDriftV9,
     HostGrantsInventoryArtifactV4,
-    HostGrantsInventoryV9,
+    HostGrantsInventoryV10,
 )
 
 runner = CliRunner()
@@ -170,8 +170,8 @@ def _drift_json(tmp_path: Path, *extra: str) -> tuple[int, dict]:
 
 def test_inventory_v02_collects_typed_multi_host_grants(tmp_path: Path) -> None:
     inventory = host_audit_inventory(_seed_workspace(tmp_path))
-    assert inventory["host_grants_inventory_schema_version"] == "0.9"
-    HostGrantsInventoryV9.model_validate(inventory)
+    assert inventory["host_grants_inventory_schema_version"] == "0.10"
+    HostGrantsInventoryV10.model_validate(inventory)
     assert inventory["scope"] == "repository"
     assert inventory["static_analysis_only"] is True
     assert inventory["runtime_session_verified"] is False
@@ -749,8 +749,8 @@ def test_v02_baseline_is_typed_portable_redacted_and_idempotent(tmp_path: Path) 
     _seed_workspace(tmp_path)
     baseline_path = _save_baseline(tmp_path)
     payload = json.loads(baseline_path.read_text(encoding="utf-8"))
-    HostGrantsBaselineV9.model_validate(payload)
-    assert payload["host_grants_schema_version"] == "0.9"
+    HostGrantsBaselineV10.model_validate(payload)
+    assert payload["host_grants_schema_version"] == "0.10"
     assert payload["scope"] == "repository"
     assert "workspace" not in payload["inventory"]
     assert payload["inventory"]["artifacts"]
@@ -1629,9 +1629,9 @@ def test_baseline_overwrite_reuses_descriptor_bound_text_without_path_reread(
 def test_generated_models_reject_unknown_fields_and_invalid_literals(tmp_path: Path) -> None:
     payload = host_audit_inventory(tmp_path)
     with pytest.raises(ValidationError):
-        HostGrantsInventoryV9.model_validate({**payload, "legacy_parse_warnings": []})
+        HostGrantsInventoryV10.model_validate({**payload, "legacy_parse_warnings": []})
     with pytest.raises(ValidationError):
-        HostGrantsInventoryV9.model_validate({**payload, "scope": "runtime"})
+        HostGrantsInventoryV10.model_validate({**payload, "scope": "runtime"})
 
 
 def test_inventory_schema_uses_discriminated_typed_grants() -> None:

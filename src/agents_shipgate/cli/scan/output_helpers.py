@@ -14,7 +14,7 @@ from agents_shipgate.packet.pdf import (
 from agents_shipgate.report.human_order import ColdReaderLead, HumanArtifactContext
 from agents_shipgate.report.json_report import write_json_report
 from agents_shipgate.report.markdown import write_markdown_report
-from agents_shipgate.report.sarif import write_sarif_report
+from agents_shipgate.report.sarif import SarifSourcePaths, write_sarif_report
 from agents_shipgate.schemas.report import ReadinessReport
 
 PACKET_FORMAT_NAMES = {"md", "json", "html", "pdf"}
@@ -55,6 +55,7 @@ def _write_reports(
     formats: list[str],
     *,
     sanitized_payload: dict | None = None,
+    sarif_source_paths: SarifSourcePaths | None = None,
     human_context: HumanArtifactContext | None = None,
     root: Path | None = None,
 ) -> None:
@@ -74,7 +75,7 @@ def _write_reports(
             root=root,
         )
     if "sarif" in formats and "sarif" in paths:
-        write_sarif_report(report, paths["sarif"], root=root)
+        write_sarif_report(report, paths["sarif"], source_paths=sarif_source_paths, root=root)
 
 
 def _write_packet(
