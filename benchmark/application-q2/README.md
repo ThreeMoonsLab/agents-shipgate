@@ -8,11 +8,11 @@ makes that a number someone else can reproduce, on two corpora:
   Reader issues are worked against these pull requests, so a count on them
   measures what was fixed. It does not predict how the next stranger's pull
   request will fare.
-- **Holdout**: at least 30 pull requests the [rule below](#holdout-selection-rule)
-  selects from a later window. The rule, and the repository pool it draws
-  from, were committed before any of the reader changes it is meant to judge
-  merged; the pins follow once the window holds enough pull requests. Members
-  are scored only when a release is cut, and never used to debug a reader.
+- **Holdout**: the 30 pull requests the [rule below](#holdout-selection-rule)
+  selects from a later window, pinned in [`holdout.json`](holdout.json) on
+  2026-11-17. The rule, and the repository pool it draws from, were committed
+  before any of the reader changes it is meant to judge merged. Members are
+  scored only when a release is cut, and never used to debug a reader.
 
 Both are development evidence for [#868](https://github.com/ThreeMoonsLab/agents-shipgate/issues/868),
 not a success rate, a market estimate or a qualification claim. Neither may be
@@ -31,8 +31,8 @@ agents-shipgate diff --application --base <merge_base> --head <head> --json
 run in the clone's root with no `--scope`, so the scope is derived from the
 change, as it is for a new user. Nothing is fetched while the diff runs.
 [`run.py`](run.py) does exactly this: with `--fetch` it clones and fetches the
-pins, and it records every member's outcome (`ok`, `refused`, `timeout` or
-`unavailable`, with the reason) in `runs.json`. [`summarize.py`](summarize.py)
+pins, and it records every member's outcome (`ok`, `invalid_output`, `refused`,
+`timeout` or `unavailable`, with the reason) in `runs.json`. [`summarize.py`](summarize.py)
 counts statuses and rows from a run directory. The counts are mechanical. The
 Q1/Q2 scores below are not.
 
@@ -44,17 +44,28 @@ python benchmark/application-q2/summarize.py --corpus benchmark/application-q2/d
   --out ~/.cache/shipgate-q2/out-<build> --scores benchmark/application-q2/results/<ledger>.scores.json
 ```
 
-Each invocation first removes the corpus members' previous outputs and the
+A normal rerun first removes the corpus members' previous outputs and the
 previous `runs.json`, before it prepares any clone. A member that times out, is
 unavailable or is refused this time therefore has no answer, never an earlier
 build's, and a run that stops early leaves no `runs.json`, which `summarize.py`
 refuses to read. The engine's stderr tail is kept in `<slug>.err` when it ran;
-every member's outcome and reason is in `runs.json`. The runner exits non-zero
-unless every member answered `ok`.
+every member's outcome and reason is in `runs.json`. An engine exit of zero
+only counts as `ok` when the output has the expected comparison fields and
+reports the pinned commits. For `invalid_output`, the runner keeps the raw
+stdout for diagnosis and the summarizer assigns no answer identity. The
+runner exits non-zero unless every member answered `ok`.
+
+For a replay you want to keep, pass `--retain-run` and an empty `--out`
+directory. The runner saves the selected refs, corpus hash, launcher hash
+and run options in `run-inputs.json` before starting. Later invocations
+refuse to replace the retained outputs. For offline replay, use pre-populated
+clones and omit `--fetch`.
 
 The answer's `summary` block (#914) is a reading of its rows, derived from
 them. `summarize.py` leaves it out of `answer_id`, so a build that adds or
-rewords it does not make a hand score stale. [`goldens.py`](goldens.py)
+rewords it does not make a hand score stale. The separate `presentation_id`
+changes when the answer's summary or one of its scope summaries changes.
+[`goldens.py`](goldens.py)
 renders the text the CLI prints for six members from a run's JSON and holds it
 to [`goldens/`](goldens/): `jpka/attest#3`, `MIS_TALENT#7` and `O.R.I.O.N#126`,
 the three cases that issue names, and three more that reach a process, are a
@@ -187,6 +198,16 @@ ledger under [`results/`](results/), and records
 release in `docs/changelog/<version>.md`. While the holdout has no pins, that
 line says so instead of a number.
 
+The holdout was pinned on 2026-11-17 ([#1158](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1158)).
+Its `walk` record says how the window was listed, how many pull requests each
+step set aside, and how the rule was read where it needed reading. 768
+candidates were walked, in rule order, from 2026-10-02 to the 30th member on
+2026-10-05; every one is listed with its pins and its reason. Relevance was
+judged from source by one judge, a Claude Code agent, who ran no Agents
+Shipgate command and consulted no engine output for any candidate (`judge`;
+this repository's own CI ran `verify` on its 14 candidates, unconsulted). The
+holdout has no ledger yet: it is scored at the next release.
+
 The [2026-11-08 development ledger](results/2026-11-08-04fc9ced.md)
 measures the 1.3.0 release build at `04fc9ced`: Q1 and Q2 are 0/49, down
 from 4/49 and 3/49, because no answer establishes a row. Every change
@@ -207,7 +228,7 @@ no pinned members or score in this measurement.
 | --- | --- |
 | [`development.json`](development.json) | The 49 development pull requests: repository, number, URL, title, state, created date, merge base, head, the `frameworks` the engine read and the search that admitted them. |
 | [`pool.json`](pool.json) | The holdout's recorded repository pool, with every code-search request that produced it. |
-| [`holdout.json`](holdout.json) | The holdout's record: the digests of the frozen definitions and rule and of the pool and, once generated, its members and every skipped candidate with the reason. |
+| [`holdout.json`](holdout.json) | The holdout's record: the digests of the frozen definitions and rule and of the pool, who judged relevance and how the walk was made (`judge`, `walk`), its 30 members and every skipped candidate, each with its pins and reason. |
 | [`pool.py`](pool.py) | How `pool.json` was recorded. Re-running it does not reproduce it. |
 | [`run.py`](run.py) | Clone, fetch and run one engine over a corpus. |
 | [`summarize.py`](summarize.py) | Count a run's statuses and rows, and join the hand scores that judged its answers. |

@@ -18,26 +18,35 @@ a new user.
 
 Per member it writes ``<slug>.json`` (the engine's stdout, only when it exits
 0), ``<slug>.err`` (its stderr tail) and a row in ``runs.json``: ``status`` is
-``ok``, ``refused`` (the engine exited non-zero, e.g. ``objects_missing``),
-``timeout`` or ``unavailable`` (a pin could not be obtained), with the exit
-code, seconds and reason. Outputs a member already had in ``--out``, and the
+``ok``, ``invalid_output`` (stdout failed the comparison or pin checks),
+``refused`` (the engine exited non-zero, e.g. ``objects_missing``), ``timeout``
+or ``unavailable`` (a pin could not be obtained), with the exit code, seconds
+and reason. Outputs a member already had in ``--out``, and the
 previous ``runs.json``, are removed first, so a stale answer can never stand in
 for this run's, and a run that stops early leaves no ``runs.json`` for
 ``summarize.py`` to read. The exit code is 0 only when every member answered
 with ``ok``.
+
+Use ``--retain-run`` with an empty output directory to retain one replay.
+It writes ``run-inputs.json`` before running any member. The input receipt
+remains available if the run stops early, and later runs refuse that directory.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
 from collections import defaultdict
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 
 DIFF_TIMEOUT_SECONDS = 900
@@ -45,6 +54,9 @@ NETWORK_TIMEOUT_SECONDS = 600
 #: Never prompt for credentials (a deleted or private repository would block on
 #: a terminal prompt) and never fetch lazily while probing.
 _GIT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_NO_LAZY_FETCH": "1"}
+_SHA = re.compile(r"[0-9a-f]{40}")
+_SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,199}")
+_REPOSITORY = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9_.-]+")
 
 
 def _git(clone: Path, *args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
@@ -142,6 +154,43 @@ def _prepare_member(clone: Path, member: dict, fetch: bool) -> str | None:
     return None
 
 
+def _invalid_answer_reason(stdout: str, member: dict) -> str | None:
+    """Check the fields the replay relies on before treating stdout as an answer."""
+    try:
+        answer = json.loads(stdout)
+    except (ValueError, RecursionError):
+        return "stdout is not a readable JSON comparison"
+    if not isinstance(answer, dict):
+        return "stdout must contain one comparison object"
+    if answer.get("comparison_status") not in ("compared", "partial", "not_established"):
+        return "stdout has an invalid comparison_status"
+    for side, pin in (("base", "merge_base"), ("head", "head")):
+        evidence = answer.get(side)
+        if not isinstance(evidence, dict) or evidence.get("compared_commit") != member[pin]:
+            return f"stdout {side}.compared_commit does not match the pinned {pin}"
+    rows = answer.get("rows")
+    if not isinstance(rows, list):
+        return "stdout rows must be a list"
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict) or row.get("change") not in ("added", "removed", "changed", "not_established"):
+            return f"stdout rows[{index}] has an invalid change kind"
+        for side in ("before", "after"):
+            binding = row.get(side)
+            if binding is None:
+                continue
+            if not isinstance(binding, dict):
+                return f"stdout rows[{index}].{side} must be an object or null"
+            reach = binding.get("reach")
+            if reach is None:
+                continue
+            if not isinstance(reach, dict):
+                return f"stdout rows[{index}].{side}.reach must be an object or null"
+            for field in ("calls", "limits"):
+                if field in reach and not isinstance(reach[field], list):
+                    return f"stdout rows[{index}].{side}.reach.{field} must be a list"
+    return None
+
+
 def run_member(member: dict, *, engine: list[str], clones: Path, out: Path) -> dict:
     slug = member["slug"]
     clone = clone_dir(clones, member["repository"])
@@ -160,14 +209,19 @@ def run_member(member: dict, *, engine: list[str], clones: Path, out: Path) -> d
                 "seconds": round(time.monotonic() - started, 1),
                 "reason": f"diff exceeded {DIFF_TIMEOUT_SECONDS} s"}
     (out / f"{slug}.err").write_text(result.stderr[-4000:], encoding="utf-8")
-    if result.returncode == 0:
+    if result.returncode != 0:
+        status = "refused"
+        reason = result.stderr.strip()[-300:] or None
+    else:
         (out / f"{slug}.json").write_text(result.stdout, encoding="utf-8")
+        reason = _invalid_answer_reason(result.stdout, member)
+        status = "ok" if reason is None else "invalid_output"
     return {
         "slug": slug,
-        "status": "ok" if result.returncode == 0 else "refused",
+        "status": status,
         "exit_code": result.returncode,
         "seconds": round(time.monotonic() - started, 1),
-        "reason": None if result.returncode == 0 else (result.stderr.strip()[-300:] or None),
+        "reason": reason,
     }
 
 
@@ -186,32 +240,100 @@ def resolve_engine(spelling: str) -> list[str]:
     return [found]
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--engine", required=True, help="Launcher path or console script to measure.")
-    parser.add_argument("--corpus", type=Path, required=True)
-    parser.add_argument("--clones", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--fetch", action="store_true", help="Clone and fetch missing pins first.")
-    parser.add_argument("--jobs", type=int, default=4)
-    args = parser.parse_args(argv)
+def _validated_members(corpus: object) -> list[dict]:
+    if not isinstance(corpus, dict) or not isinstance(members := corpus.get("members"), list):
+        raise ValueError("The corpus must contain a members list.")
+    slugs: set[str] = set()
+    repositories: dict[str, str] = {}
+    for index, member in enumerate(members):
+        if not isinstance(member, dict):
+            raise ValueError(f"Corpus member {index} must be an object.")
+        slug, repository = member.get("slug"), member.get("repository")
+        if not isinstance(slug, str) or not _SLUG.fullmatch(slug) or ".." in slug or slug.endswith((".", ".lock")):
+            raise ValueError(f"Corpus member {index} has an invalid replay slug.")
+        if slug.casefold() in {"runs", "run-inputs"}:
+            raise ValueError(f"Corpus member {index} uses a reserved replay slug.")
+        if slug.casefold() in slugs:
+            raise ValueError(f"Corpus member {index} repeats a replay slug.")
+        slugs.add(slug.casefold())
+        if (
+            not isinstance(repository, str) or not _REPOSITORY.fullmatch(repository)
+            or repository.partition("/")[2] in {".", ".."}
+        ):
+            raise ValueError(f"Corpus member {index} has an invalid GitHub repository.")
+        if repositories.setdefault(repository.casefold(), repository) != repository:
+            raise ValueError(f"Corpus member {index} disagrees with the spelling of an earlier repository.")
+        for field in ("merge_base", "head"):
+            pin = member.get(field)
+            if pin is not None and (not isinstance(pin, str) or not _SHA.fullmatch(pin)):
+                raise ValueError(f"Corpus member {index} has an invalid {field} pin.")
+    return members
 
-    engine = resolve_engine(args.engine)
-    corpus = json.loads(args.corpus.read_text(encoding="utf-8"))
-    members = corpus["members"]
-    args.out.mkdir(parents=True, exist_ok=True)
-    (args.out / "runs.json").unlink(missing_ok=True)
-    for member in members:
-        for suffix in (".json", ".err"):
-            (args.out / f"{member['slug']}{suffix}").unlink(missing_ok=True)
 
+@contextmanager
+def _reserve_output(out: Path, *, retain_run: bool) -> Iterator[Path]:
+    out.mkdir(parents=True, exist_ok=True)
+    lock = out / ".run-lock"
+    try:
+        lock.mkdir()
+    except FileExistsError as exc:
+        raise ValueError("The output directory already has a replay reservation. Use a new output directory.") from exc
+    try:
+        if (out / "run-inputs.json").exists() or (retain_run and any(p != lock for p in out.iterdir())):
+            raise ValueError("Replay retention requires a fresh output directory.")
+        yield lock
+    finally:
+        (lock / "runs.json").unlink(missing_ok=True)
+        lock.rmdir()
+
+
+def _clear_previous_outputs(out: Path, members: list[dict], *, corpus: Path, engine: Path) -> None:
+    outputs = [out / "runs.json"]
+    outputs.extend(out / f"{member['slug']}{suffix}" for member in members for suffix in (".json", ".err"))
+    inputs = {"corpus": corpus.stat(), "engine": engine.stat()}
+    for output in outputs:
+        try:
+            identity = output.stat()
+        except FileNotFoundError:
+            continue
+        for name, source in inputs.items():
+            if os.path.samestat(identity, source):
+                raise ValueError(f"Replay output {output} overlaps the {name}. Use another output directory.")
+    for output in outputs:
+        output.unlink(missing_ok=True)
+
+
+def _record_replay_inputs(
+    out: Path, *, corpus_bytes: bytes, members: list[dict], engine: list[str], jobs: int, fetch: bool,
+) -> None:
+    receipt = {
+        "schema": "shipgate.application_replay_inputs/v1",
+        "corpus_sha256": hashlib.sha256(corpus_bytes).hexdigest(),
+        "engine_argv": engine,
+        "engine_launcher_sha256": hashlib.sha256(Path(engine[0]).read_bytes()).hexdigest(),
+        "diff_argv_template": ["diff", "--application", "--base", "<merge_base>", "--head", "<head>", "--json"],
+        "timeout_seconds": DIFF_TIMEOUT_SECONDS,
+        "workers": jobs,
+        "fetch_requested": fetch,
+        "members": [
+            {key: member.get(key) for key in ("slug", "repository", "number", "merge_base", "head")}
+            for member in members
+        ],
+    }
+    with (out / "run-inputs.json").open("x", encoding="utf-8") as stream:
+        stream.write(json.dumps(receipt, indent=2) + "\n")
+
+
+def _run_batch(
+    members: list[dict], *, engine: list[str], clones: Path, out: Path, jobs: int, fetch: bool,
+) -> list[dict]:
     by_repository: dict[str, list[dict]] = defaultdict(list)
     for member in members:
         by_repository[member["repository"]].append(member)
     records: dict[str, dict] = {}
-    with ThreadPoolExecutor(max(1, args.jobs)) as pool:
+    with ThreadPoolExecutor(jobs) as pool:
         prepared = pool.map(
-            lambda item: prepare_repository(item[0], item[1], args.clones, args.fetch),
+            lambda item: prepare_repository(item[0], item[1], clones, fetch),
             sorted(by_repository.items()),
         )
         for reasons in prepared:
@@ -220,13 +342,44 @@ def main(argv: list[str] | None = None) -> int:
                                  "seconds": 0.0, "reason": reason}
         runnable = [member for member in members if member["slug"] not in records]
         for record in pool.map(
-            lambda member: run_member(member, engine=engine, clones=args.clones, out=args.out),
+            lambda member: run_member(member, engine=engine, clones=clones, out=out),
             runnable,
         ):
             records[record["slug"]] = record
             print(f"{record['slug']}\t{record['status']}\t{record['seconds']}", flush=True)
-    ordered = [records[member["slug"]] for member in members]
-    (args.out / "runs.json").write_text(json.dumps(ordered, indent=2) + "\n", encoding="utf-8")
+    return [records[member["slug"]] for member in members]
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--engine", required=True, help="Launcher path or console script to measure.")
+    parser.add_argument("--corpus", type=Path, required=True)
+    parser.add_argument("--clones", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--fetch", action="store_true", help="Clone and fetch missing pins first.")
+    parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument("--retain-run", action="store_true", help="Record replay inputs in an empty output directory.")
+    args = parser.parse_args(argv)
+
+    engine = resolve_engine(args.engine)
+    jobs = max(1, args.jobs)
+    try:
+        corpus_bytes = args.corpus.read_bytes()
+        members = _validated_members(json.loads(corpus_bytes))
+        with _reserve_output(args.out, retain_run=args.retain_run) as reservation:
+            if args.retain_run:
+                _record_replay_inputs(args.out, corpus_bytes=corpus_bytes, members=members,
+                                      engine=engine, jobs=jobs, fetch=args.fetch)
+            else:
+                _clear_previous_outputs(args.out, members, corpus=args.corpus, engine=Path(engine[0]))
+            ordered = _run_batch(members, engine=engine, clones=args.clones, out=args.out,
+                                 jobs=jobs, fetch=args.fetch)
+            pending_index = reservation / "runs.json"
+            pending_index.write_text(json.dumps(ordered, indent=2) + "\n", encoding="utf-8")
+            pending_index.replace(args.out / "runs.json")
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+
     failed = [record["slug"] for record in ordered if record["status"] != "ok"]
     if failed:
         print(f"{len(failed)} of {len(ordered)} members did not answer: {', '.join(failed)}", file=sys.stderr)

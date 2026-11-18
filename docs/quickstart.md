@@ -1,21 +1,15 @@
 # Quickstart
 
-Three ways in, depending on what the pull request in front of you changes:
+Choose the review that matches your pull request.
 
-- **What a coding agent may do** — `.claude/settings.json`, `.mcp.json`,
-  `.codex/`, `.cursor/` or VS Code MCP configuration. Start at
-  [Review a host-configuration change](#review-a-host-configuration-change):
-  one command, no manifest.
-- **A tool surface your repository builds** — MCP or OpenAPI exports,
-  framework tool definitions. Follow
-  [One review, end to end](#one-review-end-to-end), on a sample committed to
-  this repository.
-- **Application-agent wiring without a manifest** — who receives a tool,
-  what its interface or implementation changed, and where the read stops.
-  Start at [Application route in one YAML block](#application-route-in-one-yaml-block).
+- **Application-agent wiring.** Start with [a local application comparison](#review-an-application-agent-pr)
+  for OpenAI Agents SDK or Google ADK.
+- **Coding-agent permissions.** Start with [host configuration](#review-a-host-configuration-change)
+  for Claude Code, Codex, Cursor, VS Code MCP, or GitHub workflow grants.
+- **Declared tool surface.** Follow [one review, end to end](#one-review-end-to-end)
+  for MCP, OpenAPI, or framework tool definitions in a repository that uses a manifest.
 
-By the end you should be able to say four things about the change under
-review, from the artifacts alone:
+In the declared-tool walkthrough, use the artifacts to answer four questions:
 
 1. what capability it added, widened or removed;
 2. why the top result matters;
@@ -29,48 +23,6 @@ a measured result — observed times are recorded in
 Nothing here asks you to author a policy first. If you are reviewing a
 coding-agent host boundary rather than building a tool surface, you never need
 a manifest at all.
-
-## Which build you get
-
-Read this before you install. Agents Shipgate is published through more than
-one channel, and they do not all implement the same runtime contract. The
-newest published release is **`v1.3.0`**, which implements **runtime contract
-`42`**, including the agent-control envelope that later sections describe. It
-ships on the advisory channel and makes no qualification claim. An older
-install may still be the previous release, `v1.2.0` (contract `41`), which in
-[Read the answer](#3-read-the-answer) calls the added MCP server's launch
-source mutable rather than naming its unpinned package spec, and answers an
-`env` value edit with no change detected rather than `Changed, not compared`;
-`v1.1.0` (contract `40`), which has no `diff --application` and prints the
-change answer without its review guidance; `v1.0.0`
-(contract `39`), whose `diff` answers are flatter than the ones that section
-quotes; or `v0.15.0` (contract `10`), which predates that envelope and renders
-several steps below differently. `pipx upgrade agents-shipgate` replaces any
-of them.
-
-| Channel | How you get it | Runtime contract | Has `control.*` / `current-control.json` | Accepts `check --format agent-boundary-json` | Qualification |
-| --- | --- | --- | --- | --- | --- |
-| Published release `v1.3.0` | `pipx install agents-shipgate` | 42 | Yes | Yes | **None.** Declared `advisory` in `.github/release-channels.json`; see [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 5 |
-| Unqualified preview | `gh release download preview-<version> --repo ThreeMoonsLab/agents-shipgate --pattern '*.whl'`, then `pip install ./<wheel>` | that of the source commit it was cut from | Yes | Yes | **None**, by construction — no adjudicated corpus, no qualification artifact, nothing signed. See [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 2 |
-| Source checkout | `git clone`, then `./shipgate …` from the checkout | that of the checkout | Yes | Yes | Not a distributed build |
-
-Pick one channel and stay on it for the whole walkthrough. **Every command in
-[One review, end to end](#one-review-end-to-end) runs on the published
-release, and reaches the same verdict there** — `blocked`, `can merge without
-human: false`, exit `0`. The verdict excerpts in that walkthrough are from a source checkout, and the
-published release renders those same lines —
-a test fails if a step quotes output only one channel produces without saying
-which.
-
-Whatever you install, ask it what it is before you trust a field name:
-
-```bash
-agents-shipgate --version
-agents-shipgate contract --json
-```
-
-`contract --json` prints the `contract_version` the installed build actually
-implements. Do not assume the floor this documentation was written against.
 
 ## Install
 
@@ -93,6 +45,64 @@ installed. Agents Shipgate requires Python 3.12 or newer. If your project uses
 an older runtime, install the CLI with `pipx` or `uv` against a 3.12+
 interpreter rather than into the project environment — your agent project does
 not need Python 3.12 itself.
+
+## Review an application agent PR
+
+Install the CLI and run this from the repository with the PR's base and head
+commits available locally. Application comparison reads committed refs.
+It needs no manifest, baseline, policy, CI workflow, account, or agent skill.
+
+```bash
+agents-shipgate diff --application --base BASE_SHA --head HEAD_SHA
+```
+
+The CLI derives the relevant application scope from the change. Its output
+names observed changes in agent wiring, tool signatures, implementations, and
+source locations. A `partial` comparison marks candidate changes and names
+where the read stopped. Add `--json` to inspect every row and coverage gap.
+The result is advisory and provides no release verdict or merge permission.
+
+### Replay a published-build example
+
+The following Google ADK example is [adk_tutorial PR #7](https://github.com/cuppibla/adk_tutorial/pull/7).
+The output below was captured with the public Agents Shipgate 1.3.0 wheel on
+Python 3.12.13. The replay runs 1.3.0 in a temporary environment. The pinned
+base is the PR's merge base.
+
+```bash
+git clone --no-checkout https://github.com/cuppibla/adk_tutorial.git
+pipx run --spec 'agents-shipgate==1.3.0' agents-shipgate diff --application \
+  --workspace adk_tutorial \
+  --base 172f1c3fa47cb88d170bf6177ebb564ffed6ebfe \
+  --head 2f53067088d93d813a5d9fb55e2358fa96702d72
+```
+
+Excerpt from the published CLI output:
+
+```text
+Application comparison: partial (172f1c3fa47c → 2f53067088d9)
+scope: . (derived: .: a_single_agent/day_trip.py is an agent file)
+Findings: 25 changed agents, 28 rows (28 not established).
+planner_agent (a_single_agent/day_trip.py) [partial]: ?~google_search (not read beyond a_single_agent/__init__.py:1)
+```
+
+The `google_search` row is a candidate. The reader could not establish the
+agent's constructor identity beyond the named import. Review the source there
+before treating the row as a change.
+
+On [ZeroRuntime PR #1](https://github.com/ZeroRuntimeAI/zeroruntime-python-examples/pull/1),
+the same wheel returned `not_established` for merge base
+`fa4f4c5a86171d378ea0570d10f7720031cc154f` and head
+`fa88cb7de58b23ea48b176bb542133b12b0ccfaf`. It said the change touched no
+supported application agent. Review that framework's code directly. If your
+comparison stops because a ref is missing, fetch the target branch and PR
+head explicitly and rerun with their exact SHAs. Agents Shipgate uses local
+Git objects for the comparison.
+
+These are published-wheel replays. The
+[application development benchmark](../benchmark/application-q2/development.json)
+records a separate source-checkout corpus and its pins. No cold-reader time
+or assistance was measured by these replays.
 
 ## Application route in one YAML block
 
@@ -153,6 +163,48 @@ Its base is `420f570c9b800d54b9d3c0b2857339b2eb12445c` and its head is
 binding limitations; a partial comparison does not establish the application's
 full tool surface. This link names the input, not a released-build score or
 an existing Action deployment.
+
+## Which build you get
+
+Agents Shipgate is published through more than
+one channel, and they do not all implement the same runtime contract. The
+newest published release is **`v1.3.0`**, which implements **runtime contract
+`42`**, including the agent-control envelope that later sections describe. It
+ships on the advisory channel and makes no qualification claim. An older
+install may still be the previous release, `v1.2.0` (contract `41`), which in
+[Read the answer](#3-read-the-answer) calls the added MCP server's launch
+source mutable rather than naming its unpinned package spec, and answers an
+`env` value edit with no change detected rather than `Changed, not compared`;
+`v1.1.0` (contract `40`), which has no `diff --application` and prints the
+change answer without its review guidance; `v1.0.0`
+(contract `39`), whose `diff` answers are flatter than the ones that section
+quotes; or `v0.15.0` (contract `10`), which predates that envelope and renders
+several steps below differently. `pipx upgrade agents-shipgate` replaces any
+of them.
+
+| Channel | How you get it | Runtime contract | Has `control.*` / `current-control.json` | Accepts `check --format agent-boundary-json` | Qualification |
+| --- | --- | --- | --- | --- | --- |
+| Published release `v1.3.0` | `pipx install agents-shipgate` | 42 | Yes | Yes | **None.** Declared `advisory` in `.github/release-channels.json`; see [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 5 |
+| Unqualified preview | `gh release download preview-<version> --repo ThreeMoonsLab/agents-shipgate --pattern '*.whl'`, then `pip install ./<wheel>` | that of the source commit it was cut from | Yes | Yes | **None**, by construction — no adjudicated corpus, no qualification artifact, nothing signed. See [`release-evidence-policy-decision.md`](release-evidence-policy-decision.md) § Amendment 2 |
+| Source checkout | `git clone`, then `./shipgate …` from the checkout | that of the checkout | Yes | Yes | Not a distributed build |
+
+Pick one channel and stay on it for the whole walkthrough. **Every command in
+[One review, end to end](#one-review-end-to-end) runs on the published
+release, and reaches the same verdict there** — `blocked`, `can merge without
+human: false`, exit `0`. The verdict excerpts in that walkthrough are from a source checkout, and the
+published release renders those same lines —
+a test fails if a step quotes output only one channel produces without saying
+which.
+
+Whatever you install, ask it what it is before you trust a field name:
+
+```bash
+agents-shipgate --version
+agents-shipgate contract --json
+```
+
+`contract --json` prints the `contract_version` the installed build actually
+implements. Do not assume the floor this documentation was written against.
 
 ## Review a host-configuration change
 

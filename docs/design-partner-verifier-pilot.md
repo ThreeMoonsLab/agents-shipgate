@@ -55,6 +55,10 @@ on a real PR.
 Include tool-building teams on Route A only where a real partner already has
 that workflow. Do not recruit for Route A to balance the cohort.
 
+The [application-diff reviewer pilot](application-review-pilot.md) defines a
+separate route for existing SDK and ADK applications, with its own task
+assignment and next-PR reuse measure.
+
 ## Which build this runbook is for
 
 The read order, the tracker and the agent prompt below all name `control.state`

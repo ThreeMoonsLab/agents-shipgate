@@ -30,20 +30,18 @@ production-like permissions.
 
 ## Application agent PRs without setup
 
-The source build can compare OpenAI Agents SDK and Google ADK tool bindings
-without a manifest or baseline:
+Install the CLI to compare OpenAI Agents SDK and Google ADK tool bindings
+across committed refs without a manifest or baseline.
 
 ```bash
 agents-shipgate diff --application --workspace /path/to/repo --base BASE_SHA --head HEAD_SHA
 ```
 
-It shows source-observed changes per agent, including before/after signatures
-and source locations, in the package that holds the changed code's agents unless
-`--scope` names one. See [application comparison](docs/application-comparison.md)
-for scoped applications, moves, exact refs and coverage limits. Version availability
-is recorded in the [CHANGELOG entry](CHANGELOG.md#application-comparison-without-prior-setup):
-it is new in 1.2.0, and the newest published release, 1.3.0, has it, so an
-install older than 1.2.0 needs `pipx upgrade agents-shipgate` first.
+The advisory output shows observed changes and marked candidates, with tool
+signatures and source locations. It provides no release verdict or merge
+permission. The [application quickstart](docs/quickstart.md#review-an-application-agent-pr)
+replays a real PR on the published 1.3.0 wheel. Use
+`pipx upgrade agents-shipgate` if your installation predates 1.2.0.
 
 ## What did this PR change?
 

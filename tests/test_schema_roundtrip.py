@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import difflib
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -147,6 +148,23 @@ def test_checks_catalog_matches_committed_file(generator):
     _assert_match(target, content)
 
 
+def test_schema_index_links_the_generated_schema_versions_and_guides(generator):
+    outputs = [(name, builder()) for name, builder in generator.BUILDERS]
+    target, content = generator.build_schema_index(outputs)
+    _assert_match(target, content)
+
+    expected = {
+        path.name
+        for name, (path, _text) in outputs
+        if name == "manifest" or generator.is_schema_document(path.name)
+    }
+    current_files = re.findall(r"\[`v[0-9.]+`\]\(([^)]+)\)", content)
+    assert set(current_files) == expected
+    assert len(current_files) == len(expected)
+    for link in re.findall(r"\]\(([^)#]+)(?:#[^)]*)?\)", content):
+        assert (target.parent / link).is_file(), link
+
+
 def test_check_mode_passes_on_current_repo(generator, capsys):
     """End-to-end: `generate_schemas.py --check` exits 0 when artifacts match.
 
@@ -179,6 +197,7 @@ def test_check_mode_reports_drift(generator, tmp_path, monkeypatch, capsys):
     assert exit_code == 1
     assert "drift detected" in err, "expected unified-diff preview for stale file"
     assert "missing" in err, "expected 'missing' marker for absent files"
+    assert "schemas.md: missing" in err
     assert "python scripts/generate_schemas.py" in err, (
         "expected remediation command in failure output"
     )

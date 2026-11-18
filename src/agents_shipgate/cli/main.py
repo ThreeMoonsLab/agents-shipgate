@@ -42,12 +42,7 @@ _ROOT_COMMANDS: tuple[tuple[str, str, dict[str, Any]], ...] = (
         "hidden": True,
         "help": "Classify a workspace: which agent framework(s), if any. Read-only.",
     }),
-    ("diff", "command", {
-        "help": (
-            "Show what this change does to the agent's authority: one row per "
-            "host grant, with before, after and why it matters."
-        ),
-    }),
+    ("diff", "command", {}),
     ("check", "command", {
         "help": "Run the fast local agent-boundary check and emit its JSON result.",
     }),

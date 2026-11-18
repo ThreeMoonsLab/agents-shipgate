@@ -37,12 +37,132 @@ def _module(name: str):
 summarize = _module("summarize")
 pool_script = _module("pool")
 run = _module("run")
+changed_lines = _module("changed_lines")
 DEVELOPMENT = json.loads((BENCH / "development.json").read_text(encoding="utf-8"))
 HOLDOUT = json.loads((BENCH / "holdout.json").read_text(encoding="utf-8"))
 POOL = json.loads((BENCH / "pool.json").read_text(encoding="utf-8"))
 CORPORA = {DEVELOPMENT["corpus"]: DEVELOPMENT["members"], HOLDOUT["corpus"]: HOLDOUT["members"]}
 SCORES = sorted((BENCH / "results").glob("*.scores.json"))
 README = (BENCH / "README.md").read_text(encoding="utf-8")
+
+
+def test_changed_lines_marks_the_edited_argument_wrapper_and_decorated_body() -> None:
+    source = b"""from agents import Agent as SDKAgent, function_tool
+from google.adk.tools import FunctionTool
+
+@function_tool
+def read():
+    return "changed value"
+
+wrapped = FunctionTool(func=read)
+agent = SDKAgent(
+    name="Test",
+    tools=[wrapped],
+)
+"""
+    assert changed_lines._markers(source, {6, 8, 10, 11}) == [
+        {"line": 6, "kind": "decorated_function", "function": "read"},
+        {"line": 8, "kind": "tool_wrapper", "constructor": "google.adk.tools.FunctionTool"},
+        {"line": 11, "kind": "constructor_argument", "constructor": "agents.Agent", "argument": "tools"},
+    ]
+
+
+@pytest.mark.parametrize("shadow", [
+    "SDKAgent = factory",
+    "def inner(SDKAgent):\n    return SDKAgent()",
+    "def inner():\n    from unrelated import Agent as SDKAgent",
+    "from other import *",
+])
+def test_changed_lines_withholds_ambiguous_import_spellings(shadow: str) -> None:
+    source = f"from agents import Agent as SDKAgent\n{shadow}\nagent = SDKAgent(tools=[])\n"
+    assert changed_lines._markers(source.encode(), {len(source.splitlines())}) == []
+
+
+@pytest.mark.parametrize("name", ["Agent", "LlmAgent"])
+def test_changed_lines_reads_direct_adk_llm_agent_imports(name: str) -> None:
+    module = "google.adk.agents.llm_agent"
+    source = f"from {module} import {name} as Model\nagent = Model(tools=[])\n"
+
+    assert changed_lines._markers(source.encode(), {2}) == [{
+        "line": 2, "kind": "constructor_argument", "constructor": f"{module}.{name}",
+        "argument": "tools",
+    }]
+
+
+def test_changed_lines_requires_an_adk_module_import() -> None:
+    source = b"import google.auth\nagent = google.adk.Agent(tools=[])\n"
+    assert changed_lines._markers(source, {2}) == []
+
+    source = b"import google.adk\n" + source
+    assert changed_lines._markers(source, {3}) == [{
+        "line": 3, "kind": "constructor_argument", "constructor": "google.adk.Agent",
+        "argument": "tools",
+    }]
+
+
+def test_changed_lines_ignores_unchanged_lines_within_a_hunk() -> None:
+    diff = b"@@ -2,3 +2,3 @@\n-before\n+after\n unchanged\n-old\n+new\n"
+
+    assert changed_lines._changed_lines(diff) == ({2, 4}, {2, 4})
+
+
+@pytest.mark.parametrize("setting", ["diff.interHunkContext=10", "color.diff=always"])
+def test_changed_lines_uses_pinned_git_diff_coordinates(tmp_path, setting) -> None:
+    repo = tmp_path / "owner__project"
+    repo.mkdir()
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
+
+    git("init", "-q")
+    key, value = setting.split("=", 1)
+    git("config", "--local", key, value)
+    source = repo / "agent.py"
+    before = 'from agents import Agent\nnoise = 1\nAgent(tools=[])\nnoise = 2\nAgent(tools=[read])\n'
+    source.write_bytes(before.encode())
+    git("add", "agent.py")
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "base")
+    base = git("rev-parse", "HEAD")
+    after = before.replace("noise = 1", "noise = 3").replace("noise = 2", "noise = 4")
+    source.write_bytes(after.replace("tools=[read]", "tools=[write]").encode())
+    git("add", "agent.py")
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "head")
+    head = git("rev-parse", "HEAD")
+
+    result = changed_lines.inspect_member({
+        "slug": "case", "repository": "owner/project", "merge_base": base, "head": head,
+    }, tmp_path)
+
+    assert result["status"] == "read"
+    assert [(marker["side"], marker["line"]) for marker in result["markers"]] == [
+        ("base", 5), ("head", 5),
+    ]
+
+
+def test_changed_lines_reads_only_edited_sides_and_retains_unread_files(tmp_path, monkeypatch):
+    base, head = "a" * 40, "b" * 40
+
+    def fake_git(repo, *args):
+        assert repo == tmp_path / "owner__project"
+        if "--name-only" in args:
+            return b"agent.py\0broken.py\0"
+        if "--unified=0" in args:
+            return b"@@ -1,0 +2,1 @@\n+edited line\n"
+        if args == ("show", f"{head}:agent.py"):
+            return b"from agents import Agent\nagent = Agent(tools=[])\n"
+        assert args == ("show", f"{head}:broken.py")
+        return b"invalid syntax!\n"
+
+    monkeypatch.setattr(changed_lines, "_git", fake_git)
+    result = changed_lines.inspect_member({
+        "slug": "case", "repository": "owner/project", "merge_base": base, "head": head,
+    }, tmp_path)
+    assert result["status"] == "partial"
+    marker, = result["markers"]
+    assert (marker["path"], marker["side"], marker["line"]) == ("agent.py", "head", 2)
+    assert result["unread"] == [{
+        "path": "broken.py", "side": "head", "reason": "Could not read Python source.",
+    }]
 
 
 def test_the_development_corpus_is_pinned_and_unique() -> None:
@@ -229,11 +349,22 @@ def test_a_score_survives_the_summary_block(tmp_path: Path) -> None:
     assert summarize.answer_id(with_summary) == summarize.answer_id(answer)
     reworded = {**with_summary, "summary": {"findings": [{"agent": "b"}]}}
     assert summarize.answer_id(reworded) == summarize.answer_id(answer)
+    assert summarize.presentation_id(answer) is None
+    assert summarize.presentation_id(reworded) != summarize.presentation_id(with_summary)
     _write_run(tmp_path, [{"slug": "a", "status": "ok"}], {"a": with_summary})
     totals = summarize.totals(summarize.load_run(corpus, tmp_path), {"a": score})
     assert (totals["scored"], totals["stale_scores"]) == (1, [])
     moved = {**with_summary, "rows": [{"change": "added"}]}
     assert summarize.answer_id(moved) != summarize.answer_id(answer)
+    assert summarize.presentation_id(moved) == summarize.presentation_id(with_summary)
+
+
+def test_presentation_identity_keeps_scope_summaries_in_order() -> None:
+    left = {"engine": {"version": "1"}, "comparisons": [{}, {"summary": {"count": 1}}]}
+    right = {"engine": {"version": "2"}, "comparisons": [{"summary": {"count": 1}}, {}]}
+    assert summarize.answer_id(left) == summarize.answer_id(right)
+    assert summarize.presentation_id(left) != summarize.presentation_id(right)
+    assert summarize.presentation_id(left) == summarize.presentation_id({**left, "engine": {}})
 
 
 def test_the_readme_quotes_868s_levels_verbatim() -> None:
@@ -277,21 +408,43 @@ def test_a_pinned_holdout_follows_its_rule() -> None:
     if HOLDOUT["status"] == "awaiting_window":
         assert HOLDOUT["members"] == [] and HOLDOUT["skipped"] == []
         return
+    assert HOLDOUT["status"] == "pinned"
     members = HOLDOUT["members"]
     assert len(members) == HOLDOUT["target_members"]
     development = {member["repository"] for member in DEVELOPMENT["members"]}
     walked = sorted([*members, *HOLDOUT["skipped"]], key=lambda item: (item["created_at"], item["url"]))
     assert [item["url"] for item in walked if item in members] == [item["url"] for item in members]
+    assert len({item["url"] for item in walked}) == len(walked)
+    # The walk stops at the 30th member (step 5): nothing after it was walked.
+    assert walked[-1] is members[-1]
+    assert HOLDOUT["walk"]["walked_through"] == members[-1]["created_at"]
+    assert HOLDOUT["walk"]["candidates_walked"] == len(walked)
+    # Every pull request created through the stop is accounted for: the ones steps 1-3
+    # set aside before judging, and the candidates walked.
+    counts = HOLDOUT["walk"]["through_walked_through"]
+    assert (
+        counts["pull_requests_created"]
+        - counts["in_development_repositories"]
+        - counts["closed_unmerged"]
+        - counts["no_non_test_python_file"]
+        == counts["candidates"]
+        == len(walked)
+    )
     for item in walked:
         assert item["reason"].strip()
         assert item["created_at"] >= HOLDOUT["window_start"]
         assert item["repository"] in POOL["repositories"]
         assert item["repository"] not in development
-    for member in members:
-        if member.get("unavailable_reason"):
-            assert member["merge_base"] is None and member["head"] is None
+        assert item["url"].startswith("https://github.com/") and item["url"].endswith(f"/pull/{item['number']}")
+        assert item["state"] in {"merged", "open"}
+        if item.get("unavailable_reason"):
+            assert item["merge_base"] is None and item["head"] is None
         else:
-            assert SHA.match(member["merge_base"]) and SHA.match(member["head"])
+            assert SHA.match(item["merge_base"]) and SHA.match(item["head"])
+            assert item["merge_base"] != item["head"]
+    # Who judged relevance, and that the judge consulted no engine output (#1158).
+    assert "consulted no engine output" in HOLDOUT["judge"]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", HOLDOUT["generated"])
 
 
 def test_every_release_after_1_2_0_records_the_count() -> None:
@@ -334,6 +487,144 @@ def _git_ok(command: list[str]) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(command, 0, "", "")
 
 
+def _pinned_answer(status: str = "compared", **fields) -> dict:
+    return {
+        "comparison_status": status,
+        "base": {"compared_commit": "a" * 40},
+        "head": {"compared_commit": "b" * 40},
+        "rows": [],
+        **fields,
+    }
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_retained_replay_keeps_input_pins_and_refuses_to_overwrite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupted: bool,
+) -> None:
+    corpus, corpus_path, clones, out = _runner_case(tmp_path, ("case",))
+    engine = tmp_path / "engine"
+    receipt = out / "run-inputs.json"
+    answer = _pinned_answer(summary={"findings": []})
+
+    def run_command(command, **kwargs):
+        if command[0] == "git":
+            return _git_ok(command)
+        assert receipt.is_file()
+        if interrupted:
+            raise KeyboardInterrupt
+        return subprocess.CompletedProcess(command, 0, json.dumps(answer), "")
+
+    monkeypatch.setattr(run.subprocess, "run", run_command)
+    args = ["--engine", str(engine), "--corpus", str(corpus_path), "--clones", str(clones), "--out", str(out)]
+    if interrupted:
+        with pytest.raises(KeyboardInterrupt):
+            run.main([*args, "--retain-run"])
+        assert not (out / "runs.json").exists()
+    else:
+        assert run.main([*args, "--retain-run"]) == 0
+        summarized = summarize.load_run(corpus, out)["case"]
+        assert summarized["presentation_id"] == summarize.presentation_id(answer)
+
+    before = {path.name: path.read_bytes() for path in out.iterdir()}
+    inputs = json.loads(before["run-inputs.json"])
+    assert inputs["members"] == corpus["members"]
+    assert inputs["corpus_sha256"] == hashlib.sha256(corpus_path.read_bytes()).hexdigest()
+    assert inputs["engine_launcher_sha256"] == hashlib.sha256(engine.read_bytes()).hexdigest()
+    assert inputs["fetch_requested"] is False
+    for repeat in (args, [*args, "--retain-run"]):
+        with pytest.raises(SystemExit, match="2"):
+            run.main(repeat)
+        assert {path.name: path.read_bytes() for path in out.iterdir()} == before
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("slug", "runs"), ("head", "HEAD"), ("repository", "invalid-repository")],
+)
+def test_replay_rejects_invalid_inputs_before_creating_output(
+    tmp_path: Path, field: str, value: str,
+) -> None:
+    corpus, corpus_path, clones, out = _runner_case(tmp_path, ("case",))
+    corpus["members"][0][field] = value
+    corpus_path.write_text(json.dumps(corpus), encoding="utf-8")
+    with pytest.raises(SystemExit, match="2"):
+        run.main(["--engine", str(tmp_path / "engine"), "--corpus", str(corpus_path),
+                  "--clones", str(clones), "--out", str(out), "--retain-run"])
+    assert not out.exists()
+
+
+@pytest.mark.parametrize(
+    ("input_name", "output_name"),
+    [("corpus", "runs.json"), ("corpus", "case.json"), ("engine", "runs.json"), ("engine", "case.err")],
+)
+def test_replay_refuses_to_replace_its_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    input_name: str, output_name: str,
+) -> None:
+    _, corpus, clones, out = _runner_case(tmp_path, ("case",))
+    engine = tmp_path / "engine"
+    out.mkdir()
+    for name in ("runs.json", "case.json", "case.err"):
+        (out / name).write_text(f"previous {name}", encoding="utf-8")
+    if input_name == "corpus":
+        corpus = corpus.replace(out / output_name)
+    else:
+        engine.write_text("local test launcher", encoding="utf-8")
+        engine = engine.replace(out / output_name)
+    before = {path.name: path.read_bytes() for path in out.iterdir()}
+
+    def unexpected_run(command, **kwargs):
+        pytest.fail(f"Replay started a subprocess before rejecting the overlap: {command[0]}")
+
+    monkeypatch.setattr(run.subprocess, "run", unexpected_run)
+    with pytest.raises(SystemExit, match="2"):
+        run.main(["--engine", str(engine), "--corpus", str(corpus), "--clones", str(clones), "--out", str(out)])
+    assert f"overlaps the {input_name}" in capsys.readouterr().err
+    assert {path.name: path.read_bytes() for path in out.iterdir()} == before
+
+
+@pytest.mark.parametrize(
+    ("stdout", "reason"),
+    [
+        ("malformed", "not a readable JSON comparison"),
+        ("[]", "one comparison object"),
+        (json.dumps(_pinned_answer("complete")), "invalid comparison_status"),
+        (json.dumps(_pinned_answer(head={"compared_commit": "c" * 40})), "head.compared_commit"),
+        (json.dumps(_pinned_answer(rows={})), "rows must be a list"),
+        (json.dumps(_pinned_answer(rows=[{"change": []}])), "invalid change kind"),
+        (json.dumps(_pinned_answer(rows=[{"change": "changed", "after": []}])), "after must be an object"),
+        (json.dumps(_pinned_answer(rows=[{"change": "changed", "after": {"reach": []}}])), "after.reach"),
+        (json.dumps(_pinned_answer(rows=[{"change": "changed", "after": {"reach": {"calls": "GET"}}}])),
+         "after.reach.calls"),
+        (json.dumps(_pinned_answer(rows=[{"change": "changed", "before": {"reach": {"limits": {"at": "x.py:1"}}}}])),
+         "before.reach.limits"),
+    ],
+)
+def test_a_zero_exit_with_invalid_stdout_is_retained_as_a_failed_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stdout: str, reason: str,
+) -> None:
+    corpus, corpus_path, clones, out = _runner_case(tmp_path, ("valid", "invalid"))
+    valid = _pinned_answer("not_established")
+
+    def fake_run(command, **kwargs):
+        if command[0] == "git":
+            return _git_ok(command)
+        output = stdout if kwargs["cwd"].name == "o__invalid" else json.dumps(valid)
+        return subprocess.CompletedProcess(command, 0, output, "")
+
+    monkeypatch.setattr(run.subprocess, "run", fake_run)
+    assert run.main(["--engine", str(tmp_path / "engine"), "--corpus", str(corpus_path),
+                     "--clones", str(clones), "--out", str(out), "--retain-run"]) == 1
+    good, bad = json.loads((out / "runs.json").read_text(encoding="utf-8"))
+    assert good["status"] == "ok"
+    assert bad["status"] == "invalid_output" and bad["exit_code"] == 0
+    assert reason in bad["reason"]
+    assert (out / "invalid.json").read_text(encoding="utf-8") == stdout
+    summaries = summarize.load_run(corpus, out)
+    assert summaries["valid"]["status"] == "not_established"
+    assert summaries["invalid"]["status"] == "invalid_output"
+    assert summaries["invalid"]["answer_id"] is None
+
+
 @pytest.mark.parametrize("outcome", ["success", "refused", "timeout", "unavailable", "fetch_failed"])
 def test_a_rerun_reports_current_outputs_and_fails_for_any_failed_member(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str
@@ -347,7 +638,11 @@ def test_a_rerun_reports_current_outputs_and_fails_for_any_failed_member(
                {"case": {"comparison_status": "compared", "rows": [{"change": "added"}]}})
     (out / "case.err").write_text("previous build diagnostic")
     (out / "other.json").write_text("unrelated output")
-    current = {"comparison_status": "partial", "rows": [{"change": "removed"}]}
+    corpus_path = corpus_path.replace(out / "corpus.json")
+    engine = (tmp_path / "engine").replace(out / "engine")
+    current = _pinned_answer("partial", rows=[{
+        "change": "removed", "before": {"reach": {"calls": [{"method": "GET"}], "limits": []}},
+    }])
     engine_calls = []
 
     def fake_run(command, **kwargs):
@@ -364,7 +659,7 @@ def test_a_rerun_reports_current_outputs_and_fails_for_any_failed_member(
 
     monkeypatch.setattr(run, "complete", lambda clone, sha: outcome != "unavailable")
     monkeypatch.setattr(run.subprocess, "run", fake_run)
-    args = ["--engine", str(tmp_path / "engine"), "--corpus", str(corpus_path),
+    args = ["--engine", str(engine), "--corpus", str(corpus_path),
             "--clones", str(clones), "--out", str(out)]
     if outcome == "fetch_failed":
         args.append("--fetch")
@@ -375,11 +670,13 @@ def test_a_rerun_reports_current_outputs_and_fails_for_any_failed_member(
 
     assert exit_code == (0 if outcome == "success" else 1)
     assert (out / "other.json").read_text() == "unrelated output"
+    assert json.loads(corpus_path.read_text()) == corpus and engine.is_file()
     assert summary["rows"]["added"] == 0
     assert "previous build" not in ((out / "case.err").read_text() if (out / "case.err").exists() else "")
     assert len(engine_calls) == (0 if outcome in {"unavailable", "fetch_failed"} else 1)
     if outcome == "success":
         assert (record["status"], summary["status"], summary["rows"]["removed"]) == ("ok", "partial", 1)
+        assert summary["sides_with_calls"] == 1
     else:
         expected = {"refused": "refused", "timeout": "timeout"}.get(outcome, "unavailable")
         assert record["status"] == summary["status"] == expected
@@ -404,7 +701,7 @@ def test_a_successful_member_does_not_hide_another_members_failure(
         if kwargs["cwd"].name == "o__bad" and failure == "timeout":
             raise subprocess.TimeoutExpired(command, kwargs["timeout"])
         code = 2 if kwargs["cwd"].name == "o__bad" else 0
-        return subprocess.CompletedProcess(command, code, json.dumps({"comparison_status": "partial", "rows": []}), "")
+        return subprocess.CompletedProcess(command, code, json.dumps(_pinned_answer("partial")), "")
 
     monkeypatch.setattr(run, "complete", lambda clone, sha: clone.name != "o__bad" or failure != "unavailable")
     monkeypatch.setattr(run.subprocess, "run", fake_run)

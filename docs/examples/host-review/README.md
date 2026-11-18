@@ -5,6 +5,7 @@
 - [Workflow token permissions](workflow/card.md)
 - [60-second HTML demonstration](demo.html) (github.com shows its source; open the file locally or serve it to play it), [transcript](transcript.md), [PNG still](still.png) and [SVG source](still.svg)
 - [Captured provenance](provenance.json)
+- [Replay with the published 1.3.0 wheel](replay-1.3.0.md)
 
 The examples are constructed. The released 1.1.0 wheel (contract 40) was freshly installed into a temporary target; existing environment dependencies were reused. No manifest, policy, baseline, legacy skill, CI installation or account was used for comparison. No hook, workflow or MCP endpoint was executed.
 

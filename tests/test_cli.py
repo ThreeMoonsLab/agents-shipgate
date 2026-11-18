@@ -684,6 +684,14 @@ def test_cli_help_hides_niche_commands_but_keeps_them_invokable():
         assert re.search(rf"\b{re.escape(name)}\b", output), output
 
 
+def test_diff_help_describes_both_comparison_modes():
+    result = runner.invoke(app, ["diff", "--help"], terminal_width=120)
+    assert result.exit_code == 0, result.output
+    help_text = " ".join(_plain_cli_output(result.output).replace("│", " ").split())
+    assert "Review changed coding-agent grants or application-agent wiring." in help_text
+    assert "application mode uses HEAD." in help_text
+
+
 def test_cli_tool_surface_summary_detects_no_changes():
     from agents_shipgate.cli._helpers import _tool_surface_diff_has_changes
 
