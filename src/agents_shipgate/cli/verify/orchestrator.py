@@ -175,6 +175,7 @@ from agents_shipgate.schemas.declaration_continuation import (
     DeclarationContinuationV1,
 )
 from agents_shipgate.schemas.exclusions import SurfaceExclusion
+from agents_shipgate.schemas.host_comparison import HostComparison
 from agents_shipgate.schemas.human_authorization import (
     AuthorizationEvaluationV1,
     HumanAuthorizationV1,
@@ -810,11 +811,18 @@ def run_verify(
             except (OSError, ValueError, RuntimeError, ConfigError) as exc:
                 host_comparison = host_comparison_failure(git_root, head if archive_head else None, exc)
         if host_comparison is not None:
+            host_review = None
+            if host_comparison.comparison_status == "comparable" and host_comparison.base_commit:
+                host_review = _host_only_review_control(
+                    workspace=workspace, git_root=git_root, config=config_relative,
+                    base=host_comparison.base_commit,
+                    head=(host_comparison.head_commit or head) if archive_head else None,
+                )
             return run_preview(
                 workspace=workspace, config=config, base=base,
                 head=head if archive_head else None, out=out,
                 pr_comment_style=pr_comment_style, auto_base=auto_base,
-                _host_comparison=host_comparison, _operation="verify",
+                _host_comparison=host_comparison, _host_review=host_review, _operation="verify",
             )
         preview_command = _preview_verify_command(
             workspace=git_root,
@@ -840,6 +848,8 @@ def run_verify(
             "Correct --config, or run `agents-shipgate verify --preview --json` before "
             "initializing."
         )
+        if ci_mode == "strict":
+            message += " For a host-only comparison, rerun verify in advisory mode."
         verifier = _build_verifier(
             git_root=git_root,
             config_path=config_path,
@@ -7367,6 +7377,50 @@ def _without_github_step_summary():
             os.environ["GITHUB_STEP_SUMMARY"] = prior
 
 
+def _host_only_review_control(
+    *, workspace: Path, git_root: Path, config: Path, base: str, head: str | None,
+) -> AgentControl | None:
+    """Check review obligations on the same Git subject as a host-only run."""
+    from agents_shipgate.cli.agent_result import (
+        build_agent_boundary_result,
+        git_boundary_change_set,
+    )
+
+    try:
+        changes = git_boundary_change_set(
+            workspace=workspace, base=base, head=head, config_path=git_root / config,
+        )
+        result = build_agent_boundary_result(
+            workspace=git_root, requested_workspace=workspace, config=git_root / config,
+            diff_text=changes.diff_text, policy=None, input_mode=changes.mode,
+            input_issues=list(changes.issues), changed_files_override=list(changes.changed_paths),
+            base=changes.resolved_base, head=changes.resolved_head,
+            manifest_text_snapshot=changes.manifest_text_snapshot,
+        )
+    except (OSError, ValueError, RuntimeError, AgentsShipgateError):
+        reason = "The host boundary could not be checked on this Git comparison."
+        return derive_agent_control(
+            reason=reason, next_action=HumanControlAction(kind="stop", why=reason),
+        )
+    return result.control if result.control.human_review.required else None
+
+
+def _host_only_comparison_headline(comparison: HostComparison) -> str:
+    rows = len(comparison.rows)
+    if comparison.comparison_status == "comparable":
+        return (
+            f"{rows} repository-declared host capability row(s). "
+            "Advisory comparison only; no application release policy configured."
+        )
+    if comparison.comparison_status == "partial":
+        return (
+            f"Host comparison is partial: {rows} repository-declared host capability "
+            "row(s) outside what it could not compare, listed under host_comparison "
+            "in verifier.json; review its input limits before interpreting changes."
+        )
+    return "Host comparison is incomplete; review its input limits before interpreting changes."
+
+
 @owns_current_control("preview")
 def run_preview(
     *,
@@ -7378,6 +7432,7 @@ def run_preview(
     pr_comment_style: str = "capability-review",
     auto_base: bool = False,
     _host_comparison=None,
+    _host_review: AgentControl | None = None,
     _operation: str = "preview",
 ) -> tuple[VerifierArtifact, None, int]:
     """Lightweight relevance check for ``agents-shipgate verify --preview``.
@@ -7452,7 +7507,14 @@ def run_preview(
     diff_input: DiffContext | None = None
     base_failure_status: VerifierDiffStatus | None = None
     base_failure_action: CodingAgentFetchBaseAction | None = None
-    if base is None and in_git and (auto_base or head is not None):
+    compared_base = _host_comparison.base_commit if _host_comparison is not None else None
+    compared_head = head or "HEAD"
+    if _host_comparison is not None and compared_base is not None:
+        if _host_comparison.input_identity is not None:
+            base = _host_comparison.input_identity.base_ref
+        if head is not None:
+            compared_head = _host_comparison.head_commit or head
+    elif base is None and in_git and (auto_base or head is not None):
         try:
             head_available = ref_exists(root, head or "HEAD")
             detection = resolve_verify_base(root, head or "HEAD") if head_available and auto_base else None
@@ -7482,10 +7544,11 @@ def run_preview(
                         detail=base_failure_status.detail or "",
                     )
                     notes.append(headline)
-    if base:
+    comparison_base = compared_base or base
+    if comparison_base:
         try:
             git_root = ensure_git_workspace(root)
-            collected = _collect_diff(git_root, base, head or "HEAD")
+            collected = _collect_diff(git_root, comparison_base, compared_head)
         except Exception as exc:  # noqa: BLE001 - preview must never crash.
             collected = _as_diff_context(exc)
         changed_files = list(collected.changed_files)
@@ -7507,7 +7570,8 @@ def run_preview(
             # The merge base, not the base ref: comparing against the tip of
             # the base branch would report its own commits as this change.
             comparison_ref = (
-                require_merge_base_sha(root, base, "HEAD") if base else "HEAD"
+                compared_base
+                or (require_merge_base_sha(root, base, "HEAD") if base else "HEAD")
             )
             worktree_paths, worktree_diff = working_tree_context(
                 root,
@@ -7521,7 +7585,7 @@ def run_preview(
                 "rests on committed evidence alone."
             )
         if worktree_paths or worktree_diff:
-            if base and diff_input is None:
+            if comparison_base and diff_input is None:
                 # One comparison, exactly as the verifier does it: overlapping
                 # paths must appear once at their effective content, not twice.
                 changed_files = list(worktree_paths)
@@ -7543,8 +7607,8 @@ def run_preview(
         root=root,
         changed_files=changed_files,
         limit=requested_root,
-        head=head,
-        base=base,
+        head=compared_head if head is not None else None,
+        base=comparison_base,
     )
     host_comparison = _host_comparison
     if host_comparison is None and not manifest_present and diff_input is None:
@@ -7637,8 +7701,14 @@ def run_preview(
     # is not configured here" would answer a question nobody asked and bury the
     # fact that the PR was never inspected — and an unadopted repo reached over a
     # shallow or blobless clone is exactly where this failure lands.
-    if diff_input is not None:
-        next_action: AgentControlAction = base_failure_action or _diff_failure_action(
+    next_action: AgentControlAction
+    if _host_review is not None:
+        assert isinstance(_host_review.next_action, HumanControlAction)
+        assert host_comparison is not None
+        next_action = _host_review.next_action
+        headline = _host_only_comparison_headline(host_comparison)
+    elif diff_input is not None:
+        next_action = base_failure_action or _diff_failure_action(
             diff_input,
             expects=(
                 f"{base}...{head or 'HEAD'}"
@@ -7758,20 +7828,22 @@ def run_preview(
                 kind="fetch_base", expects="complete Git history",
                 why="The checkout is shallow. Run git fetch --unshallow (or use fetch-depth: 0 in CI), then rerun the same comparison.",
             )
-        headline = (
-            f"{len(host_comparison.rows)} repository-declared host capability row(s). "
-            "Advisory comparison only; no application release policy configured."
-            if host_comparison.comparison_status == "comparable"
-            # Partial (#808): the rows are known, the comparison is not whole,
-            # and the route is the incomplete one's. The rows are named where
-            # they are published: the control envelope's `capability_rows`
-            # projects a partial comparison as incomparable, with none.
-            else f"Host comparison is partial: {len(host_comparison.rows)} repository-declared "
-            "host capability row(s) outside what it could not compare, listed under "
-            "host_comparison in verifier.json; review its input limits before interpreting changes."
-            if host_comparison.comparison_status == "partial"
-            else "Host comparison is incomplete; review its input limits before interpreting changes."
-        )
+        elif _operation == "verify":
+            command = [
+                "agents-shipgate", "check", "--workspace", str(requested_root),
+                "--config", str(config_path), "--format", "agent-control-json",
+            ]
+            check_base = host_comparison.base_commit or base
+            if check_base is not None:
+                command.extend(["--base", check_base])
+            if head is not None:
+                command.extend(["--head", host_comparison.head_commit or head])
+            next_action = CodingAgentCommandAction(
+                kind="verify",
+                command=retarget_command(join_argv(command)),
+                why="Run the local boundary check on these inputs to reach a review or completion state.",
+            )
+        headline = _host_only_comparison_headline(host_comparison)
     elif resolution.contested:
         # Several projects own part of this change. `init` at the root would
         # refuse deterministically, so recommending it would be recommending
@@ -7836,6 +7908,8 @@ def run_preview(
         reason=headline,
         next_action=next_action,
         verify_required=True,
+        human_review_why=_host_review.human_review.why if _host_review else None,
+        required_reviewers=_host_review.human_review.required_reviewers if _host_review else (),
         allowed_next_commands=(
             [next_action.command] if isinstance(next_action, CodingAgentCommandAction) else []
         ),
