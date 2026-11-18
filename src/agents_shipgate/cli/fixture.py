@@ -6,6 +6,7 @@ command, without authoring a manifest.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from collections.abc import Callable, Mapping
@@ -19,6 +20,7 @@ from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.cli.verify.orchestrator import run_verify
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
+from agents_shipgate.core.git_env import hardened_git_env
 from agents_shipgate.fixtures import (
     FixtureNotFoundError,
     FixturesUnavailableError,
@@ -547,12 +549,26 @@ def _finish_fixture_copy(
     shutil.rmtree(workdir, ignore_errors=True)
 
 
+#: Configuration every fixture Git command runs with on top of the hardened
+#: environment, which already ignores global and system configuration: no hook
+#: and no signing helper runs while the disposable history is written (#1031).
+_FIXTURE_GIT_CONFIG: tuple[str, ...] = (
+    "-c",
+    f"core.hooksPath={os.devnull}",
+    "-c",
+    "commit.gpgsign=false",
+    "-c",
+    "tag.gpgsign=false",
+)
+
+
 def _git(cwd: Path, *args: str) -> str:
     completed = subprocess.run(
-        ["git", *args],
+        ["git", *_FIXTURE_GIT_CONFIG, *args],
         cwd=cwd,
         check=True,
         capture_output=True,
+        env=hardened_git_env(),
         text=True,
     )
     return completed.stdout.strip()

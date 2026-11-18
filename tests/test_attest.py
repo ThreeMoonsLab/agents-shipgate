@@ -182,6 +182,9 @@ def test_human_ack_and_policy_hash_from_report() -> None:
         source=Path("verifier.json"),
         redacted=True,
         report=report,
+        verification_receipt={
+            "artifact_manifest": {"artifacts": {"report_json": {"sha256": "sha256:" + "0" * 64}}}
+        },
     )
     assert att["human_ack"] == {
         "required": True,
@@ -285,7 +288,7 @@ def test_artifact_hashes_resolve_siblings_of_verifier(tmp_path: Path) -> None:
     }
     att = build_attestation_payload(verifier, source=tmp_path / "verifier.json", redacted=True)
     assert att["artifact_sha256"]["pr_comment"] == hashlib.sha256(b"hello").hexdigest()
-    assert att["artifact_sha256"]["report_json"] == hashlib.sha256(b"{}").hexdigest()
+    assert "report_json" not in att["artifact_sha256"]
     assert "missing" not in att["artifact_sha256"]  # absent files are skipped
 
 
@@ -359,9 +362,11 @@ def test_attestation_validates_against_schema(report) -> None:
 # --- CLI --------------------------------------------------------------------
 
 
-def test_attest_cli_writes_json_and_enriches_from_sibling_report(tmp_path: Path) -> None:
+def test_attest_cli_writes_json_without_enrichment_from_an_unbound_report(tmp_path: Path) -> None:
     (tmp_path / "verifier.json").write_text(json.dumps(_verifier_payload()), encoding="utf-8")
-    (tmp_path / "report.json").write_text(json.dumps(_report_payload()), encoding="utf-8")
+    report = _report_payload()
+    report["human_ack"]["satisfied"] = True
+    (tmp_path / "report.json").write_text(json.dumps(report), encoding="utf-8")
     out = tmp_path / "attestation.json"
 
     result = runner.invoke(
@@ -373,9 +378,10 @@ def test_attest_cli_writes_json_and_enriches_from_sibling_report(tmp_path: Path)
     disk = json.loads(out.read_text(encoding="utf-8"))
     assert disk == json.loads(result.output)
     assert disk["verdict"]["merge_verdict"] == "blocked"
-    # Sibling report.json was found and enriched the attestation.
-    assert disk["human_ack"]["outstanding"] == ["shipgate.yaml (manifest)"]
-    assert disk["policy_snapshot_sha256"] is not None
+    assert disk["human_ack"]["satisfied"] is None
+    assert disk["human_ack"]["outstanding"] == []
+    assert disk["policy_snapshot_sha256"] is None
+    assert "report_json" not in disk["artifact_sha256"]
     jsonschema.validate(disk, SCHEMA)
 
 

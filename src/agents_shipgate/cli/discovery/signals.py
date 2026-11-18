@@ -65,7 +65,6 @@ from agents_shipgate.cli.discovery.artifacts import (
     _looks_like_n8n_workflow,
     _matches_pattern,
     _oversized_structured_input,
-    _relative,
     _skip_part,
     probe_suggested_source,
 )
@@ -85,6 +84,8 @@ from agents_shipgate.cli.discovery.scope import (
     project_marker,
 )
 from agents_shipgate.core.errors import DiscoveryError, InputParseError
+from agents_shipgate.core.paths import display_path as _display_path
+from agents_shipgate.core.python_source import parse_python
 from agents_shipgate.core.surface_exclusions import build_detect_exclusions
 from agents_shipgate.inputs.codex_plugin import resolve_local_codex_marketplace_roots
 from agents_shipgate.inputs.conductor import conductor_agent_task_types
@@ -794,47 +795,44 @@ def _walk_scoped(tree: ast.AST) -> _ScopeMap:
         )
         return inner
 
-    def visit(node: ast.AST, scope: int, conditional: bool) -> None:
+    pending = [(tree, _MODULE_SCOPE, False)]
+    while pending:
+        node, scope, conditional = pending.pop()
         scopes.nodes.append((node, scope, conditional))
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             inner = open_scope(node, scope, conditional)
-            for header in _definition_header(node):
-                visit(header, scope, conditional)
-            for arg in _argument_nodes(node.args):
-                visit(arg, inner, False)
             body = node.body if isinstance(node.body, list) else [node.body]
-            for statement in body:
-                visit(statement, inner, False)
-            return
-        if isinstance(node, ast.ClassDef):
+            children = [
+                *((header, scope, conditional) for header in _definition_header(node)),
+                *((arg, inner, False) for arg in _argument_nodes(node.args)),
+                *((statement, inner, False) for statement in body),
+            ]
+        elif isinstance(node, ast.ClassDef):
             inner = open_scope(node, scope, conditional)
             scopes.class_scopes.add(inner)
-            for header in _definition_header(node):
-                visit(header, scope, conditional)
-            for statement in node.body:
-                visit(statement, inner, False)
-            return
-        if isinstance(node, _COMPREHENSION_NODES):
+            children = [
+                *((header, scope, conditional) for header in _definition_header(node)),
+                *((statement, inner, False) for statement in node.body),
+            ]
+        elif isinstance(node, _COMPREHENSION_NODES):
             inner = open_scope(node, scope, conditional)
             generators = node.generators
+            children = []
             if generators:
                 # Only the outermost iterable is evaluated eagerly, in the
                 # enclosing scope; everything else runs per item, if at all.
-                visit(generators[0].iter, scope, conditional)
+                children.append((generators[0].iter, scope, conditional))
             for index, generator in enumerate(generators):
-                visit(generator.target, inner, False)
+                children.append((generator.target, inner, False))
                 if index:
-                    visit(generator.iter, inner, True)
-                for guard in generator.ifs:
-                    visit(guard, inner, True)
-            for element in _comprehension_elements(node):
-                visit(element, inner, True)
-            return
-        inner_conditional = conditional or isinstance(node, _BRANCH_NODES)
-        for child in ast.iter_child_nodes(node):
-            visit(child, scope, inner_conditional)
+                    children.append((generator.iter, inner, True))
+                children.extend((guard, inner, True) for guard in generator.ifs)
+            children.extend((element, inner, True) for element in _comprehension_elements(node))
+        else:
+            inner_conditional = conditional or isinstance(node, _BRANCH_NODES)
+            children = [(child, scope, inner_conditional) for child in ast.iter_child_nodes(node)]
+        pending.extend(reversed(children))
 
-    visit(tree, _MODULE_SCOPE, False)
     return scopes
 
 
@@ -898,10 +896,10 @@ class _Write:
 
 def _parse_python_facts(path: Path, workspace: Path) -> _PyFacts | None:
     try:
-        source = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        source = path.read_bytes()
+    except OSError:
         return None
-    return _python_facts_from_source(source, path, _relative(path, workspace))
+    return _python_facts_from_source(source, path, _display_path(path, workspace, resolve=False))
 
 
 def application_frameworks(rel_path: str, source: str) -> frozenset[str]:
@@ -919,9 +917,9 @@ def application_frameworks(rel_path: str, source: str) -> frozenset[str]:
     return frozenset(name for name, state in scores.items() if state.candidate_files)
 
 
-def _python_facts_from_source(source: str, path: Path, rel_path: str) -> _PyFacts | None:
+def _python_facts_from_source(source: str | bytes, path: Path, rel_path: str) -> _PyFacts | None:
     try:
-        tree = ast.parse(source, filename=str(path))
+        tree = parse_python(source, filename=str(path))
     except (SyntaxError, ValueError, RecursionError):
         return None
 
@@ -2530,7 +2528,7 @@ def _nested_manifest_paths(inventory: list[Path], workspace: Path) -> list[str]:
     """
 
     return [
-        _relative(path, workspace)
+        _display_path(path, workspace, resolve=False)
         for path in inventory
         if path.name == "shipgate.yaml" and path.parent != workspace
     ]
@@ -2990,7 +2988,7 @@ def weak_marker_evidence_dirs(
         # not settled negative.
         undetermined.extend(
             UndeterminedDirectory(
-                path=_relative(directory, root_resolved),
+                path=_display_path(directory, root_resolved, resolve=False),
                 cause="unreadable_inventory",
                 reason="the workspace inventory could not be read",
             )
@@ -3009,7 +3007,7 @@ def weak_marker_evidence_dirs(
     budget = max_python_files
     for directory in probe:
         held = by_directory.get(directory, [])
-        relative = _relative(directory, root_resolved)
+        relative = _display_path(directory, root_resolved, resolve=False)
         if (
             directory in plugin_dirs
             or any(_collect_glob_hits(root_resolved, files=held).values())
@@ -3135,7 +3133,7 @@ def _removed_boundaries(
         directory = workspace.joinpath(*path.parts[:-1])
         if directory == workspace:
             continue
-        relative = _relative(directory, workspace)
+        relative = _display_path(directory, workspace, resolve=False)
         if any(_skip_part(part) for part in PurePosixPath(relative).parts):
             continue
         if not strong and not any(
@@ -3177,7 +3175,7 @@ def _deletes_possible_evidence(
     folder, which is the directory the candidate names.
     """
 
-    plugin_manifest = PurePosixPath(_relative(directory, workspace)) / ".codex-plugin"
+    plugin_manifest = PurePosixPath(_display_path(directory, workspace, resolve=False)) / ".codex-plugin"
     for path in changed:
         parent = workspace.joinpath(*path.parts[:-1])
         if parent == directory:
@@ -3284,7 +3282,7 @@ def _suggested_sources(
     seen: set[tuple[str, str]] = set()
     for pattern in OPENAPI_PATTERNS:
         for path in _candidate_files_matching(workspace, (pattern,), files=files):
-            rel = _relative(path, workspace)
+            rel = _display_path(path, workspace, resolve=False)
             if ("openapi", rel) in seen:
                 continue
             seen.add(("openapi", rel))
@@ -3293,14 +3291,14 @@ def _suggested_sources(
         for path in _candidate_files_matching(workspace, (pattern,), files=files):
             if path.name == ".mcp.json":
                 continue
-            rel = _relative(path, workspace)
+            rel = _display_path(path, workspace, resolve=False)
             if ("mcp", rel) in seen:
                 continue
             seen.add(("mcp", rel))
             candidates.append(("mcp", rel))
     for pattern in CONDUCTOR_WORKFLOW_PATTERNS:
         for path in _candidate_files_matching(workspace, (pattern,), files=files):
-            rel = _relative(path, workspace)
+            rel = _display_path(path, workspace, resolve=False)
             if ("conductor", rel) in seen:
                 continue
             seen.add(("conductor", rel))
@@ -3355,7 +3353,7 @@ def _codex_plugin_candidates(
                     continue
             except (OSError, RuntimeError):
                 pass
-            rel = _relative(root, workspace)
+            rel = _display_path(root, workspace, resolve=False)
             key = ("package", rel)
             if key in seen:
                 continue
@@ -3364,13 +3362,13 @@ def _codex_plugin_candidates(
                 CodexPluginCandidate(
                     mode="package",
                     path=rel,
-                    evidence=f"Codex plugin manifest: {_relative(path, workspace)}",
+                    evidence=f"Codex plugin manifest: {_display_path(path, workspace, resolve=False)}",
                 )
             )
         elif path.name == "marketplace.json" and path.parent.as_posix().endswith(
             ".agents/plugins"
         ):
-            rel = _relative(path, workspace)
+            rel = _display_path(path, workspace, resolve=False)
             key = ("marketplace", rel)
             if key in seen:
                 continue

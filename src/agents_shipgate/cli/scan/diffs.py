@@ -9,9 +9,10 @@ from agents_shipgate.core.lenses.tool_surface import (
     load_tool_surface_diff_reference,
     reference_from_baseline,
 )
+from agents_shipgate.core.paths import display_path
 
 from .models import _DiffReferences
-from .path_helpers import _anchored_display_path, _relative_display_path
+from .path_helpers import _anchored_display_path
 
 
 def _load_diff_references(
@@ -36,7 +37,7 @@ def _load_diff_references(
     """
     baseline_file = load_baseline(baseline_path) if baseline_path else None
     baseline_display_path = (
-        _relative_display_path(baseline_path, base_dir) if baseline_path else None
+        display_path(baseline_path, base_dir, outside="resolved") if baseline_path else None
     )
     diff_reference: ToolSurfaceDiffReference | None = None
     diff_reference_error: str | None = None
@@ -45,7 +46,7 @@ def _load_diff_references(
             diff_reference = load_tool_surface_diff_reference(
                 diff_from_path,
                 display_path=(
-                    _relative_display_path(diff_from_path, base_dir)
+                    display_path(diff_from_path, base_dir, outside="resolved")
                     if diff_from_display_path is None
                     else _anchored_display_path(diff_from_display_path, base_dir)
                 ),

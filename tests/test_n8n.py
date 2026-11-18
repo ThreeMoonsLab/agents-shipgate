@@ -1,5 +1,9 @@
 import hashlib
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -433,14 +437,14 @@ _MCP_CLIENT_EXPORTS = {
 }
 
 
-def _scan_mcp_client_export(tmp_path, parameters):
+def _scan_mcp_client_export(tmp_path, parameters, *, node_type="@n8n/n8n-nodes-langchain.mcpClientTool"):
     project = tmp_path / "project"
     project.mkdir()
     workflow = _minimal_agent_workflow(
         {
             "id": "mcp-client",
             "name": "GitHub MCP",
-            "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+            "type": node_type,
             "typeVersion": 1.1,
             "parameters": parameters,
         }
@@ -468,6 +472,60 @@ n8n:
         ci_mode="advisory",
     )
     return report
+
+
+def test_n8n_mcp_client_action_is_not_an_mcp_tool_selection(tmp_path):
+    report = _scan_mcp_client_export(
+        tmp_path,
+        {**_MCP_CLIENT_ENDPOINT, "tool": "list_issues"},
+        node_type="@n8n/n8n-nodes-langchain.mcpClient",
+    )
+
+    assert [(tool["name"], tool["source_type"]) for tool in report.tool_catalog] == [("GitHub MCP", "n8n_ai_tool")]
+    assert not any(finding.check_id == "SHIP-N8N-MCP-CLIENT-TOOLSET-UNFILTERED" for finding in report.findings)
+
+
+def test_n8n_reader_output_is_stable_across_hash_seeds(tmp_path):
+    workflow = _minimal_agent_workflow({
+        "id": "fetch",
+        "name": "Fetch records",
+        "type": "n8n-nodes-base.httpRequest",
+        "parameters": {
+            "method": "GET",
+            "url": "https://example.invalid/records",
+            "path": "/events",
+            "endpoint": "/notes",
+        },
+    })
+    (tmp_path / "workflow.json").write_text(json.dumps(workflow), encoding="utf-8")
+    (tmp_path / "shipgate.yaml").write_text(
+        'version: "0.1"\n'
+        'project: {name: n8n-determinism}\n'
+        'agent: {name: n8n-agent}\n'
+        'environment: {target: local}\n'
+        'n8n: {workflows: [{path: workflow.json}]}\n',
+        encoding="utf-8",
+    )
+    script = """\
+from pathlib import Path
+from agents_shipgate.config.loader import load_manifest
+from agents_shipgate.inputs.n8n import load_n8n_artifacts
+
+sources, _ = load_n8n_artifacts(load_manifest(Path("shipgate.yaml")), Path.cwd())
+for source in sources:
+    print(source.model_dump_json())
+"""
+    source_tree = Path(__file__).resolve().parents[1] / "src"
+    outputs = [
+        subprocess.check_output(
+            [sys.executable, "-c", script],
+            cwd=tmp_path,
+            env={**os.environ, "PYTHONHASHSEED": seed, "PYTHONPATH": str(source_tree)},
+        )
+        for seed in ("1", "2", "3", "4")
+    ]
+    assert b'"path":"records"' in outputs[0]
+    assert all(output == outputs[0] for output in outputs[1:])
 
 
 @pytest.mark.parametrize(

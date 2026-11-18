@@ -57,6 +57,7 @@ COMMAND_INVOCATIONS: dict[str, list[str]] = {
     "verification prepare": ["verification", "prepare"],
     "verification worker": ["verification", "worker", "--plan", "plan.json"],
     "authorization execute": ["authorization", "execute"],
+    "apply-patches": ["apply-patches", "--from", "report.json"],
 }
 
 # ``verify --preview`` is not a separate command, but it is the invocation the

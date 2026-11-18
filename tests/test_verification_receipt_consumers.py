@@ -221,6 +221,11 @@ def test_attest_binds_the_receipt_of_a_real_verify_run(
     for field in IDENTITY_FIELDS:
         assert attestation[field] == receipt[field]
         assert attestation[field]
+    report = _json(out / "report.json")
+    policy = json.dumps(report["effective_policy"], sort_keys=True, separators=(",", ":"))
+    assert attestation["policy_snapshot_sha256"] == hashlib.sha256(policy.encode()).hexdigest()
+    assert attestation["human_ack"]["satisfied"] == report["human_ack"]["satisfied"]
+    assert attestation["artifact_sha256"]["report_json"] == hashlib.sha256((out / "report.json").read_bytes()).hexdigest()
     jsonschema.validate(attestation, ATTESTATION_SCHEMA)
 
 
@@ -285,6 +290,77 @@ def test_org_bundle_accepts_the_attestation_attest_wrote(run: tuple[Path, Path])
     bundle = json.loads(result.output)
     assert bundle["receipt_id"] == _json(out / RECEIPT)["receipt_id"]
     assert bundle["source_attestation"]
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value"),
+    [
+        ("verdict", "decision", "passed"),
+        ("capability", "added", 900),
+        ("human_ack", "satisfied", False),
+        ("capability_lock", "source_set_hash", "0" * 64),
+        (None, "head_tree_sha", "0" * 40),
+        (None, "policy_snapshot_sha256", "0" * 64),
+        (None, "run_id", "sha256:" + "0" * 64),
+    ],
+)
+def test_org_bundle_refuses_attestation_fields_that_disagree_with_a_valid_receipt(
+    run: tuple[Path, Path], section: str | None, field: str, value: object,
+) -> None:
+    repo, out = run
+    path = out / "attestation.json"
+    assert _attest(out, path).exit_code == 0
+    attestation = _json(path)
+    data = attestation[section] if section is not None else attestation
+    assert data[field] != value
+    data[field] = value
+    path.write_text(json.dumps(attestation), encoding="utf-8")
+
+    result = _bundle(repo, out)
+
+    assert result.exit_code == 3
+    field_path = f"{section}.{field}" if section else field
+    assert f"Attestation {field_path} does not match verifier.json" in result.output
+
+
+@pytest.mark.parametrize("receipt_backed", [False, True])
+def test_org_bundle_requires_approval_to_match_the_verified_head(tmp_path: Path, receipt_backed: bool) -> None:
+    repo = _repo(tmp_path)
+    out = tmp_path / "verify-out"
+    config = "shipgate.yaml" if receipt_backed else "missing.yaml"
+    assert _verify(repo, out, config=config) == (0 if receipt_backed else 2)
+    path = out / "attestation.json"
+    assert _attest(out, path).exit_code == 0
+    attestation = _json(path)
+    attestation["approval"] = {
+        "status": "not_approved",
+        "source": "github_pull_request_reviews",
+        "source_sha256": "0" * 64,
+        "pr_number": "42",
+        "pr_author": "test-author",
+        "head_sha": "0" * 40,
+    }
+    path.write_text(json.dumps(attestation), encoding="utf-8")
+    result = _bundle(repo, out)
+    assert result.exit_code == 3
+    expected = "does not match the receipt-bound head commit" if receipt_backed else "needs the verification receipt"
+    assert expected in result.output
+
+
+def test_org_bundle_reports_invalid_attestation_as_explicit_input_error(
+    run: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENTS_SHIPGATE_AGENT_MODE", "1")
+    repo, out = run
+    (out / "attestation.json").write_text('{"verdict": []}', encoding="utf-8")
+
+    result = _bundle(repo, out)
+
+    assert result.exit_code == 3
+    assert "does not match the release attestation schema" in result.output
+    error = json.loads(result.stderr.splitlines()[-1])
+    assert error["error"] == "input_parse_error"
+    assert error["next_actions"][0]["kind"] == "review"
 
 
 @pytest.mark.parametrize("field", ["receipt_id", "decision_id"])
@@ -534,16 +610,41 @@ def test_a_run_that_states_no_outcome_owes_no_receipt(tmp_path: Path, route: str
     assert outputs["verification_receipt_json"] == ""
 
 
+def test_attest_and_bundle_ignore_an_unbound_report(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, sample=True)
+    out = tmp_path / "verify-out"
+    assert _verify(repo, out, config="missing.yaml") == 2
+    assert not (out / RECEIPT).exists()
+    (out / "report.json").write_text(
+        json.dumps({
+            "human_ack": {"satisfied": True},
+            "effective_policy": {"ci_mode": "advisory"},
+            "privacy_audit": {"test_marker": True},
+        }),
+        encoding="utf-8",
+    )
+
+    target = out / "attestation.json"
+    result = _attest(out, target)
+
+    assert result.exit_code == 0, result.output
+    attestation = _json(target)
+    assert attestation["human_ack"]["satisfied"] is None
+    assert attestation["policy_snapshot_sha256"] is None
+    assert "report_json" not in attestation["artifact_sha256"]
+
+    result = _bundle(repo, out)
+    assert result.exit_code == 0, result.output
+    bundle = json.loads(result.output)
+    assert bundle["privacy"] == {}
+    assert bundle["source_report"] is None
+    assert "report" not in bundle["artifacts"]
+
+
 def test_the_host_route_ignores_an_earlier_runs_report(
     run: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Review C2-1: the host route leaves an earlier run's report.json in place.
-
-    A real verify run's output directory, then a manifest-free host verify into
-    the same directory: it removes the receipt but keeps the earlier
-    ``report.json``. The step must publish the host run, not refuse it for a
-    receipt nothing owes, and must not publish the earlier report's verdict.
-    """
+    """The Action ignores a stale report restored after the host run's cleanup."""
 
     _sample_repo, out = run
     earlier = _json(out / "report.json")
@@ -559,7 +660,8 @@ def test_the_host_route_ignores_an_earlier_runs_report(
     assert verifier["head_report_json"] is None
     assert "report_json" not in verifier["artifacts"]
     assert not (out / RECEIPT).exists()
-    assert _json(out / "report.json") == earlier
+    assert not (out / "report.json").exists()
+    (out / "report.json").write_text(json.dumps(earlier), encoding="utf-8")
 
     summary = tmp_path / "summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
@@ -599,6 +701,25 @@ def test_a_no_outcome_run_cannot_carry_a_forged_attestation_identity(
 
     assert result.exit_code == 3
     assert "Attestation request_id names a verification receipt" in result.output
+
+
+def test_org_bundle_refuses_a_release_outcome_from_a_run_that_stated_none(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    out = tmp_path / "verify-out"
+    assert _verify(repo, out, config="missing.yaml") == 2
+    assert not (out / RECEIPT).exists()
+    path = out / "attestation.json"
+    assert _attest(out, path).exit_code == 0
+    attestation = _json(path)
+    attestation["verdict"].update(
+        merge_verdict="mergeable", decision="passed", can_merge_without_human=True,
+    )
+    path.write_text(json.dumps(attestation), encoding="utf-8")
+
+    result = _bundle(repo, out)
+
+    assert result.exit_code == 3
+    assert "Attestation verdict.merge_verdict does not match verifier.json" in result.output
 
 
 # --- the predicate ----------------------------------------------------------

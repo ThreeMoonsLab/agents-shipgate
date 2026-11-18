@@ -154,6 +154,10 @@ class _OutputPlan:
     output_surfaces: list[str]
     privacy_stats: RedactionStats
     generated_report_refs: Any
+    #: The directory no output may leave through a link (#1031): the
+    #: manifest's directory for ``output.directory``, the output directory
+    #: itself for a ``--out`` the operator typed.
+    write_root: Path
 
 
 @dataclass
