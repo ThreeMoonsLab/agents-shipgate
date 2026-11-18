@@ -22,6 +22,8 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.core.contained_write import UnsafeOutputPathError
 from agents_shipgate.schemas.manifest.output import OutputConfig
 
 # `tests/test_manifest_schema_parity.py` holds docs/manifest-v0.1.json to the
@@ -442,6 +444,27 @@ def test_scan_refuses_an_out_directory_committed_as_a_link(
     assert "symbolic link inside the repository" in result.output
     assert sentinel.read_text(encoding="utf-8") == "SENTINEL\n"
     assert sorted(path.name for path in outside.iterdir()) == ["report.json"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="creates directory symbolic links")
+def test_run_scan_checks_a_relative_override_from_the_manifest_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _clean_environment(monkeypatch)
+    workspace = _workspace(tmp_path, "agents-shipgate-reports")
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (workspace / "reports").symlink_to(outside, target_is_directory=True)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(UnsafeOutputPathError, match="symbolic link inside the repository"):
+        run_scan(
+            config_path=workspace / "shipgate.yaml",
+            output_dir=Path("reports"),
+            ci_mode="advisory",
+        )
+
+    assert list(outside.iterdir()) == []
 
 
 @pytest.mark.skipif(os.name != "posix", reason="creates directory symbolic links")

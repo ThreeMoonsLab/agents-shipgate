@@ -78,7 +78,7 @@ def _prepare_scan(
     else:
         # An operator-typed --out is theirs above the repository; inside it,
         # a committed link must not carry the reports out (#1031).
-        refuse_links_inside(Path(output_dir), owned_git_root_for(base_dir) or base_dir)
+        refuse_links_inside(base_dir / output_dir, owned_git_root_for(base_dir) or base_dir)
     return _ResolvedManifest(
         manifest=manifest,
         manifest_positions=manifest_positions,
