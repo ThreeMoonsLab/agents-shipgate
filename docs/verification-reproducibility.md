@@ -82,7 +82,13 @@ it through behavior options. Legacy plans with ambiguous external inputs require
 a fresh verification, rather than a guessed origin.
 
 `verification prepare` exports the same captured auxiliary bytes and retains
-their roles and origins. Worker replay still validates the immutable request;
+their roles and origins. When both `--base` and an in-repository
+`--diff-from` are supplied, it exports the regular file from the exact base
+commit. Both plan emitters record the path and SHA in
+`inputs.options.diff_from_base`. Live input validation checks that the
+recorded path at that commit matches the portable copy. If the base copy is
+unavailable, prepare can import a report from outside the repository or run
+without an explicit `--diff-from`. Worker replay still validates the immutable request;
 it does not establish that the result grants authority in a changed checkout.
 The assembled pointer undergoes the same live read as a normal verifier result.
 
@@ -570,7 +576,7 @@ Action also publishes `report.json`'s decision, so it owes a receipt whenever
 `verifier.json` names a `report.json` as its own (`head_report_json` or
 `artifacts.report_json`), which `verify` does only for a run whose head scan
 ran. A `report.json` the verifier does not name is another run's (the
-manifest-free host route leaves an earlier run's in place): the Action
+manifest-backed preview can leave an earlier run's in place). The Action
 publishes nothing from it and owes nothing for it. A `0.1`–`0.4` label on a
 payload that carries an identity field verifier `0.5` introduced
 (`request_id`, `decision_id` and the like) is read as receipt-era. A receipt

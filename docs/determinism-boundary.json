@@ -778,7 +778,7 @@
           "raises": [
             "SHIP-LANGCHAIN-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
           ],
-          "reads": "A tools list built by a comprehension, a config read, or a rebound variable records a dynamic tool surface, with the config path when the read is statically traceable.",
+          "reads": "A tool list the reader cannot resolve, a rebound member, or a list handed to code that may change it records a dynamic tool surface. A statically traceable config read names its path.",
           "shape": "dynamic_construction",
           "status": "not_extracted",
           "surface": null,
@@ -910,7 +910,7 @@
           "raises": [
             "SHIP-CREWAI-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"
           ],
-          "reads": "A tools list built by a comprehension, a config read, or a rebound variable records a dynamic tool surface and adds nothing to the catalog.",
+          "reads": "A tool list the reader cannot resolve, a rebound member, or a list handed to code that may change it records a dynamic tool surface. Replacing or mutating an agent's tools also leaves its bindings incomplete.",
           "shape": "dynamic_construction",
           "status": "not_extracted",
           "surface": null,

@@ -47,6 +47,7 @@ from agents_shipgate.core.privacy import (
     redact_text,
     redact_url_credentials,
 )
+from agents_shipgate.core.python_source import parse_python
 from agents_shipgate.inputs import tool_effects as effect_tables
 from agents_shipgate.inputs.python_imports import (
     MODULE_NOT_FOUND,
@@ -6823,7 +6824,7 @@ def _scope_scan(
                 raw = path.read_bytes()
                 if len(raw) > MAX_PATCH_BYTES:
                     raise ValueError("too large")
-                tree = ast.parse(raw)
+                tree = parse_python(raw)
                 found.extend(http_patches(tree, relative))
                 changes = module_mutations(tree, relative)
                 dotted = relative.removesuffix(".py").replace("/", ".").removesuffix(".__init__")

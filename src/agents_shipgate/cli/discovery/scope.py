@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
+from agents_shipgate.core.paths import first_symlink_in_chain
 from agents_shipgate.triggers import paths_without_capability_surface
 
 # Files that mark a self-contained project root, in precedence order. A
@@ -430,20 +431,17 @@ def resolve_change_scope(
 
 
 def _has_symlinked_component(directory: Path, *, root: Path) -> bool:
-    """Whether any directory between ``root`` and ``directory`` is a link."""
+    """Whether any directory between ``root`` and ``directory`` is a link.
 
-    current = directory
-    while current != root:
-        try:
-            if current.is_symlink():
-                return True
-        except OSError:  # pragma: no cover - unreadable directory
-            return True
-        parent = current.parent
-        if parent == current:  # pragma: no cover - defensive
-            return False
-        current = parent
-    return False
+    ``directory`` is always a lexical descendant of ``root`` here (the project
+    walk climbs from a changed path towards ``root``). An unreadable component
+    counts as a link: the suggestion is withheld rather than made unchecked.
+    """
+
+    try:
+        return first_symlink_in_chain(directory, root) is not None
+    except OSError:  # pragma: no cover - unreadable directory
+        return True
 
 
 def _is_within(candidate: Path, root: Path) -> bool:

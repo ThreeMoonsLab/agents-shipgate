@@ -23,6 +23,10 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import agents_shipgate
+from agents_shipgate.core.git_env import (
+    hardened_git_env,
+    with_allowed_git_protocols,
+)
 from agents_shipgate.schemas.human_authorization import GitPushOperationV1
 
 _AUTHORIZATION_HEADER_RE = re.compile(
@@ -196,8 +200,7 @@ def execute_pinned_git_push(
         if isolated_tree != expected_source_tree_sha:
             raise ValueError("isolated push source tree differs from the verified tree")
 
-        push_env = dict(snapshot_env)
-        push_env["GIT_ALLOW_PROTOCOL"] = "https"
+        push_env = with_allowed_git_protocols(snapshot_env, "https")
         header = _authorization_header(
             git=git,
             workspace=root,
@@ -239,22 +242,12 @@ def _sanitized_git_environment(
     # Start from a small display-only allowlist. In particular, do not inherit
     # loader injection, shell startup, proxy, CA override, SSL key logging, or
     # Git config/transport variables from the coding-agent process.
-    env = {
-        key: os.environ[key]
-        for key in ("LANG", "LC_ALL", "LC_CTYPE")
-        if key in os.environ
-    }
+    env = hardened_git_env(
+        {key: os.environ[key] for key in ("LANG", "LC_ALL", "LC_CTYPE") if key in os.environ}
+    )
     env.update(
         {
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_SYSTEM": os.devnull,
             "GIT_EXEC_PATH": str(_trusted_git_exec_path(git)),
-            "GIT_TERMINAL_PROMPT": "0",
-            "GIT_NO_LAZY_FETCH": "1",
-            "GIT_NO_REPLACE_OBJECTS": "1",
-            "GIT_ALLOW_PROTOCOL": "",
-            "GIT_PROTOCOL_FROM_USER": "0",
             "HOME": str(execution_root / "home"),
             "XDG_CONFIG_HOME": str(execution_root / "xdg"),
             "NO_PROXY": "*",
@@ -645,18 +638,15 @@ def _read_only_git_environment(
     *,
     include_exec_path: bool = True,
 ) -> dict[str, str]:
-    env = {
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_CONFIG_GLOBAL": os.devnull,
-        "GIT_CONFIG_SYSTEM": os.devnull,
-        "GIT_ALLOW_PROTOCOL": "",
-        "GIT_NO_LAZY_FETCH": "1",
-        "GIT_NO_REPLACE_OBJECTS": "1",
-        "GIT_PROTOCOL_FROM_USER": "0",
-        "GIT_TERMINAL_PROMPT": "0",
-        "HOME": os.devnull,
-        "PATH": os.pathsep.join((str(git.parent), "/usr/bin", "/bin")),
-    }
+    # Built from nothing, not from this process's environment: a read-only
+    # probe needs no locale, proxy or loader variable from the agent.
+    env = hardened_git_env({})
+    env.update(
+        {
+            "HOME": os.devnull,
+            "PATH": os.pathsep.join((str(git.parent), "/usr/bin", "/bin")),
+        }
+    )
     if include_exec_path:
         env["GIT_EXEC_PATH"] = str(_trusted_git_exec_path(git))
     return env
