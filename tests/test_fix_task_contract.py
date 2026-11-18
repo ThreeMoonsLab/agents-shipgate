@@ -1054,3 +1054,25 @@ def test_non_mergeable_adoption_leads_with_the_real_stop_condition(
     assert headline.startswith(report.release_decision.reason)
     assert "then merge" not in headline.lower()
     assert "separate human-review decision" in headline
+
+
+def test_a_printed_apply_patches_repair_names_the_repository() -> None:
+    """The mechanical repair's command carries ``--workspace`` when verify knows it (#1031)."""
+
+    mech = _with_applicable_patch(
+        _finding("F1", requires_human_review=False, autofix_safe=True)
+    )
+    report = _report(decision="review_required", findings=[mech], review_items=[mech])
+    task = build_fix_task(
+        report,
+        merge_verdict=map_merge_verdict(report.release_decision.decision),
+        capability_review=_review(),
+        base_ref="origin/main",
+        head_ref="HEAD",
+        worktree=True,
+        workspace="/work/repo",
+    )
+
+    assert task is not None
+    command = task.allowed_repairs[0].command or ""
+    assert "apply-patches --workspace /work/repo --from" in command

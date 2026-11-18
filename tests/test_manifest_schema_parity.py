@@ -175,3 +175,44 @@ def test_the_published_pattern_is_usable_by_a_json_schema_validator() -> None:
     assert compiled.search("visible")
     assert not compiled.search("​⁠")
     assert not compiled.search("\U000e0001")
+
+
+# --- output.directory (#1031) -------------------------------------------------
+
+_OUTPUT_DIRECTORY_CASES: list[tuple[str, bool]] = [
+    ("agents-shipgate-reports", True),
+    ("reports/nested", True),
+    ("./reports", True),
+    ("a..b", True),
+    ("..reports", True),
+    ("", True),
+    ("/tmp/x", False),
+    ("../x", False),
+    ("..", False),
+    ("reports/../../x", False),
+    ("reports\\..\\..\\x", False),
+    ("\\\\server\\share", False),
+    ("C:\\reports", False),
+    ("c:reports", False),
+]
+
+
+@pytest.mark.parametrize(("directory", "expected"), _OUTPUT_DIRECTORY_CASES)
+def test_published_schema_and_runtime_agree_on_output_directory(
+    directory: str, expected: bool
+) -> None:
+    """Both refuse an output directory that leaves the manifest's directory."""
+
+    payload = {
+        "version": "0.1",
+        "project": {"name": "parity"},
+        "agent": {"name": "a", "declared_purpose": ["do one thing"]},
+        "environment": {"target": "local"},
+        "tool_sources": [{"id": "s", "type": "mcp", "path": "tools.json"}],
+        "output": {"directory": directory},
+    }
+
+    assert _runtime_accepts(payload) is expected, f"runtime disagreed on {directory!r}"
+    assert _schema_accepts(payload) is expected, (
+        f"docs/manifest-v0.1.json disagreed on output.directory {directory!r}"
+    )

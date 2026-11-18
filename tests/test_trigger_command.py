@@ -7,6 +7,7 @@ changed_files, diff_tokens) while preserving the back-compat fields.
 """
 
 import json
+import subprocess
 
 import pytest
 from typer.testing import CliRunner
@@ -17,6 +18,7 @@ from agents_shipgate.triggers import (
     SURFACE_CLASS_CAPABILITY,
     SURFACE_CLASS_HOST_BOUNDARY,
     evaluate,
+    main,
     result_has_surface_class,
 )
 
@@ -64,6 +66,27 @@ def test_evaluate_emits_full_m1_shape():
     assert result["changed_files"] == ["agent.py"]
     assert result["diff_tokens"] == ["@function_tool"]
     assert result["skip_reason"] is None
+
+
+@pytest.mark.parametrize("committed", [False, True])
+def test_module_trigger_git_diff_excludes_only_uncommitted_reports(tmp_path, monkeypatch, capsys, committed):
+    monkeypatch.chdir(tmp_path)
+    subprocess.run(["git", "init", "-q"], check=True)
+    reports = tmp_path / "agents-shipgate-reports"
+    reports.mkdir()
+    report = reports / "report.json"
+    if committed:
+        report.write_text("{}", encoding="utf-8")
+        subprocess.run(["git", "add", "-f", str(report)], check=True)
+    subprocess.run([
+        "git", "-c", "user.name=Test", "-c", "user.email=test@example.test",
+        "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-qm", "base",
+    ], check=True)
+    report.write_text('{"changed": true}', encoding="utf-8")
+
+    assert main(["--git-diff", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert ("agents-shipgate-reports/report.json" in payload["changed_files"]) == committed
 
 
 def test_evaluate_skip_reason_tokens_track_precedence():

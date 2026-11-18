@@ -43,6 +43,7 @@ from agents_shipgate.core.lenses.effective_policy import (
 from agents_shipgate.core.manifest_proposals import (
     assess_coverage_increasing_tool_source_proposal,
 )
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.core.trust_roots import (
     IdentityBoundReadSession,
     IdentityReadBudget,
@@ -400,7 +401,7 @@ def build_preflight_result(
                 policy_drift,
                 trust_root_graph_diff,
                 verify_command,
-                manifest_path=_display_path(config_path, root),
+                manifest_path=_display_path(config_path, root, resolve=False),
             ),
         ]
     )
@@ -426,11 +427,11 @@ def build_preflight_result(
 
     return PreflightResultV6(
         workspace=str(root),
-        config=_display_path(config_path, root),
+        config=_display_path(config_path, root, resolve=False),
         protected_surfaces=surfaces,
         forbidden_file_edits=list(forbidden_file_edits()),
         conditional_file_edits=conditional_instruction_edits(
-            workspace=root, config=_display_path(config_path, root),
+            workspace=root, config=_display_path(config_path, root, resolve=False),
         ),
         forbidden_actions=list(FORBIDDEN_SHORTCUTS),
         required_evidence=required_evidence,
@@ -503,14 +504,14 @@ def _lexical_config_path(
                 f"non-regular or hardlinked manifest refused: {config}"
             )
         return lexical
-    requested = _display_path(issue.requested, root)
+    requested = _display_path(issue.requested, root, resolve=False)
     if issue.kind == "symlink":
         raise ConfigError(
             f"--config must not contain symlink components: {requested}"
         )
     if issue.kind == "alias":
         actual = (
-            _display_path(issue.actual, root)
+            _display_path(issue.actual, root, resolve=False)
             if issue.actual is not None
             else "a differently spelled filesystem entry"
         )
@@ -947,7 +948,7 @@ def _classify_proposal_safe_manifest_touch(
 
     if not diff_text:
         return touches
-    config_display = _display_path(config_path, workspace)
+    config_display = _display_path(config_path, workspace, resolve=False)
     matching_diff_files = [
         item
         for item in parse_unified_diff(diff_text)
@@ -1991,13 +1992,6 @@ def _derive_preflight_control(
     return PlanningOnlyControl(
         state="planning_only", reason=reason, permissions=NoAgentPermissions()
     )
-
-
-def _display_path(path: Path, root: Path) -> str:
-    try:
-        return path.relative_to(root).as_posix()
-    except ValueError:
-        return str(path)
 
 
 __all__ = [

@@ -8,13 +8,18 @@ from pathlib import Path, PurePosixPath
 from typing import Any, ClassVar, Literal
 
 from agents_shipgate.core.domain import (
+    DOUBT_CONSTRUCTION,
+    DOUBT_DEFINITION_IDENTITY,
+    DOUBT_IMPORT_SEARCH,
     AgentBindingObservation,
     AuthInfo,
     LoadedToolSource,
     Tool,
     ToolkitScopeBound,
+    joined_doubts,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.paths import display_path
 from agents_shipgate.core.python_source import parse_python
 from agents_shipgate.inputs.agent_construction_identity import (
     construction_identities,
@@ -68,7 +73,6 @@ from agents_shipgate.inputs.python_imports import (
     reference_spelling,
 )
 from agents_shipgate.inputs.python_static import (
-    display_path,
     dotted_name,
     function_input_schema,
     function_output_schema,
@@ -119,6 +123,7 @@ def load_openai_sdk_static_tools(
                 recovery=CoverageRecovery(kind="input_unavailable", reason="sdk_entrypoint_not_found"),
             )],
         )
+    decorator_warnings: list[str] = []
     if path.is_dir():
         python_files = [child for child in list_input_directory(path) if child.match("*.py")]
         if not python_files:
@@ -127,12 +132,16 @@ def load_openai_sdk_static_tools(
         toolkit_bounds: list[ToolkitScopeBound] = []
         guard_dependencies: list[GuardDependencyEvidence] = []
         for python_file in python_files:
-            file_tools, file_bounds, file_guards = _load_python_file(python_file, source, base_dir)
+            file_tools, file_bounds, file_guards = _load_python_file(
+                python_file, source, base_dir, decorator_warnings
+            )
             tools.extend(file_tools)
             toolkit_bounds.extend(file_bounds)
             guard_dependencies.extend(file_guards)
     elif path.suffix.lower() == ".py":
-        tools, toolkit_bounds, guard_dependencies = _load_python_file(path, source, base_dir)
+        tools, toolkit_bounds, guard_dependencies = _load_python_file(
+            path, source, base_dir, decorator_warnings
+        )
         python_files = [path]
     else:
         raise InputParseError(
@@ -153,7 +162,7 @@ def load_openai_sdk_static_tools(
         tools=tools,
         toolkit_bounds=toolkit_bounds,
         binding_observations=binding_observations,
-        warnings=[*_toolkit_binding_warnings(toolkit_bounds), *binding_warnings],
+        warnings=[*_toolkit_binding_warnings(toolkit_bounds), *decorator_warnings, *binding_warnings],
         recovery_evidence=recovery_evidence,
         guard_dependencies=guard_dependencies,
     )
@@ -188,6 +197,7 @@ def _load_python_file(
     path: Path,
     source: ToolSourceConfig,
     base_dir: Path,
+    decorator_warnings: list[str],
 ) -> tuple[list[Tool], list[ToolkitScopeBound], list[GuardDependencyEvidence]]:
     try:
         source_text = load_text_file(path)
@@ -201,9 +211,14 @@ def _load_python_file(
         )
         raise InputParseError(message) from exc
     ref = display_path(path, base_dir)
-    sdk_decorators = _function_tool_decorators(tree)
+    sdk_names = _SdkNames(tree)
+    ambiguous: list[ast.expr] = []
+    sdk_decorators = _function_tool_decorators(sdk_names, ambiguous=ambiguous)
+    decorator_warnings.extend(
+        _ambiguous_sdk_decorator(ref, decorator) for decorator in ambiguous
+    )
     definitions = [node for node in ast.walk(tree) if _is_function_tool(node, sdk_decorators)]
-    tools = [_function_to_tool(node, source, ref, sdk_decorators) for node in definitions]
+    tools = [_function_to_tool(node, source, ref, sdk_decorators, sdk_names) for node in definitions]
     source_sha256, source_within_limits = guard_module_metadata(tree, source_text)
     guards = [
         read_guard_dependency(
@@ -572,6 +587,8 @@ def _extract_agent_bindings(
             names: list[str] = []
             locators: dict[str, str] = {}
             tool_issues: dict[str, str] = {}
+            #: What each of those reasons doubts (#1146).
+            tool_issue_doubts: dict[str, list[str]] = {}
             tool_sites: dict[str, list[str]] = {}
             when = Conditions()
             #: ``name -> payload`` of the tools this agent binds as objects (#910).
@@ -641,6 +658,7 @@ def _extract_agent_bindings(
                 names: list[str] = names,
                 locators: dict[str, str] = locators,
                 tool_issues: dict[str, str] = tool_issues,
+                tool_issue_doubts: dict[str, list[str]] = tool_issue_doubts,
                 duplicated: set[str] = duplicated,
                 issues: list[str] = issues,
                 when: Conditions = when,
@@ -668,6 +686,7 @@ def _extract_agent_bindings(
                     names[:] = [item for item in names if item != name]
                     locators.pop(name, None)
                     tool_issues.pop(name, None)
+                    tool_issue_doubts.pop(name, None)
                     return False
                 objects[name] = payload
                 note_sites(name, invocation)
@@ -692,6 +711,7 @@ def _extract_agent_bindings(
                         warnings.append(reason)
                         if object_found.name is not None:
                             tool_issues[object_found.name] = reason
+                            tool_issue_doubts[object_found.name] = [DOUBT_DEFINITION_IDENTITY]
                     if not bind_object(object_found, member.conditions, member.invocation):
                         tools_complete = False
                     continue
@@ -705,6 +725,8 @@ def _extract_agent_bindings(
                     tools_complete = False
                     continue
                 reference = reference_spelling(element)
+                #: Every caveat of the resolution is an import-search one (#1146).
+                search_only = False
                 if isinstance(object_found, WrappedFunction):
                     # ``function_tool(f)``: the function it wraps, read as a
                     # decorated one is (#910).
@@ -736,6 +758,7 @@ def _extract_agent_bindings(
                         )
                     else:
                         tool, detail = imports.tool_from_resolution(resolution)
+                        search_only = resolution.search_only
                 else:
                     head = reference.split(".", 1)[0]
                     # Read where the reference is written: a module-level
@@ -755,11 +778,11 @@ def _extract_agent_bindings(
                     ):
                         # The builder's own import is the binding its agent
                         # receives: followed like a module-level one.
-                        tool, detail = imports.tool_from_resolution(
-                            imports.resolver.resolve_local_import(
-                                module, statement, local, reference
-                            )
+                        resolution = imports.resolver.resolve_local_import(
+                            module, statement, local, reference
                         )
+                        tool, detail = imports.tool_from_resolution(resolution)
+                        search_only = resolution.search_only
                     elif isinstance(local, ast.FunctionDef | ast.AsyncFunctionDef):
                         # A nested ``@function_tool`` in the building function.
                         tool = imports.by_location.get(f"{source_ref}:{local.lineno}")
@@ -776,7 +799,7 @@ def _extract_agent_bindings(
                         # this agent receives.
                         tool, detail = None, local_binding_detail(source_ref, head, local)
                     else:
-                        tool, detail = imports.tool_for(
+                        tool, detail, search_only = imports.tool_for(
                             reference, module, source_ref, tool_by_name, import_aliases
                         )
                 if tool is None:
@@ -791,6 +814,11 @@ def _extract_agent_bindings(
                     if member.module is None:
                         names.append(import_aliases.get(reference, reference))
                         when.add(names[-1], member.conditions)
+                        # Bound by name only: a same-named definition is a
+                        # guess at which one is bound, as the Google ADK
+                        # reader records it (#879 review, #1146).
+                        tool_issues[names[-1]] = reason
+                        tool_issue_doubts[names[-1]] = [DOUBT_DEFINITION_IDENTITY]
                     continue
                 if filtered_name is not None and tool.name != filtered_name:
                     continue
@@ -816,6 +844,7 @@ def _extract_agent_bindings(
                     names[:] = [name for name in names if name != tool.name]
                     locators.pop(tool.name, None)
                     tool_issues.pop(tool.name, None)
+                    tool_issue_doubts.pop(tool.name, None)
                     objects.pop(tool.name, None)
                     continue
                 names.append(tool.name)
@@ -834,11 +863,18 @@ def _extract_agent_bindings(
                     )
                     warnings.append(reason)
                     tool_issues[tool.name] = reason
+                    # Only which file an import search reaches is a
+                    # whole-program doubt; any other caveat doubts the
+                    # definition read (#1146).
+                    tool_issue_doubts[tool.name] = [
+                        DOUBT_IMPORT_SEARCH if search_only else DOUBT_DEFINITION_IDENTITY
+                    ]
                 if id(member.expr) in candidate_nodes:
                     reason = (
                         f"The source initializer names {tool.name!r}, but its binding is not established: "
                         f"{constructor_issue}; {unread_list_reason('OpenAI Agents SDK', target, pointer, listed)}"
                     )
+                    tool_issue_doubts.update(joined_doubts(tool_issues, tool_issue_doubts, (tool.name,), DOUBT_CONSTRUCTION))
                     tool_issues[tool.name] = "; ".join(filter(None, (tool_issues.get(tool.name), reason)))
             handoff_list = lists.resolve(field(call, "handoffs"), invocation=context.invocation)
             handoffs_complete = not context.limits and constructor_issue is None
@@ -848,6 +884,8 @@ def _extract_agent_bindings(
                 warnings.append(reason)
                 handoffs_complete = False
             handoff_names: list[str] = []
+            #: ``name -> why`` for a handoff target named on a guess (#1146 review).
+            handoff_issues: dict[str, str] = {}
             handoff_when = Conditions()
             if handoff_list.unresolved:
                 reason = (
@@ -872,6 +910,7 @@ def _extract_agent_bindings(
                     sdk_names=sdk_names,
                     resolver=imports.resolver if module is not None else None,
                     local_identities=local_identities,
+                    module_bindings=module_bindings,
                 )
                 if identity is None:
                     reason = (
@@ -887,7 +926,18 @@ def _extract_agent_bindings(
                     if module is not None and member.module is module and isinstance(member.expr, ast.Name):
                         handoff_names.append(member.expr.id)
                         handoff_when.add(member.expr.id, member.conditions)
+                        # Which agent it is was refused: a doubt about this
+                        # handoff's target, not only its list (#1146 review).
+                        handoff_issues[member.expr.id] = reason
                     continue
+                if why_not:
+                    reason = (
+                        f"OpenAI Agents SDK agent {target!r} at {pointer} hands off to "
+                        f"`{source_text(member.expr)}`, but {why_not}; the agent named for it is not "
+                        "established as the one handed off to."
+                    )
+                    # For the comparison only: ``scan`` reads the edge as it did.
+                    handoff_issues[identity] = reason
                 handoff_names.append(identity)
                 handoff_when.add(identity, member.conditions)
             if objects_reader is not None and module is None and field(call, "mcp_servers") is not None:
@@ -931,6 +981,7 @@ def _extract_agent_bindings(
             if constructor_issue is not None:
                 # Every binding of an agent whose constructor is not proved,
                 # a tool bound as an object included (#910, #964).
+                tool_issue_doubts.update(joined_doubts(tool_issues, tool_issue_doubts, (*names, *objects), DOUBT_CONSTRUCTION))
                 tool_issues.update({name: "; ".join(filter(None, [tool_issues.get(name),
                                    f"the constructor identity is not established: {constructor_issue}"]))
                                     for name in (*names, *objects)})
@@ -963,9 +1014,11 @@ def _extract_agent_bindings(
                     object_bindings=objects,
                     tool_locators=locators,
                     tool_issues=tool_issues,
+                    tool_issue_doubts={name: kinds for name, kinds in tool_issue_doubts.items() if name in tool_issues},
                     tool_conditions=tool_conditions,
                     tool_sites={name: locations for name, locations in tool_sites.items() if name in locators or name in objects},
                     handoff_names=handoff_names,
+                    handoff_issues=handoff_issues,
                     handoff_sites={name: list(dict.fromkeys((pointer, *context.invocation.locations)))
                                    for name in handoff_names} if context.invocation else {},
                     handoff_conditions=handoff_when.only_when(),
@@ -1151,16 +1204,18 @@ class _ImportedTools:
         source_ref: str,
         tool_by_name: dict[str, Tool],
         import_aliases: dict[str, str],
-    ) -> tuple[Tool | None, str | None]:
+    ) -> tuple[Tool | None, str | None, bool]:
         """The tool ``reference`` binds, or None and why not; see
-        :meth:`tool_from_resolution` for a tool that comes with a reason."""
+        :meth:`tool_from_resolution` for a tool that comes with a reason.
+        Last, whether every caveat of that reason is an import-search one
+        (#1146)."""
 
         local = self.by_symbol.get((source_ref, reference))
         if module is None:
             if local is not None:
-                return local, None
+                return local, None, False
             # A module outside the read scope: the previous name reading holds.
-            return tool_by_name.get(import_aliases.get(reference, reference)), None
+            return tool_by_name.get(import_aliases.get(reference, reference)), None, False
         bindings = module.bindings.get(reference, [])
         if (
             local is not None
@@ -1169,14 +1224,14 @@ class _ImportedTools:
             and isinstance(bindings[0].node, ast.FunctionDef | ast.AsyncFunctionDef)
             and f"{source_ref}:{bindings[0].node.lineno}" == local.source_location
         ):
-            return local, None
+            return local, None, False
         # Anything else the module binds under this name — an import, an
         # assignment, a conditional ``def`` — is what a module-level agent
         # receives, not a same-named function nested elsewhere (#879 review).
         resolution = self.resolver.resolve(module, reference)
         if resolution.reason == NOT_BOUND:
-            return None, f"{reference!r} is not bound at module level in {module.ref}"
-        return self.tool_from_resolution(resolution)
+            return None, f"{reference!r} is not bound at module level in {module.ref}", False
+        return (*self.tool_from_resolution(resolution), resolution.search_only)
 
     def wrapped_tool(self, wrapped: WrappedFunction) -> Tool:
         """The function ``function_tool(f)`` wraps, as one tool per definition
@@ -1187,7 +1242,7 @@ class _ImportedTools:
         key = (location, wrapped.name_override, wrapped.options_sha256)
         tool = self.by_wrapper.get(key)
         if tool is None:
-            tool = _function_to_tool(node, self.source, defining.ref, set())
+            tool = _function_to_tool(node, self.source, defining.ref, set(), _SdkNames(defining.tree))
             if wrapped.name_override:
                 tool = tool.model_copy(
                     update={
@@ -1237,13 +1292,18 @@ class _ImportedTools:
         location = f"{defining.ref}:{node.lineno}"
         tool = self.by_location.get(location)
         if tool is None:
-            sdk_decorators = _function_tool_decorators(defining.tree)
+            sdk_names = _SdkNames(defining.tree)
+            ambiguous: list[ast.expr] = []
+            sdk_decorators = _function_tool_decorators(sdk_names, ambiguous=ambiguous)
             if not _is_function_tool(node, sdk_decorators):
+                for decorator in ambiguous:
+                    if decorator in node.decorator_list:
+                        return None, _ambiguous_sdk_decorator(defining.ref, decorator)
                 return None, (
                     f"it resolves to {node.name!r} at {location}, which is not "
                     "decorated with the SDK's @function_tool"
                 )
-            tool = _function_to_tool(node, self.source, defining.ref, sdk_decorators)
+            tool = _function_to_tool(node, self.source, defining.ref, sdk_decorators, sdk_names)
             # Minted from an import: another source that reads that module
             # observes the same definition, and the catalog keeps one (#879).
             tool.extraction["imported_definition"] = True
@@ -1323,6 +1383,7 @@ def _handoff_identity(
     sdk_names: _SdkNames,
     resolver: ImportResolver | None,
     local_identities: set[str],
+    module_bindings: dict[str, list[Any]] | None = None,
 ) -> tuple[str | None, str]:
     """The agent identity one handoff list member names, or why it names none.
 
@@ -1330,7 +1391,8 @@ def _handoff_identity(
     its scope binds to an agent it constructs is that agent's identity (#876
     review); any other name is spelled through ``from`` import aliases. A
     member of a list another module builds is followed into that module, to
-    the name its construction is assigned to (#909).
+    the name its construction is assigned to (#909). A name bound more than
+    once returns its identity with the reason it is a guess (#1146 review).
     """
 
     item = member.expr
@@ -1348,6 +1410,16 @@ def _handoff_identity(
             identity = identity_of(value)
             if identity is not None:
                 return identity, ""
+        bound = found or [binding.node for binding in (module_bindings or {}).get(item.id, [])]
+        if len(bound) > 1:
+            # Named, never established: which binding runs is not read, so the
+            # agent spelled the same is a guess (#1146 review). The second
+            # value is the reason beside a returned identity.
+            lines = sorted({node.lineno for node in bound if hasattr(node, "lineno")})
+            return aliases.get(item.id, item.id), (
+                f"{item.id!r} is bound more than once"
+                + (f" (lines {', '.join(map(str, lines))})" if lines else "")
+            )
         return aliases.get(item.id, item.id), ""
     if resolver is None:
         return None, f"it is written in {member.module.ref}, and imports are not followed here"
@@ -1379,7 +1451,7 @@ def _denotes_agent(sdk_names: _SdkNames, node: ast.AST) -> bool:
     func = node.func if isinstance(node, ast.Call) else node
     if isinstance(func, ast.Subscript):
         func = func.value
-    return sdk_names.denotes(dotted_name(func), node, "Agent", DEFAULT_AGENT_CONSTRUCTORS)
+    return sdk_names.denotes(dotted_name(func), node, "Agent", DEFAULT_AGENT_CONSTRUCTORS) is True
 
 
 def _literal_agent_name(call: ast.Call) -> str | None:
@@ -2000,6 +2072,9 @@ class _SdkNames:
         self.bindings: dict[int, dict[str, list[str | None]]] = {}
         self.declared: dict[int, dict[str, str]] = {}
         self.foreign_wildcard = False
+        self.sdk_wildcard = False
+        self.direct_sdk_wildcard = False
+        direct_statements = set(tree.body)
         # Decorators, defaults, class bases and a comprehension's first
         # iterable are evaluated in the scope that encloses their owner.
         enclosing: dict[int, ast.AST] = {}
@@ -2017,8 +2092,13 @@ class _SdkNames:
                 if isinstance(node, ast.ClassDef):
                     outer = [*node.decorator_list, *node.bases, *node.keywords]
                 elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                    arguments = [
+                        *node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs,
+                        node.args.vararg, node.args.kwarg,
+                    ]
                     outer = [
                         *getattr(node, "decorator_list", []),
+                        *(argument.annotation for argument in arguments if argument and argument.annotation),
                         *node.args.defaults,
                         *(default for default in node.args.kw_defaults if default),
                     ]
@@ -2029,7 +2109,11 @@ class _SdkNames:
                 module = "." * node.level + (node.module or "")
                 for alias in node.names:
                     if alias.name == "*":
-                        self.foreign_wildcard |= not _is_sdk_path(module)
+                        if _is_sdk_path(module):
+                            self.sdk_wildcard = True
+                            self.direct_sdk_wildcard |= node in direct_statements
+                        else:
+                            self.foreign_wildcard = True
                     else:
                         path = f"{module}.{alias.name}" if node.module else module + alias.name
                         self._bind(scope, alias.asname or alias.name, path)
@@ -2067,41 +2151,76 @@ class _SdkNames:
         return None
 
     def denotes(
-        self, spelling: str | None, node: ast.AST, symbol: str, defaults: frozenset[str]
-    ) -> bool:
+        self,
+        spelling: str | None,
+        node: ast.AST,
+        symbol: str,
+        defaults: frozenset[str],
+        *,
+        track_ambiguity: bool = False,
+    ) -> bool | None:
+        """Read an SDK symbol, optionally retaining unresolved provenance.
+
+        Agent construction has a downstream ownership proof. Keep recognizing
+        candidates with a proven SDK import and a competing assignment there
+        so the ownership proof can show why the construction was withheld.
+        """
         if not spelling:
             return False
         head, _, rest = spelling.partition(".")
         bound = self._resolve(head, node)
         if bound is None:
-            return spelling in defaults and not self.foreign_wildcard
-        paths = [path for path in bound if path is not None]
-        return bool(paths) and all(
-            _is_sdk_path(path) and (f"{path}.{rest}" if rest else path).rsplit(".", 1)[-1] == symbol
-            for path in paths
-        )
+            if spelling not in defaults:
+                return False
+            if track_ambiguity and self.sdk_wildcard and (
+                self.foreign_wildcard or not self.direct_sdk_wildcard
+            ):
+                return None
+            return not self.foreign_wildcard
+        matches = [
+            bool(
+                path
+                and _is_sdk_path(path)
+                and (f"{path}.{rest}" if rest else path).rsplit(".", 1)[-1] == symbol
+            )
+            for path in bound
+            if path is not None or track_ambiguity
+        ]
+        if matches and all(matches):
+            return True
+        return None if track_ambiguity and any(matches) else False
 
 
 def _is_sdk_path(path: str) -> bool:
     return not path.startswith(".") and path.split(".", 1)[0] in SDK_MODULES
 
 
-def _function_tool_decorators(tree: ast.Module) -> set[int]:
-    """The decorator nodes that are the SDK's ``function_tool``, by identity.
+def _function_tool_decorators(
+    names: _SdkNames, *, ambiguous: list[ast.expr]
+) -> set[int]:
+    """Resolve each decorator where it is evaluated."""
+    decorators = set()
+    for node in ast.walk(names.module):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        for decorator in node.decorator_list:
+            match = names.denotes(
+                _decorator_name(decorator), decorator, "function_tool", DEFAULT_FUNCTION_TOOL_DECORATORS,
+                track_ambiguity=True,
+            )
+            if match:
+                decorators.add(id(decorator))
+            elif match is None:
+                ambiguous.append(decorator)
+    return decorators
 
-    Decided per node, not per spelling: the same ``@function_tool`` may be the
-    SDK's in one function and LiveKit's in its sibling.
-    """
-    names = _SdkNames(tree)
-    return {
-        id(decorator)
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        for decorator in node.decorator_list
-        if names.denotes(
-            _decorator_name(decorator), decorator, "function_tool", DEFAULT_FUNCTION_TOOL_DECORATORS
-        )
-    }
+
+def _ambiguous_sdk_decorator(ref: str, decorator: ast.expr) -> str:
+    return (
+        f"OpenAI Agents SDK tool decorator at {ref}:{decorator.lineno} "
+        "has an ambiguous import or rebinding. Use an explicit, unconditional SDK import "
+        "and keep the decorator name bound to it."
+    )
 
 
 def _is_function_tool(node: ast.AST, sdk_decorators: set[int]) -> bool:
@@ -2121,9 +2240,10 @@ def _function_to_tool(
     source: ToolSourceConfig,
     source_ref: str,
     sdk_decorators: set[int],
+    sdk_names: _SdkNames,
 ) -> Tool:
     tool_name = _tool_name(node, sdk_decorators)
-    input_schema, parameters = function_input_schema(node)
+    input_schema, parameters = function_input_schema(node, injected=_sdk_context(node, sdk_names))
     description = _description(node, sdk_decorators) or ast.get_docstring(node)
     return Tool(
         id=stable_tool_id(tool_name),
@@ -2142,6 +2262,20 @@ def _function_to_tool(
         extraction_confidence="medium",
         extraction={"method": "openai_agents_sdk_ast", "confidence": "medium"},
     )
+
+
+def _sdk_context(node: ast.FunctionDef | ast.AsyncFunctionDef, names: _SdkNames) -> ast.arg | None:
+    positional = node.args.posonlyargs + node.args.args
+    if not positional or (annotation := positional[0].annotation) is None:
+        return None
+    if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
+        spelling = annotation.value.partition("[")[0].strip()
+    else:
+        spelling = dotted_name(annotation.value if isinstance(annotation, ast.Subscript) else annotation)
+    for symbol in ("RunContextWrapper", "ToolContext"):
+        if names.denotes(spelling, annotation, symbol, frozenset({symbol}), track_ambiguity=True):
+            return positional[0]
+    return None
 
 
 def _tool_name(node: ast.FunctionDef | ast.AsyncFunctionDef, sdk_decorators: set[int]) -> str:

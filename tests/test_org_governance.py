@@ -596,10 +596,6 @@ organization:
     reports = tmp_path / "agents-shipgate-reports"
     reports.mkdir()
     _write_json(
-        reports / "report.json",
-        {"release_decision": {"decision": "passed"}, "human_ack": {}},
-    )
-    _write_json(
         reports / "verifier.json",
         {
             # The verifier a v0.3 attestation was written beside predates

@@ -61,6 +61,8 @@ from agents_shipgate.core.instruction_structure import (
 from agents_shipgate.core.manifest_proposals import (
     assess_coverage_increasing_tool_source_proposal,
 )
+from agents_shipgate.core.paths import display_path as _display_path
+from agents_shipgate.core.structured_depth import NestingLimitExceeded, bounded_parse
 from agents_shipgate.core.trust_roots import (
     read_absolute_identity_bound_text,
     trust_root_class_for,
@@ -833,16 +835,30 @@ def boundary_assessment_is_evidence_backed(
     """
 
     for item in violations:
-        if item.id == "BOUNDARY-INPUT-INCOMPLETE":
-            return False
-        if (
-            item.id in _PARSE_FAILURE_RULE_IDS
-            and not parse_failure_kind_was_read(item.evidence.get("kind"))
-        ):
+        if violation_records_unread_input(item):
             return False
         if item.path and _touches_experimental_surface(item.path):
             return False
     return True
+
+
+def violation_records_unread_input(item: AgentResultViolatedRule) -> bool:
+    """Whether a boundary row records input the evaluator could not read (#1154).
+
+    An incomplete-input row, or a parse-failure row whose evidence kind does
+    not say the file was read: a file past a size or nesting bound, one that
+    does not parse, or content the diff could not resolve. ``check`` withholds
+    publication above on any such row. ``verify`` holds its verdict at
+    ``insufficient_evidence`` on the ones that name a changed file's own
+    failed read (``core.agent_boundary.unread_changed_input_gaps``), so it
+    never counts as unread a row this predicate counts as read.
+    """
+
+    if item.id == "BOUNDARY-INPUT-INCOMPLETE":
+        return True
+    return item.id in _PARSE_FAILURE_RULE_IDS and not parse_failure_kind_was_read(
+        item.evidence.get("kind")
+    )
 
 
 def _touches_experimental_surface(path: str) -> bool:
@@ -907,7 +923,6 @@ UNEVALUATED_SUBJECT_REASON = (
     "The supplied input does not establish an evaluated checkout state. "
     "Re-run check against the intended worktree or with both --base and --head."
 )
-
 
 def _control_for_result(
     *,
@@ -1174,7 +1189,7 @@ def load_codex_boundary_policy(
                     max_bytes=1024 * 1024,
                 )
             )
-            loaded = yaml.safe_load(raw_text) or {}
+            loaded = bounded_parse(yaml.safe_load, raw_text) or {}
             if isinstance(loaded, dict):
                 data = loaded
             else:
@@ -1357,8 +1372,8 @@ def _evaluate_config_file(
         )
         return
     try:
-        data = tomllib.loads(resolved.new_text)
-    except tomllib.TOMLDecodeError as exc:
+        data = bounded_parse(tomllib.loads, resolved.new_text.removeprefix("\ufeff"))
+    except (tomllib.TOMLDecodeError, NestingLimitExceeded) as exc:
         add(
             "CODEX-CONFIG-PARSE-FAILED",
             path=path,
@@ -1366,8 +1381,10 @@ def _evaluate_config_file(
         )
         return
     try:
-        old_data = tomllib.loads(resolved.old_text or "")
-    except tomllib.TOMLDecodeError as exc:
+        old_data = bounded_parse(
+            tomllib.loads, (resolved.old_text or "").removeprefix("\ufeff")
+        )
+    except (tomllib.TOMLDecodeError, NestingLimitExceeded) as exc:
         add(
             "CODEX-CONFIG-PARSE-FAILED",
             path=path,
@@ -1690,8 +1707,8 @@ def _evaluate_hooks_json(
         )
         return
     try:
-        data = json.loads(resolved.new_text)
-    except json.JSONDecodeError as exc:
+        data = bounded_parse(json.loads, resolved.new_text)
+    except (json.JSONDecodeError, NestingLimitExceeded) as exc:
         add(
             "CODEX-CONFIG-PARSE-FAILED",
             path=path,
@@ -1703,8 +1720,8 @@ def _evaluate_hooks_json(
         old_hooks = None
     else:
         try:
-            old_data = json.loads(resolved.old_text)
-        except json.JSONDecodeError as exc:
+            old_data = bounded_parse(json.loads, resolved.old_text)
+        except (json.JSONDecodeError, NestingLimitExceeded) as exc:
             add(
                 "CODEX-CONFIG-PARSE-FAILED",
                 path=path,
@@ -1877,8 +1894,8 @@ def _policy_rules_from_yaml_text(text: str) -> dict[str, dict[str, str]]:
 
     for candidate in candidates:
         try:
-            loaded = yaml.safe_load(candidate) or {}
-        except yaml.YAMLError:
+            loaded = bounded_parse(yaml.safe_load, candidate) or {}
+        except (yaml.YAMLError, NestingLimitExceeded):
             continue
         raw_rules: Any
         if isinstance(loaded, dict):
@@ -2528,15 +2545,11 @@ def _policy_snapshot_sha256(data: dict[str, Any], raw_text: str | None) -> str:
     ).hexdigest()
 
 
-def _display_path(path: Path, workspace: Path) -> str:
-    try:
-        return path.resolve().relative_to(workspace.resolve()).as_posix()
-    except ValueError:
-        return str(path)
-
-
 def _parser_error(kind: str, exc: Exception) -> dict[str, Any]:
     evidence: dict[str, Any] = {"kind": kind, "parser": type(exc).__name__}
+    if isinstance(exc, NestingLimitExceeded):
+        # The bound it passed, so the row says why the file was not read (#1154).
+        evidence["max_depth"] = exc.limit
     line = getattr(exc, "lineno", None)
     column = getattr(exc, "colno", None)
     if isinstance(line, int) and line > 0:
@@ -2598,8 +2611,8 @@ def _workspace_declares_shipgate_action(workspace: Path) -> bool:
     if not action_path.is_file():
         return False
     try:
-        payload = yaml.safe_load(action_path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
+        payload = bounded_parse(yaml.safe_load, action_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError, NestingLimitExceeded):
         return False
     if not isinstance(payload, dict):
         return False

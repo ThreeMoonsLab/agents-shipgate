@@ -316,7 +316,7 @@ def test_a_superseded_pointer_recorded_with_a_relative_out_recovers_from_a_sibli
         options = produce(**kwargs)
         index = options.index("--out")
         options[index + 1] = shlex.quote(
-            orchestrator._display_path(kwargs["out_dir"], kwargs["git_root"])
+            orchestrator._display_path(kwargs["out_dir"], kwargs["git_root"], resolve=False)
         )
         return options
 

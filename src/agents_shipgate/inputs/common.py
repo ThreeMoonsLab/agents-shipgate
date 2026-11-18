@@ -15,6 +15,7 @@ from ruamel.yaml.error import YAMLError
 
 from agents_shipgate.core.domain import ToolParameter
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.paths import display_path
 from agents_shipgate.core.static_inputs import (
     active_static_input_snapshot,
     read_static_input_text,
@@ -181,13 +182,9 @@ def manifest_relative_path(value: str, base_dir: Path) -> str:
     raw_path = Path(value)
     if not raw_path.is_absolute():
         return raw_path.as_posix()
-    try:
-        return raw_path.resolve().relative_to(base_dir.resolve()).as_posix()
-    except ValueError:
-        # Outside the manifest dir — resolve_input_path would have already
-        # rejected this, but fall back to a normalized POSIX form rather
-        # than emitting a Windows-style or unnormalized path.
-        return raw_path.as_posix()
+    # A path outside the manifest dir (resolve_input_path would already have
+    # rejected it) comes back as given in POSIX form, never Windows-style.
+    return display_path(raw_path, base_dir)
 
 
 def _load_bounded_json(text: str) -> Any:

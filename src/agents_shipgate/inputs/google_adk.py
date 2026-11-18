@@ -18,6 +18,9 @@ from agents_shipgate.core.artifact_models import (
 )
 from agents_shipgate.core.domain import (
     ANY_TOOL,
+    DOUBT_CONSTRUCTION,
+    DOUBT_DEFINITION_IDENTITY,
+    DOUBT_IMPORT_SEARCH,
     SURFACE_ENUMERATED,
     SURFACE_PARTIAL,
     AgentBindingObservation,
@@ -27,8 +30,10 @@ from agents_shipgate.core.domain import (
     RemoteBindingStatus,
     Tool,
     ToolParameter,
+    joined_doubts,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.core.privacy import is_credential_key, redact_url_credentials
 from agents_shipgate.core.python_source import parse_python
 from agents_shipgate.core.source_warnings import adk_unresolved_tool_warning
@@ -519,7 +524,7 @@ def _load_inventory_ref(
             raise
         artifacts.warnings.append(f"Optional Google ADK tool inventory {ref.path!r} failed to load.")
         return None
-    artifacts.tool_inventory_files.append(_display_path(resolve_input_path(base_dir, ref.path), base_dir))
+    artifacts.tool_inventory_files.append(_display_path(resolve_input_path(base_dir, ref.path), base_dir, outside="resolved"))
     for tool in loaded.tools:
         tool.source_type = "google_adk_inventory"
         tool.annotations["adk_inventory"] = True
@@ -542,7 +547,7 @@ def _load_eval_refs(
                 raise
             artifacts.warnings.append(f"Optional Google ADK eval artifact {ref.path!r} failed to load.")
             continue
-        _append_unique(artifacts.eval_files, _display_path(path, base_dir))
+        _append_unique(artifacts.eval_files, _display_path(path, base_dir, outside="resolved"))
 
 
 def _load_python_path(
@@ -557,7 +562,7 @@ def _load_python_path(
         tree = parse_python(text, filename=str(path))
     except SyntaxError as exc:
         raise InputParseError(f"Unable to parse Google ADK Python entrypoint {path}: {exc.msg}") from exc
-    artifacts.python_entrypoints.append(_display_path(path, base_dir))
+    artifacts.python_entrypoints.append(_display_path(path, base_dir, outside="resolved"))
     # Repository-local imports are followed inside the directory this read was
     # given, never above it (#864).
     resolver = ImportResolver(base_dir)
@@ -593,7 +598,7 @@ def _load_agent_config_path(
     if not isinstance(data, dict):
         raise InputParseError(f"Google ADK Agent Config must contain an object: {path}")
 
-    artifacts.agent_config_files.append(_display_path(path, config_base_dir))
+    artifacts.agent_config_files.append(_display_path(path, config_base_dir, outside="resolved"))
     agent_name = str(data.get("name") or path.stem)
     raw_tools = data.get("tools")
     if isinstance(raw_tools, list):
@@ -925,6 +930,8 @@ class _AdkAgentBinding:
     duplicated: set[str] = field(default_factory=set)
     #: ``tool_name -> why`` for a binding made on a guess (#879 review).
     tool_issues: dict[str, str] = field(default_factory=dict)
+    #: ``tool_name -> [DOUBT_*]``: what each of those reasons doubts (#1146).
+    tool_issue_doubts: dict[str, list[str]] = field(default_factory=dict)
     constructor_issue: str | None = None
     constructor_issues: dict[str, str] = field(default_factory=dict)
     #: Why this agent's tool list is incomplete, when it is.
@@ -1000,6 +1007,7 @@ class _AdkAgentBinding:
 
         self.duplicated.add(tool_name)
         self.tool_issues.pop(tool_name, None)
+        self.tool_issue_doubts.pop(tool_name, None)
         self.objects.pop(tool_name, None)
         self.tool_names = [name for name in self.tool_names if name != tool_name]
         self.tool_locators.pop(tool_name, None)
@@ -1884,6 +1892,19 @@ class _PythonAdkExtractor:
             scope = self._scope_of(scope)
         return None
 
+    def _rebound_lines(self, item: ast.AST) -> list[int]:
+        """The lines binding a ``sub_agents`` name, when its scope binds it more than once."""
+
+        if not isinstance(item, ast.Name):
+            return []
+        found = self.scopes.enclosing_bindings(item, item.id) or [
+            binding.node
+            for binding in (self.module.bindings if self.module is not None else _module_bindings(self.tree)[0]).get(
+                item.id, []
+            )
+        ]
+        return sorted({node.lineno for node in found if hasattr(node, "lineno")}) if len(found) > 1 else []
+
     def _binding_for(self, agent_name: str, call: ast.Call) -> _AdkAgentBinding:
         binding = self.agent_bindings.get(agent_name)
         if binding is None:
@@ -1915,6 +1936,12 @@ class _PythonAdkExtractor:
                              **({name: "; ".join(filter(None, [binding.tool_issues.get(name), binding.constructor_issue]))
                                  for name in (*binding.tool_names, *binding.objects)}
                                 if binding.constructor_issue is not None else {})},
+                tool_issue_doubts=joined_doubts(
+                    binding.tool_issues,
+                    binding.tool_issue_doubts,
+                    (*binding.tool_names, *binding.objects) if binding.constructor_issue is not None else (),
+                    DOUBT_CONSTRUCTION,
+                ),
                 tool_sites={
                     name: sorted(lines, key=lambda location: (location.rsplit(":", 1)[0], int(location.rsplit(":", 1)[1])))
                     for name, lines in binding.tool_sites.items()
@@ -2499,6 +2526,7 @@ class _PythonAdkExtractor:
         candidates = self._guess_candidates(name)
         names |= candidates if candidates is not None else {ANY_TOOL}
         binding.tool_issues.update({item: issue for item in names})
+        binding.tool_issue_doubts.update({item: [DOUBT_DEFINITION_IDENTITY] for item in names})
 
     def _guess_candidates(self, name: str) -> set[str] | None:
         """The tool names the module's bindings of ``name`` can give the agent.
@@ -2692,6 +2720,7 @@ class _PythonAdkExtractor:
                 inner,
                 steps=(*resolution.steps, *inner.steps),
                 caveats=tuple(dict.fromkeys((*resolution.caveats, *inner.caveats))),
+                search_caveats=tuple(dict.fromkeys((*resolution.search_caveats, *inner.search_caveats))),
             ),
             inner_long_running,
         )
@@ -2736,6 +2765,7 @@ class _PythonAdkExtractor:
                 # What runs before this module's wrapper is used still runs
                 # before its function is (#879 review).
                 caveats=tuple(dict.fromkeys((*resolution.caveats, *inner.caveats))),
+                search_caveats=tuple(dict.fromkeys((*resolution.search_caveats, *inner.search_caveats))),
             ),
             call_name in LONG_RUNNING_TOOL_NAMES,
         )
@@ -2875,6 +2905,7 @@ class _PythonAdkExtractor:
                     detail=f"{reference!r} is the tool factory {factory.name!r} ({home.ref}:{factory.lineno}) returns, and {detail}",
                     steps=steps,
                     caveats=callee.caveats,
+                    search_caveats=callee.search_caveats,
                 ),
                 False,
             )
@@ -2906,6 +2937,7 @@ class _PythonAdkExtractor:
                 resolution,
                 steps=(*steps, *resolution.steps),
                 caveats=tuple(dict.fromkeys((*callee.caveats, *resolution.caveats))),
+                search_caveats=tuple(dict.fromkeys((*callee.search_caveats, *resolution.search_caveats))),
             ),
             long_running,
         )
@@ -3365,6 +3397,11 @@ class _PythonAdkExtractor:
                 f"({tool.source_location}), but {'; '.join(resolution.caveats)}; the "
                 "definition read for it is not established as the one bound."
             )
+            # Only which file an import search reaches is a whole-program
+            # doubt; any other caveat doubts the definition read (#1146).
+            binding.tool_issue_doubts[tool.name] = [
+                DOUBT_IMPORT_SEARCH if resolution.search_only else DOUBT_DEFINITION_IDENTITY
+            ]
         evidence = resolution.evidence()
         recorded = tool.extraction.setdefault("import_resolutions", [])
         if evidence not in recorded:
@@ -3896,6 +3933,8 @@ class _PythonAdkExtractor:
                 # all — an inline construction, a call: left to the count.
                 sub_agent_names: list[str] = []
                 unresolved_sub_agents: list[str] = []
+                #: ``name -> why`` for a sub-agent named on a guess (#1146 review).
+                guessed_sub_agents: dict[str, str] = {}
                 when = Conditions()
                 for member in members:
                     item = member.expr
@@ -3932,6 +3971,16 @@ class _PythonAdkExtractor:
                     else:
                         sub_agent_names.append(resolved)
                         when.add(resolved, member.conditions)
+                        rebound = self._rebound_lines(item)
+                        if rebound:
+                            # Named, never established: which binding runs is
+                            # not read, so the agent spelled the same is a
+                            # guess. For the comparison only (#1146 review).
+                            guessed_sub_agents[resolved] = (
+                                f"Google ADK agent {agent_name!r} lists sub-agent `{variable}`, but "
+                                f"{variable!r} is bound more than once (lines {', '.join(map(str, rebound))}); "
+                                "the agent named for it is not established as the one handed off to."
+                            )
                 if self._invocation is not None:
                     binding = self._binding_for(agent_name, call)
                     for name in sub_agent_names:
@@ -3950,6 +3999,7 @@ class _PythonAdkExtractor:
                         "sub_agent_count": sub_agent_count,
                         "sub_agents": sub_agent_names,
                         "unresolved_sub_agents": unresolved_sub_agents,
+                        **({"guessed_sub_agents": guessed_sub_agents} if guessed_sub_agents else {}),
                         # ``name -> [condition, ...]`` for a sub-agent held
                         # only under a condition (#909).
                         "conditions": when.only_when(),
@@ -3990,7 +4040,7 @@ class _PythonAdkExtractor:
                     f"Google ADK eval reference {value!r} was detected but not found."
                 )
                 continue
-            display = _display_path(path, self.base_dir)
+            display = _display_path(path, self.base_dir, outside="resolved")
             if display not in self.artifacts.eval_files:
                 _append_unique(self.artifacts.eval_files, display)
 
@@ -4036,7 +4086,7 @@ def _record_config_eval_refs(
                     f"Google ADK Agent Config eval reference {value!r} was detected but not found."
                 )
                 continue
-            display = _display_path(path, config_base_dir)
+            display = _display_path(path, config_base_dir, outside="resolved")
             if display not in artifacts.eval_files:
                 _append_unique(artifacts.eval_files, display)
 
@@ -5194,13 +5244,6 @@ def _json_schema_type(annotation: str | None) -> str:
     if annotation in {"dict", "Dict"} or text.startswith(("dict[", "Dict[")):
         return "object"
     return "string"
-
-
-def _display_path(path: Path, base_dir: Path) -> str:
-    try:
-        return path.resolve().relative_to(base_dir.resolve()).as_posix()
-    except ValueError:
-        return str(path.resolve())
 
 
 def _append_unique(values: list[str], value: str) -> None:

@@ -15,6 +15,7 @@ from agents_shipgate.core.capability_lattice import (
 )
 from agents_shipgate.core.domain import LoadedToolSource, SourceSurfaceOmission, Tool
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.core.privacy import redact_text
 from agents_shipgate.core.source_warnings import (
     duplicate_mcp_server_declaration_warning,
@@ -212,9 +213,9 @@ def load_codex_config_mcp_sources(root: Path, base_dir: Path) -> list[LoadedTool
         return sources
     read_files, unread_files = _mcp_config_files(root)
     for path in read_files:
-        rel = _relative(path, root)
+        rel = _display_path(path, root, outside="resolved")
         if _is_config_path(rel, ".codex/config.toml"):
-            source_ref = _relative(path, base_dir)
+            source_ref = _display_path(path, base_dir, outside="resolved")
             try:
                 data = tomllib.loads(load_text_file(path).removeprefix("\ufeff"))
             except (InputParseError, tomllib.TOMLDecodeError) as exc:
@@ -241,7 +242,7 @@ def load_codex_config_mcp_sources(root: Path, base_dir: Path) -> list[LoadedTool
     for path, host in unread_files:
         # Warning-only, like a file that did not parse: it carries no tools,
         # so it never collides with a per-server source, and it names the file.
-        source_ref = _relative(path, base_dir)
+        source_ref = _display_path(path, base_dir, outside="resolved")
         sources.append(
             LoadedToolSource(
                 source_id=f"unread_host_mcp_config:{source_ref}",
@@ -906,7 +907,7 @@ def _load_mcp_json(
     say about a file whose servers could not be read.
     """
 
-    source_ref = _relative(path, base_dir)
+    source_ref = _display_path(path, base_dir, outside="resolved")
     try:
         data, positions = load_structured_file_with_positions(path)
     except InputParseError as exc:
@@ -1154,7 +1155,7 @@ def _mcp_config_files(root: Path) -> tuple[list[Path], list[tuple[Path, str]]]:
                 continue
             if not child.is_file():
                 continue
-            rel = _relative(child, root)
+            rel = _display_path(child, root, outside="resolved")
             if any(_is_config_path(rel, config) for config in READ_MCP_CONFIG_FILES):
                 candidates.append(child)
                 continue
@@ -1172,13 +1173,6 @@ def _text_or_none(value: Any) -> str | None:
         return None
     text = str(value)
     return text if text else None
-
-
-def _relative(path: Path, root: Path) -> str:
-    try:
-        return path.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return str(path.resolve())
 
 
 def _json_pointer_escape(value: str) -> str:

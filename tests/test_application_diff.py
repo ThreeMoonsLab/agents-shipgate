@@ -51,7 +51,39 @@ def run(repo, base, head, *args):
     result = CliRunner().invoke(app, ['diff', '--application', '--workspace', str(repo),
                                      '--base', base, '--head', head, '--json', *args])
     assert result.exit_code == 0, result.output + repr(result.exception)
-    return json.loads(result.output)
+    payload = json.loads(result.output)
+    assert_every_change_says_what(payload)
+    return payload
+
+
+#: Doubts that keep a binding whose two sides read the same a candidate row,
+#: and those that leave it a statement on its agent (#1146).
+ROW_DOUBTS = {'definition_identity', 'settings', 'unclassified'}
+AGENT_DOUBTS = {'construction', 'import_search'}
+
+
+def assert_every_change_says_what(payload):
+    """Every row for a change, established or candidate, says what changed (#1146).
+
+    Held for every answer the shared ``run`` helper returns. A binding whose
+    two sides read the same is a row only for a doubt it names in ``doubts``,
+    and then that doubt is what is said; with nothing to say, it fails.
+    """
+
+    from agents_shipgate.cli.application_summary import _what_changed
+
+    for row in payload['rows']:
+        if 'doubts' in row:
+            assert row['change'] == 'not_established', row
+            assert row['doubts'] and set(row['doubts']) <= ROW_DOUBTS, row['doubts']
+        kind = row['candidate_change'] if row['change'] == 'not_established' else row['change']
+        if kind != 'changed':
+            continue
+        assert row['before'] is not None and row['after'] is not None, row
+        assert _what_changed(row['before'], row['after'], row.get('doubts', ())), (row['agent'], row['tool'])
+    for entry in payload.get('read_same', []):
+        assert entry['tools'] and entry['uncertainty'], entry
+        assert entry['doubts'] and set(entry['doubts']) <= AGENT_DOUBTS, entry['doubts']
 
 
 def test_fresh_repository_reports_actual_wiring_not_catalog(repo):
@@ -90,10 +122,11 @@ def test_application_reads_python_source_encoding(repo, encoding, header):
     assert [(row['tool'], row['change']) for row in result['rows']] == [('execute', 'added')]
 
 
-def test_application_names_a_file_with_unreadable_encoding(repo):
+@pytest.mark.parametrize("invalid_input", [b"# bad encoding \xff\n", b"# coding: rot13\n"])
+def test_application_names_a_file_with_unreadable_encoding(repo, invalid_input):
     initial = SDK.replace('TOOLS', '[lookup]')
     base = commit(repo, {'agent.py': initial})
-    head = commit(repo, {'agent.py': initial.encode() + b'# bad encoding \xff\n'})
+    head = commit(repo, {'agent.py': invalid_input + initial.encode()})
 
     result = run(repo, base, head)
 

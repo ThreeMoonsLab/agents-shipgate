@@ -24,7 +24,11 @@ from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
 from agents_shipgate.checks.verify_policy import touched_policy_surfaces
 from agents_shipgate.ci.exit_policy import effective_fail_on
 from agents_shipgate.ci.release_decision import SUGGESTED_DECLARATIONS_FILENAME
-from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
+from agents_shipgate.cli._artifact_lifecycle import (
+    SCAN_REPORT_ARTIFACT_NAMES,
+    ArtifactLifecycleError,
+    clear_verifier_route_artifacts,
+)
 from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.current_workspace import (
     DEFAULT_REPORTS_DIR,
@@ -47,6 +51,7 @@ from agents_shipgate.cli.scan.human_order import override_human_manifest_committ
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.cli.scan.path_helpers import _resolve_audit_log_path
 from agents_shipgate.config.loader import load_manifest_text
+from agents_shipgate.core.agent_boundary import is_unread_changed_input_gap
 from agents_shipgate.core.agent_control import derive_agent_control
 from agents_shipgate.core.agent_handoff import build_agent_handoff
 from agents_shipgate.core.authorization_execution import (
@@ -65,6 +70,11 @@ from agents_shipgate.core.capability_lock import (
     load_capability_lock_json,
     render_capability_lock_diff_json,
     render_capability_lock_json,
+)
+from agents_shipgate.core.contained_write import (
+    UnsafeOutputPathError,
+    refuse_links_inside,
+    remove_contained,
 )
 from agents_shipgate.core.current_control import (
     VERIFIER_ROUTE_CONTROL_ARTIFACT_KEYS,
@@ -89,6 +99,7 @@ from agents_shipgate.core.manifest_provenance import (
     provisional_manifest_note,
 )
 from agents_shipgate.core.operation_attribution import ReconstructedOperationBase
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.core.static_inputs import (
     StaticInputSnapshot,
     activate_static_input_snapshot,
@@ -226,7 +237,6 @@ from .git import (
     commit_date,
     commit_sha,
     detect_default_base,
-    detect_default_base_with_notes,
     ensure_git_workspace,
     git_path,
     merge_base_sha,
@@ -510,6 +520,7 @@ def run_verify(
     authorization: Path | None = None,
     openshell_proof_config: Path | None = None,
     openshell_proof_required: bool = False,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[VerifierArtifact, ReadinessReport | None, int]:
     if openshell_proof_config is not None:
         from agents_shipgate.core.openshell_native import external_path
@@ -531,6 +542,7 @@ def run_verify(
             evaluated_ref=head,
         )
     )
+    archived_manifest_missing = archive_head and config_blob_at_head is False
     out_dir = _resolve_out_dir(
         git_root=git_root, requested_workspace=workspace.resolve(), out=out
     )
@@ -620,6 +632,8 @@ def run_verify(
         repository=_safe_repository_identity(git_root),
     )
     clear_verifier_route_artifacts(out_dir)
+    if not config_path.is_file():
+        _remove_scan_artifacts(out_dir, strict=True)
     verifier_path = out_dir / "verifier.json"
     verify_run_path = out_dir / "verify-run.json"
     pr_comment_path = out_dir / "pr-comment.md"
@@ -659,6 +673,9 @@ def run_verify(
     ) -> tuple[VerifierArtifact, None, int]:
         """Publish a run that stopped before any scan, on its one route (#1023)."""
 
+        unscanned_manifest_provenance = (
+            "absent" if archived_manifest_missing else configured_manifest_provenance
+        )
         verifier = _build_verifier(
             git_root=git_root,
             config_path=config_path,
@@ -669,7 +686,7 @@ def run_verify(
             trigger=evaluate(
                 paths=[],
                 diff_text="",
-                manifest_present=config_path.is_file(),
+                manifest_present=config_path.is_file() and not archived_manifest_missing,
                 user_requested=True,
                 input_status=INPUT_UNAVAILABLE,
             ),
@@ -682,7 +699,7 @@ def run_verify(
             head_status="failed",
             head_exit_code=2,
             out_dir=out_dir,
-            manifest_provenance_value=configured_manifest_provenance,
+            manifest_provenance_value=unscanned_manifest_provenance,
             ci_mode=ci_mode,
             headline_override=headline,
             first_next_action_override=action,
@@ -697,7 +714,7 @@ def run_verify(
             pr_comment_path,
             report=None,
             git_root=git_root,
-            manifest_provenance_value=configured_manifest_provenance,
+            manifest_provenance_value=unscanned_manifest_provenance,
             config_path=config_path,
             config_logical_path=config_relative.as_posix(),
             baseline_path=baseline_path,
@@ -709,9 +726,10 @@ def run_verify(
         )
         return verifier, None, 2
 
-    if not config_path.is_file() and ref_exists(git_root, head):
+    if (not config_path.is_file() or archived_manifest_missing) and ref_exists(git_root, head):
         # A deleted manifest is a removed gate, never first adoption, and a
-        # base that cannot be read cannot show which of the two this is.
+        # base that cannot be read cannot show which of the two this is. A
+        # checkout copy cannot replace a gate removed from an explicit head.
         removal = _probe_manifest_removal(
             git_root=git_root,
             config_relative=config_relative,
@@ -801,6 +819,7 @@ def run_verify(
             workspace=git_root,
             config=config_relative,
             base=base,
+            auto_base=auto_base,
             head=head if archive_head else None,
             out=explicit_output_path(out) if out is not None else None,
             pr_comment_style=pr_comment_style,
@@ -816,7 +835,7 @@ def run_verify(
             input_status=INPUT_UNAVAILABLE,
         )
         message = (
-            f"Shipgate config not found at {_display_path(config_path, git_root)}. "
+            f"Shipgate config not found at {_display_path(config_path, git_root, resolve=False)}. "
             "Correct --config, or run `agents-shipgate verify --preview --json` before "
             "initializing."
         )
@@ -974,7 +993,7 @@ def run_verify(
     if tree_config_relative is not None:
         config_relative = tree_config_relative
 
-    overlay_worktree_manifest = archive_head and config_blob_at_head is False
+    overlay_worktree_manifest = archived_manifest_missing
     worktree_manifest_text: str | None = None
     if not archive_head or overlay_worktree_manifest:
         try:
@@ -1385,21 +1404,26 @@ def run_verify(
 
     try:
         base_reference: Path | None = None
+        diff_from_base: dict[str, str] | None = None
         if diff_from_at_base:
             assert base is not None and diff_from_relative is not None
+            base_reference_commit = commit_sha(git_root, base)
             base_reference, reference_note = _diff_reference_at_base(
                 git_root=git_root,
                 base=base,
+                base_commit=base_reference_commit,
                 relative=diff_from_relative,
                 run_report_dir=run_base_report_dir,
             )
             base_notes.append(reference_note)
+            if base_reference is not None and base_reference_commit is not None:
+                diff_from_base = {"path": diff_from_relative.as_posix(), "commit_sha": base_reference_commit}
         if diff_from is not None and not diff_from_at_base:
             base_status = "diff_from_provided"
             assert static_diff_from_path is not None
             base_report = static_diff_from_path
             base_notes.append(
-                f"Using explicit diff reference: {_display_path(base_report, git_root)}"
+                f"Using explicit diff reference: {_display_path(base_report, git_root, resolve=False)}"
             )
         elif base_reference is not None:
             base_status = "diff_from_provided"
@@ -1428,6 +1452,7 @@ def run_verify(
                 operation_callback=capture_base_operations,
                 engine_requirement_factory=engine_requirement,
                 run_report_dir=run_base_report_dir,
+                progress=progress,
             )
             base_notes.extend(cache_notes)
 
@@ -1468,6 +1493,8 @@ def run_verify(
         if archive_head:
             head_tmp = tempfile.TemporaryDirectory(prefix="agents-shipgate-verify-head-")
             head_tree_dir = Path(head_tmp.name) / "head"
+            if progress is not None:
+                progress("Preparing the head Git tree for verification...")
             archive_verification_tree(git_root, head, head_tree_dir)
             # Resolve once the tree exists. The snapshot matches paths lexically,
             # and on macOS the temporary directory is reached through /var while
@@ -1825,6 +1852,7 @@ def run_verify(
                     diff_from_path=base_report,
                     authorization_path=authorization,
                     verification_options={
+                        **({"diff_from_base": diff_from_base} if diff_from_base is not None else {}),
                         **({"openshell_native": native_observation.model_dump(mode="json")} if native_observation is not None else {}),
                         "archive_head": archive_head,
                         "baseline_mode": baseline_mode,
@@ -1873,6 +1901,7 @@ def _prepare_base_report(
     operation_callback=None,
     engine_requirement_factory: Callable[[], VerificationEngineRequirement] | None = None,
     run_report_dir: Callable[[], Path] | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[
     VerifierBaseStatus,
     str | None,
@@ -1993,6 +2022,8 @@ def _prepare_base_report(
         tmp_root = Path(tmp)
         base_tree_dir = tmp_root / "base"
         base_out = tmp_root / "reports"
+        if progress is not None:
+            progress("Preparing the base Git tree for verification...")
         try:
             archive_verification_tree(git_root, base, base_tree_dir)
         except Exception as exc:  # noqa: BLE001 - optional base enrichment.
@@ -2473,7 +2504,7 @@ def _base_cache_entry(
         "config": config_relative.as_posix(),
         "baseline": {
             "path": (
-                _display_path(baseline_path.resolve(), git_root)
+                _display_path(baseline_path.resolve(), git_root, resolve=False)
                 if baseline_path is not None
                 else None
             ),
@@ -2481,7 +2512,7 @@ def _base_cache_entry(
         },
         "policy_packs": [
             {
-                "path": _display_path(path.resolve(), git_root),
+                "path": _display_path(path.resolve(), git_root, resolve=False),
                 "sha256": _static_input_sha256(path),
             }
             for path in policy_packs
@@ -2674,7 +2705,7 @@ def _bind_changed_files(
         candidate = Path(os.path.abspath(os.path.normpath(os.fspath(root / relative))))
         try:
             metadata = candidate.lstat()
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
             continue
         except OSError as exc:
             raise ConfigError(
@@ -2814,6 +2845,7 @@ def _diff_reference_at_base(
     base: str,
     relative: Path,
     run_report_dir: Callable[[], Path],
+    base_commit: str | None = None,
 ) -> tuple[Path | None, str]:
     """Read an in-repository ``--diff-from`` as the base commit holds it (#1024).
 
@@ -2826,7 +2858,7 @@ def _diff_reference_at_base(
 
     spelled = relative.as_posix()
     found = regular_file_at_ref(
-        git_root, base, relative, max_bytes=_MAX_CACHED_REPORT_BYTES
+        git_root, base_commit or base, relative, max_bytes=_MAX_CACHED_REPORT_BYTES
     )
     if found.state == "present":
         assert found.data is not None
@@ -3034,13 +3066,13 @@ def _rerun_options(
     if fail_on:
         options.extend(["--fail-on", shlex.quote(",".join(fail_on))])
     if baseline_path is not None:
-        options.extend(["--baseline", shlex.quote(_display_path(baseline_path, git_root))])
+        options.extend(["--baseline", shlex.quote(_display_path(baseline_path, git_root, resolve=False))])
     if baseline_mode and baseline_mode != "new-findings":
         options.extend(["--baseline-mode", shlex.quote(baseline_mode)])
     if diff_from is not None:
-        options.extend(["--diff-from", shlex.quote(_display_path(diff_from, git_root))])
+        options.extend(["--diff-from", shlex.quote(_display_path(diff_from, git_root, resolve=False))])
     for pack in policy_pack_paths or []:
-        options.extend(["--policy-pack", shlex.quote(_display_path(pack, git_root))])
+        options.extend(["--policy-pack", shlex.quote(_display_path(pack, git_root, resolve=False))])
     if plugins_enabled is False:
         options.append("--no-plugins")
     if strict_plugins:
@@ -4530,10 +4562,19 @@ def _derive_verifier_control(
     # read the change and reach a determination it can stand behind? Publishing
     # asserts something about an evaluated change, so no route may claim it
     # without all four parts — not the repair route, and not the human one.
+    #
+    # A changed host configuration the reader could not read is part of the
+    # change this run did not read (#1154). Its evidence gap already holds the
+    # decision at ``insufficient_evidence``; without this the human route below
+    # still offered to publish it, which `check` refuses for the same file.
     read_the_change = bool(
         execution == "succeeded"
         and release_decision is not None
         and diff_status.completeness == "complete"
+        and not any(
+            is_unread_changed_input_gap(gap)
+            for gap in release_decision.evidence_coverage.evidence_gaps
+        )
     )
     subject_evaluated = bool(
         read_the_change
@@ -4959,12 +5000,13 @@ def _build_verifier(
             base_ref=base,
             head_ref=head,
             manifest_introduced=manifest_introduced,
-            config=_display_path(config_path, git_root),
+            config=_display_path(config_path, git_root, resolve=False),
             worktree=worktree,
             rerun_options=rerun_options,
             report_path=resolved_report_path,
             repair_subject_available=repair_subject_available,
             configured_gate_introduced=configured_gate_introduced,
+            workspace=str(git_root),
         )
     )
     if fix_task is not None and durable_adoption_command is not None:
@@ -5019,7 +5061,7 @@ def _build_verifier(
         capability_review=capability_review,
         manifest_introduced=manifest_introduced,
         pure_adoption_review=pure_adoption_review,
-        configured_manifest=_display_path(config_path, git_root),
+        configured_manifest=_display_path(config_path, git_root, resolve=False),
         # Order is the whole point of passing both, because ``_fit_sentences``
         # keeps a *prefix* of whole sentences: whichever is second is the one a
         # long blocker title deletes. Provenance stays first. Its clause names
@@ -5061,7 +5103,7 @@ def _build_verifier(
         ),
         manifest_introduced=manifest_introduced,
         pure_adoption_review=pure_adoption_review,
-        configured_manifest=_display_path(config_path, git_root),
+        configured_manifest=_display_path(config_path, git_root, resolve=False),
         # Only a working-tree run can hold an uncommitted declaration, and only
         # that run's comparison ref carries the manifest the receipt was
         # written against. A ref-bound run evaluates committed objects and has
@@ -5072,7 +5114,7 @@ def _build_verifier(
     return VerifierArtifact(
         declaration_continuation=declaration_continuation,
         workspace=str(git_root),
-        config=_display_path(config_path, git_root),
+        config=_display_path(config_path, git_root, resolve=False),
         base_ref=base,
         head_ref=head,
         changed_files=changed_files,
@@ -5118,7 +5160,7 @@ def _build_verifier(
         fix_task=fix_task,
         forbidden_file_edits=list(PROTECTED_FILE_EDITS),
         conditional_file_edits=conditional_instruction_edits(
-            workspace=git_root, config=_display_path(config_path, git_root), canonical=True,
+            workspace=git_root, config=_display_path(config_path, git_root, resolve=False), canonical=True,
         ),
         forbidden_actions=list(FORBIDDEN_SHORTCUTS),
         artifacts=artifacts,
@@ -5156,7 +5198,7 @@ def _artifact_paths(
             **candidates,
         }
     return {
-        key: _display_path(path.resolve(), git_root)
+        key: _display_path(path.resolve(), git_root, resolve=False)
         for key, path in candidates.items()
         if key
         in {
@@ -5174,15 +5216,9 @@ def _artifact_paths(
     }
 
 
-def _remove_scan_artifacts(out_dir: Path) -> None:
+def _remove_scan_artifacts(out_dir: Path, *, strict: bool = False) -> None:
     for name in (
-        "report.md",
-        "report.json",
-        "report.sarif",
-        "packet.md",
-        "packet.json",
-        "packet.html",
-        "packet.pdf",
+        *SCAN_REPORT_ARTIFACT_NAMES,
         "capabilities.lock.json",
         "base.capabilities.lock.json",
         "capability-lock-diff.json",
@@ -5190,15 +5226,28 @@ def _remove_scan_artifacts(out_dir: Path) -> None:
         CAPABILITY_DELTA_ATTESTATION_FILENAME,
         CAPABILITY_DELTA_ATTESTATION_V2_FILENAME,
         HUMAN_REVIEW_REQUEST_FILENAME,
-        # Remediation instructions must not outlive the report they describe:
-        # an early verifier reset would otherwise clear report.json and leave a
-        # scaffold behind asking for declarations nothing is measuring.
-        SUGGESTED_DECLARATIONS_FILENAME,
     ):
         path = out_dir / name
-        if path.is_file() or path.is_symlink():
-            with contextlib.suppress(OSError):
-                path.unlink()
+        try:
+            # The contained remover every reports-directory cleanup uses
+            # (#1031): a link or special file under one of these names is
+            # never followed or dropped. A strict cleanup refuses the run; a
+            # best-effort one leaves the entry in place, as it leaves any
+            # entry it cannot remove.
+            removed = remove_contained(path, root=out_dir)
+        except UnsafeOutputPathError:
+            if strict:
+                raise
+        except OSError as exc:
+            if strict:
+                raise ArtifactLifecycleError(path, exc) from exc
+        else:
+            # A directory under an artifact name is left alone by the remover;
+            # a strict cleanup still cannot claim the name is clear.
+            if strict and not removed and os.path.lexists(path):
+                raise ArtifactLifecycleError(
+                    path, IsADirectoryError(f"{path} is not a file")
+                )
 
 
 def _apply_authorization_overlay(
@@ -5457,6 +5506,7 @@ def _write_artifacts(
         logical_base_report = _display_path(
             portable_diff_from_path.resolve(),
             git_root,
+            resolve=False,
         )
         verifier.artifacts["verification_base_report_json"] = logical_base_report
         verifier.base_report_json = logical_base_report
@@ -5491,10 +5541,13 @@ def _write_artifacts(
         json.dumps(initial_handoff.model_dump(mode="json"), indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    # A missing or invalid manifest cannot yield a reproducible request
-    # identity.  Error artifacts remain useful diagnostics, but they are not a
-    # trusted receipt and downstream consumers must reject their absence.
-    if not config_path.is_file() or not ref_exists(git_root, verifier.head_ref):
+    # A manifest absent from the evaluated inputs cannot yield a reproducible
+    # request identity, even if another checkout has a copy at the same path.
+    if (
+        manifest_provenance_value == "absent"
+        or not config_path.is_file()
+        or not ref_exists(git_root, verifier.head_ref)
+    ):
         _publish_run_control(
             verifier=verifier,
             out_dir=verifier_path.parent,
@@ -5606,7 +5659,7 @@ def _write_artifacts(
     logical_config = config_logical_path or (
         config_path.resolve().relative_to(resolved_input_root).as_posix()
         if resolved_input_root in config_path.resolve().parents
-        else _display_path(config_path.resolve(), git_root)
+        else _display_path(config_path.resolve(), git_root, resolve=False)
     )
     resolved_date = evaluation_date or commit_date(git_root, verifier.head_ref)
     base_commit = commit_sha(git_root, verifier.base_ref) if verifier.base_ref else None
@@ -5714,7 +5767,7 @@ def _write_artifacts(
         native_evidence = NativeEvidence.model_validate({"observation": plan.inputs.options["openshell_native"],
             "request_id": plan.request_id, "subject": plan.subject.model_dump(mode="json")})
         native_path.write_text(json.dumps(native_evidence.model_dump(mode="json"), indent=2, sort_keys=True), encoding="utf-8")
-        verifier.artifacts["openshell_native_json"] = _display_path(native_path, git_root)
+        verifier.artifacts["openshell_native_json"] = _display_path(native_path, git_root, resolve=False)
     unit_result = build_unit_result(
         plan=plan,
         status=("succeeded" if verifier.execution in {"succeeded", "skipped"} else "failed"),
@@ -5752,7 +5805,7 @@ def _write_artifacts(
             encoding="utf-8",
         )
         verifier.artifacts["human_review_request_json"] = _display_path(
-            review_request_path.resolve(), git_root
+            review_request_path.resolve(), git_root, resolve=False
         )
     _write_capability_delta_attestation(
         verifier=verifier,
@@ -5792,7 +5845,7 @@ def _write_artifacts(
             encoding="utf-8",
         )
         verifier.artifacts["human_authorization_json"] = _display_path(
-            authorization_artifact.resolve(), git_root
+            authorization_artifact.resolve(), git_root, resolve=False
         )
     if report is not None:
         report.request_id = plan.request_id
@@ -6428,7 +6481,7 @@ def _write_capability_delta_attestation(
                 f"Capability delta attestation{label} unavailable: {exc}"
             )
             continue
-        verifier.artifacts[artifact_key] = _display_path(path.resolve(), git_root)
+        verifier.artifacts[artifact_key] = _display_path(path.resolve(), git_root, resolve=False)
 
 
 def _load_base_capability_lock(
@@ -6478,9 +6531,17 @@ def _resolve_out_dir(
     by, so a refresh from any directory finds what this run published (#575).
     """
 
-    if out is not None:
-        return explicit_output_path(out).resolve()
-    return default_reports_dir(requested_workspace).resolve()
+    spelled = (
+        explicit_output_path(out)
+        if out is not None
+        else default_reports_dir(requested_workspace)
+    )
+    # Before it is resolved: a link committed at the reports directory, or at
+    # any directory between the repository root and it, would otherwise be
+    # followed here and every artifact written outside the checkout (#1031).
+    # Links above the repository are the operator's choice.
+    refuse_links_inside(spelled, git_root)
+    return spelled.resolve()
 
 
 def _resolve_under_workspace(workspace: Path, path: Path) -> Path:
@@ -6608,7 +6669,7 @@ def _reject_symlink_components(
     issue = inspect_lexical_path_identity(root, relative)
     if issue is None:
         return
-    requested = _display_path(issue.requested, root)
+    requested = _display_path(issue.requested, root, resolve=False)
     if issue.kind == "symlink":
         raise ConfigError(f"{label} must not contain symlink components: {requested}")
     if issue.kind == "alias":
@@ -6621,7 +6682,7 @@ def _reject_symlink_components(
             # same-entry relationship and therefore remains fail-closed.
             return
         actual = (
-            _display_path(issue.actual, root)
+            _display_path(issue.actual, root, resolve=False)
             if issue.actual is not None
             else "a differently spelled filesystem entry"
         )
@@ -6752,13 +6813,6 @@ def _stable_archive_error(
     return detail
 
 
-def _display_path(path: Path, root: Path) -> str:
-    try:
-        return path.relative_to(root).as_posix()
-    except ValueError:
-        return str(path)
-
-
 def _write_portable_static_input(
     path: Path,
     *,
@@ -6795,7 +6849,7 @@ def _reject_output_input_overlap(
             continue
         raise ConfigError(
             f"Verifier --out overlaps the {label} input at "
-            f"{_display_path(candidate, git_root)}."
+            f"{_display_path(candidate, git_root, resolve=False)}."
         )
 
 
@@ -6876,7 +6930,7 @@ def _reject_output_directory_content(
     if refusal is None:
         return
     default = is_default_reports_dir(workspace, out_dir)
-    shown = _display_path(out_dir, git_root)
+    shown = _display_path(out_dir, git_root, resolve=False)
     subject = (
         f"Verifier --out {shown}"
         if explicit
@@ -7260,6 +7314,7 @@ def _preview_verify_command(
     base: str | None,
     head: str | None,
     out: Path | None,
+    auto_base: bool,
     pr_comment_style: str = "capability-review",
     preview: bool = False,
     scope: ChangeScope | None = None,
@@ -7280,6 +7335,8 @@ def _preview_verify_command(
         parts.append("--preview")
     if base is not None:
         parts.extend(["--base", base])
+    elif not auto_base:
+        parts.append("--no-base")
     if head is not None:
         parts.extend(["--head", head])
     if out is not None:
@@ -7381,24 +7438,45 @@ def run_preview(
     agent_handoff_path = out_dir / "agent-handoff.json"
     pr_comment_path = out_dir / "pr-comment.md"
     manifest_present = config_path.is_file()
+    if not manifest_present:
+        _remove_scan_artifacts(out_dir, strict=True)
 
     changed_files: list[str] = []
     diff_text = ""
     notes: list[str] = []
     diff_input: DiffContext | None = None
-    if base is None and auto_base:
+    base_failure_status: VerifierDiffStatus | None = None
+    base_failure_action: CodingAgentFetchBaseAction | None = None
+    if base is None and in_git and (auto_base or head is not None):
         try:
-            detection = detect_default_base_with_notes(root, head or "HEAD")
-        except Exception:  # noqa: BLE001 - preview must never crash.
-            detection = None
-        if detection is not None:
-            notes.extend(detection.notes)
-            if detection.base is not None:
-                base = detection.base
-                notes.append(
-                    f"Auto-detected base {detection.base!r} for diff context; "
-                    "pass --base to override or --no-base to disable."
+            head_available = ref_exists(root, head or "HEAD")
+            detection = resolve_verify_base(root, head or "HEAD") if head_available and auto_base else None
+        except Exception as exc:  # noqa: BLE001 - preview must never crash.
+            diff_input = _as_diff_context(exc)
+        else:
+            if head is not None and not head_available:
+                diff_input = DiffContext(
+                    completeness="unavailable",
+                    reason="refs_missing",
+                    detail=f"Head ref does not exist locally: {head}",
                 )
+                notes.append(diff_input.note)
+            if detection is not None:
+                notes.extend(detection.notes)
+                if detection.base is not None:
+                    base = detection.base
+                    notes.append(
+                        f"Auto-detected base {detection.base!r} for diff context; "
+                        "pass --base to override or --no-base to disable."
+                    )
+                elif not detection.resolved:
+                    base_failure_status, headline, base_failure_action = _base_unresolved_route()
+                    diff_input = DiffContext(
+                        completeness="unavailable",
+                        reason=base_failure_status.reason,
+                        detail=base_failure_status.detail or "",
+                    )
+                    notes.append(headline)
     if base:
         try:
             git_root = ensure_git_workspace(root)
@@ -7523,6 +7601,7 @@ def run_preview(
         workspace=workspace,
         config=config,
         base=base,
+        auto_base=auto_base,
         head=head,
         out=explicit_output_path(out) if out is not None else None,
         pr_comment_style=pr_comment_style,
@@ -7531,6 +7610,7 @@ def run_preview(
         workspace=workspace,
         config=config,
         base=base,
+        auto_base=auto_base,
         head=head,
         out=explicit_output_path(out) if out is not None else None,
         pr_comment_style=pr_comment_style,
@@ -7553,7 +7633,7 @@ def run_preview(
     # fact that the PR was never inspected — and an unadopted repo reached over a
     # shallow or blobless clone is exactly where this failure lands.
     if diff_input is not None:
-        next_action: AgentControlAction = _diff_failure_action(
+        next_action: AgentControlAction = base_failure_action or _diff_failure_action(
             diff_input,
             expects=(
                 f"{base}...{head or 'HEAD'}"
@@ -7626,6 +7706,7 @@ def run_preview(
                 workspace=workspace,
                 config=config,
                 base=base,
+                auto_base=auto_base,
                 head=head,
                 out=explicit_output_path(out) if out is not None else None,
                 pr_comment_style=pr_comment_style,
@@ -7756,12 +7837,12 @@ def run_preview(
     )
     verifier = VerifierArtifact(
         workspace=str(root),
-        config=_display_path(config_path, root),
+        config=_display_path(config_path, root, resolve=False),
         base_ref=base,
         head_ref=head or "HEAD",
         changed_files=changed_files,
         diff_text_available=bool(diff_text),
-        diff_status=_diff_status_artifact(diff_input),
+        diff_status=base_failure_status or _diff_status_artifact(diff_input),
         trigger=_embedded_trigger(trigger),
         base_status="not_requested",
         base_notes=notes,
@@ -7778,14 +7859,14 @@ def run_preview(
         headline=headline,
         forbidden_file_edits=list(PROTECTED_FILE_EDITS),
         conditional_file_edits=conditional_instruction_edits(
-            workspace=root, config=_display_path(config_path, root), canonical=True,
+            workspace=root, config=_display_path(config_path, root, resolve=False), canonical=True,
         ),
         forbidden_actions=list(FORBIDDEN_SHORTCUTS),
         artifacts={
-            "verifier_json": _display_path(verifier_path.resolve(), root),
-            "verify_run_json": _display_path(verify_run_path.resolve(), root),
-            "agent_handoff_json": _display_path(agent_handoff_path.resolve(), root),
-            "pr_comment": _display_path(pr_comment_path.resolve(), root),
+            "verifier_json": _display_path(verifier_path.resolve(), root, resolve=False),
+            "verify_run_json": _display_path(verify_run_path.resolve(), root, resolve=False),
+            "agent_handoff_json": _display_path(agent_handoff_path.resolve(), root, resolve=False),
+            "pr_comment": _display_path(pr_comment_path.resolve(), root, resolve=False),
         },
     )
     _write_artifacts(

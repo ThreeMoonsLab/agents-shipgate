@@ -335,6 +335,7 @@
   "tests/test_property_loaders.py": 0.9,
   "tests/test_provenance_kind.py": 2.8,
   "tests/test_public_surface_contract.py": 1.6,
+  "tests/test_python_framework_tool_lists.py": 0.4,
   "tests/test_python_import_resolution.py": 0.4,
   "tests/test_qualification_coverage_misses.py": 1.4,
   "tests/test_rater_harness.py": 62.7,
@@ -446,10 +447,14 @@
   "tests/test_capability_definition.py": 0.2,
   "tests/test_capability_payload_v2.py": 4.7,
   "tests/test_attest_approval.py": 0.2,
-  "tests/test_declared_policy_pack_boundary.py": 44.3,
+  "tests/test_declared_policy_pack_boundary.py": 54.6,
   "tests/test_packaged_default_policies.py": 0.2,
-  "tests/test_workflow_directory_instructions.py": 50.6,
-  "tests/test_registry_drift_observation.py": 1.4
+  "tests/test_workflow_directory_instructions.py": 106.4,
+  "tests/test_registry_drift_observation.py": 1.4,
+  "tests/test_application_read_same.py": 21.5,
+  "tests/test_git_env.py": 13.5,
+  "tests/test_output_directory_containment.py": 0.5,
+  "tests/test_unreadable_host_input.py": 297.8
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -491,6 +496,17 @@
    },
    "case_count": 17,
    "command": "python -m pytest tests/test_application_source_identity.py tests/test_application_diff_review.py -n 4 --junitxml=source-identity.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "f3d7202ceaa1 with issue #1038 test increment",
+   "report_sha256": "bc6c2483800393e75d80c053e83b810aadf758cc704bfdf4f674c98ac2863929",
+   "files": {
+    "tests/test_python_framework_tool_lists.py": 0.4
+   },
+   "case_count": 12,
+   "command": "python -m pytest tests/test_python_framework_tool_lists.py -o junit_duration_report=total --junitxml=shard-weight.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {
@@ -723,6 +739,62 @@
    },
    "case_count": 44,
    "command": "python -m pytest tests/test_registry_drift_observation.py --junitxml=registry-drift-observation.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "4675b2987b9a with issue #1146 read-same increment",
+   "report_sha256": "813175ce100244cddfcecedfad74fa292d68a6bb3d0fedc68d9efcabe576d7e0",
+   "files": {
+    "tests/test_application_read_same.py": 21.5
+   },
+   "case_count": 23,
+   "command": "python -m pytest tests/test_application_read_same.py --junitxml=application-read-same.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "issue #1031 write containment and hardened Git environment increment",
+   "report_sha256": "489e945f095229055aff996d675da6b31806ea60557fff4bd72f3dbfb6ca7645",
+   "files": {
+    "tests/test_git_env.py": 13.5,
+    "tests/test_output_directory_containment.py": 0.5
+   },
+   "case_count": 37,
+   "command": "python -m pytest tests/test_git_env.py tests/test_output_directory_containment.py --junitxml=write-containment.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "42a5ed9db5 with issue #1143 workflow path predicate increment, on a loaded machine",
+   "report_sha256": "e717fd18bd4b415b653b7fa0ebda1f7038d7fb0bbfab9fc650e78b7a3d8245b6",
+   "files": {
+    "tests/test_workflow_directory_instructions.py": 106.4
+   },
+   "case_count": 33,
+   "command": "python -m pytest tests/test_workflow_directory_instructions.py --junitxml=workflow-directory-instructions.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "42a5ed9db5 with issue #1143 workflow path predicate increment, on a loaded machine",
+   "report_sha256": "4a2340b3ffa01e3354f3491d9eb1300054b3be4f054a00519dd62a1fa9a49263",
+   "files": {
+    "tests/test_declared_policy_pack_boundary.py": 54.6
+   },
+   "case_count": 27,
+   "command": "python -m pytest tests/test_declared_policy_pack_boundary.py --junitxml=declared-packs.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "01895a2f4b3b with issue #1154 unreadable host input increment",
+   "report_sha256": "309d1fa348e965f350b9b9922a0ce7c19bbe7f6e7137bd62adfdfdea355e85e0",
+   "files": {
+    "tests/test_unreadable_host_input.py": 297.8
+   },
+   "case_count": 64,
+   "command": "python -m pytest tests/test_unreadable_host_input.py -n 4 --junitxml=unreadable-host-input.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

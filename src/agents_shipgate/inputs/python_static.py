@@ -28,22 +28,17 @@ def parse_python_file(path: Path, *, label: str) -> ast.Module:
         raise InputParseError(f"Unable to parse {label} Python entrypoint {path}: {exc.msg}") from exc
 
 
-def display_path(path: Path, base_dir: Path) -> str:
-    try:
-        return path.resolve().relative_to(base_dir.resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
-
-
 def dotted_name(node: ast.AST | None) -> str | None:
+    parts: list[str] = []
+    while isinstance(node, (ast.Attribute, ast.Call)):
+        if isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        else:
+            node = node.func
     if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        prefix = dotted_name(node.value)
-        return f"{prefix}.{node.attr}" if prefix else node.attr
-    if isinstance(node, ast.Call):
-        return dotted_name(node.func)
-    return None
+        parts.append(node.id)
+    return ".".join(reversed(parts)) or None
 
 
 def last_name(node: ast.AST | None) -> str | None:
@@ -108,7 +103,9 @@ def json_schema_type(annotation: str | None) -> str:
     return "string"
 
 
-def function_parameters(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ToolParameter]:
+def function_parameters(
+    node: ast.FunctionDef | ast.AsyncFunctionDef, *, injected: ast.arg | None = None
+) -> list[ToolParameter]:
     parameters: list[ToolParameter] = []
     positional_args = [*node.args.posonlyargs, *node.args.args]
     positional_defaults: list[ast.expr | None] = [
@@ -116,11 +113,11 @@ def function_parameters(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[To
     ]
     positional_defaults.extend(node.args.defaults)
     for arg, default in zip(positional_args, positional_defaults, strict=True):
-        if arg.arg in SKIPPED_TOOL_PARAMETERS:
+        if arg is injected or arg.arg in SKIPPED_TOOL_PARAMETERS:
             continue
         parameters.append(_parameter(arg, required=default is None))
     for arg, default in zip(node.args.kwonlyargs, node.args.kw_defaults, strict=True):
-        if arg.arg in SKIPPED_TOOL_PARAMETERS:
+        if arg is injected or arg.arg in SKIPPED_TOOL_PARAMETERS:
             continue
         parameters.append(_parameter(arg, required=default is None))
     return parameters
@@ -130,10 +127,11 @@ def function_input_schema(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     *,
     schema: dict[str, Any] | None = None,
+    injected: ast.arg | None = None,
 ) -> tuple[dict[str, Any], list[ToolParameter]]:
     if schema:
         return schema, schema_to_parameters(schema)
-    parameters = function_parameters(node)
+    parameters = function_parameters(node, injected=injected)
     properties = {
         parameter.name: {
             "type": json_schema_type(parameter.type),
@@ -232,10 +230,11 @@ def _field_required(node: ast.AST | None) -> bool:
     if node is None:
         return True
     if isinstance(node, ast.Call) and last_name(node.func) == "Field":
-        if not node.args:
+        factory = keyword(node, "default_factory")
+        if factory is not None and not (isinstance(factory, ast.Constant) and factory.value is None):
             return False
-        first = node.args[0]
-        return isinstance(first, ast.Constant) and first.value is Ellipsis
+        default = node.args[0] if node.args else keyword(node, "default")
+        return default is None or (isinstance(default, ast.Constant) and default.value is Ellipsis)
     return False
 
 

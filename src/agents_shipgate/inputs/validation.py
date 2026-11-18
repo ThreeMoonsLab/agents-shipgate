@@ -6,6 +6,7 @@ from typing import Any, ClassVar, Literal
 
 from agents_shipgate.core.artifact_models import ValidationArtifacts
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.inputs.common import (
     load_structured_file,
     load_text_file,
@@ -173,7 +174,7 @@ def _load_override_logs(
         if loaded is None:
             continue
         path, items = loaded
-        display = _display_path(path, base_dir)
+        display = _display_path(path, base_dir, outside="resolved")
         files.append(display)
         normalized_count = 0
         for item in items:
@@ -256,7 +257,7 @@ def _load_high_risk_exclusions(
                 "validation: high-risk exclusions file must contain "
                 f"high_risk_auto_approval_exclusions: {ref.path}"
             )
-        display = _display_path(path, base_dir)
+        display = _display_path(path, base_dir, outside="resolved")
         files.append(display)
         normalized_count = 0
         for entry in raw_entries:
@@ -305,7 +306,7 @@ def _load_promotion_criteria(
         if loaded is None:
             continue
         path, data = loaded
-        display = _display_path(path, base_dir)
+        display = _display_path(path, base_dir, outside="resolved")
         files.append(display)
         criteria.append(data)
         _append_provenance(
@@ -456,13 +457,6 @@ def _nested_string(item: dict[str, Any], paths: list[tuple[str, ...]]) -> str | 
         if isinstance(value, str) and value:
             return value
     return None
-
-
-def _display_path(path: Path, base_dir: Path) -> str:
-    try:
-        return path.resolve().relative_to(base_dir.resolve()).as_posix()
-    except ValueError:
-        return str(path.resolve())
 
 
 def _append_provenance(

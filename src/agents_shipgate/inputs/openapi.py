@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, Literal
+from urllib.parse import unquote
 
 from agents_shipgate.core.domain import (
     AuthAlternative,
@@ -89,6 +91,7 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
     source_path = manifest_relative_path(source.path, base_dir)
     # Each schema $ref this document cannot resolve, once, with its tools.
     unresolved_schema_refs: dict[str, list[str]] = {}
+    unresolved_carriers: dict[str, list[str]] = {}
 
     def _omit(subject: str, reason: str, warning: str, detail: str) -> None:
         """Record an operation that never reached the catalog, beside its warning."""
@@ -150,10 +153,13 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
                     api_path=str(api_path),
                     pointer_base=path_item.pointers[method],
                     method=method_lower,
+                    method_key=str(method),
                     operation=operation,
                     path_parameters=path_parameters,
+                    path_parameters_at=f"{path_item.pointers.get('parameters', '')}/parameters",
                     positions=positions,
                     warnings=warnings,
+                    unresolved_carriers=unresolved_carriers,
                 )
             except RecursionError as exc:
                 raise InputParseError(
@@ -191,6 +197,13 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
                     method_key=method, operation=operation,
                     document_unambiguous=document_unambiguous,
                 ))
+
+    for warning, operations in unresolved_carriers.items():
+        others = len(operations) - 1
+        scope = f"operation {operations[0]!r}"
+        if others:
+            scope += f" and {others} other operation{'s' if others > 1 else ''}"
+        warnings.append(f"{warning} ({scope})")
 
     for ref, carriers in unresolved_schema_refs.items():
         others = len(carriers) - 1
@@ -266,14 +279,15 @@ def _read_path_item(document: dict[str, Any], api_path: str, raw: dict[str, Any]
         if "$ref" not in current:
             return item
         ref = current["$ref"]
-        target = _local_ref_target(document, ref) if isinstance(ref, str) else _MISSING
+        resolved_pointer = _local_ref_pointer(ref) if isinstance(ref, str) else None
+        target = _pointer_target(document, resolved_pointer) if resolved_pointer is not None else _MISSING
         if not isinstance(target, dict) or id(target) in visited:
             item.unresolved_ref = str(ref)
             return item
         visited.add(id(target))
         current = target
-        # ``_local_ref_target`` resolves only ``#/…``, so this is its pointer.
-        pointer = ref[1:]
+        assert resolved_pointer is not None
+        pointer = resolved_pointer
 
 
 def _operation_to_tool(
@@ -285,17 +299,37 @@ def _operation_to_tool(
     api_path: str,
     pointer_base: str,
     method: str,
+    method_key: str,
     operation: dict[str, Any],
     path_parameters: list[Any],
+    path_parameters_at: str,
     positions: PositionIndex,
     warnings: list[str],
+    unresolved_carriers: dict[str, list[str]],
 ) -> Tool:
     operation_id = operation.get("operationId") or _operation_name(method, api_path)
-    request_schema = _extract_request_schema(document, operation)
+    # A referenced Path Item can supply the operation and path parameters
+    # from different objects. Use each field's original pointer.
+    carrier_base = f"{pointer_base}/{json_pointer_escape(method_key)}"
+    carrier_warnings: list[str] = []
+    request_at = f"{carrier_base}/requestBody"
+    request_body, request_at = _resolve_carrier(
+        document, operation.get("requestBody"), request_at, ("content",), carrier_warnings
+    )
+    request_schema = _schema_from_content(document, request_body, request_at, carrier_warnings)
     parameter_schema = _parameters_to_schema(
-        document, path_parameters, operation.get("parameters") or []
+        document,
+        (
+            (path_parameters_at, path_parameters),
+            (f"{carrier_base}/parameters", operation.get("parameters") or []),
+        ),
+        carrier_warnings,
     )
     input_schema = _merge_object_schemas(parameter_schema, request_schema)
+    output_schema = _extract_response_schema(document, operation, carrier_base, carrier_warnings)
+    for warning in dict.fromkeys(carrier_warnings):
+        unresolved_carriers.setdefault(warning, []).append(str(operation_id))
+    confidence = "medium" if carrier_warnings else "high"
     description = "\n".join(
         part for part in [operation.get("summary"), operation.get("description")] if part
     )
@@ -308,8 +342,6 @@ def _operation_to_tool(
     annotations["path"] = api_path
     auth = _extract_security(document, operation)
 
-    # Where the operation is written: under ``/paths`` or, for a path item
-    # reached through ``$ref``, under the object that reference names.
     pointer = f"{pointer_base}/{method}"
     pos = positions.lookup(pointer)
     source_start_line: int | None = None
@@ -334,52 +366,47 @@ def _operation_to_tool(
         source_start_column=source_start_column,
         source_pointer=pointer,
         input_schema=input_schema,
-        output_schema=_extract_response_schema(document, operation),
+        output_schema=output_schema,
         parameters=schema_to_parameters(input_schema),
         annotations=annotations,
         auth=auth,
-        extraction_confidence="high",
-        extraction={"method": "openapi", "confidence": "high"},
+        extraction_confidence=confidence,
+        extraction={"method": "openapi", "confidence": confidence},
     )
 
 
-def _extract_request_schema(document: dict[str, Any], operation: dict[str, Any]) -> dict[str, Any]:
-    request_body = operation.get("requestBody")
-    if not isinstance(request_body, dict):
+def _schema_from_content(
+    document: dict[str, Any], carrier: dict[str, Any], pointer: str, warnings: list[str]
+) -> dict[str, Any]:
+    content = carrier.get("content")
+    if not isinstance(content, dict) or not content:
         return {}
-    request_body = _resolve_ref(document, request_body)
-    content = request_body.get("content") or {}
-    if not isinstance(content, dict):
-        return {}
-    media = content.get("application/json") or next(iter(content.values()), {})
-    if not isinstance(media, dict):
-        return {}
+    key = "application/json" if "application/json" in content else next(iter(content))
+    media_at = f"{pointer}/content/{json_pointer_escape(str(key))}"
+    media, _ = _resolve_carrier(document, content[key], media_at, (), warnings)
     schema = media.get("schema") or {}
     if not isinstance(schema, dict):
         return {}
     return _resolve_schema(document, schema)
 
 
-def _extract_response_schema(document: dict[str, Any], operation: dict[str, Any]) -> dict[str, Any]:
+def _extract_response_schema(
+    document: dict[str, Any], operation: dict[str, Any], pointer: str, warnings: list[str]
+) -> dict[str, Any]:
     responses = operation.get("responses") or {}
     if not isinstance(responses, dict):
         return {}
-    response = _success_response(responses)
-    if not isinstance(response, dict):
-        return {}
-    response = _resolve_ref(document, response)
-    content = response.get("content") or {}
-    if not isinstance(content, dict):
-        return {}
-    media = content.get("application/json") or next(iter(content.values()), {})
-    if not isinstance(media, dict):
-        return {}
-    schema = media.get("schema") or {}
-    return _resolve_schema(document, schema) if isinstance(schema, dict) else {}
+    key = _success_response_key(responses)
+    response_at = f"{pointer}/responses/{json_pointer_escape(str(key))}"
+    response, response_at = _resolve_carrier(
+        document, responses.get(key), response_at,
+        ("description", "content", "summary", "headers", "links"), warnings,
+    )
+    return _schema_from_content(document, response, response_at, warnings)
 
 
-def _success_response(responses: dict[Any, Any]) -> Any:
-    """The response an operation returns on success: its lowest 2xx code.
+def _success_response_key(responses: dict[Any, Any]) -> Any:
+    """The key of the selected response, so the schema can name its source.
 
     Codes are compared as text because YAML reads an unquoted ``200:`` as an
     integer, where JSON and a quoted key give a string. The ``2XX`` range
@@ -388,40 +415,42 @@ def _success_response(responses: dict[Any, Any]) -> Any:
 
     codes: list[tuple[int, Any]] = []
     success_range: Any = None
-    for key, value in responses.items():
+    for key in responses:
         code = str(key).strip()
         if len(code) == 3 and code.isascii() and code.isdigit() and code.startswith("2"):
-            codes.append((int(code), value))
+            codes.append((int(code), key))
         elif code.upper() == "2XX" and success_range is None:
-            success_range = value
+            success_range = key
     if codes:
         return min(codes, key=lambda item: item[0])[1]
     if success_range is not None:
         return success_range
-    return next(iter(responses.values()), {})
+    return next(iter(responses), None)
 
 
 def _parameters_to_schema(
-    document: dict[str, Any], path_parameters: list[Any], operation_parameters: list[Any]
+    document: dict[str, Any],
+    parameter_lists: tuple[tuple[str, list[Any]], ...],
+    warnings: list[str],
 ) -> dict[str, Any]:
     properties: dict[str, Any] = {}
     required: list[str] = []
-    for raw in [*path_parameters, *operation_parameters]:
-        if not isinstance(raw, dict):
+    for pointer, parameters in parameter_lists:
+        if not isinstance(parameters, list):
             continue
-        parameter = _resolve_ref(document, raw)
-        if not isinstance(parameter, dict):
-            continue
-        name = parameter.get("name")
-        if not name:
-            continue
-        schema = parameter.get("schema") or {}
-        if isinstance(schema, dict):
-            properties[str(name)] = _resolve_schema(document, schema)
-        else:
-            properties[str(name)] = {}
-        if parameter.get("required") is True:
-            required.append(str(name))
+        for index, raw in enumerate(parameters):
+            parameter_at = f"{pointer}/{index}"
+            parameter, parameter_at = _resolve_carrier(document, raw, parameter_at, ("name",), warnings)
+            name = parameter.get("name")
+            if not name:
+                continue
+            if "schema" in parameter:
+                schema = parameter["schema"]
+                properties[str(name)] = _resolve_schema(document, schema) if isinstance(schema, dict) else {}
+            else:
+                properties[str(name)] = _schema_from_content(document, parameter, parameter_at, warnings)
+            if parameter.get("required") is True:
+                required.append(str(name))
     if not properties:
         return {}
     return {"type": "object", "properties": properties, "required": required}
@@ -625,18 +654,41 @@ def _resolve_schema(
     return resolved
 
 
-def _local_ref_target(document: dict[str, Any], ref: str) -> Any:
-    """What a ``#/…`` reference names in ``document``, or ``_MISSING``."""
+def _local_ref_pointer(ref: str) -> str | None:
+    """Decode a local URI fragment in JSON Pointer form."""
 
-    if not ref.startswith("#/"):
-        return _MISSING
+    if not ref.startswith("#") or re.search(r"%(?![0-9a-fA-F]{2})", ref):
+        return None
+    try:
+        pointer = unquote(ref[1:], errors="strict")
+    except UnicodeDecodeError:
+        return None
+    if not pointer.startswith("/") or re.search(r"~(?![01])", pointer):
+        return None
+    return pointer
+
+
+def _pointer_target(document: dict[str, Any], pointer: str) -> Any:
     current: Any = document
-    for part in ref[2:].split("/"):
+    for part in pointer[1:].split("/"):
         part = part.replace("~1", "/").replace("~0", "~")
-        if not isinstance(current, dict) or part not in current:
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+        elif (
+            isinstance(current, list)
+            and len(part) <= len(str(len(current)))
+            and re.fullmatch(r"0|[1-9][0-9]*", part)
+            and int(part) < len(current)
+        ):
+            current = current[int(part)]
+        else:
             return _MISSING
-        current = current[part]
     return current
+
+
+def _local_ref_target(document: dict[str, Any], ref: str) -> Any:
+    pointer = _local_ref_pointer(ref)
+    return _MISSING if pointer is None else _pointer_target(document, pointer)
 
 
 def _resolve_ref(document: dict[str, Any], value: dict[str, Any]) -> Any:
@@ -645,6 +697,57 @@ def _resolve_ref(document: dict[str, Any], value: dict[str, Any]) -> Any:
         return value
     target = _local_ref_target(document, ref)
     return value if target is _MISSING else target
+
+
+def _resolve_carrier(
+    document: dict[str, Any],
+    value: Any,
+    pointer: str,
+    expected_fields: tuple[str, ...],
+    warnings: list[str],
+) -> tuple[dict[str, Any], str]:
+    """Read a local Reference Object and give the pointer of its resolved object."""
+
+    if not isinstance(value, dict):
+        return {}, pointer
+    if "$ref" not in value:
+        return value, pointer
+    visited = {id(value)}
+    current = value
+    ref = current["$ref"]
+    for _ in range(MAX_SCHEMA_RESOLVE_DEPTH):
+        ref = current["$ref"]
+        if not isinstance(ref, str):
+            why = "the reference value must be a string"
+            break
+        if not ref.startswith("#"):
+            why = "references outside this document are unread"
+            break
+        target_pointer = _local_ref_pointer(ref)
+        if target_pointer is None:
+            why = "the local fragment is not a supported JSON Pointer"
+            break
+        target = _pointer_target(document, target_pointer)
+        if target is _MISSING:
+            why = "the pointer names no value"
+            break
+        if not isinstance(target, dict):
+            why = "the pointer does not name an object"
+            break
+        if "$ref" not in target:
+            if not expected_fields or any(field in target for field in expected_fields):
+                return target, target_pointer
+            why = "the object does not have the expected carrier fields"
+            break
+        if id(target) in visited:
+            why = "the references form a cycle"
+            break
+        visited.add(id(target))
+        current = target
+    else:
+        why = f"the chain exceeds {MAX_SCHEMA_RESOLVE_DEPTH} references"
+    warnings.append(f"Unresolved OpenAPI $ref at {pointer}/$ref. Reference {ref!r}: {why}.")
+    return {}, pointer
 
 
 def _unresolved_refs(document: dict[str, Any], value: Any) -> list[str]:
