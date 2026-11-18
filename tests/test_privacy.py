@@ -24,9 +24,11 @@ from agents_shipgate.core.privacy import (
     SECRET_PATTERNS,
     RedactionStats,
     build_privacy_audit,
+    redact_and_truncate,
     redact_data,
     redact_text,
     sanitize_findings,
+    truncate_redacted,
 )
 from agents_shipgate.schemas.baseline import BaselineFile, BaselineFinding
 from agents_shipgate.schemas.common import SourceReference
@@ -846,6 +848,243 @@ def test_sanitize_findings_redacts_extra_fields_and_counts_them():
     assert _BASIC_CREDENTIAL in finding.model_extra["debug_context"]
 
 
+def test_redact_and_truncate_redacts_before_it_cuts():
+    # #1079: cutting first left the head of a straddling credential, too short
+    # for any rule, to be published by a later redaction pass.
+    key = "sk-" + "A1b2C3d4E5f6G7h8I9j0K1l2"
+    text = "x" * 20 + " " + key + " tail"
+    cut_first = redact_text(text[:30])
+    assert key[:9] in (cut_first or "")  # the defect this replaces
+
+    assert redact_and_truncate(text, 30) == "x" * 20 + " "
+    assert redact_and_truncate(text, 60) == "x" * 20 + " [REDACTED:openai_api_key] tail"
+    assert redact_and_truncate("short", 30) == "short"
+    assert redact_and_truncate(None, 30) is None
+    # A cut at a marker's end keeps it; one inside it drops it whole.
+    assert truncate_redacted("ab [REDACTED:jwt] cd", 17) == "ab [REDACTED:jwt]"
+    assert truncate_redacted("ab [REDACTED:jwt] cd", 16) == "ab "
+
+
+def test_reader_source_text_is_redacted_before_it_is_cut():
+    import ast
+
+    from agents_shipgate.inputs.list_expressions import source_text
+
+    key = "sk-" + "A1b2C3d4E5f6G7h8I9j0K1l2"
+    # ``ast.unparse`` of this call puts the key across the 157th character.
+    call = f"make_agent(name={'n' * 119!r}, api_key={key!r})"
+    rendered = ast.unparse(ast.parse(call).body[0].value)
+    assert rendered.index(key) < 157 < rendered.index(key) + len(key)
+
+    shown = source_text(ast.parse(call).body[0].value)
+
+    assert key[:6] not in shown
+    assert shown.endswith("...")
+    assert len(shown) <= 160
+
+
+_STRADDLE_KEY = "sk-" + "A1b2C3d4E5f6G7h8I9j0K1l2"
+
+
+@pytest.mark.parametrize("source", ["openai", "anthropic", "adk"])
+def test_instruction_preview_is_redacted_before_it_is_cut(source):
+    # #1079 review: each prompt source was cut to 500 characters before the
+    # report redacted it, so a key across the cut published its head.
+    from agents_shipgate.cli.scan.agent_builder import (
+        INSTRUCTIONS_PREVIEW_CHARS,
+        _build_agent,
+    )
+    from agents_shipgate.core.artifact_models import (
+        AnthropicArtifacts,
+        GoogleAdkArtifacts,
+        OpenAIApiArtifacts,
+    )
+    from agents_shipgate.schemas.manifest import AgentsShipgateManifest
+
+    text = "x" * (INSTRUCTIONS_PREVIEW_CHARS - 9) + " " + _STRADDLE_KEY + " tail"
+    assert text.index(_STRADDLE_KEY) + 8 == INSTRUCTIONS_PREVIEW_CHARS
+    manifest = AgentsShipgateManifest.model_validate(
+        {
+            "version": "0.1",
+            "project": {"name": "preview"},
+            "agent": {"name": "agent", "declared_purpose": ["answer questions"]},
+            "environment": {"target": "local"},
+            "tool_sources": [{"id": "tools", "type": "mcp", "path": "tools.json"}],
+        }
+    )
+    artifacts = {
+        "openai": {"api_artifacts": OpenAIApiArtifacts(prompt_text=text)},
+        "anthropic": {"anthropic_artifacts": AnthropicArtifacts(prompt_text=text)},
+        "adk": {
+            "adk_artifacts": GoogleAdkArtifacts(agents=[{"instruction_preview": text}])
+        },
+    }[source]
+
+    agent = _build_agent(manifest, [], **artifacts)
+
+    preview = agent.instructions["value_preview"]
+    assert _STRADDLE_KEY[:6] not in preview
+    assert preview == "x" * (INSTRUCTIONS_PREVIEW_CHARS - 9) + " "
+    # A key wholly inside the bound is shown redacted.
+    short = {"openai": "api_artifacts", "anthropic": "anthropic_artifacts", "adk": "adk_artifacts"}
+    inside = f"use {_STRADDLE_KEY} here"
+    artifacts[short[source]] = (
+        GoogleAdkArtifacts(agents=[{"instruction_preview": inside}])
+        if source == "adk"
+        else type(artifacts[short[source]])(prompt_text=inside)
+    )
+    agent = _build_agent(manifest, [], **artifacts)
+    assert agent.instructions["value_preview"] == "use [REDACTED:openai_api_key] here"
+
+
+def test_a_prompt_file_key_across_the_preview_cut_is_not_published(tmp_path):
+    project = tmp_path / "project"
+    reports = tmp_path / "reports"
+    shutil.copytree(Path("samples/simple_openai_api_agent"), project)
+    inside = f"Use key {_STRADDLE_KEY} for lookups.\n"
+    prompt = inside + "x" * (500 - len(inside) - 9) + " " + _STRADDLE_KEY + " tail\n"
+    (project / "prompts" / "support_refund.md").write_text(prompt, encoding="utf-8")
+
+    run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=reports,
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=True,
+        packet_formats=["json"],
+    )
+
+    for name in ("report.json", "packet.json"):
+        # ``sk-A1b2C`` is what a cut-first preview published.
+        assert _STRADDLE_KEY[:6] not in (reports / name).read_text(encoding="utf-8"), name
+    report_json = json.loads((reports / "report.json").read_text(encoding="utf-8"))
+    assert report_json["agent"]["instructions"]["value_preview"].startswith(
+        "Use key [REDACTED:openai_api_key] for lookups."
+    )
+    # Pinned, not endorsed (#586). The preview is redacted when the agent
+    # record is built, so the report-time pass finds markers and counts
+    # nothing for ``agent.instructions.value_preview``: the two counted
+    # redactions are the prompt text itself. When read-time redactions join
+    # the final audit (#586, PR #1141), this pin changes.
+    audit = report_json["privacy_audit"]
+    assert {row["path"]: row["count"] for row in audit["redacted_paths"]} == {
+        "api_artifacts.prompt_text": 2
+    }
+    assert audit["redacted_occurrence_count"] == 2
+
+
+def test_reader_caveat_redactions_are_not_yet_counted_in_the_privacy_audit(tmp_path):
+    project = tmp_path / "project"
+    reports = tmp_path / "reports"
+    shutil.copytree(Path("samples/openai_agents_sdk_agent"), project)
+    (project / "agents" / "root.py").write_text(
+        "from agents import Agent\n"
+        "from case_tools import lookup_case\n"
+        "from reply_tools import render_reply\n\n"
+        "flag = 1\n"
+        "support_assistant = Agent(\n"
+        '    name="support-sdk-assistant",\n'
+        f'    tools=[lookup_case, render_reply] + f"{{flag}}{_STRADDLE_KEY}",\n'
+        ")\n",
+        encoding="utf-8",
+    )
+
+    run_scan(
+        config_path=project / "shipgate.yaml",
+        output_dir=reports,
+        formats=["json"],
+        ci_mode="advisory",
+    )
+
+    text = (reports / "report.json").read_text(encoding="utf-8")
+    assert _STRADDLE_KEY not in text
+    assert "[REDACTED:openai_api_key]" in text
+    # Pinned, not endorsed (#586). The SDK reader redacts the expression in
+    # its caveat when it writes it (#1079), so the report-time pass sees only
+    # markers and the audit counts none of these redactions (it counted 3
+    # before #1079). When read-time redactions join the final audit (#586,
+    # PR #1141), this pin changes.
+    assert json.loads(text)["privacy_audit"]["redacted_occurrence_count"] == 0
+
+
+def test_git_diagnostic_is_redacted_before_it_is_bounded():
+    from agents_shipgate.cli.verify.git import _GIT_STDERR_EXCERPT_CHARS, _decode_git_stderr
+
+    token = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+    lead = "fatal: unable to access remote with header "
+    stderr = lead + "y" * (_GIT_STDERR_EXCERPT_CHARS - len(lead) - 11) + " " + token + " end"
+
+    shown = _decode_git_stderr(stderr.encode("utf-8"))
+
+    assert token[:6] not in shown
+    assert shown.endswith("…")
+    assert len(shown) <= _GIT_STDERR_EXCERPT_CHARS + 1
+    assert _decode_git_stderr(f"fatal: header {token}".encode()) == (
+        "fatal: header [REDACTED:github_token]"
+    )
+
+
+def test_git_diagnostic_capture_drops_a_word_cut_at_its_byte_limit():
+    # #1079 review cycle 2: the capture keeps Git's first 8 KiB, and a token
+    # cut at that limit kept a head too short for any rule.
+    from agents_shipgate.cli.verify.git import _GIT_STDERR_LIMIT, _decode_git_stderr
+
+    token = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+    captured = (b"\n" * 8170 + b"fatal: header " + token.encode())[:_GIT_STDERR_LIMIT]
+    assert captured.endswith(b"ghp_A1b2")
+
+    shown = _decode_git_stderr(captured)
+
+    assert token[:6] not in shown
+    assert shown == "fatal: header"
+
+
+def _no_partial_marker(text: str) -> bool:
+    import re
+
+    whole = re.sub(r"\[REDACTED:[a-z0-9_:-]+\]", "", text)
+    return "[REDACTED" not in whole and "[RED" not in whole[-12:]
+
+
+def test_verify_headline_title_is_never_cut_inside_a_marker():
+    # #1079 review cycle 2: ``Most severe: create_refund_x…_[REDACTED:op…``.
+    from agents_shipgate.cli.verify.orchestrator import (
+        _HEADLINE_TITLE_MAX_CHARS,
+        _bounded,
+        _bounded_bytes,
+    )
+
+    title = "create_refund_" + "x" * 90 + "_[REDACTED:openai_api_key] lacks approval"
+    assert title.index("[REDACTED") < _HEADLINE_TITLE_MAX_CHARS - 1 < title.index("] lacks")
+
+    shown = _bounded(title, _HEADLINE_TITLE_MAX_CHARS)
+    assert _no_partial_marker(shown), shown
+    assert shown == "create_refund_" + "x" * 90 + "_…"
+    for budget in range(100, 140):
+        assert _no_partial_marker(_bounded_bytes(title, budget)), budget
+    assert _bounded_bytes(title, 200) == title
+
+
+@pytest.mark.parametrize("credential", ["[REDACTED:openai_api_key]", "sk-" + "A1" * 22])
+def test_evidence_gap_headline_redacts_before_cutting_subject(credential):
+    from agents_shipgate.core.evidence_actions import _MAX_SUBJECT_CHARS, evidence_gap_headline
+    from agents_shipgate.schemas.report import EvidenceGap
+
+    subject = "docs." + "x" * 100 + " " + credential
+    assert subject.index(credential) < _MAX_SUBJECT_CHARS - 1 < len(subject)
+    gap = EvidenceGap(
+        kind="source_warning",
+        subject=subject,
+        why="A source degraded.",
+        next_action={"kind": "review_warning", "why": "Review source.", "expects": "Rerun."},
+    )
+
+    headline = evidence_gap_headline(gap)
+
+    assert _no_partial_marker(headline), headline
+    assert headline.endswith("(docs." + "x" * 100 + "…)")
+
+
 def test_rules_version_is_bumped_and_recorded_in_the_privacy_audit():
     audit = build_privacy_audit(RedactionStats(), output_surfaces=["json"])
 
@@ -857,14 +1096,19 @@ def _plant_secret_shapes(project: Path) -> dict[str, str]:
     """Plant every #1026 shape in a copy of ``clean_read_only_agent``.
 
     Each shape is in a bound tool's name (so it reaches finding titles, SARIF
-    and the packet), its description, and the agent's declared purpose.
-    Returns the planted values by label.
+    and the packet), its description, its owner (so it reaches
+    ``controls.evidence_owner`` in the capability lock family, #1079), and the
+    agent's declared purpose. The sample's own tool keeps its name and gains a
+    key in its owner, so a ``verify`` against the unplanted sample has a
+    changed capability as well as added ones. Returns the planted values by
+    label.
     """
 
     stripe = "sk_live_" + "51HxQ2bL9kTq7vR3mN8pZ4wY6aC0dE2fG"
     tools = json.loads((project / "tools.json").read_text(encoding="utf-8"))
     base = tools["tools"][0]
     base["description"] = f"Look up documentation. Use api_key: {stripe} for auth."
+    base["owner"] = f"docs-platform {stripe}"
     for label, text in {
         "basic": f"call with header Authorization: Basic {_BASIC_CREDENTIAL}",
         "pem": f"-----BEGIN RSA PRIVATE KEY-----\n{_PEM_BODY}...",
@@ -880,6 +1124,7 @@ def _plant_secret_shapes(project: Path) -> dict[str, str]:
         tool = json.loads(json.dumps(base))
         tool["name"] = f"docs.{label} {text}"
         tool["description"] = f"Look up {label} metadata; {text}"
+        tool["owner"] = f"{label} owners; {text}"
         tools["tools"].append(tool)
     (project / "tools.json").write_text(json.dumps(tools, indent=2), encoding="utf-8")
     bindings = "".join(
@@ -1095,18 +1340,13 @@ def test_verify_publishes_no_planted_secret_in_any_rendered_artifact(tmp_path):
     assert {"pr-comment.md", "current-control.json", "verifier.json", "report.md"} <= {
         path.name for path in written
     }
-    # Two families are outside this contract. ``verification-input.diff`` is
-    # the change's exact bytes, which a worker replays and the receipt digests
+    # One file is outside this contract: ``verification-input.diff`` is the
+    # change's exact bytes, which a worker replays and the receipt digests
     # (docs/verification-reproducibility.md): a verification input, the same
     # text the pull request already shows. The capability lock family is
-    # unredacted for every secret shape, the pre-#1026 ones included (tool
-    # names, ``controls.evidence_owner``, ``semantic_changes``), pending #1079;
-    # it is not the report, packet, PR comment or control output this change
-    # redacts. The v2 delta attestation is that family too: it publishes v1's
-    # fields plus three definition digests, so it may carry what v1 carries
-    # and nothing more, which the last assertion holds it to.
-    unredacted = {
-        "verification-input.diff",
+    # inside it (#1079): the head and base locks, both lock-diff files and
+    # both delta attestations.
+    lock_family = {
         "capabilities.lock.json",
         "base.capabilities.lock.json",
         "capability-lock-diff.json",
@@ -1114,18 +1354,64 @@ def test_verify_publishes_no_planted_secret_in_any_rendered_artifact(tmp_path):
         "capability-delta-attestation.json",
         "capability-delta-attestation.v2.json",
     }
-    rendered = [path for path in written if path.name not in unredacted]
-    assert len(rendered) >= 10
+    assert lock_family <= {path.name for path in written}
+    rendered = [path for path in written if path.name != "verification-input.diff"]
+    assert len(rendered) >= 16
     _assert_no_secret_in(rendered, secrets)
-
-    def exposed(name: str) -> set[str]:
-        text = (reports / name).read_text(encoding="utf-8", errors="replace")
-        return {label for label, value in secrets.items() if value in text}
-
-    assert exposed("capability-delta-attestation.v2.json") <= exposed(
-        "capability-delta-attestation.json"
-    )
+    _assert_lock_family_shows_the_redactions(reports)
     report_json = json.loads((reports / "report.json").read_text(encoding="utf-8"))
     assert {"SHIP-DOC-SECRET-IN-DESCRIPTION", "SHIP-DOC-INJECTION-RISK"} <= {
         finding["check_id"] for finding in report_json["findings"]
     }
+
+
+def _assert_lock_family_shows_the_redactions(reports: Path) -> None:
+    """Each place the #1077 review found a planted key now holds a marker.
+
+    Redacted, not dropped: the lock still names every tool and owner, and the
+    digests it computes are taken over what it shows, so the stdlib reference
+    consumer accepts both attestations.
+    """
+
+    lock = json.loads((reports / "capabilities.lock.json").read_text(encoding="utf-8"))
+    planted = [
+        fact for fact in lock["capabilities"] if fact["identity"]["tool_name"] != "docs.lookup"
+    ]
+    assert len(planted) == 7
+    for fact in lock["capabilities"]:
+        # $.capabilities[].controls.evidence_owner
+        assert "[REDACTED:" in fact["controls"]["evidence_owner"], fact["identity"]["tool_name"]
+    for fact in planted:
+        assert "[REDACTED:" in fact["identity"]["tool_name"]
+        assert fact["id"] == f"cap_{fact['hashes']['identity_hash']}"
+    diff = json.loads((reports / "capability-lock-diff.json").read_text(encoding="utf-8"))
+    assert len(diff["added"]) == 7
+    [changed] = diff["changed"]
+    # changed[].after.controls.evidence_owner and semantic_changes[].after
+    assert changed["after"]["controls"]["evidence_owner"] == (
+        "docs-platform [REDACTED:stripe_key]"
+    )
+    [owner] = [
+        change
+        for change in changed["semantic_changes"]
+        if change["field"] == "controls.evidence_owner"
+    ]
+    assert owner["before"] == "docs-platform"
+    assert owner["after"] == "docs-platform [REDACTED:stripe_key]"
+    verifier = _reference_capability_delta_verifier()
+    for name in ("capability-delta-attestation.json", "capability-delta-attestation.v2.json"):
+        document = json.loads((reports / name).read_text(encoding="utf-8"))
+        assert "[REDACTED:" in json.dumps(document), name
+        assert verifier.verify(document).rows == [], name
+
+
+def _reference_capability_delta_verifier():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_ref_verifier_privacy", Path("tools/verify-capability-delta.py")
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

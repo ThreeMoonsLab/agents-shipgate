@@ -15,6 +15,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.privacy import redact_and_truncate
 from agents_shipgate.core.python_source import decode_python_source
 from agents_shipgate.core.static_inputs import active_static_input_snapshot
 from agents_shipgate.core.trust_roots import IdentityBoundReadSession
@@ -3185,7 +3186,14 @@ class BuilderCalls:
                         detail = "the model did not establish empty source-slot ownership"
                     except CallLimit as exc:
                         detail = str(exc)  # Another model cannot inherit a partial proof.
-                    refused.append(f"{family}: {caller.ref}:{node.lineno}: {module.ref}:{function.lineno} {function.name}: {detail}"[:1024])
+                    # Redacted before it is cut (#1079).
+                    refused.append(
+                        redact_and_truncate(
+                            f"{family}: {caller.ref}:{node.lineno}: {module.ref}:{function.lineno} {function.name}: {detail}",
+                            1024,
+                        )
+                        or ""
+                    )
                 if refused_models is not None:
                     for detail in refused:
                         if detail not in refused_models and len(refused_models) < 2:
