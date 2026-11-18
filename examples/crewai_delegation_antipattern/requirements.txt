@@ -1,0 +1,2 @@
+# Pinned CrewAI dependency for delegation anti-pattern and hardened example
+crewai==0.80.0

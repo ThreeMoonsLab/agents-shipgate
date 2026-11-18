@@ -1,0 +1,17 @@
+version: "0.1"
+
+project:
+  name: crewai-delegation-antipattern-example
+
+agent:
+  name: hardened-invoice-agent
+  declared_purpose:
+    - retrieve and validate vendor invoice metadata with circuit breakers
+
+environment:
+  target: local
+
+tool_sources:
+  - id: crewai_hardened
+    type: crewai
+    path: hardened_crew.py
