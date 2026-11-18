@@ -562,7 +562,7 @@ workflow is.
 
 - every lower-case root workflow, with its grant id and `config_sha256`;
 - a nested copy such as `samples/x/.github/workflows/ci.yml`, which is
-  never evaluated;
+  never evaluated as a GitHub workflow;
 - the rows `diff` and `verify` publish for a policy pack;
 - rule IDs, check IDs, schemas and the contract.
 

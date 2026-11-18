@@ -389,11 +389,11 @@ class HostStaticParseCache:
         # The registry folds case, so `.github/workflows/CI.YML` is a workflow
         # and `.codex/CONFIG.TOML` the Codex config; each is parsed as its
         # lower-case spelling is, never handed to the JSON parser (#1143).
-        suffix = path.suffix.casefold()
+        filename = path.name.casefold()
         try:
-            if suffix == ".toml":
+            if filename.endswith(".toml"):
                 data = tomllib.loads(text.removeprefix("\ufeff"))
-            elif suffix in {".yml", ".yaml"}:
+            elif filename.endswith((".yml", ".yaml")):
                 data = yaml.safe_load(text)
             elif is_vscode_mcp_path(path.as_posix()):
                 # VS Code reads `mcp.json` as JSON with comments (#659).
