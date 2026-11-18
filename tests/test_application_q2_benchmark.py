@@ -37,12 +37,132 @@ def _module(name: str):
 summarize = _module("summarize")
 pool_script = _module("pool")
 run = _module("run")
+changed_lines = _module("changed_lines")
 DEVELOPMENT = json.loads((BENCH / "development.json").read_text(encoding="utf-8"))
 HOLDOUT = json.loads((BENCH / "holdout.json").read_text(encoding="utf-8"))
 POOL = json.loads((BENCH / "pool.json").read_text(encoding="utf-8"))
 CORPORA = {DEVELOPMENT["corpus"]: DEVELOPMENT["members"], HOLDOUT["corpus"]: HOLDOUT["members"]}
 SCORES = sorted((BENCH / "results").glob("*.scores.json"))
 README = (BENCH / "README.md").read_text(encoding="utf-8")
+
+
+def test_changed_lines_marks_the_edited_argument_wrapper_and_decorated_body() -> None:
+    source = b"""from agents import Agent as SDKAgent, function_tool
+from google.adk.tools import FunctionTool
+
+@function_tool
+def read():
+    return "changed value"
+
+wrapped = FunctionTool(func=read)
+agent = SDKAgent(
+    name="Test",
+    tools=[wrapped],
+)
+"""
+    assert changed_lines._markers(source, {6, 8, 10, 11}) == [
+        {"line": 6, "kind": "decorated_function", "function": "read"},
+        {"line": 8, "kind": "tool_wrapper", "constructor": "google.adk.tools.FunctionTool"},
+        {"line": 11, "kind": "constructor_argument", "constructor": "agents.Agent", "argument": "tools"},
+    ]
+
+
+@pytest.mark.parametrize("shadow", [
+    "SDKAgent = factory",
+    "def inner(SDKAgent):\n    return SDKAgent()",
+    "def inner():\n    from unrelated import Agent as SDKAgent",
+    "from other import *",
+])
+def test_changed_lines_withholds_ambiguous_import_spellings(shadow: str) -> None:
+    source = f"from agents import Agent as SDKAgent\n{shadow}\nagent = SDKAgent(tools=[])\n"
+    assert changed_lines._markers(source.encode(), {len(source.splitlines())}) == []
+
+
+@pytest.mark.parametrize("name", ["Agent", "LlmAgent"])
+def test_changed_lines_reads_direct_adk_llm_agent_imports(name: str) -> None:
+    module = "google.adk.agents.llm_agent"
+    source = f"from {module} import {name} as Model\nagent = Model(tools=[])\n"
+
+    assert changed_lines._markers(source.encode(), {2}) == [{
+        "line": 2, "kind": "constructor_argument", "constructor": f"{module}.{name}",
+        "argument": "tools",
+    }]
+
+
+def test_changed_lines_requires_an_adk_module_import() -> None:
+    source = b"import google.auth\nagent = google.adk.Agent(tools=[])\n"
+    assert changed_lines._markers(source, {2}) == []
+
+    source = b"import google.adk\n" + source
+    assert changed_lines._markers(source, {3}) == [{
+        "line": 3, "kind": "constructor_argument", "constructor": "google.adk.Agent",
+        "argument": "tools",
+    }]
+
+
+def test_changed_lines_ignores_unchanged_lines_within_a_hunk() -> None:
+    diff = b"@@ -2,3 +2,3 @@\n-before\n+after\n unchanged\n-old\n+new\n"
+
+    assert changed_lines._changed_lines(diff) == ({2, 4}, {2, 4})
+
+
+@pytest.mark.parametrize("setting", ["diff.interHunkContext=10", "color.diff=always"])
+def test_changed_lines_uses_pinned_git_diff_coordinates(tmp_path, setting) -> None:
+    repo = tmp_path / "owner__project"
+    repo.mkdir()
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
+
+    git("init", "-q")
+    key, value = setting.split("=", 1)
+    git("config", "--local", key, value)
+    source = repo / "agent.py"
+    before = 'from agents import Agent\nnoise = 1\nAgent(tools=[])\nnoise = 2\nAgent(tools=[read])\n'
+    source.write_bytes(before.encode())
+    git("add", "agent.py")
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "base")
+    base = git("rev-parse", "HEAD")
+    after = before.replace("noise = 1", "noise = 3").replace("noise = 2", "noise = 4")
+    source.write_bytes(after.replace("tools=[read]", "tools=[write]").encode())
+    git("add", "agent.py")
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "head")
+    head = git("rev-parse", "HEAD")
+
+    result = changed_lines.inspect_member({
+        "slug": "case", "repository": "owner/project", "merge_base": base, "head": head,
+    }, tmp_path)
+
+    assert result["status"] == "read"
+    assert [(marker["side"], marker["line"]) for marker in result["markers"]] == [
+        ("base", 5), ("head", 5),
+    ]
+
+
+def test_changed_lines_reads_only_edited_sides_and_retains_unread_files(tmp_path, monkeypatch):
+    base, head = "a" * 40, "b" * 40
+
+    def fake_git(repo, *args):
+        assert repo == tmp_path / "owner__project"
+        if "--name-only" in args:
+            return b"agent.py\0broken.py\0"
+        if "--unified=0" in args:
+            return b"@@ -1,0 +2,1 @@\n+edited line\n"
+        if args == ("show", f"{head}:agent.py"):
+            return b"from agents import Agent\nagent = Agent(tools=[])\n"
+        assert args == ("show", f"{head}:broken.py")
+        return b"invalid syntax!\n"
+
+    monkeypatch.setattr(changed_lines, "_git", fake_git)
+    result = changed_lines.inspect_member({
+        "slug": "case", "repository": "owner/project", "merge_base": base, "head": head,
+    }, tmp_path)
+    assert result["status"] == "partial"
+    marker, = result["markers"]
+    assert (marker["path"], marker["side"], marker["line"]) == ("agent.py", "head", 2)
+    assert result["unread"] == [{
+        "path": "broken.py", "side": "head", "reason": "Could not read Python source.",
+    }]
 
 
 def test_the_development_corpus_is_pinned_and_unique() -> None:
