@@ -10,6 +10,10 @@ from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.capability_lock import build_capability_lock
 from agents_shipgate.core.domain import Agent
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.source_warnings import (
+    unread_host_mcp_config_path,
+    unread_host_mcp_config_warning,
+)
 from agents_shipgate.inputs.mcp_manifest import (
     _RISK_MONOTONE_ANNOTATIONS,
     _RISK_UNION_ANNOTATIONS,
@@ -1349,6 +1353,12 @@ def test_the_walk_matches_exactly_the_files_the_coverage_names(tmp_path: Path) -
     )
 
 
+@pytest.mark.parametrize(("path", "host"), UNREAD_HOST_MCP_CONFIG_FILES)
+def test_unread_host_warning_round_trips(path: str, host: str) -> None:
+    warning = unread_host_mcp_config_warning(path, host, READ_MCP_CONFIG_FILES)
+    assert unread_host_mcp_config_path(warning) == path
+
+
 def test_a_workspace_whose_servers_live_in_another_hosts_file_does_not_pass(
     tmp_path: Path,
 ) -> None:
@@ -1390,6 +1400,17 @@ def test_a_workspace_whose_servers_live_in_another_hosts_file_does_not_pass(
         "VS Code MCP config '.vscode/mcp.json'",
     ]
     assert report.release_decision.decision != "passed"
+    actions = [
+        gap.next_action
+        for gap in report.release_decision.evidence_coverage.evidence_gaps
+        if gap.kind == "source_warning" and gap.subject in unread
+    ]
+    assert [action.path for action in actions] == [".cursor/mcp.json", ".vscode/mcp.json"]
+    for action in actions:
+        assert action.kind == "review_warning"
+        assert "https://github.com/ThreeMoonsLab/agents-shipgate/issues/663" in action.why
+        assert "shipgate audit --host" in action.expects
+        assert "If the files share a root, this warning remains a review item" in action.expects
 
     # The same workspace without the other hosts' files is the one that passed,
     # so the warnings are what moved the decision.
