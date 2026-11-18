@@ -337,6 +337,7 @@ def run_capability_diff(
         blob_path_unchanged,
         commit_sha,
         tree_path_absent,
+        unread_link_prover,
     )
     from agents_shipgate.core.host_comparison import compare_host_inventories
 
@@ -356,6 +357,9 @@ def run_capability_diff(
             unchanged=lambda source: blob_path_unchanged(workspace, base_commit, None, source),
             # A hook script on neither side is an unchanged limit (#702).
             absent=lambda path: tree_path_absent(workspace, base_commit, None, path),
+            # An unread in-tree directory link Git proves unchanged, holding no
+            # configuration, is named rather than refusing every row (#1004).
+            unchanged_link=unread_link_prover(workspace, base_commit, None),
             identities=lambda paths: blob_path_identities(workspace, base_commit, None, paths),
             # The change's own paths, so a changed input no reader reads is named
             # rather than silent (#821).

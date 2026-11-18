@@ -898,7 +898,12 @@ SKILL = "---\nname: demo\ndescription: d\nmetadata:\n  1: internal\n---\nbody\n"
 
 
 def _directory_link(repo: Path) -> None:
+    # The directory the link names holds a link, which no Git tree identity
+    # binds, so it is not an unchanged limit (#1004) and still refuses. An
+    # unchanged link to a directory Git does bind is named as unchanged
+    # (`tests/test_unchanged_link_limits.py`).
     _write(repo, "src/pkg/a.txt", "x\n")
+    _link(repo, "src/pkg/alias.txt", "a.txt")
     _link(repo, "docs/proxy", "../src/pkg")
 
 
