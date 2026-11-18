@@ -89,7 +89,7 @@ def test_load_memory_is_added_beside_both_sql_tools(tmp_path):
     result = _compare(tmp_path, base, head, "--scope", "meal_planner_agent")
 
     assert result["comparison_status"] == "compared"
-    assert result["application_comparison_schema_version"] == "0.4"
+    assert result["application_comparison_schema_version"] == "0.5"
     rows = _rows(result)
     assert sorted(rows) == [
         ("meal_planner_agent", "execute_sql"),

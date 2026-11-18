@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from agents_shipgate.core.contained_write import write_contained
 from agents_shipgate.core.privacy import sanitize_report_payload
 from agents_shipgate.schemas.report import ReadinessReport
 
@@ -42,10 +43,7 @@ def write_json_report(
     path: Path,
     *,
     sanitized_payload: dict[str, Any] | None = None,
+    root: Path | None = None,
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = report_json_payload(report) if sanitized_payload is None else sanitized_payload
-    path.write_text(
-        json.dumps(payload, indent=2),
-        encoding="utf-8",
-    )
+    write_contained(path, json.dumps(payload, indent=2), root=root)

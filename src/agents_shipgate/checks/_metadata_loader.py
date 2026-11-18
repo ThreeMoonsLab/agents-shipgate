@@ -18,11 +18,11 @@ is required to add or modify a check. After edits, regenerate
 
     python scripts/generate_schemas.py
 
-The check **callable** (``checks/<category>.py:run``) still needs a
-matching Python implementation and an entry in
-``BUILTIN_CHECKS``/``project.scripts`` of ``pyproject.toml`` for
-plugin checks. The YAML covers only metadata (id, severity,
-description, narrative, remediation policy) — not behavior.
+Register each built-in check callable in ``BUILTIN_CHECKS``.
+Third-party packages register plugin checks in the
+``agents_shipgate.checks`` entry-point group. The YAML supplies metadata for
+each built-in check, including its ID, severity, description and remediation
+policy.
 """
 from __future__ import annotations
 

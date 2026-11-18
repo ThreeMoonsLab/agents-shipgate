@@ -535,7 +535,9 @@ the flag, the verdict, the adoption wording, and the human route are all
 unchanged, and a proven weakening still refuses.
 
 - **What it carries.** The exact `apply-patches` command that writes those
-  answers, plus `questions[]` — open declaration questions, each tagged
+  answers, naming the repository with `--workspace` (`apply-patches` writes
+  only the Shipgate manifest, and only under the workspace it is given or,
+  without one, the directory it runs in), plus `questions[]` — open declaration questions, each tagged
   `authorable_by: "coding_agent" | "human"` — and the two counts
   `agent_authorable` / `human_authorable`, which are the real totals. The list
   is a prefix capped at six rows, ordered human-owned first (a drafted row is
