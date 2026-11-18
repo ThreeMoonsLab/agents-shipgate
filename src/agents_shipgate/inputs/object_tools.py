@@ -781,6 +781,17 @@ class ObjectTools:
         credentials, credentials_unread = object_credentials(headers=headers, url=url, env=env)
         if credentials_unread:
             unread.append("its headers or environment are not read")
+        for value, note in (
+            (url, "its URL is not a value this read names"),
+            (command, "its command is not a value this read names"),
+            (args, "its arguments are not values this read names"),
+        ):
+            # The endpoint digest covers these. One the read cannot name, such
+            # as ``os.environ.get(...).split()``, digests the same expression
+            # whatever value it yields, so an equal digest is no reading of
+            # the server (#1146 review).
+            if not is_absent(value) and not object_named(value):
+                unread.append(note)
         return ObjectBinding(
             name=hint,
             identity={

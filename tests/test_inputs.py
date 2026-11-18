@@ -1,3 +1,5 @@
+import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -5,6 +7,7 @@ import yaml
 
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.semantic_assessment import extraction_is_complete
 from agents_shipgate.inputs.common import load_structured_file
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.openai_sdk_static import load_openai_sdk_static_tools
@@ -385,6 +388,176 @@ def _pointer_target(document, pointer):
     for token in pointer.removeprefix("/").split("/"):
         document = document[token.replace("~1", "/").replace("~0", "~")]
     return document
+
+
+@pytest.mark.parametrize(
+    ("ref", "reason"),
+    [
+        ("shared.yaml#/Record", "outside this document"),
+        ("#/components/missing", "names no value"),
+        ("#/components/scalar", "does not name an object"),
+        ("#/components/cycle", "form a cycle"),
+        ("#/components/wrong_shape", "expected carrier fields"),
+        ("#named-anchor", "not a supported JSON Pointer"),
+        (42, "must be a string"),
+    ],
+)
+def test_openapi_unread_schema_carrier_refs_name_their_source(tmp_path, ref, reason):
+    carrier = {"$ref": ref}
+    document = {
+        "openapi": "3.1.0",
+        "paths": {
+            "/records": {
+                "$ref": "#/components/pathItems/shared",
+                "post": {
+                    "operationId": "writeRecord",
+                    "requestBody": carrier,
+                    "parameters": [carrier],
+                    "responses": {201: carrier},
+                },
+            }
+        },
+        "components": {
+            "pathItems": {"shared": {"parameters": [carrier]}},
+            "scalar": "not an object",
+            "cycle": {"$ref": "#/components/cycle"},
+            "wrong_shape": {"type": "string"},
+        },
+    }
+
+    loaded = _load_openapi_text(tmp_path, json.dumps(document))
+    [tool] = loaded.tools
+    assert tool.name == "writeRecord"
+    assert not extraction_is_complete(tool)
+    assert tool.input_schema == tool.output_schema == {}
+    assert len(loaded.warnings) == 4
+    pointers = (
+        "/paths/~1records/post/requestBody/$ref",
+        "/components/pathItems/shared/parameters/0/$ref",
+        "/paths/~1records/post/parameters/0/$ref",
+        "/paths/~1records/post/responses/201/$ref",
+    )
+    for pointer in pointers:
+        assert any(
+            f"at {pointer}." in warning
+            and repr(ref) in warning
+            and reason in warning
+            and "operation 'writeRecord'" in warning
+            for warning in loaded.warnings
+        )
+
+
+def test_openapi_local_carrier_refs_match_inline_schemas(tmp_path):
+    request = {"content": {"application/json": {"schema": {"type": "object", "properties": {
+        "title": {"type": "string"},
+    }}}}}
+    parameter = {"in": "query", "name": "limit", "schema": {"type": "integer"}}
+    response = {"description": "ok", "content": {"application/json": {"schema": {"type": "string"}}}}
+    document = {
+        "openapi": "3.1.0",
+        "paths": {"/records": {
+            "parameters": [parameter],
+            "post": {"requestBody": request, "responses": {"200": response}},
+            "get": {"responses": {"204": {"description": "No content"}}},
+        }},
+        "components": {
+            "parameters": {"limit": parameter},
+            "requestBodies": {"record": request, "alias": {"$ref": "#/components/requestBodies/record"}},
+            "responses": {"record": response},
+        },
+    }
+    inline = _load_openapi_text(tmp_path, json.dumps(document))
+    path_item = document["paths"]["/records"]
+    path_item["parameters"] = [{"$ref": "#/components/parameters/limit"}]
+    path_item["post"]["requestBody"] = {"$ref": "#/components/requestBodies/alias"}
+    path_item["post"]["responses"]["200"] = {"$ref": "#/components/responses/record"}
+    referenced = _load_openapi_text(tmp_path, json.dumps(document))
+
+    assert referenced.warnings == inline.warnings == []
+    assert all(extraction_is_complete(tool) for tool in referenced.tools)
+    assert [
+        (tool.input_schema, tool.output_schema) for tool in referenced.tools
+    ] == [(tool.input_schema, tool.output_schema) for tool in inline.tools]
+
+
+def test_openapi_resolves_local_media_and_percent_encoded_array_pointers(tmp_path):
+    document = {
+        "openapi": "3.2.0",
+        "paths": {
+            "/records/{id}": {
+                "get": {
+                    "parameters": [{"name": "id", "in": "path", "schema": {"type": "integer"}}],
+                    "responses": {"200": {"summary": "OK"}},
+                },
+                "post": {
+                    "parameters": [{"$ref": "#/paths/~1records~1%7Bid%7D/get/parameters/0"}],
+                    "requestBody": {"content": {"application/json": {"$ref": "#/components/mediaTypes/Record"}}},
+                    "responses": {"200": {"$ref": "#/components/responses/Summary"}},
+                },
+            },
+        },
+        "components": {
+            "mediaTypes": {"Record": {"schema": {"type": "object", "properties": {"title": {"type": "string"}}}}},
+            "responses": {"Summary": {"summary": "OK"}},
+        },
+    }
+    loaded = _load_openapi_text(tmp_path, json.dumps(document))
+    assert loaded.warnings == []
+    tool = next(tool for tool in loaded.tools if tool.annotations["httpMethod"] == "POST")
+    assert tool.input_schema["properties"] == {"id": {"type": "integer"}, "title": {"type": "string"}}
+    assert extraction_is_complete(tool)
+
+
+def test_openapi_groups_unread_shared_media_by_source_pointer(tmp_path):
+    document = {
+        "openapi": "3.2.0",
+        "paths": {"/records": {
+            "parameters": [{
+                "name": "q", "in": "query",
+                "content": {"application/json": {"$ref": "shared.yaml#/Query"}},
+            }],
+            **{method: {"operationId": f"{method}Record"} for method in ("get", "post", "patch", "put")},
+        }},
+    }
+    loaded = _load_openapi_text(tmp_path, json.dumps(document))
+    assert len(loaded.tools) == 4
+    assert all(not extraction_is_complete(tool) for tool in loaded.tools)
+    [warning] = loaded.warnings
+    assert "/paths/~1records/parameters/0/content/application~1json/$ref" in warning
+    assert "shared.yaml#/Query" in warning
+    assert "and 3 other operations" in warning
+
+
+def test_scan_reports_incomplete_openapi_request_carrier(tmp_path):
+    from agents_shipgate.cli.scan import run_scan
+
+    fixture = tmp_path / "fixture"
+    shutil.copytree(BASE, fixture)
+    spec = fixture / "specs" / "support-tools.openapi.yaml"
+    document = yaml.safe_load(spec.read_text(encoding="utf-8"))
+    operation = next(
+        item["post"] for item in document["paths"].values()
+        if item.get("post", {}).get("operationId") == "stripe.create_refund"
+    )
+    operation["requestBody"] = {"$ref": "./shared.yaml#/CreateRefund"}
+    spec.write_text(yaml.safe_dump(document), encoding="utf-8")
+
+    report, _ = run_scan(
+        config_path=fixture / "shipgate.yaml",
+        output_dir=tmp_path / "reports",
+        formats=["json"],
+        ci_mode="advisory",
+        packet_enabled=False,
+    )
+    coverage = report.release_decision.evidence_coverage
+    assert any(
+        gap.kind == "low_confidence_tool" and "stripe.create_refund" in gap.subject
+        for gap in coverage.evidence_gaps
+    )
+    assert any(
+        "requestBody/$ref" in warning and "stripe.create_refund" in warning
+        for warning in report.source_warnings
+    )
 
 
 _PATH_ITEM_REF_SPEC = """
