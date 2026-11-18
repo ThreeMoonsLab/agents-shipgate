@@ -19,6 +19,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from rich.text import Text
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
@@ -156,8 +157,9 @@ def test_host_diff_reports_an_invalid_explicit_head_as_a_parameter_error(
     result = _diff(repo, "--head", invalid_ref, "--json")
 
     assert result.exit_code == 2, result.output
-    assert "--head" in result.stderr
-    assert "delimiters" in result.stderr
+    diagnostic = Text.from_ansi(result.stderr).plain
+    assert "--head" in diagnostic
+    assert "delimiters" in diagnostic
 
 
 def test_host_diff_keeps_the_selected_base_tip_if_the_ref_moves(repo: Path, monkeypatch) -> None:
