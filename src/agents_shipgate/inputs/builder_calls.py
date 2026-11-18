@@ -34,6 +34,7 @@ from agents_shipgate.inputs.python_imports import (
     SELF_PATCH,
     ImportResolver,
     PythonModule,
+    Rebinding,
     RepositoryLayout,
     Resolution,
     ScopeIndex,
@@ -414,10 +415,76 @@ class Invocation:
         return self.parent.argument(parameter) if self.parent else None
 
 
+def _calls_namespace_builtin(module: PythonModule, scopes: ScopeIndex, call: ast.Call, *names: str) -> bool:
+    name = call.func
+    if not isinstance(name, ast.Name) or name.id not in names:
+        return False
+    bindings = scopes.enclosing_bindings(evaluation_site(scopes, name), name.id)
+    if not bindings:
+        declarations = module.bindings.get(name.id, [])
+        if len(declarations) != 1:
+            return True  # An absent or ambiguous module binding can still load the builtin.
+        declaration = declarations[0]
+        statement = declaration.statement
+        if (
+            not declaration.top_level or statement.lineno >= name.lineno
+            or isinstance(statement, ast.Delete)
+            or isinstance(statement, ast.AnnAssign) and statement.value is None
+        ):
+            return True
+        bindings = [declaration.node]
+    if len(bindings) != 1 or not isinstance(alias := bindings[0], ast.alias):
+        return False
+    source = scopes.statement_of(alias)
+    return (
+        isinstance(source, ast.ImportFrom) and source.level == 0
+        and source.module == "builtins" and alias.name == name.id
+    )
+
+
+def _writes_namespace(module: PythonModule, scopes: ScopeIndex, node: ast.AST) -> bool:
+    """Whether this use of a module reference writes into the module's namespace (#1146 review).
+
+    ``setattr(m, ...)`` or ``delattr(m, ...)``; ``vars(m)`` or ``m.__dict__``
+    stored into, deleted from or changed through a dictionary method
+    (``.update``, ``.setdefault``, ...); or handed to ``exec``/``eval`` as its
+    namespace. Reading the module, or passing it on as a value, is not one.
+    """
+
+    parent = scopes.parents.get(node)
+    if (isinstance(parent, ast.Call) and parent.args and parent.args[0] is node
+            and _calls_namespace_builtin(module, scopes, parent, "setattr", "delattr")):
+        return True
+    if isinstance(parent, ast.Attribute) and parent.attr == "__dict__" and parent.value is node:
+        namespace: ast.AST = parent
+    elif (isinstance(parent, ast.Call) and parent.args and parent.args[0] is node
+            and _calls_namespace_builtin(module, scopes, parent, "vars")):
+        namespace = parent
+    else:
+        return False
+    outer = scopes.parents.get(namespace)
+    if isinstance(outer, ast.Subscript) and outer.value is namespace:
+        return isinstance(outer.ctx, ast.Store | ast.Del)
+    if isinstance(outer, ast.Attribute) and outer.value is namespace:
+        call = scopes.parents.get(outer)
+        return (
+            outer.attr in {"update", "setdefault", "pop", "popitem", "clear", "__setitem__", "__delitem__"}
+            and isinstance(call, ast.Call) and call.func is outer
+        )
+    if isinstance(outer, ast.Call) and _calls_namespace_builtin(module, scopes, outer, "exec", "eval"):
+        return namespace in outer.args[1:] or any(
+            keyword.arg in {"globals", "locals"} and keyword.value is namespace for keyword in outer.keywords
+        )
+    return False
+
+
 @dataclass(frozen=True)
 class CallerCensus:
     sites: tuple[CallSite, ...] = ()
     limits: tuple[str, ...] = ()
+    #: Names another module writes in the builder module, or ``None`` when a
+    #: namespace mutation (such as ``vars(m).update(...)``) can rebind any name.
+    namespace_writes: frozenset[str] | None = frozenset()
 
 
 @dataclass(frozen=True)
@@ -627,6 +694,7 @@ class BuilderCalls:
         modules: dict[Path, PythonModule] = {module.path: module}
         pending = [(module, self.function_at(module, call), 0)]
         seen: set[int] = set()
+        writes: frozenset[str] | None = frozenset()
         try:
             while pending:
                 home, function, depth = pending.pop()
@@ -636,6 +704,8 @@ class BuilderCalls:
                     raise CallLimit("the constructor caller chain exceeds its depth bound")
                 seen.add(id(function))
                 census = self.callers(home, function, allow_empty=True)
+                if home.path == module.path and writes is not None:
+                    writes = None if census.namespace_writes is None else writes | census.namespace_writes
                 if census.limits:
                     raise CallLimit("; ".join(census.limits))
                 for site in census.sites:
@@ -646,6 +716,8 @@ class BuilderCalls:
             )
         except CallLimit as exc:
             issue = f"the constructor caller census is not established: {exc}"
+            if writes is None or writes:
+                issue = Rebinding(issue, module=module.ref, names=writes)
         self._constructors[key] = issue
         return issue
 
@@ -3684,6 +3756,8 @@ class BuilderCalls:
             raise CallLimit(f"{where} passes through more than {MAX_ALIAS_ROUNDS} alias rounds")
         sites: list[CallSite] = []
         limits: list[str] = []
+        written = False
+        written_names: set[str] = set()
         for path in self._candidates(names | modules, module.path):
             caller = self._module(path)
             scopes = self.scopes(caller)
@@ -3756,10 +3830,21 @@ class BuilderCalls:
                         for name in names
                     ):
                         parent = scopes.parents.get(node)
-                        if not (isinstance(parent, ast.Attribute) and parent.attr in names) and node not in namespaces.values:
+                        if (
+                            isinstance(parent, ast.Attribute)
+                            and parent.value is node
+                            and isinstance(parent.ctx, ast.Store | ast.Del)
+                            and self.resolver._constructor_reference(caller, node, scopes).get("retained_namespace") == module.path
+                        ):
+                            limits.append(
+                                f"{where}'s module attribute {parent.attr!r} is written at {caller.ref}:{node.lineno}"
+                            )
+                            written_names.add(parent.attr)
+                        elif not (isinstance(parent, ast.Attribute) and parent.attr in names) and node not in namespaces.values:
                             limits.append(
                                 f"{where}'s module is used through computed access or as a value at {caller.ref}:{node.lineno}"
                             )
+                            written = written or _writes_namespace(caller, scopes, node)
                     resolved_node = self.resolve(caller, node) if imported else None
                     if imported and resolved_node is not None and not resolved_node.resolved:
                         parent = scopes.parents.get(node)
@@ -3778,6 +3863,7 @@ class BuilderCalls:
                                         limits.append(
                                             f"{where}'s retained namespace is used through computed access or as a value at {caller.ref}:{node.lineno}"
                                         )
+                                        written = written or _writes_namespace(caller, scopes, node)
                 if (
                     isinstance(node, ast.Constant)
                     and isinstance(node.value, str)
@@ -3819,6 +3905,7 @@ class BuilderCalls:
                 )
             ),
             tuple(dict.fromkeys(limits)),
+            namespace_writes=None if written else frozenset(written_names),
         )
 
     def _expanding_imports(
@@ -4483,7 +4570,7 @@ class BuilderCalls:
         except _Stop as stop:
             raise CallLimit(f"import-search source evidence is unread: {stop.detail}") from None
         if limits:
-            raise CallLimit(limits[0])
+            raise CallLimit(str(limits[0]))
         self._namespace_directory_currency()
         return NamespaceSourceContext(tuple(modules), tuple(boundaries))
 
