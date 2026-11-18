@@ -15,6 +15,7 @@ from ruamel.yaml.error import YAMLError
 
 from agents_shipgate.core.domain import ToolParameter
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.paths import display_path
 from agents_shipgate.core.static_inputs import (
     active_static_input_snapshot,
     read_static_input_text,
@@ -174,25 +175,15 @@ def manifest_relative_path(value: str, base_dir: Path) -> str:
     raw_path = Path(value)
     if not raw_path.is_absolute():
         return raw_path.as_posix()
-    try:
-        return raw_path.resolve().relative_to(base_dir.resolve()).as_posix()
-    except ValueError:
-        # Outside the manifest dir — resolve_input_path would have already
-        # rejected this, but fall back to a normalized POSIX form rather
-        # than emitting a Windows-style or unnormalized path.
-        return raw_path.as_posix()
+    # A path outside the manifest dir (resolve_input_path would already have
+    # rejected it) comes back as given in POSIX form, never Windows-style.
+    return display_path(raw_path, base_dir)
 
 
 def load_structured_file(path: Path) -> Any:
-    if not path.exists():
-        raise InputParseError(f"Input file not found: {path}")
+    text = load_text_file(path).removeprefix("\ufeff")
     try:
-        text = read_static_input_text(path, max_bytes=MAX_INPUT_FILE_BYTES)
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise InputParseError(f"Unable to read input file {path}: {exc}") from exc
-    try:
-        stripped = text.lstrip()
-        if path.suffix.lower() == ".json" or stripped.startswith(("{", "[")):
+        if path.suffix.lower() == ".json":
             return json.loads(text)
         return yaml.safe_load(text)
     except (json.JSONDecodeError, yaml.YAMLError) as exc:
@@ -350,13 +341,7 @@ def load_structured_file_with_positions(path: Path) -> tuple[Any, PositionIndex]
     callers can still build pointers (e.g. ``/tools/3``) without a line
     number, which is strictly better than today's nothing.
     """
-    if not path.exists():
-        raise InputParseError(f"Input file not found: {path}")
-    try:
-        text = read_static_input_text(path, max_bytes=MAX_INPUT_FILE_BYTES)
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise InputParseError(f"Unable to read input file {path}: {exc}") from exc
-    return load_structured_text_with_positions(text, source=path)
+    return load_structured_text_with_positions(load_text_file(path), source=path)
 
 
 def load_structured_text_with_positions(
@@ -371,9 +356,8 @@ def load_structured_text_with_positions(
         raise InputParseError(
             f"Input file too large: {path}; maximum is {MAX_INPUT_FILE_BYTES} bytes"
         )
-    stripped = text.lstrip()
-    is_json = path.suffix.lower() == ".json" or stripped.startswith(("{", "["))
-    if is_json:
+    text = text.removeprefix("\ufeff")
+    if path.suffix.lower() == ".json":
         try:
             return json.loads(text), _EMPTY_INDEX
         except json.JSONDecodeError as exc:

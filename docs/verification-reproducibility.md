@@ -79,7 +79,13 @@ it through behavior options. Legacy plans with ambiguous external inputs require
 a fresh verification, rather than a guessed origin.
 
 `verification prepare` exports the same captured auxiliary bytes and retains
-their roles and origins. Worker replay still validates the immutable request;
+their roles and origins. When both `--base` and an in-repository
+`--diff-from` are supplied, it exports the regular file from the exact base
+commit. Both plan emitters record the path and SHA in
+`inputs.options.diff_from_base`. Live input validation checks that the
+recorded path at that commit matches the portable copy. If the base copy is
+unavailable, prepare can import a report from outside the repository or run
+without an explicit `--diff-from`. Worker replay still validates the immutable request;
 it does not establish that the result grants authority in a changed checkout.
 The assembled pointer undergoes the same live read as a normal verifier result.
 

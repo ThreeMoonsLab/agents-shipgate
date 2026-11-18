@@ -20,6 +20,8 @@ from agents_shipgate.core.control_packs import (
     manifest_control_pack_block,
 )
 from agents_shipgate.core.errors import DiscoveryError
+from agents_shipgate.core.git_env import hardened_git_env
+from agents_shipgate.core.paths import display_path as _display_path
 
 OPENAPI_PATTERNS = (
     "*openapi*.yaml",
@@ -261,7 +263,7 @@ def discover_tool_sources(workspace: Path) -> list[dict[str, str]]:
         for path in _candidate_files_matching(workspace, (pattern,)):
             if path in seen or path in rejected:
                 continue
-            rel = _relative(path, workspace)
+            rel = _display_path(path, workspace, resolve=False)
             if probe_suggested_source(workspace, rel, "openapi") is not None:
                 rejected.add(path)
                 continue
@@ -273,7 +275,7 @@ def discover_tool_sources(workspace: Path) -> list[dict[str, str]]:
                 continue
             if path in seen:
                 continue
-            rel = _relative(path, workspace)
+            rel = _display_path(path, workspace, resolve=False)
             if probe_suggested_source(workspace, rel, "mcp") is not None:
                 continue
             seen.add(path)
@@ -282,7 +284,7 @@ def discover_tool_sources(workspace: Path) -> list[dict[str, str]]:
         for path in _candidate_files_matching(workspace, (pattern,)):
             if path in seen:
                 continue
-            rel = _relative(path, workspace)
+            rel = _display_path(path, workspace, resolve=False)
             if probe_suggested_source(workspace, rel, "conductor") is not None:
                 continue
             seen.add(path)
@@ -479,7 +481,7 @@ def _discover_n8n_workflows(workspace: Path) -> list[str]:
             continue
         seen.add(path)
         if _looks_like_n8n_workflow(path):
-            found.append(_relative(path, workspace))
+            found.append(_display_path(path, workspace, resolve=False))
     return sorted(found)
 
 
@@ -525,7 +527,7 @@ def _discover_patterns(
         if path in seen:
             continue
         seen.add(path)
-        found.append(_relative(path, workspace))
+        found.append(_display_path(path, workspace, resolve=False))
     return sorted(found)
 
 
@@ -570,23 +572,7 @@ def _candidate_files(workspace: Path) -> list[Path]:
 
 
 def _git_candidate_files(workspace: Path) -> list[Path] | None:
-    env = {
-        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
-    }
-    env.update(
-        {
-            "GIT_ATTR_NOSYSTEM": "1",
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_CONFIG_SYSTEM": os.devnull,
-            "GIT_NO_LAZY_FETCH": "1",
-            "GIT_NO_REPLACE_OBJECTS": "1",
-            "GIT_OPTIONAL_LOCKS": "0",
-            "GIT_PAGER": "cat",
-            "GIT_PROTOCOL_FROM_USER": "0",
-            "GIT_TERMINAL_PROMPT": "0",
-        }
-    )
+    env = hardened_git_env()
     try:
         root_result = subprocess.run(
             [
@@ -729,7 +715,7 @@ def _walk_candidate_files(workspace: Path) -> list[Path]:
 
 
 def _matches_pattern(path: Path, workspace: Path, pattern: str) -> bool:
-    rel = _relative(path, workspace)
+    rel = _display_path(path, workspace, resolve=False)
     if fnmatch.fnmatch(rel, pattern):
         return True
     if "/" not in pattern:
@@ -737,8 +723,3 @@ def _matches_pattern(path: Path, workspace: Path, pattern: str) -> bool:
     return fnmatch.fnmatch(rel, f"*/{pattern}")
 
 
-def _relative(path: Path, base: Path) -> str:
-    try:
-        return path.relative_to(base).as_posix()
-    except ValueError:
-        return path.as_posix()

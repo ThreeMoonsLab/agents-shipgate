@@ -146,8 +146,9 @@ def test_the_reader_and_check_agree_on_what_is_a_workflow(path, workflow):
         (f"{WORKFLOWS}/CI.YML", READ),
         (f"{WORKFLOWS}/Release.Yaml", READ),
         (".codex/CONFIG.TOML", CODEX_WIDE),
+        (".codex/CONFIG.TOML", "\ufeff" + CODEX_WIDE),
     ],
-    ids=["CI.YML", "Release.Yaml", "CONFIG.TOML"],
+    ids=["CI.YML", "Release.Yaml", "CONFIG.TOML", "CONFIG.TOML-with-BOM"],
 )
 def test_the_parser_follows_the_case_folded_suffix(tmp_path, relative, text):
     """A name the registry matches case-insensitively is parsed as its lower-case spelling is.
