@@ -54,7 +54,7 @@ LATENCY_BUDGET_SECONDS = 10.0
 # pipeline.
 MIN_CATALOG_TOOLS = 50
 MAX_CATALOG_TOOLS = 100
-EXPECTED_POSSIBLE_TOOLS = {
+EXPECTED_REACHABLE_TOOLS = {
     "render_customer_email_preview", "calculate_refund_total", "generate_shipping_label_pdf",
     "schedule_internal_callback", "escalate_to_human",
 }
@@ -169,22 +169,22 @@ def test_all_six_tool_sources_load(scanned_sample: ReadinessReport) -> None:
 
 
 def test_tool_inventory_is_in_expected_band(scanned_sample: ReadinessReport) -> None:
-    assert scanned_sample.tool_inventory == []
+    # The refund-total generator is consumed directly by builtin sum(), so
+    # the SDK reader can establish the five tools bound to the ops assistant.
     n = len(scanned_sample.tool_catalog)
     assert MIN_CATALOG_TOOLS <= n <= MAX_CATALOG_TOOLS
+    tools = scanned_sample.tool_inventory
+    assert {tool["name"] for tool in tools} == EXPECTED_REACHABLE_TOOLS
+    assert all(tool["binding_assessment"]["status"] == "structural" for tool in tools)
     facts = scanned_sample.binding_surface_facts
-    assert facts.reachable_tool_ids == []
-    possible = [tool for tool in scanned_sample.tool_catalog if tool["tool_id"] in facts.possible_tool_ids]
-    assert {tool["name"] for tool in possible} == EXPECTED_POSSIBLE_TOOLS
-    assert len(possible) == 5 and all(tool["binding_assessment"]["status"] == "unknown" for tool in possible)
-    assert {edge.tool_id for edge in facts.tool_edges} == set(facts.possible_tool_ids)
-    assert all(not edge.complete and edge.source_pointer == "agents/ops_assistant.py:91"
-               for edge in facts.tool_edges)
-    assert scanned_sample.source_warnings == [
-        "OpenAI Agents SDK agent 'ops_assistant' at agents/ops_assistant.py:91: its constructor identity "
-        "is not established: an anonymous callable or generator retains the constructor namespace "
-        "in agents/ops_assistant.py:40."
-    ]
+    assert facts.possible_tool_ids == []
+    assert set(facts.reachable_tool_ids) == {tool["tool_id"] for tool in tools}
+    assert {edge.tool_id for edge in facts.tool_edges} == set(facts.reachable_tool_ids)
+    assert all(
+        edge.complete and edge.source_pointer == "agents/ops_assistant.py:91"
+        for edge in facts.tool_edges
+    )
+    assert scanned_sample.source_warnings == []
 
 
 def test_findings_count_is_in_expected_band(scanned_sample: ReadinessReport) -> None:
@@ -196,11 +196,11 @@ def test_findings_count_is_in_expected_band(scanned_sample: ReadinessReport) -> 
     )
 
 
-def test_release_decision_requires_constructor_evidence(scanned_sample: ReadinessReport) -> None:
-    """The generator retains globals; reviewed interfaces cannot prove wiring."""
+def test_release_decision_requires_review_for_bound_tools(scanned_sample: ReadinessReport) -> None:
+    """Established bindings let the review assess the five reachable tools."""
     decision = scanned_sample.release_decision
     assert decision is not None
-    assert decision.decision == "insufficient_evidence"
+    assert decision.decision == "review_required"
     assert not decision.blockers
     assert len(decision.review_items) >= MIN_REVIEW_ITEMS
 
@@ -283,7 +283,7 @@ def test_reviewer_summary_block_is_populated(
     appear on every emitted scan."""
     summary = scanned_sample.reviewer_summary
     assert summary is not None
-    assert summary.verdict == "insufficient_evidence"
+    assert summary.verdict == "review_required"
     assert summary.headline  # non-empty
 
 
