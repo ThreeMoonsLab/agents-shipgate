@@ -19,7 +19,7 @@ Without further human approval, an agent driving Agents Shipgate may:
 - **Summarize the report** for the user — `release_decision.decision`, `release_decision.reason`, blocker / review-item counts, top active findings by severity. See [`report-reading-for-agents.md`](report-reading-for-agents.md).
 - **Add `agents-shipgate-reports/` to `.gitignore`** if it is not already listed. The directory is a local artifact and should not be committed.
 
-These are all reversible (the manifest patches are containment-checked to `manifest_dir`, the gitignore line is one append, the CI workflow is a new file). The user can roll any of them back in seconds.
+These are all reversible (the manifest patches are containment-checked to `manifest_dir` and to the repository `apply-patches` runs in, the gitignore line is one append, the CI workflow is a new file). The user can roll any of them back in seconds.
 
 ---
 

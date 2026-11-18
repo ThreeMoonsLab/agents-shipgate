@@ -43,10 +43,10 @@ from agents_shipgate.inputs.n8n._auth_risk import _record_credentials
 from agents_shipgate.inputs.n8n._common import (
     N8N_NODE_TYPE_RE,
     _append_unique,
-    _display_path,
     _Edge,
     _http_method,
     _is_human_review_node,
+    _manifest_relative,
     _node_kind,
     _node_sort_key,
     _NodeItem,
@@ -88,7 +88,7 @@ def _load_workflow_ref(
     loaded_sources: list[LoadedToolSource] = []
     explicit_file = path.is_file()
     for workflow_path in workflow_paths:
-        display_path = _display_path(workflow_path, base_dir)
+        display_path = _manifest_relative(workflow_path, base_dir)
         data = load_structured_file(workflow_path)
         workflows = _workflow_objects(data)
         if not workflows:
@@ -145,7 +145,7 @@ def _workflow_paths(path: Path, base_dir: Path) -> list[Path]:
             for candidate in walk_input_tree(path)
             if candidate.suffix == ".json" and candidate.is_file()
         ),
-        key=lambda item: _display_path(item, base_dir),
+        key=lambda item: _manifest_relative(item, base_dir),
     )
 
 
@@ -217,7 +217,7 @@ def _workflow_error_workflow(workflow: dict[str, Any]) -> str | None:
         return None
     value = _top_level_string(
         settings,
-        {"errorWorkflow", "errorWorkflowId", "errorWorkflowName"},
+        ("errorWorkflow", "errorWorkflowId", "errorWorkflowName"),
     )
     return _redact_text(value) if value else None
 
@@ -434,9 +434,9 @@ def _execution_control(item: _NodeItem) -> dict[str, Any]:
 def _ingress_record(item: _NodeItem, source_path: str, workflow_id: str) -> dict[str, Any]:
     auth_value = _top_level_string(
         item.parameters,
-        {"authentication", "authType", "authorization"},
+        ("authentication", "authType", "authorization"),
     )
-    public_path = _top_level_string(item.parameters, {"path", "webhookPath"})
+    public_path = _top_level_string(item.parameters, ("path", "webhookPath"))
     http_method = _http_method(item)
     return {
         **_node_record(item, source_path, workflow_id),

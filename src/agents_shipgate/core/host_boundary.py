@@ -36,8 +36,8 @@ from agents_shipgate.core.boundary_diff import (
     parse_unified_diff,
 )
 from agents_shipgate.core.boundary_registry import (
-    boundary_adapters_for_path,
     is_agent_boundary_path,
+    is_github_workflow_path,
 )
 from agents_shipgate.core.claude_permission_rules import (
     carve_out_predecessors,
@@ -54,7 +54,6 @@ from agents_shipgate.core.codex_boundary import (
     _RISK_RANK,
     DEFAULT_POLICY_VERSION,
     _dedupe_violations,
-    _display_path,
 )
 from agents_shipgate.core.host_settings import (
     CLAUDE_SCALAR_SETTINGS,
@@ -64,6 +63,7 @@ from agents_shipgate.core.host_settings import (
     setting_value_text,
 )
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
+from agents_shipgate.core.paths import display_path
 from agents_shipgate.core.permission_lattice import (
     PATH_TOOLS,
     exec_equivalent_argument,
@@ -72,6 +72,7 @@ from agents_shipgate.core.permission_lattice import (
     subsumes,
     whole_tool_risk,
 )
+from agents_shipgate.core.structured_depth import NestingLimitExceeded, bounded_parse
 from agents_shipgate.core.trust_roots import read_absolute_identity_bound_text
 from agents_shipgate.core.wheel_layout import packaged_path
 from agents_shipgate.schemas.agent_result_v1 import (
@@ -344,13 +345,14 @@ def load_host_boundary_policy(
     data: dict[str, Any] | None = None
     if candidate.is_file():
         try:
-            loaded = yaml.safe_load(
+            loaded = bounded_parse(
+                yaml.safe_load,
                 policy_text
                 if policy_text is not None
                 else read_absolute_identity_bound_text(
                     candidate,
                     max_bytes=1024 * 1024,
-                )
+                ),
             ) or {}
             if isinstance(loaded, dict):
                 data = loaded
@@ -363,7 +365,7 @@ def load_host_boundary_policy(
                         "Could not load host boundary policy "
                         f"({type(exc).__name__})."
                     ),
-                    path=_display_path(candidate, workspace),
+                    path=display_path(candidate, workspace),
                 )
             )
     elif policy_path == DEFAULT_POLICY_PATH:
@@ -403,7 +405,7 @@ def load_host_boundary_policy(
                         f"Host boundary policy rule {rule_id!r} cannot lower "
                         f"action below {base.action}."
                     ),
-                    path=_display_path(candidate, workspace),
+                    path=display_path(candidate, workspace),
                 )
             )
             action = base.action
@@ -420,7 +422,7 @@ def load_host_boundary_policy(
                         f"Host boundary policy rule {rule_id!r} cannot lower "
                         f"risk below {base.risk_level}."
                     ),
-                    path=_display_path(candidate, workspace),
+                    path=display_path(candidate, workspace),
                 )
             )
             risk = base.risk_level
@@ -444,10 +446,19 @@ def load_host_boundary_policy(
 
 def _evaluate_mcp_file(diff_file, resolved, add) -> None:
     path = diff_file.path
-    pair = _parse_json_pair(resolved, path, add)
+    pair = _parse_json_pair(diff_file, resolved, add)
     if pair is None:
         return
     old_data, new_data = pair
+    for kind, data in (("json_parse_failed", new_data), ("old_json_parse_failed", old_data)):
+        member = _invalid_mcp_server_map(data)
+        if member is not None:
+            add(
+                "HOST-CONFIG-PARSE-FAILED",
+                path=path,
+                evidence={"kind": kind, "parser": "NotAnObject", "member": member},
+            )
+            return
     old_servers = _server_map(old_data)
     new_servers = _server_map(new_data)
     for server_name in sorted(new_servers, key=str):
@@ -481,6 +492,15 @@ def _evaluate_mcp_file(diff_file, resolved, add) -> None:
                     "changed_keys": changed_keys,
                 },
             )
+
+
+def _invalid_mcp_server_map(data: dict[str, Any]) -> str | None:
+    """Name a server map the host cannot read as an object (#1154)."""
+
+    return next(
+        (key for key in ("mcpServers", "servers") if key in data and not isinstance(data[key], dict)),
+        None,
+    )
 
 
 def _server_map(data: Any) -> dict[str, Any]:
@@ -524,7 +544,7 @@ def _command_or_url(server: Any) -> str | None:
 
 def _evaluate_claude_settings(diff_file, resolved, add) -> None:
     path = diff_file.path
-    pair = _parse_json_pair(resolved, path, add)
+    pair = _parse_json_pair(diff_file, resolved, add)
     if pair is None:
         return
     old_data, new_data = pair
@@ -621,7 +641,7 @@ def _evaluate_cursor_settings(diff_file, resolved, add) -> None:
     """Evaluate Cursor CLI grants using the shared permission lattice."""
 
     path = diff_file.path
-    pair = _parse_json_pair(resolved, path, add)
+    pair = _parse_json_pair(diff_file, resolved, add)
     if pair is None:
         return
     old_data, new_data = pair
@@ -908,9 +928,9 @@ def settings_change_only_narrows(resolved: ResolvedFileText, *, cursor: bool) ->
     if resolved.new_text is None or resolved.source == "diff_deleted_file":
         return False
     try:
-        new_data = json.loads(resolved.new_text)
-        old_data = json.loads(resolved.old_text) if resolved.old_text else {}
-    except json.JSONDecodeError:
+        new_data = bounded_parse(json.loads, resolved.new_text)
+        old_data = bounded_parse(json.loads, resolved.old_text) if resolved.old_text else {}
+    except ValueError:
         return False
     if not isinstance(old_data, dict) or not isinstance(new_data, dict):
         return False
@@ -1091,8 +1111,8 @@ def _evaluate_workflow(diff_file, resolved, add) -> None:
         new_loaded = {}
     else:
         try:
-            new_loaded = yaml.safe_load(resolved.new_text)
-        except yaml.YAMLError as exc:
+            new_loaded = bounded_parse(yaml.safe_load, resolved.new_text)
+        except (ValueError, yaml.YAMLError) as exc:
             add(
                 "HOST-CONFIG-PARSE-FAILED",
                 path=path,
@@ -1106,20 +1126,28 @@ def _evaluate_workflow(diff_file, resolved, add) -> None:
             evidence={"kind": "workflow_not_a_mapping"},
         )
         return
-    if not resolved.old_text:
+    old_text = resolved.old_text or ""
+    if not old_text and (diff_file.is_new or diff_file.is_rename):
         old_loaded: Any = {}
     else:
         try:
-            old_loaded = yaml.safe_load(resolved.old_text)
-        except yaml.YAMLError as exc:
+            old_loaded = bounded_parse(yaml.safe_load, old_text)
+        except (ValueError, yaml.YAMLError) as exc:
             add(
                 "HOST-CONFIG-PARSE-FAILED",
                 path=path,
                 evidence=_parser_error("old_workflow_yaml_parse_failed", exc),
             )
             return
+    if not isinstance(old_loaded, dict):
+        add(
+            "HOST-CONFIG-PARSE-FAILED",
+            path=path,
+            evidence={"kind": "old_workflow_yaml_parse_failed", "parser": "NotAMapping"},
+        )
+        return
     new_map = _normalize_workflow_keys(new_loaded)
-    old_map = _normalize_workflow_keys(old_loaded if isinstance(old_loaded, dict) else {})
+    old_map = _normalize_workflow_keys(old_loaded)
     new_triggers = _trigger_names(new_map.get("on"))
     old_triggers = _trigger_names(old_map.get("on"))
     if "pull_request_target" in new_triggers and "pull_request_target" not in old_triggers:
@@ -1270,15 +1298,21 @@ def _scope_value(old_perms: Any, scope: Any) -> str | None:
 # --- Shared helpers ------------------------------------------------------------
 
 
-def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
+def _parse_json_pair(
+    diff_file: DiffFile, resolved: ResolvedFileText, add,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
     """Parse old/new JSON for a changed host config file.
 
     Returns ``(old_data, new_data)``; emits ``HOST-CONFIG-PARSE-FAILED``
     and returns ``None`` when either side cannot be parsed or the new
-    content cannot be resolved.
+    content cannot be resolved. Every host reads these files as one JSON
+    object, so a side whose top level is anything else did not parse as one
+    (#1154): the evaluators below read it as an object, and an array made
+    `check` fail with a traceback.
     """
 
     # VS Code reads `mcp.json` as JSON with comments (#659).
+    path = diff_file.path
     loads = loads_jsonc if is_vscode_mcp_path(path) else json.loads
     if resolved.new_text is None:
         add(
@@ -1294,20 +1328,21 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
         new_data = {}
     else:
         try:
-            new_data = loads(resolved.new_text)
-        except json.JSONDecodeError as exc:
+            new_data = _load_object(loads, resolved.new_text)
+        except ValueError as exc:
             add(
                 "HOST-CONFIG-PARSE-FAILED",
                 path=path,
                 evidence=_parser_error("json_parse_failed", exc),
             )
             return None
-    if not resolved.old_text:
-        old_data: Any = {}
+    old_text = resolved.old_text or ""
+    if not old_text and (diff_file.is_new or diff_file.is_rename):
+        old_data = {}
     else:
         try:
-            old_data = loads(resolved.old_text)
-        except json.JSONDecodeError as exc:
+            old_data = _load_object(loads, old_text)
+        except ValueError as exc:
             add(
                 "HOST-CONFIG-PARSE-FAILED",
                 path=path,
@@ -1317,8 +1352,22 @@ def _parse_json_pair(resolved, path: str, add) -> tuple[Any, Any] | None:
     return old_data, new_data
 
 
+class NotAnObject(ValueError):
+    """A JSON host configuration whose top level is not an object (#1154)."""
+
+
+def _load_object(loads, text: str) -> dict[str, Any]:
+    value = bounded_parse(loads, text)
+    if not isinstance(value, dict):
+        raise NotAnObject(f"top level is {type(value).__name__}, not an object")
+    return value
+
+
 def _parser_error(kind: str, exc: Exception) -> dict[str, Any]:
     evidence: dict[str, Any] = {"kind": kind, "parser": type(exc).__name__}
+    if isinstance(exc, NestingLimitExceeded):
+        # The bound it passed, so the row says why the file was not read (#1154).
+        evidence["max_depth"] = exc.limit
     line = getattr(exc, "lineno", None)
     column = getattr(exc, "colno", None)
     mark = getattr(exc, "problem_mark", None)
@@ -1382,17 +1431,16 @@ def is_host_boundary_path(path: str) -> bool:
     return is_agent_boundary_path(path)
 
 
-def _has_boundary_adapter(path: str, adapter_id: str) -> bool:
-    return any(item.id == adapter_id for item in boundary_adapters_for_path(path))
-
-
 def _is_workflow_path(path: str) -> bool:
-    if not (path.endswith(".yml") or path.endswith(".yaml")):
-        return False
-    if not _has_boundary_adapter(path, "shared"):
-        # Nested copies (samples/x/.github/workflows/…) never execute;
-        # see the root-anchoring note above.
-        return False
-    remainder = path[len(".github/workflows/") :]
-    # GitHub only runs workflows directly inside .github/workflows/.
-    return bool(remainder) and "/" not in remainder
+    """Whether `check` evaluates ``path`` as a workflow GitHub runs (#1143).
+
+    The reader's one predicate, so `check` evaluates exactly the documents
+    the host comparison reads as workflows: a `.yml` or `.yaml` directly in
+    the root `.github/workflows/`, case-folded. A nested copy never runs (see
+    the root-anchoring note above). Matching the `shared` adapter is not
+    enough: it also enumerates `policies/*.shipgate.yaml`, and testing what
+    followed the first 18 characters for a `/` read every policy pack as a
+    workflow, so a pack with a `permissions` key was blocked as one.
+    """
+
+    return is_github_workflow_path(path)

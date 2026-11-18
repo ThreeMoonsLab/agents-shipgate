@@ -70,6 +70,7 @@ from agents_shipgate.core.hook_script_reference import (
     hook_script_reference,
 )
 from agents_shipgate.core.host_boundary import (
+    _invalid_mcp_server_map,
     _is_wildcard_allow,
     _is_write,
     _normalize_workflow_keys,
@@ -136,6 +137,7 @@ from agents_shipgate.core.privacy import (
     SENSITIVE_VALUE_KEYS,
     redact_text,
 )
+from agents_shipgate.core.structured_depth import NestingLimitExceeded, bounded_parse
 from agents_shipgate.core.trust_roots import (
     IdentityBoundReadSession,
     IdentityReadBudget,
@@ -221,6 +223,12 @@ _USER_ARG_SECRET_RE = re.compile(
 _URL_RE = re.compile(r"(?:https?|wss?)://[^\s'\"<>]+")
 
 
+def _toml_loads_without_bom(text: str) -> Any:
+    """Parse TOML as the hosts read it: a leading byte-order mark is ignored (#1184)."""
+
+    return tomllib.loads(text.removeprefix("\ufeff"))
+
+
 @dataclass
 class HostStaticParseCache:
     """Invocation-local cache proving each static source is read/parsed once."""
@@ -256,6 +264,11 @@ class HostStaticParseCache:
         default_factory=dict, init=False, repr=False,
     )
     input_failures: dict[str, HostInputFailure] = field(default_factory=dict, init=False)
+    #: Issue ids of files read and parsed whose structure the reader cannot
+    #: interpret at all (a settings file whose `permissions` is not an object,
+    #: a hook file that is not one): input as unread as a file that does not
+    #: parse (#1154). Private, never published.
+    shape_refusal_issue_ids: set[str] = field(default_factory=set, init=False)
     terminal_failure: HostInputFailure | None = field(default=None, init=False)
 
     @property
@@ -386,17 +399,30 @@ class HostStaticParseCache:
         assert text is not None
         display = str(path.absolute())
         self.parse_counts[display] = self.parse_counts.get(display, 0) + 1
+        # The registry folds case, so `.github/workflows/CI.YML` is a workflow
+        # and `.codex/CONFIG.TOML` the Codex config; each is parsed as its
+        # lower-case spelling is, never handed to the JSON parser (#1143).
+        filename = path.name.casefold()
+        if filename.endswith(".toml"):
+            loads: Callable[[str], Any] = _toml_loads_without_bom
+        elif filename.endswith((".yml", ".yaml")):
+            loads = yaml.safe_load
+        elif is_vscode_mcp_path(path.as_posix()):
+            # VS Code reads `mcp.json` as JSON with comments (#659).
+            loads = loads_jsonc
+        else:
+            loads = json.loads
         try:
-            if path.suffix == ".toml":
-                data = tomllib.loads(text)
-            elif path.suffix in {".yml", ".yaml"}:
-                data = yaml.safe_load(text)
-            elif is_vscode_mcp_path(path.as_posix()):
-                # VS Code reads `mcp.json` as JSON with comments (#659).
-                data = loads_jsonc(text)
-            else:
-                data = json.loads(text)
-        except (tomllib.TOMLDecodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+            # Bounded, so a document nested past what the walks below can take
+            # is a file this reader could not parse, never a crash (#1154).
+            data = bounded_parse(loads, text)
+        except NestingLimitExceeded as exc:
+            result = (
+                None,
+                "parse_failed",
+                f"static parser rejected this {path.suffix.lstrip('.')} file ({exc})",
+            )
+        except (ValueError, yaml.YAMLError) as exc:
             result = (
                 None,
                 "parse_failed",
@@ -929,17 +955,6 @@ def published_setting_value(grant: dict[str, Any]) -> Any:
     return text
 
 
-def _display_path(path: Path, *, root: Path, home: Path) -> str:
-    try:
-        return path.resolve().relative_to(root).as_posix()
-    except ValueError:
-        pass
-    try:
-        return f"~/{path.resolve().relative_to(home).as_posix()}"
-    except ValueError:
-        return str(path)
-
-
 def _issue_source_label(source: str) -> str:
     """The bounded, single-line form of an issue's source, and its identity (#590).
 
@@ -1109,25 +1124,44 @@ def _load_structured(
             resolved_through=resolved_through,
         ))
         return None
-    if host == "claude-code" and kind in {"config", "hooks"}:
+    shape_error = None
+    if kind == "mcp":
+        if not isinstance(data, dict):
+            shape_error = "MCP configuration must be an object."
+        elif (member := _invalid_mcp_server_map(data)) is not None:
+            shape_error = f"MCP configuration's {member} must be an object."
+    elif kind == "workflow" and not isinstance(data, dict):
+        shape_error = "GitHub workflow must be a mapping."
+    elif host == "claude-code" and kind in {"config", "hooks"}:
         # A hook file is not a settings file: no host reads `permissions`
         # from it, so only its top-level shape is checked (#714).
-        shape_error = (
+        problem = (
             _claude_permission_shape_error(data)
             if kind == "config"
             else None if isinstance(data, dict) else "a hook file must be an object"
         )
-        if shape_error is not None:
-            issues.append(_inventory_issue(
-                kind="unsupported", host=host, source=source,
-                message=f"Cannot interpret Claude settings: {shape_error}; repair the field and rerun the audit.",
-                blocking=True,
-            ))
-            artifacts.append(_artifact(
-                host=host, scope=scope, source=source, kind=kind, status="unsupported",
-                resolved_through=resolved_through,
-            ))
-            return None
+        if problem is not None:
+            shape_error = (
+                f"Cannot interpret Claude settings: {problem}; "
+                "repair the field and rerun the audit."
+            )
+    if shape_error is not None:
+        issue = _inventory_issue(
+            kind="unsupported", host=host, source=source,
+            message=shape_error,
+            blocking=True,
+        )
+        issues.append(issue)
+        # A nested workflow or a Shipgate state file can also be listed
+        # as shared config. Its refusal keeps its existing review route
+        # because no host reads that file as a settings layer (#1154).
+        if kind in {"mcp", "workflow", "hooks"} or source.casefold() in _CLAUDE_SETTINGS_CASEFOLDED:
+            cache.shape_refusal_issue_ids.add(issue["issue_id"])
+        artifacts.append(_artifact(
+            host=host, scope=scope, source=source, kind=kind, status="unsupported",
+            resolved_through=resolved_through,
+        ))
+        return None
     artifacts.append(_artifact(
         host=host, scope=scope, source=source, kind=kind, status="parsed", data=data,
         resolved_through=resolved_through,
@@ -5172,7 +5206,9 @@ def _collect_file(
             )
     elif host == "codex" and kind == "requirements":
         grants.extend(_codex_requirement_grants(data, scope=scope, source=source))
-    elif host == "codex" and path.suffix == ".toml":
+    elif host == "codex" and path.suffix.casefold() == ".toml":
+        # Folded as the parser folds it: a parsed `CONFIG.TOML` that fell
+        # through here would publish no grants at all (#1143).
         grants.extend(_codex_grants(data, scope=scope, source=source))
         if isinstance(data, dict) and isinstance(data.get("profile"), str):
             selected = data["profile"].strip()
@@ -6318,6 +6354,7 @@ _CLAUDE_SETTINGS_RANK: dict[str, int] = {
     ".claude/settings.json": 2,
     "~/.claude/settings.json": 3,
 }
+_CLAUDE_SETTINGS_CASEFOLDED = frozenset(path.casefold() for path in _CLAUDE_SETTINGS_RANK)
 #: One MCP server name defined in several scopes: "Claude Code connects to it
 #: once, using the definition from the highest-precedence source", whole
 #: entry, local over project (code.claude.com/docs/en/mcp).

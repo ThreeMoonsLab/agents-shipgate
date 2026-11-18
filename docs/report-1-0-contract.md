@@ -110,7 +110,7 @@ provisional here.
 | `input_set_id` | optional | stable | Verify-native input-set identity, taken at the adapter read boundary. |
 | `engine_requirement_id` | optional | stable | Verify-native engine identity. |
 | `decision_id` | optional | stable | Verify-native decision identity. |
-| `manifest_dir` | optional | stable | Absolute manifest directory; `apply-patches` enforces containment against it. |
+| `manifest_dir` | optional | stable | Absolute manifest directory; `apply-patches` enforces containment against it, and against the directory it runs in, which the report cannot name. |
 | `project` | required | stable | Subject metadata. |
 | `agent` | required | stable | Subject metadata. |
 | `environment` | required | stable | Subject metadata. |

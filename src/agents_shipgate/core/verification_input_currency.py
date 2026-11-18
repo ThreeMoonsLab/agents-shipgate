@@ -7,6 +7,7 @@ import os
 import re
 from pathlib import Path
 
+from agents_shipgate.core.contained_write import write_contained
 from agents_shipgate.core.input_directory_identity import (
     directory_input_exclusions,
     validate_directory_inputs,
@@ -39,8 +40,10 @@ def write_portable_input(
         if source_logical_path is not None else ""
     )
     target = root / "verification-inputs" / category / f"{digest[:16]}{origin_suffix}-{safe_name}"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
+    # The contained writer, as for every report beside it: a link at the copy
+    # or at any directory between ``root`` and it is refused, not followed
+    # out of the reports directory (#1031).
+    write_contained(target, data, root=root)
     return target
 
 
@@ -195,6 +198,8 @@ def validate_bound_plan_inputs(
             if size > MAX_CURRENCY_INPUT_BYTES:
                 raise ValueError("recorded input exceeds the currency read limit")
             check(reader.read_bytes(path, max_bytes=MAX_CURRENCY_INPUT_BYTES), digest, size)
+    if "diff_from_base" in plan.inputs.options:
+        _validate_base_comparison(plan, root=root, live_origins=live_origins)
     if live_origins and "openshell_native" in plan.inputs.options:
         from agents_shipgate.core.openshell_native import validate_external_currency
 
@@ -202,3 +207,29 @@ def validate_bound_plan_inputs(
     validate_directory_inputs(plan, snapshot=snapshot)
     snapshot.finish()
     artifacts.finish()
+
+
+def _validate_base_comparison(plan: VerificationPlan, *, root: Path, live_origins: bool) -> None:
+    origin = plan.inputs.options["diff_from_base"]
+    blob = plan.inputs.diff_from
+    if not isinstance(origin, dict) or set(origin) != {"path", "commit_sha"} or blob is None:
+        raise ValueError("invalid base comparison report binding")
+    relative = Path(_portable(origin["path"]))
+    sha = origin["commit_sha"]
+    if (
+        not isinstance(sha, str)
+        or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", sha)
+        or sha != plan.subject.git.base_commit_sha
+    ):
+        raise ValueError("comparison report commit does not match the verification base")
+    if not live_origins:
+        return
+
+    from agents_shipgate.cli.verify.git import regular_file_at_ref
+
+    reference = regular_file_at_ref(root, sha, relative, max_bytes=MAX_CURRENCY_INPUT_BYTES)
+    if reference.data is None or (
+        len(reference.data) != blob.size_bytes
+        or "sha256:" + hashlib.sha256(reference.data).hexdigest() != blob.sha256
+    ):
+        raise ValueError("comparison report does not match the file committed at the verification base")

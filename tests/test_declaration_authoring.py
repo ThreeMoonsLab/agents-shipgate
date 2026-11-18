@@ -13,6 +13,7 @@ what happens when something tries to write past that.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 
@@ -99,7 +100,10 @@ def _apply(report_path: Path, *, kinds: str | None = None) -> object:
     args = ["apply-patches", "--from", str(report_path), "--apply"]
     if kinds is not None:
         args += ["--kinds", kinds]
-    return runner.invoke(app, args)
+    # Run from the directory holding the project and its report, as an
+    # operator would: apply-patches writes only under where it runs (#1031).
+    with contextlib.chdir(report_path.parent.parent):
+        return runner.invoke(app, args)
 
 
 # --- authorable_by ----------------------------------------------------------

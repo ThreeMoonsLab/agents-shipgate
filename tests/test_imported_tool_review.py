@@ -58,6 +58,21 @@ def _constructor_candidate(result, agent, tool, direction, *, repo, source, reas
     return row
 
 
+def _reads_the_same(result, agent, tool, *, reason=None):
+    """An unchanged binding of an uncertain agent is no row: its agent names it once (#1146)."""
+    assert result["comparison_status"] == "partial"
+    assert not [row for row in result["rows"] if row["agent"] == agent and row["tool"] == tool]
+    entry, = [item for item in result["read_same"] if item["agent"] == agent]
+    assert tool in entry["tools"]
+    stated = [value for values in entry["uncertainty"].values() for value in values]
+    assert stated
+    reasons = [gap["reason"] for side in ("base", "head") for gap in result[side]["coverage_gaps"]]
+    assert any("constructor identity is not established" in value for value in reasons)
+    if reason is not None:
+        assert any(reason in value for value in reasons)
+    return entry
+
+
 def test_sdk_two_definitions_under_one_name_bind_neither(repo):
     agent = "from agents import Agent\nimport billing, support\n\nagent = Agent(name='app', tools=TOOLS)\n"
     base = commit(
@@ -692,9 +707,8 @@ def test_a_guessed_binding_is_never_an_established_addition_or_removal(repo, dir
     assert result["comparison_status"] == "partial"
     _constructor_candidate(result, "app", "lookup", direction, repo=repo, source="agent.py",
                            reason="'lookup' is bound more than once")
-    _constructor_candidate(result, "app", "other", "changed", repo=repo, source="agent.py",
-                           reason="executable or reflective machinery")
-    assert _rows(result) == [("app", "lookup", "not_established"), ("app", "other", "not_established")]
+    _reads_the_same(result, "app", "other", reason="executable or reflective machinery")
+    assert _rows(result) == [("app", "lookup", "not_established")]
 
 
 def test_a_guessed_name_keeps_the_agents_other_findings_in_scan(tmp_path):
@@ -2193,7 +2207,7 @@ def test_namespace_reads_in_the_chain_are_not_patches(repo, files):
         assert _rows(result) == [("x", "refund", "added")]
     else:
         _constructor_candidate(result, "x", "refund", "added", repo=repo, source="svc/app/tools.py")
-        _constructor_candidate(result, "x", "lookup", "changed", repo=repo, source="svc/app/tools.py")
+        _reads_the_same(result, "x", "lookup")
         assert any("reflective namespace access" in gap["reason"]
                    or "builtin or dynamic import machinery" in gap["reason"]
                    or "unread class construction hook" in gap["reason"]
@@ -2523,10 +2537,8 @@ def test_the_real_readers_still_read(repo, reader, established):
         # Library readers still lack retained-namespace proof. Readable
         # initializer members are candidates, never established bindings.
         assert result["comparison_status"] == "partial"
-        assert _rows(result) == [
-            ("agent", "execute", "not_established"),
-            ("agent", "lookup", "not_established"),
-        ]
+        assert _rows(result) == [("agent", "execute", "not_established")]
+        _reads_the_same(result, "agent", "lookup")
         assert all(row["uncertainty"] for row in result["rows"])
         assert next(row for row in result["rows"] if row["tool"] == "execute")["candidate_change"] == "added"
         assert any("dynamic tools expression" in gap["reason"] for gap in result["head"]["coverage_gaps"])
