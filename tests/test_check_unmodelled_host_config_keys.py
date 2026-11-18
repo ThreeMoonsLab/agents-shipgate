@@ -573,7 +573,9 @@ def test_provided_diff_with_an_unmodelled_key_is_comparable(
 
     for payload in (cli, mcp):
         assert payload["input_mode"] == "provided_diff"
-        assert payload["input_coverage"] == "complete"
+        # A detached diff may not be the whole change (#1154); every file
+        # it names was read, so its rows still compare.
+        assert payload["input_coverage"] == "unknown"
         assert payload["comparison_status"] == "comparable"
         assert payload["incomparable_reasons"] == []
         assert len(payload["rows"]) == row_count

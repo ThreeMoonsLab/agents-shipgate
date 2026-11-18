@@ -15,7 +15,9 @@ Expected outputs are under `expected/`:
 
 - `block-stop.json` — policy weakening routes to a human stop.
 - `repair-before.json` — an MCP write tool auto-approval is agent-repairable.
-- `repair-after.json` — the narrowed approval config allows completion.
+- `repair-after.json` — the narrowed approval config raises no boundary finding, but a
+  provided diff is bound to no checkout, so the result stops for a human
+  (`human_review_required`) and its decision is `require_review`, never `allow`.
 - `policy-bypass.json` — editing Shipgate policy to weaken a rule blocks.
 - `missing-install.json` — the instruction-level fallback when the binary is missing.
 - `stale-install.json` — the instruction-level fallback when the binary is present but older than contract v14.

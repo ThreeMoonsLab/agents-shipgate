@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from pathlib import Path
 
 import typer
@@ -347,6 +348,7 @@ def verify(
                 pr_comment_style=parsed_pr_comment_style,
                 verbose=verbose,
                 auto_base=base is None and not no_base,
+                progress=_terminal_progress if stdout_format == "text" else None,
             )
     except ConfigError as exc:
         typer.echo(f"Config error: {exc}", err=True)
@@ -728,6 +730,11 @@ def _warn_if_reports_staged(workspace: Path, out: Path | None) -> None:
         f"directory).",
         err=True,
     )
+
+
+def _terminal_progress(message: str) -> None:
+    if sys.stderr.isatty():
+        typer.echo(message, err=True)
 
 
 def _resolve_verify_format(value: str | None, *, json_output: bool, preview: bool) -> str:

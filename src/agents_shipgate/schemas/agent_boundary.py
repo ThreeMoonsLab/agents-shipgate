@@ -119,6 +119,16 @@ class AgentBoundaryResultV1(AgentResultV2):
             raise ValueError("actor and agent must identify the same calling agent")
         if self.input_coverage != "complete" and self.control.state == "complete":
             raise ValueError("incomplete boundary input cannot allow completion")
+        # `decision`, `input_coverage` and `control` cannot disagree (#1154).
+        # A detached diff reported `allow` with `complete` coverage beside a
+        # control that stopped for a human, so a reader of `decision` saw a
+        # pass on input that established no change. A pass needs completely
+        # read input and a control that does not stop. Enforced on the model
+        # only; the published v3 JSON Schema keeps its pinned bytes.
+        if self.decision == "allow" and self.input_coverage != "complete":
+            raise ValueError("an allow decision requires complete boundary input coverage")
+        if self.decision == "allow" and self.control.must_stop:
+            raise ValueError("an allow decision cannot accompany a control that stops")
         if self.control.state == "complete" and any(
             item.status in {"partial", "experimental"} for item in self.host_coverage
         ):
