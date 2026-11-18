@@ -453,7 +453,8 @@
   "tests/test_registry_drift_observation.py": 1.4,
   "tests/test_application_read_same.py": 21.5,
   "tests/test_git_env.py": 13.5,
-  "tests/test_output_directory_containment.py": 0.5
+  "tests/test_output_directory_containment.py": 0.5,
+  "tests/test_audit_dependency_locks.py": 0.5
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -761,6 +762,17 @@
    },
    "case_count": 37,
    "command": "python -m pytest tests/test_git_env.py tests/test_output_directory_containment.py --junitxml=write-containment.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "8882143a8b4c with issue #1167 locked dependency audit",
+   "report_sha256": "b4632c03e224ee0b5dd94535caaa33a1f927bb60d8e8a1b1727b99232ef6a18e",
+   "files": {
+    "tests/test_audit_dependency_locks.py": 0.5
+   },
+   "case_count": 7,
+   "command": "python -m pytest tests/test_audit_dependency_locks.py --junitxml=audit-tests.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]
