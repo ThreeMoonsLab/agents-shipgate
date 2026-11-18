@@ -29,6 +29,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from agents_shipgate.report.pr_projection import (
     item_to_check_run_annotation,
@@ -153,6 +154,11 @@ def _first_location(result: dict[str, Any]) -> tuple[str, int] | None:
         start_line = region.get("startLine")
         if not isinstance(start_line, int) or start_line < 1:
             start_line = 1
+        # Older Shipgate SARIF carries literal paths, including any percent
+        # characters in their filenames. Decode only a marked projection.
+        properties = location.get("properties")
+        if isinstance(properties, dict) and properties.get("shipgateArtifactUriEncoding") == "percent":
+            uri = unquote(uri)
         return uri, start_line
     return None
 

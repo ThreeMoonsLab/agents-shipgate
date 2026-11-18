@@ -17,6 +17,7 @@ from agents_shipgate.cli._artifact_lifecycle import (
     REPORTS_DIRECTORY_ARTIFACT_SUBDIRECTORIES,
     clear_verifier_route_artifacts,
 )
+from agents_shipgate.core.agent_controls import git_root_for
 from agents_shipgate.core.contained_write import (
     check_output_directory,
     check_output_path,
@@ -32,13 +33,14 @@ from agents_shipgate.core.current_control import (
 )
 from agents_shipgate.core.domain import Tool
 from agents_shipgate.core.evidence_actions import yaml_scalar
-from agents_shipgate.core.privacy import sanitize_packet
+from agents_shipgate.core.privacy import redact_data, sanitize_packet
 from agents_shipgate.packet.builder import build_packet
 from agents_shipgate.report.human_order import (
     HumanArtifactContext,
     cold_reader_lead,
     should_render_surface_first,
 )
+from agents_shipgate.report.sarif import SarifSourcePaths
 from agents_shipgate.schemas.current_control import (
     AgentActionRequiredCurrentControl,
     CurrentControlWorkspaceIdentity,
@@ -59,6 +61,7 @@ def _write_outputs(
     plan: _OutputPlan,
     manifest: AgentsShipgateManifest,
     config_path: Path,
+    configured_manifest_path: str | None,
     packet_generated_at: str | None,
     human_context: HumanArtifactContext,
 ) -> None:
@@ -99,6 +102,11 @@ def _write_outputs(
         plan.generated_paths,
         manifest.output.formats,
         sanitized_payload=public_report_payload,
+        sarif_source_paths=(
+            _sarif_source_paths(config_path, configured_manifest_path)
+            if "sarif" in plan.generated_paths
+            else None
+        ),
         human_context=human_context,
         root=plan.write_root,
     )
@@ -180,6 +188,17 @@ def _write_outputs(
                 if name in SCAN_FORMAT_ARTIFACT_KEYS
             },
         )
+
+
+def _sarif_source_paths(
+    config_path: Path, configured_manifest_path: str | None
+) -> SarifSourcePaths:
+    config_path = config_path.resolve()
+    manifest_path = configured_manifest_path
+    if manifest_path is None:
+        root = git_root_for(config_path.parent)
+        manifest_path = config_path.relative_to(root).as_posix() if root else config_path.name
+    return SarifSourcePaths(redact_data(manifest_path), config_path.parent)
 
 
 def _require_contained_outputs(plan: _OutputPlan) -> None:

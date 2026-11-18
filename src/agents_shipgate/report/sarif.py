@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+import posixpath
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, get_args
+from urllib.parse import quote
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.registry import check_catalog
@@ -11,6 +14,7 @@ from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.domain import SemanticIssueKind
 from agents_shipgate.core.privacy import sanitize_report
 from agents_shipgate.schemas.checks import CheckMetadata
+from agents_shipgate.schemas.common import SourceReference
 from agents_shipgate.schemas.report import (
     EvidenceGap,
     Finding,
@@ -23,17 +27,65 @@ MAX_EVIDENCE_STRING_LENGTH = 1000
 SEMANTIC_GAP_RULE_PREFIX = "SHIP-SEMANTIC-"
 
 
+@dataclass(frozen=True)
+class SarifSourcePaths:
+    """The published manifest path and the private directory actually scanned."""
+
+    manifest_path: str
+    manifest_dir: Path
+
+    def artifact_uri(self, path: str, source_type: str) -> str:
+        if _external_path(path):
+            return path
+        if source_type == "changed_file" or (
+            source_type == "manifest" and path == self.manifest_path
+        ):
+            return quote(path, safe="/")
+        repository_path = posixpath.normpath(
+            posixpath.join(posixpath.dirname(self.manifest_path), path)
+        )
+        return quote(repository_path, safe="/")
+
+    def gap_location(self, gap: EvidenceGap) -> SourceReference:
+        # Source refs can be file references, bare manifest selectors, or
+        # symbolic origins such as --diff-from. Only link to a verified file.
+        ref = gap.source_ref or ""
+        candidates = (_split_location(ref), _split_trailing_line(ref.rpartition("#")[0]), (ref, None))
+        for path, line in dict.fromkeys(candidates):
+            if not path or path.startswith("--") or _external_path(path):
+                continue
+            try:
+                candidate = (self.manifest_dir / path).resolve()
+                if candidate.is_relative_to(self.manifest_dir) and candidate.is_file():
+                    return SourceReference(
+                        type=gap.source_type or "source", path=path, start_line=line, ref=ref
+                    )
+            except (OSError, RuntimeError, ValueError):
+                continue
+        return SourceReference(type="manifest", path=self.manifest_path)
+
+
+def _external_path(path: str) -> bool:
+    return PurePosixPath(path).is_absolute() or PureWindowsPath(path).is_absolute() or "://" in path
+
+
 def write_sarif_report(
-    report: ReadinessReport, path: Path, *, root: Path | None = None
+    report: ReadinessReport,
+    path: Path,
+    *,
+    source_paths: SarifSourcePaths | None = None,
+    root: Path | None = None,
 ) -> None:
     write_contained(
         path,
-        json.dumps(render_sarif_report(report), indent=2, sort_keys=True),
+        json.dumps(render_sarif_report(report, source_paths=source_paths), indent=2, sort_keys=True),
         root=root,
     )
 
 
-def render_sarif_report(report: ReadinessReport) -> dict[str, Any]:
+def render_sarif_report(
+    report: ReadinessReport, *, source_paths: SarifSourcePaths | None = None
+) -> dict[str, Any]:
     report = sanitize_report(report)
     active_findings = [finding for finding in report.findings if not finding.suppressed]
     semantic_gaps = _semantic_gaps(report)
@@ -55,8 +107,8 @@ def render_sarif_report(report: ReadinessReport) -> dict[str, Any]:
                     }
                 },
                 "results": [
-                    *[_result(finding) for finding in active_findings],
-                    *[_semantic_gap_result(gap) for gap in semantic_gaps],
+                    *[_result(finding, source_paths) for finding in active_findings],
+                    *[_semantic_gap_result(gap, source_paths) for gap in semantic_gaps],
                 ],
                 "properties": {
                     "release_decision": (
@@ -114,8 +166,10 @@ def _semantic_gap_rules(gaps: list[EvidenceGap]) -> list[dict[str, Any]]:
     ]
 
 
-def _semantic_gap_result(gap: EvidenceGap) -> dict[str, Any]:
-    return {
+def _semantic_gap_result(
+    gap: EvidenceGap, source_paths: SarifSourcePaths | None
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
         "ruleId": _semantic_gap_rule_id(gap.kind),
         "level": "error",
         "message": {"text": f"{gap.subject}: {gap.why}"},
@@ -129,6 +183,11 @@ def _semantic_gap_result(gap: EvidenceGap) -> dict[str, Any]:
             "runtime_behavior_verified": False,
         },
     }
+    if source_paths is not None:
+        location = _source_to_location(source_paths.gap_location(gap), gap.subject, source_paths)
+        if location is not None:
+            result["locations"] = [location]
+    return result
 
 
 def _rules(
@@ -171,7 +230,7 @@ def _rules(
     return rules
 
 
-def _result(finding: Finding) -> dict[str, Any]:
+def _result(finding: Finding, source_paths: SarifSourcePaths | None = None) -> dict[str, Any]:
     result: dict[str, Any] = {
         "ruleId": _rule_id(finding),
         "level": _level(finding.severity),
@@ -202,7 +261,10 @@ def _result(finding: Finding) -> dict[str, Any]:
     # locations — code-scanning UIs render them as visual duplicates.
     locations: list[dict[str, Any]] = []
     seen_physical: list[dict[str, Any]] = []
-    for candidate in (_location(finding), _policy_evidence_location(finding)):
+    for candidate in (
+        _location(finding, source_paths),
+        _policy_evidence_location(finding, source_paths),
+    ):
         if candidate is None:
             continue
         physical = candidate.get("physicalLocation")
@@ -240,34 +302,31 @@ def _sarif_tags(finding: Finding, *, category: str | None = None) -> list[str]:
     return sorted({tag for tag in tags if tag})
 
 
-def _location(finding: Finding) -> dict[str, Any] | None:
-    """Render the primary ``Finding.source`` as a SARIF ``location``."""
+def _location(
+    finding: Finding, source_paths: SarifSourcePaths | None = None
+) -> dict[str, Any] | None:
     return _source_to_location(
-        finding.source,
-        finding.tool_name or finding.agent_id or finding.check_id,
+        finding.source, finding.tool_name or finding.agent_id or finding.check_id, source_paths
     )
 
 
-def _policy_evidence_location(finding: Finding) -> dict[str, Any] | None:
-    """Render the v0.19 secondary ``Finding.policy_evidence_source`` as
-    a SARIF ``location`` so the dual-source provenance round-trips
-    into a second ``locations[]`` entry for the same result."""
+def _policy_evidence_location(
+    finding: Finding, source_paths: SarifSourcePaths | None
+) -> dict[str, Any] | None:
     return _source_to_location(
         finding.policy_evidence_source,
         finding.tool_name or finding.agent_id or finding.check_id,
+        source_paths,
     )
 
 
-def _source_to_location(source: Any, logical_name: str | None) -> dict[str, Any] | None:
-    """Shared rendering core for primary and secondary source pointers.
-
-    Both ``_location`` and ``_policy_evidence_location`` defer here so
-    the structured / legacy fallback logic and pointer-emission rules
-    stay in one place.
-    """
+def _source_to_location(
+    source: SourceReference | None,
+    logical_name: str | None,
+    source_paths: SarifSourcePaths | None = None,
+) -> dict[str, Any] | None:
     if not source:
         return None
-    artifact_uri: str | None = None
     line: int | None = None
     end_line: int | None = None
     start_column: int | None = None
@@ -290,9 +349,12 @@ def _source_to_location(source: Any, logical_name: str | None) -> dict[str, Any]
         if not uri:
             return None
         artifact_uri, line = _split_location(uri)
-    physical_location: dict[str, Any] = {
-        "artifactLocation": {"uri": artifact_uri},
-    }
+    uri = (
+        source_paths.artifact_uri(artifact_uri, source.type)
+        if source_paths is not None
+        else artifact_uri
+    )
+    physical_location: dict[str, Any] = {"artifactLocation": {"uri": uri}}
     region: dict[str, Any] = {}
     if line is not None:
         region["startLine"] = line
@@ -310,6 +372,8 @@ def _source_to_location(source: Any, logical_name: str | None) -> dict[str, Any]
         "shipgateSourceSelector": _source_selector(source, artifact_uri),
         "shipgateSourceType": source.type,
     }
+    if uri != artifact_uri and "%" in uri:
+        properties["shipgateArtifactUriEncoding"] = "percent"
     # Empty string is a valid RFC 6901 root-document pointer (singleton
     # YAML object case), so check ``is not None`` rather than truthiness.
     if source.pointer is not None:
@@ -321,11 +385,18 @@ def _source_to_location(source: Any, logical_name: str | None) -> dict[str, Any]
 
 
 def _split_location(value: str) -> tuple[str, int | None]:
-    if "#" in value:
-        value = value.split("#", 1)[0]
+    return _split_trailing_line(value.partition("#")[0])
+
+
+def _split_trailing_line(value: str) -> tuple[str, int | None]:
     path, _, maybe_line = value.rpartition(":")
-    if path and maybe_line.isdigit():
-        return path, int(maybe_line)
+    if path and maybe_line.isdecimal():
+        try:
+            line = int(maybe_line)
+        except ValueError:
+            return value, None
+        if line > 0:
+            return path, line
     return value, None
 
 
