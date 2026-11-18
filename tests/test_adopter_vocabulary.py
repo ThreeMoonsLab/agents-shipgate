@@ -768,6 +768,7 @@ SOURCE_WARNING_NON_MESSAGES = frozenset(
     {
         "SourceWarningGroup",
         "group_source_warnings",
+        "unread_host_mcp_config_path",
         "unresolved_adk_tool_symbols",
         "visible_skeleton",
         "withdraw_completed_adk_tool_warnings",
