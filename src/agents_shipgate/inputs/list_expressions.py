@@ -362,6 +362,7 @@ class _View:
     #: Bindings some code changes in place: ``id(local binding)`` or
     #: ``("module", name)``.
     changed: set[object]
+    changed_at: dict[object, ast.Name] = field(default_factory=dict)
     #: Whether this is the module the agent is built in: only there do the
     #: framework's own constructions read the list they are handed.
     entry: bool = False
@@ -1281,6 +1282,7 @@ class ListExpressions:
         self._checking_member_receivers: set[tuple[int, int]] = set()
         self._cache = cache if cache is not None else ListCache()
         self._visits = 0
+        self._local_callees: dict[tuple[int, str], bool] = {}
         self.entry = self._view(ref, tree, scopes, bindings, module, entry=True)
 
     @property
@@ -1313,7 +1315,7 @@ class ListExpressions:
         cached = self._cache.views.get(key)
         if cached is not None:
             return cached
-        view = _View(ref, tree, scopes, bindings, module, set(), entry, star_lines)
+        view = _View(ref, tree, scopes, bindings, module, set(), entry=entry, star_lines=star_lines)
         view.lookup = bindings_at(scopes, bindings)
         view.resolver = self._resolver
         view.builder_calls = self.calls
@@ -1452,7 +1454,10 @@ class ListExpressions:
 
         site = evaluation_site(view.scopes, node)
         found = view.scopes.enclosing_bindings(site, node.id)
-        view.changed.add(id(found[0]) if found else ("module", node.id))
+        key = id(found[0]) if found else ("module", node.id)
+        view.changed.add(key)
+        if view.module is None:
+            view.changed_at.setdefault(key, node)
         for binding in found:
             view.changed.add(id(binding))
             statement = view.scopes.statement_of(binding)
@@ -1887,7 +1892,11 @@ class ListExpressions:
 
         spelling = reference_spelling(call.func)
         calls = self.calls
-        if spelling is None or calls is None or view.module is None:
+        if spelling is None:
+            return False
+        if view.module is None:
+            return self._local_callee_leaves_alone(view, call, spelling, position, keyword)
+        if calls is None:
             return False
         resolution = calls.resolve(view.module, call.func)
         function = resolution.definition if resolution.resolved else None
@@ -1962,6 +1971,37 @@ class ListExpressions:
             finally:
                 self._invocation = previous
         return self._cache.callees[key]
+
+    def _local_callee_leaves_alone(
+        self, view: _View, call: ast.Call, spelling: str, position: int | None, keyword: str | None,
+    ) -> bool:
+        # A module-only adapter can prove the body of one unambiguous local
+        # function. Imported, decorated and forwarded calls remain unknown.
+        lookup = view.lookup or bindings_at(view.scopes, view.bindings)
+        found = lookup(spelling, call)
+        if len(found) != 1 or "." in spelling or view.star_lines:
+            return False
+        function = found[0][0]
+        if (
+            not isinstance(function, ast.FunctionDef)
+            or function not in view.tree.body
+            or function.decorator_list
+            or function.lineno >= call.lineno
+        ):
+            return False
+        positional = [*function.args.posonlyargs, *function.args.args]
+        if position is not None:
+            if position >= len(positional) or any(isinstance(arg, ast.Starred) for arg in call.args[:position]):
+                return False
+            name = positional[position].arg
+        elif keyword in {arg.arg for arg in [*function.args.args, *function.args.kwonlyargs]}:
+            name = str(keyword)
+        else:
+            return False
+        key = (id(function), name)
+        if key not in self._local_callees:
+            self._local_callees[key] = parameter_left_alone(function, name, lookup)
+        return self._local_callees[key]
 
     def _agent_result_changed(
         self, view: _View, call: ast.Call, keyword: str, *, borrowed: bool = False,
@@ -3676,9 +3716,17 @@ class ListExpressions:
                 view, statement, f"`{name}` is bound only under a condition or in a loop"
             )
         if changed:
-            return self._stop(
-                view, statement, f"`{name}` may be changed in place after it is built"
-            )
+            reason = f"`{name}` may be changed in place after it is built"
+            site = view.changed_at.get(id(binding)) or view.changed_at.get(("module", name))
+            if site is not None:
+                parent = view.scopes.parents.get(site)
+                if isinstance(parent, (ast.keyword, ast.Attribute)):
+                    parent = view.scopes.parents.get(parent)
+                if isinstance(parent, ast.Call):
+                    reason += f" by the call at {view.ref}:{parent.lineno}"
+                else:
+                    reason += f" at {view.ref}:{site.lineno}"
+            return self._stop(view, statement, reason)
         if self._projection is not None and self._container_binding_changed(view, binding):
             return self._stop(view, statement, f"`{name}` or one of its projected values may be changed or handed on")
         if self._projection is not None and statement in view.tree.body and isinstance(statement.value, ast.Dict):
