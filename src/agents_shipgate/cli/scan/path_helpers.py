@@ -4,23 +4,16 @@ import os
 from pathlib import Path
 
 from agents_shipgate.core.baseline_audit import DEFAULT_AUDIT_LOG_PATH
+from agents_shipgate.core.paths import display_path
 from agents_shipgate.schemas.manifest import AgentsShipgateManifest
-
-
-def _relative_display_path(path: Path, base_dir: Path) -> str:
-    resolved = path.resolve()
-    base = base_dir.resolve()
-    rel = os.path.relpath(resolved, base)
-    if rel == ".." or rel.startswith(f"..{os.sep}"):
-        return str(resolved)
-    return rel
 
 
 def _anchored_display_path(path: Path, base_dir: Path) -> str:
     """Spell an already-anchored absolute path relative to ``base_dir``.
 
-    Same output as :func:`_relative_display_path` for an ordinary path, but the
-    argument itself is not resolved. A caller that anchored it deliberately —
+    Same output as :func:`agents_shipgate.core.paths.display_path` for an
+    ordinary path, but the argument itself is not resolved, and ``..`` in it is
+    folded lexically by ``os.path.relpath`` rather than by the filesystem. A caller that anchored it deliberately —
     ``verify``'s base-scan cache location, whose namespace is lexical and whose
     links are refused rather than followed — must not have that undone here,
     which would publish the target of a link the engine never read.
@@ -58,6 +51,6 @@ def _resolve_audit_log_path(
 def _default_baseline_status(base_dir: Path) -> dict[str, object]:
     path = base_dir / ".agents-shipgate" / "baseline.json"
     return {
-        "default_path": _relative_display_path(path, base_dir),
+        "default_path": display_path(path, base_dir, outside="resolved"),
         "present": path.exists(),
     }

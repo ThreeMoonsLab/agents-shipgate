@@ -12,12 +12,23 @@ from agents_shipgate.ci.release_decision import (
     unresolved_symbol_names,
     unresolved_symbol_sources,
 )
-from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
+from agents_shipgate.cli._artifact_lifecycle import (
+    REPORTS_DIRECTORY_ARTIFACT_NAMES,
+    REPORTS_DIRECTORY_ARTIFACT_SUBDIRECTORIES,
+    clear_verifier_route_artifacts,
+)
 from agents_shipgate.core.agent_controls import git_root_for
+from agents_shipgate.core.contained_write import (
+    check_output_directory,
+    check_output_path,
+    remove_contained,
+    write_contained,
+)
 from agents_shipgate.core.current_control import (
     SCAN_FORMAT_ARTIFACT_KEYS,
     begin_current_control,
     current_control_lifecycle_owner,
+    current_control_path,
     publish_current_control,
 )
 from agents_shipgate.core.domain import Tool
@@ -62,6 +73,11 @@ def _write_outputs(
     never serializes raw manifest content into the packet).
     """
     public_report = ReadinessReport.model_validate(public_report_payload)
+    # Every destination this phase may write or remove is checked before the
+    # first of them is touched, so a linked report file or a linked directory
+    # stops the scan with nothing changed rather than half way (#1031). Each
+    # write repeats the check at the moment it opens the file.
+    _require_contained_outputs(plan)
     # A standalone scan supersedes the report set in this directory.  Verify
     # also calls run_scan internally, but writes its fresh route/identity
     # artifacts only after this phase completes.
@@ -92,15 +108,18 @@ def _write_outputs(
             else None
         ),
         human_context=human_context,
+        root=plan.write_root,
     )
     _write_suggested_inventory(
         sanitized_tools=sanitized.tools,
         report=public_report,
         generated_paths=plan.generated_paths,
+        root=plan.write_root,
     )
     _write_suggested_declarations(
         report=public_report,
         generated_paths=plan.generated_paths,
+        root=plan.write_root,
     )
     if manifest.output.packet.enabled and plan.packet_format_set:
         assert report.release_decision is not None
@@ -136,6 +155,7 @@ def _write_outputs(
             plan.packet_format_set,
             human_context=human_context,
             cold_lead=packet_cold_lead,
+            root=plan.write_root,
         )
     if owns_control:
         # A scan inventories a workspace; it never establishes merge authority.
@@ -181,6 +201,28 @@ def _sarif_source_paths(
     return SarifSourcePaths(redact_data(manifest_path), config_path.parent)
 
 
+def _require_contained_outputs(plan: _OutputPlan) -> None:
+    """Refuse before any write when a destination this scan may touch is unsafe.
+
+    The report and packet files, the advisory scaffolds beside them, the
+    current-control pointer, the verifier artifacts a scan clears — and every
+    other name a Shipgate run writes into a reports directory, so the
+    ``verify`` that runs this scan is refused here too, before it writes its
+    route artifacts and capability locks beside the report. Each must be a
+    plain file, or nothing, under plain directories below ``plan.write_root``.
+    """
+
+    destinations = [
+        *plan.generated_paths.values(),
+        current_control_path(plan.out_dir),
+        *(plan.out_dir / name for name in sorted(REPORTS_DIRECTORY_ARTIFACT_NAMES)),
+    ]
+    for destination in destinations:
+        check_output_path(destination, root=plan.write_root)
+    for subdirectory in sorted(REPORTS_DIRECTORY_ARTIFACT_SUBDIRECTORIES):
+        check_output_directory(plan.out_dir / subdirectory, root=plan.write_root)
+
+
 def _manifest_snapshot_sha256(config_path: Path) -> str | None:
     try:
         data = config_path.read_bytes()
@@ -193,6 +235,7 @@ def _write_suggested_declarations(
     *,
     report: ReadinessReport,
     generated_paths: dict[str, Path],
+    root: Path | None = None,
 ) -> None:
     """Advisory scaffold for the gaps only a human declaration can close.
 
@@ -211,18 +254,19 @@ def _write_suggested_declarations(
     if scaffold is None:
         # Nothing is owed any more: a leftover scaffold from an earlier run
         # would keep asking for declarations that are already made.
-        _remove_if_present(out_path)
+        _remove_if_present(out_path, root=root)
         return
-    out_path.write_text(scaffold, encoding="utf-8")
+    write_contained(out_path, scaffold, root=root)
 
 
-def _remove_if_present(path: Path) -> None:
-    """Drop a superseded advisory artifact, tolerating a read-only directory."""
+def _remove_if_present(path: Path, *, root: Path | None = None) -> None:
+    """Drop a superseded advisory artifact, tolerating a read-only directory.
 
-    if not path.is_file():
-        return
+    A link or special file at ``path`` is refused, never followed or dropped.
+    """
+
     try:
-        path.unlink()
+        remove_contained(path, root=root)
     except OSError:
         pass
 
@@ -279,6 +323,7 @@ def _write_suggested_inventory(
     sanitized_tools: list[Tool],
     report: ReadinessReport,
     generated_paths: dict[str, Path],
+    root: Path | None = None,
 ) -> None:
     """v0.26: advisory tool-inventory skeleton for under-enumerated sources.
 
@@ -313,7 +358,7 @@ def _write_suggested_inventory(
         # Nothing is owed any more — the same rule the declaration scaffold
         # follows. A skeleton left behind from the run before the inventory was
         # declared reads as a fresh instruction to declare it again.
-        _remove_if_present(anchor.parent / SUGGESTED_INVENTORY_FILENAME)
+        _remove_if_present(anchor.parent / SUGGESTED_INVENTORY_FILENAME, root=root)
         return
     entries = []
     for tool in low_confidence:
@@ -360,6 +405,4 @@ def _write_suggested_inventory(
         "tools": entries,
     }
     out_path = anchor.parent / SUGGESTED_INVENTORY_FILENAME
-    out_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    write_contained(out_path, json.dumps(payload, indent=2, sort_keys=True) + "\n", root=root)

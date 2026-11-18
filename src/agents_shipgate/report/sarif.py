@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 from agents_shipgate import __version__
 from agents_shipgate.checks.registry import check_catalog
+from agents_shipgate.core.contained_write import write_contained
 from agents_shipgate.core.disclaimers import STATIC_VERDICT_DISCLAIMER
 from agents_shipgate.core.domain import SemanticIssueKind
 from agents_shipgate.core.privacy import sanitize_report
@@ -67,12 +68,16 @@ def _external_path(path: str) -> bool:
 
 
 def write_sarif_report(
-    report: ReadinessReport, path: Path, *, source_paths: SarifSourcePaths | None = None
+    report: ReadinessReport,
+    path: Path,
+    *,
+    source_paths: SarifSourcePaths | None = None,
+    root: Path | None = None,
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    write_contained(
+        path,
         json.dumps(render_sarif_report(report, source_paths=source_paths), indent=2, sort_keys=True),
-        encoding="utf-8",
+        root=root,
     )
 
 

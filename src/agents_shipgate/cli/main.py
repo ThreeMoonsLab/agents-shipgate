@@ -62,7 +62,8 @@ _ROOT_COMMANDS: tuple[tuple[str, str, dict[str, Any]], ...] = (
         "hidden": True,
         "help": (
             "Apply patches from a scan JSON report. Dry-run by default; pass "
-            "--apply to mutate. Containment-checked against the report's "
+            "--apply to mutate. Writes only the Shipgate manifest, under "
+            "--workspace (default: the current directory) and the report's "
             "manifest_dir."
         ),
     }),

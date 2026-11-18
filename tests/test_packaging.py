@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from email import message_from_bytes
@@ -15,7 +16,22 @@ import pytest
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
+from agents_shipgate.checks.registry import BUILTIN_CHECKS
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_self_registered_check_entry_points_are_already_builtin() -> None:
+    """Plugin discovery skips the package's own check entry points."""
+
+    with (REPO_ROOT / "pyproject.toml").open("rb") as stream:
+        project = tomllib.load(stream)["project"]
+    entry_points = project.get("entry-points", {}).get("agents_shipgate.checks", {})
+    builtin_targets = {f"{check.__module__}:{check.__name__}" for check in BUILTIN_CHECKS}
+    unregistered = {
+        name: target for name, target in entry_points.items() if target not in builtin_targets
+    }
+    assert not unregistered, f"Packaged check entry points must also be registered as built-ins: {unregistered}"
 
 
 @pytest.fixture(scope="session")
