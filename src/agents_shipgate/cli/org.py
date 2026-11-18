@@ -7,13 +7,17 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from pydantic import ValidationError
 
 from agents_shipgate import __version__
+from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
 from agents_shipgate.cli.attest import (
     RECEIPT_IDENTITY_FIELDS,
     build_attestation_payload,
+    load_attested_report,
     load_verified_receipt,
     receipt_failure,
+    verified_head_commit,
 )
 from agents_shipgate.cli.registry import _row_from_attestation
 from agents_shipgate.cli.workspace_guard import require_workspace
@@ -35,6 +39,7 @@ from agents_shipgate.schemas.attestation import (
     ATTESTATION_SCHEMA_VERSIONS_UPGRADED_ON_READ,
     ReleaseAttestationV1,
 )
+from agents_shipgate.schemas.diagnostics import NextAction
 from agents_shipgate.schemas.org_evidence_bundle import (
     OrgEvidenceBundleArtifactRef,
     OrgEvidenceBundleV1,
@@ -223,14 +228,12 @@ def org_bundle(
         typer.echo(str(exc), err=True)
         raise typer.Exit(3) from exc
 
-    report_path = _artifact_path(verifier_path, verifier, "report_json", "report.json")
     verify_run_path = _artifact_path(
         verifier_path,
         verifier,
         "verify_run_json",
         "verify-run.json",
     )
-    report = _load_optional_json_object(report_path)
     verify_run = _load_optional_json_object(verify_run_path)
     receipt_path = _artifact_path(
         verifier_path,
@@ -242,17 +245,35 @@ def org_bundle(
         verified_receipt = load_verified_receipt(
             verifier, receipt_path, root=verifier_path.parent
         )
+        report = load_attested_report(verifier_path.parent, verified_receipt)
     except (ValueError, OSError) as exc:
         raise receipt_failure(receipt_path, exc) from exc
     receipt = verified_receipt.model_dump(mode="json") if verified_receipt is not None else None
     receipt_sha256 = _file_sha256(receipt_path) if verified_receipt is not None else None
+    report_ref = verified_receipt.artifact_manifest.artifacts.get("report_json") if verified_receipt else None
+    report_path = verifier_path.parent / report_ref.path if report_ref is not None else None
     attestation_path = _resolve_attestation_path(verifier_path, attestation)
-    attestation_payload = _load_optional_json_object(attestation_path)
-    if attestation_payload is None:
-        attestation_payload = build_attestation_payload(
+    attestation_model = None
+    legacy_attestation = False
+    if attestation is not None or attestation_path.exists() or attestation_path.is_symlink():
+        try:
+            payload = _load_json_object(attestation_path, "Attestation")
+            version = payload.get("attestation_schema_version")
+            legacy_attestation = version in ATTESTATION_SCHEMA_VERSIONS_UPGRADED_ON_READ if isinstance(version, str) else False
+            attestation_model = ReleaseAttestationV1.model_validate(_normalize_attestation_payload(payload))
+        except ValidationError as exc:
+            problem = exc.errors(include_url=False, include_context=False, include_input=False)[0]
+            raise _bundle_attestation_failure(
+                f"Attestation {attestation_path} does not match the release attestation schema. {problem['msg']}"
+            ) from exc
+        except (ValueError, OSError) as exc:
+            raise _bundle_attestation_failure(str(exc)) from exc
+
+    try:
+        expected_attestation = build_attestation_payload(
             verifier,
             source=verifier_path,
-            redacted=True,
+            redacted=attestation_model.redacted if attestation_model is not None else True,
             report=report,
             verify_run=verify_run,
             verify_run_sha256=_file_sha256(verify_run_path),
@@ -260,9 +281,15 @@ def org_bundle(
             verification_receipt_sha256=receipt_sha256,
             org_context=_org_context_from_manifest(manifest),
         )
-    attestation_model = ReleaseAttestationV1.model_validate(
-        _normalize_attestation_payload(attestation_payload)
-    )
+        expected_model = ReleaseAttestationV1.model_validate(expected_attestation)
+    except (ValueError, OSError, TypeError) as exc:
+        if isinstance(exc, ValidationError):
+            reason = exc.errors(include_url=False, include_context=False, include_input=False)[0]["msg"]
+        else:
+            reason = str(exc)
+        raise _bundle_attestation_failure(f"Could not project verifier {verifier_path}: {reason}") from exc
+    if attestation_model is None:
+        attestation_model = expected_model
     # Every identity the bundle publishes (top level, embedded attestation and
     # registry row) is the attestation's, so it must be the validated
     # receipt's, or absent when no receipt was validated.
@@ -273,15 +300,29 @@ def org_bundle(
     expected_receipt_identity["verification_receipt_sha256"] = receipt_sha256
     for field, expected in expected_receipt_identity.items():
         if getattr(attestation_model, field) != expected:
-            typer.echo(
+            raise _bundle_attestation_failure(
                 f"Attestation {field} does not match the terminal verification receipt."
                 if verified_receipt is not None
-                else f"Attestation {field} names a verification receipt that "
-                f"{receipt_path.name} does not provide.",
-                err=True,
+                else f"Attestation {field} names a verification receipt that {receipt_path.name} does not provide."
             )
-            raise typer.Exit(3)
     attestation_json = attestation_model.model_dump(mode="json")
+    expected_json = expected_model.model_dump(mode="json")
+    if legacy_attestation and verified_receipt is None:
+        # Older attestations may omit artifact hashes. Fill those omissions
+        # from the verifier artifacts and compare every supplied hash.
+        attestation_json["artifact_sha256"] = {
+            **expected_json["artifact_sha256"], **attestation_json["artifact_sha256"],
+        }
+    _validate_attestation_claims(attestation_json, expected_json)
+    if attestation_model.approval.status != "not_supplied":
+        try:
+            head = verified_head_commit(verified_receipt, root=verifier_path.parent)
+        except ValueError as exc:
+            raise _bundle_attestation_failure(f"Attestation approval could not be bound: {exc}") from exc
+        if (attestation_model.approval.head_sha or "").lower() != head.lower():
+            raise _bundle_attestation_failure(
+                "Attestation approval.head_sha does not match the receipt-bound head commit."
+            )
     registry_row = _row_from_attestation(
         attestation_json,
         repo=(
@@ -308,12 +349,15 @@ def org_bundle(
     artifacts = _bundle_artifacts(
         {
             "verifier": verifier_path,
-            "report": report_path,
             "verify_run": verify_run_path,
             "attestation": attestation_path,
             "verification_receipt": receipt_path,
         }
     )
+    if report_ref is not None:
+        artifacts["report"] = OrgEvidenceBundleArtifactRef(
+            path=str(report_path), sha256=report_ref.sha256.removeprefix("sha256:"),
+        )
     if out is not None:
         artifacts["org_evidence_bundle"] = OrgEvidenceBundleArtifactRef(
             path=str(out),
@@ -331,7 +375,7 @@ def org_bundle(
         source_verifier=_display_path(verifier_path, root),
         source_report=(
             _display_path(report_path, root)
-            if report_path is not None and report_path.is_file()
+            if report_path is not None
             else None
         ),
         source_verify_run=(
@@ -382,6 +426,41 @@ def _artifact_path(
     return verifier_path.parent / name
 
 
+def _validate_attestation_claims(actual: dict[str, Any], expected: dict[str, Any]) -> None:
+    """Compare derived evidence and leave operator-supplied event metadata alone."""
+    for field in (
+        "verdict", "capability", "human_ack", "capability_lock", "capability_diff",
+        "base_ref", "head_ref", "base_tree_sha", "head_tree_sha", "mode",
+        "policy_snapshot_sha256", "policy_packs", "artifact_sha256", "run_id", "verify_run_sha256",
+    ):
+        observed, required = actual[field], expected[field]
+        if observed == required:
+            continue
+        name = field
+        if isinstance(observed, dict) and isinstance(required, dict):
+            key = next(
+                key for key in dict.fromkeys((*required, *observed))
+                if key not in observed or key not in required or observed[key] != required[key]
+            )
+            name = f"{field}.{key}"
+        raise _bundle_attestation_failure(f"Attestation {name} does not match verifier.json and its artifacts.")
+
+
+def _bundle_attestation_failure(message: str) -> typer.Exit:
+    typer.echo(message, err=True)
+    emit_agent_mode_error_action(
+        "input_parse_error",
+        message=message,
+        exit_code=3,
+        action=NextAction(
+            kind="review",
+            why="Regenerate the attestation with agents-shipgate attest from the same verifier, then rerun org bundle.",
+            expects="An attestation whose derived claims agree with verifier.json and its artifacts.",
+        ),
+    )
+    return typer.Exit(3)
+
+
 def _resolve_attestation_path(verifier_path: Path, explicit: Path | None) -> Path:
     if explicit is not None:
         return explicit if explicit.is_absolute() else verifier_path.parent / explicit
@@ -394,7 +473,7 @@ def _load_json_object(path: Path, label: str) -> dict[str, Any]:
     except FileNotFoundError as exc:
         raise ValueError(f"{label} not found: {path}") from exc
     except json.JSONDecodeError as exc:
-        raise ValueError(f"{label} is not valid JSON: {path}") from exc
+        raise ValueError(f"{label} is not valid JSON: {path} ({exc.msg}, line {exc.lineno})") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"{label} must contain an object: {path}")
     return payload
@@ -411,7 +490,7 @@ def _load_optional_json_object(path: Path | None) -> dict[str, Any] | None:
 
 def _normalize_attestation_payload(payload: dict[str, Any]) -> dict[str, Any]:
     version = payload.get("attestation_schema_version")
-    if version not in ATTESTATION_SCHEMA_VERSIONS_UPGRADED_ON_READ:
+    if not isinstance(version, str) or version not in ATTESTATION_SCHEMA_VERSIONS_UPGRADED_ON_READ:
         return payload
     # 0.6 only added fields with defaults (``approval``, which reads as
     # ``not_supplied``, and the definition digests), so a 0.5 attestation is

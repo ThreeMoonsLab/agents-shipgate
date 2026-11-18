@@ -24,7 +24,11 @@ from agents_shipgate.checks.verify import PROTECTED_FILE_EDITS
 from agents_shipgate.checks.verify_policy import touched_policy_surfaces
 from agents_shipgate.ci.exit_policy import effective_fail_on
 from agents_shipgate.ci.release_decision import SUGGESTED_DECLARATIONS_FILENAME
-from agents_shipgate.cli._artifact_lifecycle import clear_verifier_route_artifacts
+from agents_shipgate.cli._artifact_lifecycle import (
+    SCAN_REPORT_ARTIFACT_NAMES,
+    ArtifactLifecycleError,
+    clear_verifier_route_artifacts,
+)
 from agents_shipgate.cli._helpers import _apply_strict_plugins
 from agents_shipgate.cli.current_workspace import (
     DEFAULT_REPORTS_DIR,
@@ -621,6 +625,8 @@ def run_verify(
         repository=_safe_repository_identity(git_root),
     )
     clear_verifier_route_artifacts(out_dir)
+    if not config_path.is_file():
+        _remove_scan_artifacts(out_dir, strict=True)
     verifier_path = out_dir / "verifier.json"
     verify_run_path = out_dir / "verify-run.json"
     pr_comment_path = out_dir / "pr-comment.md"
@@ -1386,15 +1392,20 @@ def run_verify(
 
     try:
         base_reference: Path | None = None
+        diff_from_base: dict[str, str] | None = None
         if diff_from_at_base:
             assert base is not None and diff_from_relative is not None
+            base_reference_commit = commit_sha(git_root, base)
             base_reference, reference_note = _diff_reference_at_base(
                 git_root=git_root,
                 base=base,
+                base_commit=base_reference_commit,
                 relative=diff_from_relative,
                 run_report_dir=run_base_report_dir,
             )
             base_notes.append(reference_note)
+            if base_reference is not None and base_reference_commit is not None:
+                diff_from_base = {"path": diff_from_relative.as_posix(), "commit_sha": base_reference_commit}
         if diff_from is not None and not diff_from_at_base:
             base_status = "diff_from_provided"
             assert static_diff_from_path is not None
@@ -1826,6 +1837,7 @@ def run_verify(
                     diff_from_path=base_report,
                     authorization_path=authorization,
                     verification_options={
+                        **({"diff_from_base": diff_from_base} if diff_from_base is not None else {}),
                         **({"openshell_native": native_observation.model_dump(mode="json")} if native_observation is not None else {}),
                         "archive_head": archive_head,
                         "baseline_mode": baseline_mode,
@@ -2675,7 +2687,7 @@ def _bind_changed_files(
         candidate = Path(os.path.abspath(os.path.normpath(os.fspath(root / relative))))
         try:
             metadata = candidate.lstat()
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
             continue
         except OSError as exc:
             raise ConfigError(
@@ -2815,6 +2827,7 @@ def _diff_reference_at_base(
     base: str,
     relative: Path,
     run_report_dir: Callable[[], Path],
+    base_commit: str | None = None,
 ) -> tuple[Path | None, str]:
     """Read an in-repository ``--diff-from`` as the base commit holds it (#1024).
 
@@ -2827,7 +2840,7 @@ def _diff_reference_at_base(
 
     spelled = relative.as_posix()
     found = regular_file_at_ref(
-        git_root, base, relative, max_bytes=_MAX_CACHED_REPORT_BYTES
+        git_root, base_commit or base, relative, max_bytes=_MAX_CACHED_REPORT_BYTES
     )
     if found.state == "present":
         assert found.data is not None
@@ -5176,15 +5189,9 @@ def _artifact_paths(
     }
 
 
-def _remove_scan_artifacts(out_dir: Path) -> None:
+def _remove_scan_artifacts(out_dir: Path, *, strict: bool = False) -> None:
     for name in (
-        "report.md",
-        "report.json",
-        "report.sarif",
-        "packet.md",
-        "packet.json",
-        "packet.html",
-        "packet.pdf",
+        *SCAN_REPORT_ARTIFACT_NAMES,
         "capabilities.lock.json",
         "base.capabilities.lock.json",
         "capability-lock-diff.json",
@@ -5192,15 +5199,17 @@ def _remove_scan_artifacts(out_dir: Path) -> None:
         CAPABILITY_DELTA_ATTESTATION_FILENAME,
         CAPABILITY_DELTA_ATTESTATION_V2_FILENAME,
         HUMAN_REVIEW_REQUEST_FILENAME,
-        # Remediation instructions must not outlive the report they describe:
-        # an early verifier reset would otherwise clear report.json and leave a
-        # scaffold behind asking for declarations nothing is measuring.
-        SUGGESTED_DECLARATIONS_FILENAME,
     ):
         path = out_dir / name
-        if path.is_file() or path.is_symlink():
-            with contextlib.suppress(OSError):
-                path.unlink()
+        if not strict and not (path.is_file() or path.is_symlink()):
+            continue
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            if strict:
+                raise ArtifactLifecycleError(path, exc) from exc
 
 
 def _apply_authorization_overlay(
@@ -7377,6 +7386,8 @@ def run_preview(
     agent_handoff_path = out_dir / "agent-handoff.json"
     pr_comment_path = out_dir / "pr-comment.md"
     manifest_present = config_path.is_file()
+    if not manifest_present:
+        _remove_scan_artifacts(out_dir, strict=True)
 
     changed_files: list[str] = []
     diff_text = ""
