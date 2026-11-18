@@ -89,7 +89,9 @@ def first_symlink_in_chain(
     current = root_real
     for part in parts:
         current = current / part
-        if current.is_symlink():
+        # A Windows junction redirects like a link but is not one to
+        # ``is_symlink``; both are refused.
+        if current.is_symlink() or current.is_junction():
             return current
         if not current.exists():
             return None

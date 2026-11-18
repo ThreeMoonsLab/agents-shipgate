@@ -354,6 +354,28 @@ def apply_patches(
             )
             raise typer.Exit(2) from exc
 
+    # The file a patch edits loaded as a Shipgate manifest before; it must
+    # still load as one after, or the patch has turned the manifest into a
+    # file of some other shape (#1031). Refused like any other target that is
+    # not a manifest, before anything is written.
+    broken = [
+        _Violation(
+            target_file,
+            Path(target_file),
+            "not_manifest",
+            f"the patched file would no longer load as a Shipgate manifest: {reason}",
+        )
+        for target_file, _patches, plan in plans
+        if (reason := _planned_manifest_refusal(Path(target_file), plan)) is not None
+    ]
+    if broken:
+        _refuse_containment_violations(
+            from_path,
+            broken,
+            manifest_dir=manifest_dir_resolved,
+            trusted_roots=trusted_roots,
+        )
+
     summary = _Summary()
     refused_declarations: list[tuple[str, str]] = []
     continuations: list[tuple[str, list[Patch], _FileOutcome]] = []
@@ -626,6 +648,24 @@ def _unpatchable_reason(target: Path, root: Path) -> str | None:
             "not a Shipgate manifest; apply-patches edits only the manifest a "
             "scan generated its patches from"
         )
+    return None
+
+
+def _planned_manifest_refusal(target: Path, plan: _FilePlan) -> str | None:
+    """Why the planned text of ``target`` is not a Shipgate manifest, or ``None``.
+
+    Only a plan that would write is checked; a refused or unchanged group
+    leaves the file as it was.
+    """
+
+    if plan.outcome is not None or plan.new_text == plan.original_text:
+        return None
+    from agents_shipgate.config.loader import load_manifest_text
+
+    try:
+        load_manifest_text(plan.new_text, source=target)
+    except (AgentsShipgateError, ValueError) as exc:
+        return str(exc).splitlines()[0][:300]
     return None
 
 

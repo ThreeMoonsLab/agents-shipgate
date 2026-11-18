@@ -983,3 +983,50 @@ def test_an_append_pointer_ending_in_dash_appends_to_that_list(tmp_path: Path) -
     assert result.exit_code == 0, result.output
     purposes = yaml.safe_load(target.read_text(encoding="utf-8"))["agent"]["declared_purpose"]
     assert purposes == ["do one thing", "do another thing"]
+
+
+def test_apply_patches_refuses_a_patch_that_leaves_the_manifest_unloadable(
+    tmp_path: Path,
+) -> None:
+    """The target is checked after the patch too: the result must still be a manifest."""
+
+    target = _write_manifest(tmp_path / "docs" / "example")
+    before = target.read_bytes()
+    report = _pointer_report(
+        tmp_path / "report.json",
+        manifest_dir=tmp_path,
+        patches=[
+            _pointer_patch(
+                "set_pointer",
+                target,
+                "/ci",
+                value={"mode": "advisory", "extra_key_for_other_tool": True},
+            )
+        ],
+    )
+
+    result = runner.invoke(
+        app,
+        ["apply-patches", "--from", str(report), "--apply"],
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+
+    assert result.exit_code == 5, result.output
+    assert "would no longer load as a Shipgate manifest" in result.output
+    assert target.read_bytes() == before
+
+
+def test_apply_patches_applies_a_patch_that_keeps_the_manifest_loadable(
+    tmp_path: Path,
+) -> None:
+    target = _write_manifest(tmp_path)
+    report = _pointer_report(
+        tmp_path / "report.json",
+        manifest_dir=tmp_path,
+        patches=[_pointer_patch("set_pointer", target, "/ci", value={"mode": "advisory"})],
+    )
+
+    result = runner.invoke(app, ["apply-patches", "--from", str(report), "--apply"])
+
+    assert result.exit_code == 0, result.output
+    assert yaml.safe_load(target.read_text(encoding="utf-8"))["ci"] == {"mode": "advisory"}

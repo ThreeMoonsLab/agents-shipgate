@@ -22,6 +22,8 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from agents_shipgate.cli.main import app
+from agents_shipgate.cli.scan.orchestrator import run_scan
+from agents_shipgate.core.contained_write import UnsafeOutputPathError
 from agents_shipgate.schemas.manifest.output import OutputConfig
 
 # `tests/test_manifest_schema_parity.py` holds docs/manifest-v0.1.json to the
@@ -376,3 +378,269 @@ def test_the_contained_writer_refuses_every_unsafe_destination(tmp_path: Path) -
     assert (root / "new" / "nested" / "file.txt").read_text(encoding="utf-8") == "b\n"
     assert remove_contained(root / "new" / "nested" / "file.txt", root=root) is True
     assert remove_contained(root / "new" / "nested" / "file.txt", root=root) is False
+
+
+# --- A typed or default output directory inside the repository (#1031) --------
+
+
+def _git_repository(tmp_path: Path) -> Path:
+    import subprocess
+
+    from agents_shipgate.core.git_env import hardened_git_env
+
+    repo = tmp_path / "repo"
+    shutil.copytree(SAMPLES / "clean_read_only_agent", repo)
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "-c",
+                "user.name=fixture",
+                "-c",
+                "commit.gpgsign=false",
+                *args,
+            ],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            env=hardened_git_env(),
+        )
+
+    git("init", "-q", "-b", "main")
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    return repo
+
+
+@pytest.mark.skipif(os.name != "posix", reason="creates directory symbolic links")
+@pytest.mark.parametrize("spelling", ["absolute", "relative-from-root"])
+def test_scan_refuses_an_out_directory_committed_as_a_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spelling: str
+) -> None:
+    """``--out agents-shipgate-reports``, as the GitHub Action passes it, through a committed link."""
+
+    _clean_environment(monkeypatch)
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    sentinel = outside / "report.json"
+    sentinel.write_text("SENTINEL\n", encoding="utf-8")
+    workspace = _workspace(tmp_path, "agents-shipgate-reports")
+    (workspace / "agents-shipgate-reports").symlink_to(outside, target_is_directory=True)
+    monkeypatch.chdir(workspace)
+    out = (
+        str(workspace / "agents-shipgate-reports")
+        if spelling == "absolute"
+        else "agents-shipgate-reports"
+    )
+
+    result = runner.invoke(
+        app, ["scan", "-c", "shipgate.yaml", "--ci-mode", "advisory", "--out", out]
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "symbolic link inside the repository" in result.output
+    assert sentinel.read_text(encoding="utf-8") == "SENTINEL\n"
+    assert sorted(path.name for path in outside.iterdir()) == ["report.json"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="creates directory symbolic links")
+def test_run_scan_checks_a_relative_override_from_the_manifest_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _clean_environment(monkeypatch)
+    workspace = _workspace(tmp_path, "agents-shipgate-reports")
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (workspace / "reports").symlink_to(outside, target_is_directory=True)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(UnsafeOutputPathError, match="symbolic link inside the repository"):
+        run_scan(
+            config_path=workspace / "shipgate.yaml",
+            output_dir=Path("reports"),
+            ci_mode="advisory",
+        )
+
+    assert list(outside.iterdir()) == []
+
+
+@pytest.mark.skipif(os.name != "posix", reason="creates directory symbolic links")
+def test_scan_refuses_a_link_deeper_in_the_out_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _clean_environment(monkeypatch)
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    workspace = _workspace(tmp_path, "agents-shipgate-reports")
+    (workspace / "build").symlink_to(outside, target_is_directory=True)
+
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "-c",
+            str(workspace / "shipgate.yaml"),
+            "--ci-mode",
+            "advisory",
+            "--out",
+            str(workspace / "build" / "reports" / "nested"),
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert list(outside.iterdir()) == []
+
+
+@pytest.mark.skipif(os.name != "posix", reason="creates directory symbolic links")
+def test_an_out_directory_outside_the_repository_may_be_reached_through_a_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Above and outside the repository, the path is the operator's to choose."""
+
+    _clean_environment(monkeypatch)
+    workspace = _workspace(tmp_path, "agents-shipgate-reports")
+    real = tmp_path / "operator-real"
+    real.mkdir()
+    alias = tmp_path / "operator-alias"
+    alias.symlink_to(real, target_is_directory=True)
+
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "-c",
+            str(workspace / "shipgate.yaml"),
+            "--ci-mode",
+            "advisory",
+            "--format",
+            "json",
+            "--out",
+            str(alias / "reports"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (real / "reports" / "report.json").is_file()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="creates directory symbolic links")
+@pytest.mark.parametrize("out", [None, "agents-shipgate-reports"], ids=["default", "typed"])
+def test_verify_refuses_a_reports_directory_committed_as_a_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, out: str | None
+) -> None:
+    _clean_environment(monkeypatch)
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    sentinel = outside / "report.json"
+    sentinel.write_text("SENTINEL\n", encoding="utf-8")
+    repo = _git_repository(tmp_path)
+    (repo / "agents-shipgate-reports").symlink_to(outside, target_is_directory=True)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "shipgate.yaml",
+            "--no-base",
+            "--ci-mode",
+            "advisory",
+            "--format",
+            "json",
+            *(["--out", out] if out else []),
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert sentinel.read_text(encoding="utf-8") == "SENTINEL\n"
+    assert sorted(path.name for path in outside.iterdir()) == ["report.json"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="creates directory symbolic links")
+def test_verify_refuses_a_linked_directory_under_verification_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The captured copy of a policy pack goes through the contained writer too."""
+
+    _clean_environment(monkeypatch)
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    repo = _git_repository(tmp_path)
+    (repo / "policy-inputs").mkdir()
+    (repo / "policy-inputs" / "policy.yaml").write_text(
+        'name: Synthetic empty policy\nversion: "1"\nrules: []\n', encoding="utf-8"
+    )
+    reports = repo / "sg-out"
+    (reports / "verification-inputs").mkdir(parents=True)
+    (reports / "verification-inputs" / "policy-packs").symlink_to(
+        outside, target_is_directory=True
+    )
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "shipgate.yaml",
+            "--no-base",
+            "--ci-mode",
+            "advisory",
+            "--format",
+            "json",
+            "--out",
+            str(reports),
+            "--policy-pack",
+            "policy-inputs/policy.yaml",
+        ],
+    )
+
+    assert result.exit_code != 0, result.output
+    assert list(outside.iterdir()) == []
+
+
+@pytest.mark.skipif(os.name != "posix", reason="creates symbolic links")
+@pytest.mark.parametrize("preview", [False, True], ids=["verify", "preview"])
+def test_a_manifest_free_run_refuses_a_linked_stale_report_instead_of_clearing_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, preview: bool
+) -> None:
+    """The stale-scan cleanup before a manifest-free run goes through the contained remover."""
+
+    _clean_environment(monkeypatch)
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    sentinel = outside / "report.json"
+    sentinel.write_text("SENTINEL\n", encoding="utf-8")
+    repo = _git_repository(tmp_path)
+    (repo / "shipgate.yaml").unlink()
+    reports = tmp_path / "operator-reports"
+    reports.mkdir()
+    (reports / "report.json").symlink_to(sentinel)
+
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            *(["--preview"] if preview else []),
+            "--workspace",
+            str(repo),
+            "--no-base",
+            "--out",
+            str(reports),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "symbolic link" in result.output
+    assert sentinel.read_text(encoding="utf-8") == "SENTINEL\n"
+    assert (reports / "report.json").is_symlink()

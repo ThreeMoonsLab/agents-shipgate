@@ -6,7 +6,11 @@ from agents_shipgate.config.loader import (
     load_manifest_text_with_positions,
     load_manifest_with_positions,
 )
-from agents_shipgate.core.contained_write import check_output_directory
+from agents_shipgate.core.agent_controls import owned_git_root_for
+from agents_shipgate.core.contained_write import (
+    check_output_directory,
+    refuse_links_inside,
+)
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.schemas.common import parse_severity
 
@@ -71,6 +75,10 @@ def _prepare_scan(
     )
     if not output_dir:
         _require_output_directory_inside(manifest.output.directory, base_dir)
+    else:
+        # An operator-typed --out is theirs above the repository; inside it,
+        # a committed link must not carry the reports out (#1031).
+        refuse_links_inside(base_dir / output_dir, owned_git_root_for(base_dir) or base_dir)
     return _ResolvedManifest(
         manifest=manifest,
         manifest_positions=manifest_positions,

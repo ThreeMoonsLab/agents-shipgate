@@ -1781,3 +1781,59 @@ def test_a_repair_route_still_cannot_invent_a_command(tmp_path: Path) -> None:
     ]
     with pytest.raises(ValidationError):
         VerifierArtifact.model_validate(payload)
+
+
+def test_the_printed_apply_patches_command_runs_as_printed_from_another_directory(
+    tmp_path: Path,
+) -> None:
+    """The exact command ``verify`` prints names its repository (#1031).
+
+    ``apply-patches`` writes only under the workspace it is given, never under a
+    directory the report names. Without ``--workspace`` in the printed command,
+    running it as printed from anywhere but the repository would be refused.
+    """
+
+    import shlex
+
+    repo = tmp_path / "repo"
+    (repo / "services" / "closer").mkdir(parents=True)
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "test@example.test")
+    _git(repo, "config", "user.name", "Test")
+    (repo / "services" / "closer" / "agent.py").write_text(_AGENT_SOURCE, encoding="utf-8")
+    (repo / "services" / "closer" / "shipgate.yaml").write_text(_MANIFEST, encoding="utf-8")
+    (repo / ".gitignore").write_text("sg-out/\n.agents-shipgate/\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "base")
+    result = runner.invoke(
+        app,
+        [
+            "verify",
+            "--workspace",
+            str(repo),
+            "--config",
+            "services/closer/shipgate.yaml",
+            "--ci-mode",
+            "advisory",
+            "--format",
+            "control",
+            "--out",
+            str(repo / "sg-out"),
+            "--no-base",
+        ],
+    )
+    action = json.loads(result.output[result.output.index("{") :])["next_action"]
+    assert action["kind"] == "confirm_declarations", action
+    argv = shlex.split(action["command"])
+    assert argv[1] == "apply-patches", argv
+    assert argv[argv.index("--workspace") + 1] == str(repo.resolve())
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    with contextlib.chdir(elsewhere):
+        applied = runner.invoke(app, argv[1:])
+
+    assert applied.exit_code == 0, applied.output
+    assert "action_surface" in (repo / "services" / "closer" / "shipgate.yaml").read_text(
+        encoding="utf-8"
+    )

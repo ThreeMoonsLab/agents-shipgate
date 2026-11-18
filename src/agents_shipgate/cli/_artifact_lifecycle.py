@@ -29,6 +29,19 @@ VERIFIER_ROUTE_ARTIFACT_NAMES = (
     "capability-delta-attestation.v2.json",
 )
 
+# Scan output and its suggested remediation share the report's lifecycle.
+SCAN_REPORT_ARTIFACT_NAMES = (
+    "report.md",
+    "report.json",
+    "report.sarif",
+    "packet.md",
+    "packet.json",
+    "packet.html",
+    "packet.pdf",
+    "suggested-declarations.yaml",
+    "suggested-inventory.json",
+)
+
 # Every name a Shipgate run writes directly into a reports directory, whichever
 # command wrote it: the pointer, the verifier route above, the scan and packet
 # renderers and the skeletons they suggest beside a report, the capability-lock
@@ -45,23 +58,13 @@ REPORTS_DIRECTORY_ARTIFACT_NAMES: frozenset[str] = frozenset(
     {
         *VERIFIER_ROUTE_ARTIFACT_NAMES,
         "current-control.json",
-        "report.md",
-        "report.json",
-        "report.sarif",
-        "packet.md",
-        "packet.json",
-        "packet.html",
-        "packet.pdf",
+        *SCAN_REPORT_ARTIFACT_NAMES,
         "capabilities.lock.json",
         "base.capabilities.lock.json",
         "capability-lock-diff.json",
         "capability-lock-diff.md",
         "human-review-request.json",
         "human-authorization-request.json",
-        "suggested-declarations.yaml",
-        # `scan`/`verify` beside a report whose sources static extraction could
-        # not enumerate (`ci.release_decision.SUGGESTED_INVENTORY_FILENAME`).
-        "suggested-inventory.json",
         # `scenario suggest`'s default, beside the report it reads.
         "suggested-scenarios.yaml",
         # The GitHub Action's annotation and check-run payloads.

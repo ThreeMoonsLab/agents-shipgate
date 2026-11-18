@@ -7,6 +7,15 @@ Exact source-local SDK clones have their own bindings. Unknown receivers,
 constructor/handle changes and unread lists retain explicit uncertainty.
 See [the application contract](docs/application-comparison.md).
 
+Unreleased, #1146: application comparison `0.5` succeeds the released `0.4`.
+A binding whose compared meaning was read from what is bound and is the same
+on both sides is no longer a `not_established` row: `rows` is shorter for the
+same change, and its agent's optional top-level `read_same` names it once with
+its doubts (whether the agent holds it, or which file an import search
+reaches). A doubt about which definition or settings are bound keeps the row,
+with optional `doubts`. No published schema document exists for either
+version yet (#1044).
+
 What agents and CI integrations can rely on across versions of Agents Shipgate.
 
 New in 1.3.0, runtime contract v42: an empty preflight plan no longer mints
@@ -363,6 +372,20 @@ the Action tag) for reproducible CI.
 
 ---
 
+<a id="capability-lock-plugin-opt-in-1062"></a>
+## Migration Note: Unreleased — verifier capability locks record effective plugin opt-in (#1062)
+
+`verify` records `source.plugins_enabled` as `false` when plugin opt-in is
+unset or `--no-plugins` is set, and `true` when opt-in takes effect. This
+matches `capability export`. A default opt-out run now has a different
+`hashes.source_set_hash` from one produced by the earlier verifier with the
+same inputs. `capability diff` copies this hash into its `base` and `head`
+references, and `attest` copies it into `capability_lock.source_set_hash`.
+Regenerate a pinned hash from the same source and plugin setting when
+updating the verifier.
+
+---
+
 <a id="write-containment-1031"></a>
 
 ## Migration Note: Unreleased — writes stay inside roots the run chooses, and every Git child runs with one environment (#1031)
@@ -393,11 +416,12 @@ meant to contain, and nothing checked the files written inside them.
   `manifest_dir` *and* under a root the run names itself: the new
   `--workspace <dir>` option, or else the directory it is started in, plus the
   git toplevel containing that directory. A toplevel counts only when its
-  `.git` is a directory, or a file naming a `gitdir:`, owned by the current
-  user; anything else at the nearest `.git` narrows the roots instead of
-  widening them. The target must also load as a Shipgate manifest, the only
-  file a generated patch edits, and a protected agent-boundary or trust-root
-  file is refused by name. Anything else exits `5` (`other_error`, with a
+  `.git` is a directory or a file naming a `gitdir:`, and on POSIX only when
+  that entry is owned by the current user (Windows has no ownership check);
+  anything else at the nearest `.git` narrows the roots instead of widening
+  them. The target must load as a Shipgate manifest, the only file a generated
+  patch edits, before the patch and again once every patch for it is applied
+  in memory; a protected agent-boundary or trust-root file is refused by name. Anything else exits `5` (`other_error`, with a
   `review` action naming the report and the resolved target) and nothing is
   written. The `apply-patches` commands `verify` prints carry
   `--workspace <repository>`, so they work from any directory.
@@ -416,18 +440,29 @@ meant to contain, and nothing checked the files written inside them.
   An absolute path, a Windows drive or UNC path, or a `..` segment is a
   `config_error` (exit `2`) when the manifest loads, for every command that
   loads it. `docs/manifest-v0.1.json` carries the rule as a `pattern`.
+- **The reports directory, typed or default.** An output directory typed
+  with `--out` (`scan`, `verify`, and the GitHub Action's
+  `--out agents-shipgate-reports`) and `verify`'s default
+  `<workspace>/agents-shipgate-reports` are checked from the repository root
+  (the git toplevel, or the manifest's directory outside Git) before they are
+  resolved, and so is `output.directory`. Every component inside the
+  repository must be a plain directory, not a link or a Windows junction: a
+  reports directory that is itself a link is refused, even one pointing inside
+  the workspace, and so is a link deeper in the path. The directories above
+  the repository root are the operator's choice, and a location outside the
+  repository may still be reached through a link.
 - **Every file `scan` writes or clears** — reports, packet files, the advisory
   scaffolds, `current-control.json` and the stale verifier artifacts it
-  removes — goes through one contained writer. Before anything is written or
-  removed it refuses a symbolic link in any directory below the trusted root, a
-  link at the destination (one that stays inside the workspace included), a
-  special file, a hard link, and a spelling outside the root; where the
-  platform supports it, the file is opened with `O_NOFOLLOW` and re-checked.
-  The trusted root is the manifest's directory for `output.directory`, and the
-  directory itself for a `scan --out` the operator typed. A reports directory
-  that is itself a link is now refused even when it points inside the
-  workspace. `verify` clears stale verifier artifacts the same way, so a
-  linked one is refused instead of being removed.
+  removes — and `verify`'s `verification-inputs/` copies and the stale scan
+  artifacts it clears before a manifest-free run go through one contained
+  writer. Before anything is written or removed it refuses a link or
+  junction in any directory below the trusted root, a link at the destination
+  (one that stays inside the workspace included), a special file, a hard link,
+  and a spelling outside the root; where the platform supports it, the file is
+  opened with `O_NOFOLLOW` and re-checked. The trusted root is the manifest's
+  directory for `output.directory`, and the checked output directory itself for
+  `--out`. `verify` clears stale verifier artifacts the same way, so a linked
+  one is refused instead of being removed.
 - **Git.** Every Git child — discovery, `verify`'s plumbing, `fixture run`,
   `authorization execute` and the Claude Code hook runner — runs with
   `agents_shipgate.core.git_env.hardened_git_env()`, which holds the union of
@@ -456,8 +491,9 @@ and a report applied from inside its repository, behave as before.
   rescue that run; to write reports elsewhere afterwards, pass `scan --out`.
   `verify` passes its own `--out`, but a base or head manifest holding such a
   value now fails to load.
-- A reports directory that is, or contains, a symbolic or hard link: replace
-  the link with a plain directory or file, or choose another `--out`.
+- A reports directory that is, or contains, a symbolic or hard link, or that
+  sits below a linked directory of the repository: replace the link with a
+  plain directory or file, or choose an `--out` outside the repository.
 - A pipeline that runs `apply-patches` from outside the repository the patches
   are for: pass `--workspace <repository>`, or run it from inside. `bootstrap`
   already runs it from the workspace.
@@ -829,6 +865,19 @@ changes nothing; one that needs definition changes reads the `v2` file.
 
 ---
 
+<a id="bundle-attestation-checks-1066"></a>
+## Migration Note: Unreleased — organization bundles check supplied attestations (#1066)
+
+`org bundle` exits `3` for a supplied attestation whose derived claims
+disagree with the verifier and its artifacts. The error identifies the
+field. An evaluated approval requires a receipt and must name its verified
+head commit. Review details still come from the supplied attestation.
+A legacy verifier without a receipt supports a consistency check against
+that verifier's own output. Regenerate mismatched attestations from the
+same verification run before bundling them.
+
+---
+
 <a id="attestation-approval"></a>
 
 ## Migration Note: 1.3.0 — an attestation can record who approved the change (attestation `0.6`, registry `0.5`, #1118)
@@ -883,6 +932,19 @@ the fetch step and `--reviews` shown in `docs/organization.md`.
 `human_ack`, the bypass report's rule, and the receipt identity rules.
 `attest` stays static-by-default and calls no API: the workflow fetches the
 reviews.
+
+---
+
+## Migration Note: Unreleased — report fields in an attestation require a receipt (#1068)
+
+Every run without a receipt-bound report has `human_ack.satisfied: null`,
+empty `outstanding` and `acks` lists, a null `policy_snapshot_sha256`, and no
+report hash. A bound report without a `human_ack` block also leaves the
+acknowledgement unknown. `org bundle` publishes report provenance and privacy
+evidence only from a bound report. For review-required verdicts, a row with
+unknown acknowledgement can count as a bypass candidate in `registry report`,
+including when `--fail-on-bypass` is set. Consumers that need acknowledged
+policy evidence should use the terminal receipt and the report it binds.
 
 ---
 
@@ -1133,6 +1195,17 @@ permission is added, `report_schema_version` stays `1.0`, and
 change. The capability lock family (`capabilities.lock.json`, the lock diff
 and the capability delta attestation) stays unredacted, as before, pending
 #1079.
+
+---
+
+<a id="manifest-free-artifact-cleanup-1067"></a>
+## Migration Note: Unreleased — manifest-free verification clears earlier scan artifacts (#1067)
+
+Manifest-free `verify` and `verify --preview` remove older scan reports,
+evidence packets, capability locks, and suggested declarations and inventories
+from their output directory before comparing host configuration. If an
+artifact cannot be removed, the command exits `4` and publishes no new
+verifier. Use distinct `--out` directories to retain the earlier scan artifacts.
 
 ---
 
@@ -1473,7 +1546,7 @@ the Action exported four empty identities and the receipt's path unchecked.
   or `artifacts.report_json`). `verify` names one only for a run whose head
   scan ran, which it closes with a receipt, so a named report owes one. A
   report the verifier does not name belongs to another run (the
-  manifest-free host route leaves an earlier run's in place); the step
+  manifest-backed preview can leave an earlier run's in place); the step
   publishes nothing from it and owes nothing for it. A
   `0.1`–`0.4` label is believed only on a payload with none of the identity
   fields verifier `0.5` introduced with receipts (`request_id`, `subject_id`,
