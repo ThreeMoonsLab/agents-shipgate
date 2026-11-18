@@ -48,7 +48,24 @@ from agents_shipgate.core.host_grants import (
 DIFF_SCHEMA_VERSION = "0.4"
 
 
-def _resolve_base(workspace: Path, base: str | None, head: str = "HEAD") -> tuple[str, str]:
+def _validate_host_diff_ref(ref: str, option: str) -> None:
+    from agents_shipgate.cli.verify.git import _validate_ref_token
+    from agents_shipgate.core.errors import ConfigError
+
+    if not ref.strip() or ref.startswith("-"):
+        label = option.removeprefix("--").capitalize()
+        raise typer.BadParameter(
+            f"{label} ref must be non-empty and cannot start with a dash.", param_hint=option,
+        )
+    try:
+        _validate_ref_token(ref)
+    except ConfigError as exc:
+        raise typer.BadParameter(str(exc), param_hint=option) from exc
+
+
+def _resolve_base(
+    workspace: Path, base: str | None, head_commit: str | None, *, worktree: bool,
+) -> tuple[str, str]:
     """The base ref and the merge-base commit this diff compares against."""
 
     from agents_shipgate.cli.verify.git import (
@@ -59,8 +76,8 @@ def _resolve_base(workspace: Path, base: str | None, head: str = "HEAD") -> tupl
         shallow_merge_base_is_proven,
     )
 
-    if base is not None and (not base.strip() or base.startswith("-")):
-        raise typer.BadParameter("Base ref must be non-empty and cannot start with a dash.", param_hint="--base")
+    if base is not None:
+        _validate_host_diff_ref(base, "--base")
 
     def refuse_shallow() -> None:
         from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
@@ -87,21 +104,21 @@ def _resolve_base(workspace: Path, base: str | None, head: str = "HEAD") -> tupl
 
     truncated = _history_is_truncated(workspace) is True
 
-
     # Same resolver `check` uses (#649), including its narrow local
     # fallback: a local `main` is refused while a remote exists, because the
     # remote is the authority it might be stale against, and used only where
     # the repository has no remote at all.
     requested = base or detect_default_base(
-        workspace, head, allow_local_when_no_remote=True, allow_equal_head=True
+        workspace, head_commit or "HEAD", allow_local_when_no_remote=True, allow_equal_head=True
     )
     if requested is None:
+        hint = " (use --base HEAD for uncommitted changes only)" if worktree else ""
         raise typer.BadParameter(
-            "No base ref could be detected. Pass --base <ref> explicitly "
-            "(use --base HEAD for uncommitted changes only).",
+            f"No base ref could be detected. Pass --base <ref> explicitly{hint}.",
             param_hint="--base",
         )
-    if commit_sha(workspace, requested) is None:
+    base_tip = commit_sha(workspace, requested)
+    if base_tip is None:
         if truncated:
             # The ref is missing and history is cut: fetching is the repair,
             # and it is a more useful answer than "fetch it first".
@@ -111,12 +128,12 @@ def _resolve_base(workspace: Path, base: str | None, head: str = "HEAD") -> tupl
             "this command never fetches.",
             param_hint="--base",
         )
-    resolved = merge_base_sha(workspace, requested, head)
-    if resolved is None:
+    resolved = merge_base_sha(workspace, base_tip, head_commit) if head_commit is not None else None
+    if resolved is None or head_commit is None:
         if truncated:
             refuse_shallow()
         raise typer.BadParameter(
-            f"No merge base between {requested!r} and {head}, so there is no "
+            f"No merge base between {requested!r} and {'HEAD' if worktree else head_commit}, so there is no "
             "common point to compare from.",
             param_hint="--base",
         )
@@ -127,11 +144,7 @@ def _resolve_base(workspace: Path, base: str | None, head: str = "HEAD") -> tupl
         # its ancestry, every visible path from both tips must terminate: any
         # remaining root may be a graft hiding a better common ancestor.
         # HEAD/self and fully visible paths to the candidate remain usable.
-        base_commit = commit_sha(workspace, requested)
-        head_commit = commit_sha(workspace, head)
-        if base_commit is None or head_commit is None:
-            refuse_shallow()
-        if not shallow_merge_base_is_proven(workspace, base_commit, head_commit, resolved):
+        if not shallow_merge_base_is_proven(workspace, base_tip, head_commit, resolved):
             refuse_shallow()
     return requested, resolved
 
@@ -259,7 +272,10 @@ def _echo_coverage(comparison, *, blank_before: bool = True) -> bool:
     return bool(lines)
 
 
-def _echo_references(comparison, *, blank_before: bool = False, refused: bool = False) -> None:
+def _echo_references(
+    comparison, *, blank_before: bool = False, refused: bool = False,
+    committed_command: str | None = None,
+) -> None:
     """Print the compared commits and the command that reads them again (#812 follow-up).
 
     On every result this command produces, not only one with a change: a
@@ -281,6 +297,8 @@ def _echo_references(comparison, *, blank_before: bool = False, refused: bool = 
     lines = comparison_reference_lines(
         comparison, label=REFUSED_REFERENCE_LABEL if refused else "Compared"
     )
+    if lines and committed_command is not None:
+        lines[-1] = f"Reproduce: {committed_command}"
     if lines and blank_before:
         typer.echo("")
     for line in lines:
@@ -292,83 +310,89 @@ def run_capability_diff(
     workspace: Path,
     base: str | None,
     json_output: bool,
+    head: str | None = None,
 ) -> int:
     require_workspace(workspace)
-    from agents_shipgate.cli.verify.git import ensure_git_workspace
+    from agents_shipgate.cli.verify.changed_inputs import comparison_changed_inputs
+    from agents_shipgate.cli.verify.git import (
+        PromisedObjectsMissingError,
+        archive_fetched_tree,
+        blob_path_identities,
+        blob_path_unchanged,
+        commit_sha,
+        ensure_git_workspace,
+        tree_path_absent,
+        unread_link_prover,
+    )
+    from agents_shipgate.cli.verify.host_tree import materialize_host_tree
     from agents_shipgate.core.errors import ConfigError
+    from agents_shipgate.core.host_comparison import REPRODUCE_PROGRAM, compare_host_inventories
 
     try:
         workspace = ensure_git_workspace(workspace)
     except ConfigError as exc:
         raise typer.BadParameter(str(exc), param_hint="--workspace") from exc
+    if head is not None:
+        _validate_host_diff_ref(head, "--head")
+    head_commit = commit_sha(workspace, head if head is not None else "HEAD")
+    if head is not None and head_commit is None:
+        raise typer.BadParameter(f"Head ref {head!r} is not available locally.", param_hint="--head")
+    compared_head = head_commit if head is not None else None
     with _perf.phase("diff.resolve_base"):
-        base_ref, base_commit = _resolve_base(workspace, base)
+        base_ref, base_commit = _resolve_base(workspace, base, head_commit, worktree=head is None)
 
-    with _perf.phase("diff.head_snapshot"):
-        head = build_host_boundary_snapshot(workspace, cache=HostStaticParseCache())
     with tempfile.TemporaryDirectory(prefix="shipgate-diff-base-") as scratch:
-        from agents_shipgate.cli.verify.git import (
-            PromisedObjectsMissingError,
-            archive_fetched_tree,
-        )
-        from agents_shipgate.cli.verify.host_tree import materialize_host_tree
 
-        base_tree = Path(scratch) / "base"
-        base_tree.mkdir()
-        try:
-            with _perf.phase("diff.base_materialize"):
-                base_tree, base_snapshot = materialize_host_tree(
-                    workspace, base_commit, base_tree, archive=archive_fetched_tree,
+        def read_commit(side: str, ref: str, commit: str):
+            tree = Path(scratch) / side
+            tree.mkdir()
+            try:
+                with _perf.phase(f"diff.{side}_materialize"):
+                    tree, snapshot = materialize_host_tree(
+                        workspace, commit, tree, archive=archive_fetched_tree,
+                    )
+            except PromisedObjectsMissingError:
+                _refuse_objects_missing(workspace, ref, commit, side=side)
+            if snapshot is not None:
+                return snapshot
+            with _perf.phase(f"diff.{side}_snapshot"):
+                return build_host_boundary_snapshot(
+                    tree, cache=HostStaticParseCache(reference_workspace=workspace),
                 )
-        except PromisedObjectsMissingError:
-            # The head is the working tree, so the base is the only side that
-            # reads objects. Any other archive failure is raised as it was.
-            _refuse_objects_missing(workspace, base_ref, base_commit)
-        if base_snapshot is None:
-            with _perf.phase("diff.base_snapshot"):
-                base_snapshot = build_host_boundary_snapshot(
-                    base_tree, cache=HostStaticParseCache(reference_workspace=workspace)
-                )
-        base_inventory = base_snapshot.inventory
 
-    from agents_shipgate.cli.verify.changed_inputs import comparison_changed_inputs
-    from agents_shipgate.cli.verify.git import (
-        blob_path_identities,
-        blob_path_unchanged,
-        commit_sha,
-        tree_path_absent,
-        unread_link_prover,
-    )
-    from agents_shipgate.core.host_comparison import compare_host_inventories
+        if head is not None and compared_head is not None:
+            head_snapshot = read_commit("head", head, compared_head)
+        else:
+            with _perf.phase("diff.head_snapshot"):
+                head_snapshot = build_host_boundary_snapshot(workspace, cache=HostStaticParseCache())
+        base_snapshot = read_commit("base", base_ref, base_commit)
 
     with _perf.phase("diff.changed_inputs"):
-        changed_inputs = comparison_changed_inputs(workspace, base_commit, None)
+        changed_inputs = comparison_changed_inputs(workspace, base_commit, compared_head)
 
-    # One comparison for diff, verify and check (#721). An unchanged partial or
-    # experimental surface is named as a limit instead of refusing every row.
+    # One comparison for diff, verify and check (#721).
     with _perf.phase("diff.compare"):
         comparison = compare_host_inventories(
-            base_inventory,
-            head.inventory,
-            head_kind="worktree",
+            base_snapshot.inventory,
+            head_snapshot.inventory,
+            head_kind="commit" if compared_head is not None else "worktree",
             base_commit=base_commit,
-            # Named in the text output's reference line only; `--json` keeps its keys.
-            head_commit=commit_sha(workspace, "HEAD"),
-            unchanged=lambda source: blob_path_unchanged(workspace, base_commit, None, source),
-            # A hook script on neither side is an unchanged limit (#702).
-            absent=lambda path: tree_path_absent(workspace, base_commit, None, path),
-            # An unread in-tree directory link Git proves unchanged, holding no
-            # configuration, is named rather than refusing every row (#1004).
-            unchanged_link=unread_link_prover(workspace, base_commit, None),
-            identities=lambda paths: blob_path_identities(workspace, base_commit, None, paths),
-            # The change's own paths, so a changed input no reader reads is named
-            # rather than silent (#821).
+            head_commit=head_commit,
+            unchanged=lambda source: blob_path_unchanged(workspace, base_commit, compared_head, source),
+            absent=lambda path: tree_path_absent(workspace, base_commit, compared_head, path),
+            unchanged_link=unread_link_prover(workspace, base_commit, compared_head),
+            identities=lambda paths: blob_path_identities(workspace, base_commit, compared_head, paths),
             changed_inputs=changed_inputs,
-            # A plugin directory whose limit refuses the comparison is left
-            # uncompared and named, and the rest compared, where nothing outside
-            # it depends on it (#808).
-            plugin_scopes=(base_snapshot.plugin_scopes, head.plugin_scopes),
+            plugin_scopes=(base_snapshot.plugin_scopes, head_snapshot.plugin_scopes),
         )
+    committed_command = None
+    target = "working tree"
+    if compared_head is not None:
+        committed_command = f"{REPRODUCE_PROGRAM} diff --base {base_commit} --head {compared_head}"
+        target = f"{_one_line(head)} ({compared_head[:8]})"
+        if comparison.review is not None:
+            comparison.review.reproduce_command = committed_command
+
     rows = list(comparison.rows)
     limits = [limit.model_dump(mode="json") for limit in comparison.unchanged_limits]
     payload = {
@@ -385,6 +409,7 @@ def run_capability_diff(
                         "workspace": str(workspace.resolve()),
                         "base_ref": base_ref,
                         "base_commit": base_commit,
+                        **({"head_ref": head, "head_commit": compared_head} if compared_head is not None else {}),
                         "comparison_status": payload.get("comparison_status"),
                         "incomparable_reasons": payload.get("incomparable_reasons") or [],
                         "rows": [row.as_dict() for row in rows],
@@ -420,8 +445,13 @@ def run_capability_diff(
             "This is an input limit, not a finding about the change. Nothing "
             "below is a claim that the change is safe."
         )
+        if compared_head is None and any(
+            failure.reason == "resource_bound_exceeded" and failure.phase == "inventory_enumeration"
+            for failure in head_snapshot.input_failures.values()
+        ):
+            typer.echo("Use --head HEAD to compare the committed host inputs.")
         _echo_coverage(comparison)
-        _echo_references(comparison, blank_before=True, refused=True)
+        _echo_references(comparison, blank_before=True, refused=True, committed_command=committed_command)
         return 0
 
     if partial:
@@ -431,14 +461,14 @@ def run_capability_diff(
         # named before any row, and a zero-row result is never "no change".
         typer.echo(
             f"Partial comparison against {_one_line(base_ref)} ({base_commit[:8]}) "
-            "-> working tree: "
+            f"-> {target}: "
             + "; ".join(_one_line(reason) for reason in payload.get("incomparable_reasons") or [])
         )
         for line in partial_scope_lines(comparison):
             typer.echo(line)
     else:
         typer.echo(
-            f"Agent capability diff  {_one_line(base_ref)} ({base_commit[:8]}) -> working tree"
+            f"Agent capability diff  {_one_line(base_ref)} ({base_commit[:8]}) -> {target}"
         )
     typer.echo("")
     if limits:
@@ -465,10 +495,9 @@ def run_capability_diff(
         # answer, and a blank line followed it; its block names what was and
         # was not compared.
         _echo_coverage(comparison, blank_before=not partial)
-        _echo_references(comparison, blank_before=True)
+        _echo_references(comparison, blank_before=True, committed_command=committed_command)
         return 0
     from agents_shipgate.report.host_comparison import (
-        comparison_reference_lines,
         permission_guidance_lines,
         presented_changes,
         review_question,
@@ -502,8 +531,7 @@ def run_capability_diff(
     if _echo_coverage(comparison):
         typer.echo("")
     typer.echo(review_question(changes))
-    for line in comparison_reference_lines(comparison):
-        typer.echo(line)
+    _echo_references(comparison, committed_command=committed_command)
     for line in permission_guidance_lines(comparison):
         typer.echo(line)
     return 0
@@ -520,11 +548,11 @@ def diff(
         "--base",
         help=(
             "Base ref. Defaults to the detected default branch; the "
-            "comparison runs from its merge base with HEAD."
+            "comparison runs from its merge base with the selected head ref."
         ),
     ),
     application: bool = typer.Option(False, "--application", help="Compare source-observed application agent wiring without setup (SDK/ADK)."),
-    head: str | None = typer.Option(None, "--head", help="Application comparison head ref; defaults to committed HEAD."),
+    head: str | None = typer.Option(None, "--head", help="Committed head ref. Without it, host mode reads the working tree and application mode uses HEAD."),
     scope: str | None = typer.Option(None, "--scope", help="Application directory relative to the repository; derived from the change when omitted."),
     base_scope: str | None = typer.Option(None, "--base-scope", help="Old application directory for an explicitly selected scope move."),
     max_python_files: int | None = typer.Option(None, "--max-python-files", min=1, help="Application discovery parse bound."),
@@ -545,10 +573,10 @@ def diff(
             emit_agent_mode_error("input_parse_error" if isinstance(exc, InputParseError) else "config_error", message=str(exc), exit_code=2)
             raise typer.Exit(2) from exc
         raise typer.Exit(code)
-    if head is not None or scope is not None or base_scope is not None or max_python_files is not None:
-        raise typer.BadParameter("--head, --scope, --base-scope and --max-python-files require --application.")
+    if scope is not None or base_scope is not None or max_python_files is not None:
+        raise typer.BadParameter("--scope, --base-scope and --max-python-files require --application.")
     raise typer.Exit(
-        run_capability_diff(workspace=workspace, base=base, json_output=json_output)
+        run_capability_diff(workspace=workspace, base=base, head=head, json_output=json_output)
     )
 
 
