@@ -288,20 +288,31 @@ def test_a_pinned_holdout_follows_its_rule() -> None:
     assert walked[-1] is members[-1]
     assert HOLDOUT["walk"]["walked_through"] == members[-1]["created_at"]
     assert HOLDOUT["walk"]["candidates_walked"] == len(walked)
+    # Every pull request created through the stop is accounted for: the ones steps 1-3
+    # set aside before judging, and the candidates walked.
+    counts = HOLDOUT["walk"]["through_walked_through"]
+    assert (
+        counts["pull_requests_created"]
+        - counts["in_development_repositories"]
+        - counts["closed_unmerged"]
+        - counts["no_non_test_python_file"]
+        == counts["candidates"]
+        == len(walked)
+    )
     for item in walked:
         assert item["reason"].strip()
         assert item["created_at"] >= HOLDOUT["window_start"]
         assert item["repository"] in POOL["repositories"]
         assert item["repository"] not in development
         assert item["url"].startswith("https://github.com/") and item["url"].endswith(f"/pull/{item['number']}")
-    for member in members:
-        if member.get("unavailable_reason"):
-            assert member["merge_base"] is None and member["head"] is None
+        assert item["state"] in {"merged", "open"}
+        if item.get("unavailable_reason"):
+            assert item["merge_base"] is None and item["head"] is None
         else:
-            assert SHA.match(member["merge_base"]) and SHA.match(member["head"])
-            assert member["merge_base"] != member["head"]
-    # Who judged relevance, and that it was judged before any engine output (#1158).
-    assert "no engine output was produced or seen" in HOLDOUT["judge"]
+            assert SHA.match(item["merge_base"]) and SHA.match(item["head"])
+            assert item["merge_base"] != item["head"]
+    # Who judged relevance, and that the judge consulted no engine output (#1158).
+    assert "consulted no engine output" in HOLDOUT["judge"]
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", HOLDOUT["generated"])
 
 

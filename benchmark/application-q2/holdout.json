@@ -10,7 +10,7 @@
  "target_members": 30,
  "note": "The rule and its pool were frozen before the reader changes they judge merged. Members are generated from the rule, never chosen: every candidate walked, in rule order up to the 30th member, is listed below, member or skipped, with its reason.",
  "generated": "2026-11-17",
- "judge": "Claude Code (Opus 5.5) agent, one judge, judged from source at the pinned refs on 2026-11-17; no engine output was produced or seen for any candidate",
+ "judge": "Claude Code (Opus 5.5) agent, one judge, judged from source at the pinned refs on 2026-11-17; the judge ran no Agents Shipgate command and consulted no engine output for any candidate. The 14 ThreeMoonsLab/agents-shipgate candidates had `verify` run on them by that repository's own CI, which was not consulted.",
  "walk": {
   "issue": "https://github.com/ThreeMoonsLab/agents-shipgate/issues/1158",
   "enumerated": "2026-11-17T08:39Z to 2026-11-17T09:22:41Z",
@@ -31,7 +31,7 @@
    "step_2_framework_package_exclusions": 11
   },
   "pins": "merge_base is git merge-base of the pull request's baseRefOid and headRefOid; head is headRefOid as listed on 2026-11-17. Both were fetched into a blobless clone (git clone --filter=blob:none).",
-  "method": "For each candidate, the patch and the files it touches were read at both pins, with the agent constructions and imports around them. AST scripts listed every Agent, LlmAgent, SequentialAgent, ParallelAgent, LoopAgent and RealtimeAgent construction with its tools, handoffs, sub_agents and mcp_servers arguments; every changed function (its AST without the docstring); and the modules that files importing the OpenAI Agents SDK or Google ADK import. The judge read by hand every candidate those facts linked to an agent, and reviewed the rest from their changed files. No Agents Shipgate command was run on any candidate.",
+  "method": "For each candidate, the patch and the files it touches were read at both pins, with the agent constructions and imports around them. AST scripts listed every Agent, LlmAgent, SequentialAgent, ParallelAgent, LoopAgent and RealtimeAgent construction with its tools, handoffs, sub_agents and mcp_servers arguments; every changed function (its AST without the docstring); and the modules that files importing the OpenAI Agents SDK or Google ADK import. The judge read by hand every candidate those facts linked to an agent, and reviewed the rest from their changed files. The judge ran no Agents Shipgate command on any candidate and consulted no engine output; the 14 ThreeMoonsLab/agents-shipgate candidates had `verify` run by that repository's own CI (agents-shipgate-self.yml), which was not consulted.",
   "order_note": "The window's large repositories finished listing after the candidates of smaller repositories had been judged, so 99 candidates created after the 30th member were also judged; they are not part of the walk and are not listed.",
   "interpretations": [
    "Pool: the repositories named in pool.json, followed through GitHub's redirect when renamed; a repository GitHub no longer serves contributes no candidate.",
@@ -40,11 +40,12 @@
    "A tool's own code is its function's AST without the docstring, decorators and defaults included, as the implementation digest covers: comment, formatting and docstring-only edits are not changes, and neither is code the tool calls. Where a tool is built as FunctionTool(on_invoke_tool=f), f is the bound function.",
    "Tools bound as objects are bindings, as the engine reads them: an MCP toolset whose tool filter or allowlist admits or drops tools adds or removes those tools; code inside an MCP server, or inside the toolset object, is not a bound function's own code.",
    "Deleting an agent that exists at the merge base removes its tools, handoffs and sub-agents; a removal describes the deleted source path, as the engine's removal does.",
+   "An agent moved or renamed with unchanged bindings is the same agent, not a deletion and an addition (roee-hersh/toolpass#64 moves hallpass-py/examples/*_agent.py to toolpass-py/examples with identifier renames only).",
    "An agent constructed only at the head is new, not an agent that exists at the merge base, whatever it binds.",
    "Application code includes samples, tutorials, demos, showcases and book code, as the development corpus did. Code that implements an agent framework, SDK, library, instrumentation, adapter, template or evaluation harness is not; nor is a platform whose agents take their tools from runtime configuration, where no binding exists in source.",
    "The framework is read off the constructor's import: OpenAI Agents SDK means the `agents` package that is the SDK (SandboxAgent and RealtimeAgent included), never a local package named agents; Google ADK means google.adk. LiveKit, Strands, Pydantic AI, CrewAI, Microsoft Agent Framework and repositories' own agent classes are neither.",
    "A runtime configuration file the application reads to build a list (FlySecAgent's mcp.json) is input to the list, not a binding written in code.",
-   "A member held only under a condition (a configuration flag, a token being present) is still a binding change when the condition or the list holding it changes."
+   "A member held only under a condition (a configuration flag, a token being present) is still a binding change when the condition or the list holding it changes, but only for a binding named in source. apowerb/apowerb#278 (2026-10-05T10:43:44Z) changes a condition (if not email_is_admin(owner_id): continue) under which runtime-configured MCP toolsets are held; no tool is named in source, so it is skipped by the runtime-configuration reading. Read the other way, it would be member 29, team-ieum/ieum-agent#65 the 30th, and usestrix/strix#1446 would drop out."
   ],
   "walked_through": "2026-10-05T12:51:50Z",
   "candidates_walked": 768

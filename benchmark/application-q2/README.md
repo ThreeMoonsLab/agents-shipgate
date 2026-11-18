@@ -192,9 +192,10 @@ Its `walk` record says how the window was listed, how many pull requests each
 step set aside, and how the rule was read where it needed reading. 768
 candidates were walked, in rule order, from 2026-10-02 to the 30th member on
 2026-10-05; every one is listed with its pins and its reason. Relevance was
-judged from source by one judge, a Claude Code agent, before any engine ran on
-a candidate (`judge`). The holdout has no ledger yet: it is scored at the next
-release.
+judged from source by one judge, a Claude Code agent, who ran no Agents
+Shipgate command and consulted no engine output for any candidate (`judge`;
+this repository's own CI ran `verify` on its 14 candidates, unconsulted). The
+holdout has no ledger yet: it is scored at the next release.
 
 The [2026-11-08 development ledger](results/2026-11-08-04fc9ced.md)
 measures the 1.3.0 release build at `04fc9ced`: Q1 and Q2 are 0/49, down
