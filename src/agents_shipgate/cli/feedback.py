@@ -93,7 +93,7 @@ def build_feedback_payload(
 
     return {
         "feedback_schema_version": "0.1",
-        "source_verifier": _display_path(source, redacted=redacted),
+        "source_verifier": _feedback_path(source, redacted=redacted),
         "redacted": redacted,
         "merge_verdict": verifier.get("merge_verdict"),
         "can_merge_without_human": bool(verifier.get("can_merge_without_human")),
@@ -183,13 +183,13 @@ def _related_finding_ids(value: Any) -> set[str]:
 
 def _artifact_projection(value: Any, *, redacted: bool) -> dict[str, Any]:
     return {
-        key: _display_path(path, redacted=redacted)
+        key: _feedback_path(path, redacted=redacted)
         for key, path in _dict(value).items()
         if key in {"verifier_json", "report_json", "pr_comment"}
     }
 
 
-def _display_path(value: Any, *, redacted: bool) -> str:
+def _feedback_path(value: Any, *, redacted: bool) -> str:
     text = str(value)
     if not redacted:
         return text
@@ -346,9 +346,9 @@ def build_scenario_payload(
             "transcript": _evidence_entry(transcript_path, redacted=redacted),
         },
         "source": {
-            "before": _display_path(before_source, redacted=redacted),
+            "before": _feedback_path(before_source, redacted=redacted),
             "after": (
-                _display_path(after_source, redacted=redacted) if after_source is not None else None
+                _feedback_path(after_source, redacted=redacted) if after_source is not None else None
             ),
         },
     }
