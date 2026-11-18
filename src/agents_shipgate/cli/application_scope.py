@@ -24,6 +24,7 @@ from typing import Any
 from agents_shipgate.cli.discovery.artifacts import _skip_part
 from agents_shipgate.cli.discovery.signals import _is_test_path, application_frameworks
 from agents_shipgate.cli.verify.git import _blob_contents, _run_git_bounded_output, _TreeBlob
+from agents_shipgate.core.python_source import decode_python_source, parse_python
 from agents_shipgate.inputs.openai_sdk_static import _capability_changes
 
 SUPPORTED = frozenset({"openai_agents_sdk", "google_adk"})
@@ -245,7 +246,11 @@ class _Tree:
             contents = _blob_contents(self.workspace, [self.blobs[item] for item in chunk]) if chunk else {}
             for item in chunk:
                 data = contents.get(self.blobs[item].oid)
-                self._texts[item] = data.decode("utf-8", errors="replace") if data is not None else None
+                try:
+                    self._texts[item] = decode_python_source(data) if data is not None else None
+                except UnicodeError:
+                    self._texts[item] = None
+                    self._limit(f"Python input encoding could not be read: {item}")
             if chunk and not contents:
                 self._limit(f"{len(chunk)} Python files of {self.commit[:12]} could not be read.")
             chunk, total = ([path], size) if path is not None else ([], 0)
@@ -344,7 +349,7 @@ class _Tree:
             if text is None or not self.imports(path) & self.builders:
                 continue
             try:
-                module = ast.parse(text)
+                module = parse_python(text)
             except (SyntaxError, ValueError, RecursionError):
                 continue
             directory = PurePosixPath(path).parent
@@ -490,7 +495,7 @@ class _Tree:
 
         text = self.text(path)
         try:
-            module = ast.parse(text) if text is not None else None
+            module = parse_python(text) if text is not None else None
         except (SyntaxError, ValueError, RecursionError):
             return True
         if module is None:
@@ -570,7 +575,7 @@ class _Tree:
 
         text = self._texts.get(path)
         try:
-            module = ast.parse(text) if text is not None else None
+            module = parse_python(text) if text is not None else None
         except (SyntaxError, ValueError, RecursionError):
             module = None
         if module is None:
@@ -608,7 +613,7 @@ class _Tree:
         if text is None:
             return found
         try:
-            tree = ast.parse(text)
+            tree = parse_python(text)
         except (SyntaxError, ValueError, RecursionError):
             return found
         outer, self._sink = self._sink, direct
@@ -809,7 +814,7 @@ def _rewires_agent(text: str) -> bool:
     agent and appending a tool, #875 review)."""
 
     try:
-        tree = ast.parse(text)
+        tree = parse_python(text)
     except (SyntaxError, ValueError, RecursionError):
         return False
     return bool(_changes_capabilities(tree))
@@ -827,7 +832,7 @@ def _builds_agent(text: str, *, on_request: bool = False) -> bool:
     module builds once (#875 review)."""
 
     try:
-        tree = ast.parse(text)
+        tree = parse_python(text)
     except (SyntaxError, ValueError, RecursionError):
         return False
     # ``from agents import Agent as SdkAgent``, ``from google.adk.agents import

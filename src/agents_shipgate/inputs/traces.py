@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.inputs.common import load_structured_file, load_text_file, resolve_input_path
 from agents_shipgate.schemas.manifest import ArtifactPathConfig
 
@@ -43,7 +44,7 @@ def load_trace_artifacts(
                     f"Optional {label} trace artifact {ref.path!r} failed to load."
                 )
             continue
-        display_path = _display_path(path, base_dir)
+        display_path = _display_path(path, base_dir, outside="resolved")
         files.append(display_path)
         for raw in raw_items:
             normalized = normalize_trace_event(raw.item)
@@ -170,10 +171,3 @@ def _nested_string(item: dict[str, Any], paths: list[tuple[str, ...]]) -> str | 
         if isinstance(value, str) and value:
             return value
     return None
-
-
-def _display_path(path: Path, base_dir: Path) -> str:
-    try:
-        return path.resolve().relative_to(base_dir.resolve()).as_posix()
-    except ValueError:
-        return str(path.resolve())

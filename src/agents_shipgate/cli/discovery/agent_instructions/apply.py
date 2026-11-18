@@ -80,6 +80,7 @@ from agents_shipgate.cli.discovery.local_contract import (
     LOCAL_CONTRACT_RELATIVE_PATH,
     LOCAL_CONTRACT_SCHEMA_VERSION,
 )
+from agents_shipgate.core.paths import first_symlink_in_chain
 from agents_shipgate.schemas.contract import GATING_SIGNAL
 
 PR_TEMPLATE_LOWER = ".github/pull_request_template.md"
@@ -101,33 +102,6 @@ _SKIPPED_STATUSES = frozenset(
         "skipped_directory_template",
     }
 )
-
-
-def _first_symlink_in_chain(path: Path, workspace: Path) -> Path | None:
-    """Return the first symlink encountered between ``workspace`` (exclusive)
-    and ``path`` (inclusive), or ``None`` if no existing component is a
-    symlink.
-
-    Walking the parent chain prevents the directory-symlink escape: a
-    workspace where ``.github -> /tmp/outside`` would otherwise route
-    ``.github/pull_request_template.md`` writes outside the workspace even
-    though the file itself is not a symlink. Non-existent intermediates
-    cannot be symlinks, so the walk stops at the first missing component.
-    """
-    workspace_real = workspace.resolve()
-    try:
-        relative_parts = path.relative_to(workspace_real).parts
-    except ValueError:
-        # Caller bug: target was not under workspace lexically. Refuse.
-        return path
-    cur = workspace_real
-    for part in relative_parts:
-        cur = cur / part
-        if cur.is_symlink():
-            return cur
-        if not cur.exists():
-            return None
-    return None
 
 
 @dataclass
@@ -287,7 +261,7 @@ def _apply_managed_block_target(name: str, path: Path, workspace: Path) -> Targe
     # Refuse to follow symlinks anywhere in the parent chain. A symlinked
     # directory above the target file (e.g., ``.github -> /tmp/outside``)
     # would otherwise route the write outside the workspace.
-    symlink = _first_symlink_in_chain(path, workspace)
+    symlink = first_symlink_in_chain(path, workspace)
     if symlink is not None:
         return TargetOutcome(
             name=name,
@@ -385,7 +359,7 @@ def _apply_full_file(
 ) -> TargetOutcome:
     rendered_bytes = rendered.encode("utf-8")
     rendered_sha = hashlib.sha256(rendered_bytes).hexdigest()
-    symlink = _first_symlink_in_chain(path, workspace)
+    symlink = first_symlink_in_chain(path, workspace)
     if symlink is not None:
         return TargetOutcome(
             name=name,
@@ -465,7 +439,7 @@ def _apply_local_contract(path: Path, workspace: Path) -> TargetOutcome:
     rendered = render_local_contract_file()
     rendered_bytes = rendered.encode("utf-8")
     rendered_sha = hashlib.sha256(rendered_bytes).hexdigest()
-    symlink = _first_symlink_in_chain(path, workspace)
+    symlink = first_symlink_in_chain(path, workspace)
     if symlink is not None:
         return TargetOutcome(
             name="local-contract",
@@ -568,7 +542,7 @@ def _apply_file_tree(
     sidecar_path = path / SIDECAR_FILENAME
 
     for target in [*target_paths.values(), sidecar_path]:
-        symlink = _first_symlink_in_chain(target, workspace)
+        symlink = first_symlink_in_chain(target, workspace)
         if symlink is not None:
             return TargetOutcome(
                 name=name,

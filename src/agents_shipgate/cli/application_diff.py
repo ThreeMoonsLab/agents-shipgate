@@ -50,6 +50,7 @@ from agents_shipgate.core.domain import (
 )
 from agents_shipgate.core.errors import ConfigError, InputParseError
 from agents_shipgate.core.privacy import sanitize_report_payload
+from agents_shipgate.core.python_source import decode_python_source, parse_python
 from agents_shipgate.core.semantic_assessment import (
     REACH_CLAIM_SOURCE,
     REACH_CLAIM_SOURCES,
@@ -244,7 +245,7 @@ def _definition(root: Path, tool: Any, agent: str | None = None) -> dict[str, An
     if not file.is_file() or not file.resolve().is_relative_to(root.resolve()):
         return {"source": path, "line": None, "implementation_sha256": None}
     try:
-        tree = ast.parse(file.read_bytes())
+        tree = parse_python(file.read_bytes())
         location = tool.source_location or ""
         line = location.rsplit(":", 1)[-1]
         nodes = [
@@ -273,11 +274,19 @@ def _definition(root: Path, tool: Any, agent: str | None = None) -> dict[str, An
     node.body = body
     # Include defaults and decorators: approval decorators and changed default
     # bounds are review-relevant even when the executable body is unchanged.
-    code = ast.dump(
-        node,
-        include_attributes=False,
-        **({"show_empty": True} if sys.version_info >= (3, 13) else {}),
-    )
+    try:
+        code = ast.dump(
+            node,
+            include_attributes=False,
+            **({"show_empty": True} if sys.version_info >= (3, 13) else {}),
+        )
+    except RecursionError:
+        return {
+            "source": path,
+            "line": node.lineno,
+            "implementation_sha256": None,
+            "unestablished": f"Python tool definition is too deeply nested to compare: {path}",
+        }
     # A tool a factory makes also holds what the factory and this agent's
     # calls to it put in its closure (#865 review).
     calls = (getattr(tool, "extraction", None) or {}).get("factory_calls")
@@ -331,8 +340,8 @@ def _reach(root: Path, tool: Any) -> dict[str, Any]:
     location = tool.source_location or ""
     line = location.rsplit(":", 1)[-1]
     try:
-        text = file.read_bytes().decode("utf-8", errors="replace")
-        tree = ast.parse(text)
+        text = decode_python_source(file.read_bytes())
+        tree = parse_python(text)
         nodes = [
             (node, enclosing)
             for node, enclosing in _functions(tree)
@@ -435,7 +444,10 @@ def _batch_blobs(workspace: Path, pending: list[tuple[str, str, int]]) -> dict[s
             ]:
                 break
             start = header_end + 1
-            texts[name] = output[start : start + size].decode("utf-8", errors="replace")
+            try:
+                texts[name] = decode_python_source(output[start : start + size])
+            except UnicodeError:
+                pass
             offset = start + size + 1
         chunk, total = ([item], item[2]) if item is not None else ([], 0)
     return texts
@@ -520,7 +532,10 @@ def _git_layout(workspace: Path, commit: str, scope: str) -> RepositoryLayout:
                 else None
             )
             # None: too large or unreadable; an empty file reads as "".
-            contents[path] = output.decode("utf-8", errors="replace") if output is not None else None
+            try:
+                contents[path] = decode_python_source(output) if output is not None else None
+            except UnicodeError:
+                contents[path] = None
         return contents[path]
 
     return RepositoryLayout("" if scope in {"", "."} else scope, entries, links, read)
@@ -637,8 +652,11 @@ def observe(found: _Discovered, *, max_python_files: int, census: bool) -> Obser
         if relative in linked:
             continue
         try:
-            raw = file.read_bytes()
-            tree = ast.parse(raw)
+            text = decode_python_source(file.read_bytes())
+            tree = parse_python(text, filename=file)
+        except UnicodeError:
+            result.gap(f"Python input encoding could not be read: {relative}", source=relative)
+            continue
         except (SyntaxError, ValueError, RecursionError, OSError):
             result.gap(
                 f"Python input could not be parsed: {relative}",
@@ -646,7 +664,7 @@ def observe(found: _Discovered, *, max_python_files: int, census: bool) -> Obser
             )
             continue
         if census:
-            parsed[relative] = (tree, raw.decode("utf-8", errors="replace"))
+            parsed[relative] = (tree, text)
     for framework in found.detected.frameworks:
         if framework.type not in SUPPORTED and framework.candidate_files:
             for path in framework.candidate_files:
@@ -1075,7 +1093,7 @@ def _observe_source(result: Observations, root: Path, source: ToolSourceConfig) 
                 tool=tool.name,
                 affects="implementation",
             )
-        if definition["implementation_sha256"] is None:
+        elif definition["implementation_sha256"] is None:
             result.gap(
                 f"Implementation location unresolved: {tool.name} ({tool.source_ref}).",
                 source=key[0],
@@ -1771,7 +1789,7 @@ def _still_named_at(
     if not path or not file.is_file() or not file.resolve().is_relative_to(root.resolve()):
         return None
     try:
-        tree = ast.parse(file.read_bytes())
+        tree = parse_python(file.read_bytes())
     except (SyntaxError, ValueError, RecursionError, OSError):
         return None  # observe() already recorded this file as a gap.
     lines = [

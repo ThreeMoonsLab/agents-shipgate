@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from agents_shipgate.core.contained_write import write_contained
 from agents_shipgate.core.findings.subject_rollup import top_findings_block
 from agents_shipgate.core.privacy import sanitize_packet
 from agents_shipgate.core.source_warnings import group_source_warnings
@@ -168,16 +169,17 @@ def write_packet_markdown(
     sanitize_output: bool = True,
     human_context: HumanArtifactContext | None = None,
     cold_lead: ColdReaderLead | None = None,
+    root: Path | None = None,
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    write_contained(
+        path,
         render_packet_markdown(
             packet,
             sanitize_output=sanitize_output,
             human_context=human_context,
             cold_lead=cold_lead,
         ),
-        encoding="utf-8",
+        root=root,
     )
 
 

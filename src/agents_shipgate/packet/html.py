@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from html import escape
 from pathlib import Path
 
+from agents_shipgate.core.contained_write import write_contained
 from agents_shipgate.core.findings.subject_rollup import (
     finding_line,
     group_summary,
@@ -160,16 +161,17 @@ def write_packet_html(
     sanitize_output: bool = True,
     human_context: HumanArtifactContext | None = None,
     cold_lead: ColdReaderLead | None = None,
+    root: Path | None = None,
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    write_contained(
+        path,
         render_packet_html(
             packet,
             sanitize_output=sanitize_output,
             human_context=human_context,
             cold_lead=cold_lead,
         ),
-        encoding="utf-8",
+        root=root,
     )
 
 
