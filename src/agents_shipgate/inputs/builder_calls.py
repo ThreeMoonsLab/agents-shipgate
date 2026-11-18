@@ -32,6 +32,7 @@ from agents_shipgate.inputs.python_imports import (
     SELF_PATCH,
     ImportResolver,
     PythonModule,
+    Rebinding,
     RepositoryLayout,
     Resolution,
     ScopeIndex,
@@ -412,10 +413,47 @@ class Invocation:
         return self.parent.argument(parameter) if self.parent else None
 
 
+def _writes_namespace(scopes: ScopeIndex, node: ast.AST) -> bool:
+    """Whether this use of a module reference writes into the module's namespace (#1146 review).
+
+    ``setattr(m, ...)`` or ``delattr(m, ...)``; ``vars(m)`` or ``m.__dict__``
+    stored into, deleted from or changed through a dictionary method
+    (``.update``, ``.setdefault``, ...); or handed to ``exec``/``eval`` as its
+    namespace. Reading the module, or passing it on as a value, is not one.
+    """
+
+    parent = scopes.parents.get(node)
+    if (isinstance(parent, ast.Call) and isinstance(parent.func, ast.Name)
+            and parent.func.id in {"setattr", "delattr"} and parent.args and parent.args[0] is node):
+        return True
+    if isinstance(parent, ast.Attribute) and parent.attr == "__dict__" and parent.value is node:
+        namespace: ast.AST = parent
+    elif (isinstance(parent, ast.Call) and isinstance(parent.func, ast.Name) and parent.func.id == "vars"
+            and parent.args and parent.args[0] is node):
+        namespace = parent
+    else:
+        return False
+    outer = scopes.parents.get(namespace)
+    if isinstance(outer, ast.Subscript) and outer.value is namespace:
+        return isinstance(outer.ctx, ast.Store | ast.Del)
+    if isinstance(outer, ast.Attribute) and outer.value is namespace:
+        return outer.attr in {"update", "setdefault", "pop", "popitem", "clear", "__setitem__", "__delitem__"}
+    if isinstance(outer, ast.Call) and isinstance(outer.func, ast.Name) and outer.func.id in {"exec", "eval"}:
+        return namespace in outer.args[1:] or any(
+            keyword.arg in {"globals", "locals"} and keyword.value is namespace for keyword in outer.keywords
+        )
+    return False
+
+
 @dataclass(frozen=True)
 class CallerCensus:
     sites: tuple[CallSite, ...] = ()
     limits: tuple[str, ...] = ()
+    #: Code in another module writes into the builder module's namespace
+    #: (``vars(m).update(...)``, ``setattr(m, ...)``, ``m.__dict__[...] = ...``,
+    #: ``exec(..., vars(m))``): it can rebind any name there (#1146 review).
+    #: Reading the module or passing it as a value is not this.
+    namespace_written: bool = False
 
 
 @dataclass(frozen=True)
@@ -622,6 +660,7 @@ class BuilderCalls:
         modules: dict[Path, PythonModule] = {module.path: module}
         pending = [(module, self.function_at(module, call), 0)]
         seen: set[int] = set()
+        written = False
         try:
             while pending:
                 home, function, depth = pending.pop()
@@ -631,6 +670,9 @@ class BuilderCalls:
                     raise CallLimit("the constructor caller chain exceeds its depth bound")
                 seen.add(id(function))
                 census = self.callers(home, function, allow_empty=True)
+                # Another module writes into the agent's own module: any name
+                # there, a tool's included, may be rebound (#1146 review).
+                written = written or (census.namespace_written and home.path == module.path)
                 if census.limits:
                     raise CallLimit("; ".join(census.limits))
                 for site in census.sites:
@@ -641,6 +683,8 @@ class BuilderCalls:
             )
         except CallLimit as exc:
             issue = f"the constructor caller census is not established: {exc}"
+            if written:
+                issue = Rebinding(issue, module=module.ref)
         self._constructors[key] = issue
         return issue
 
@@ -3672,6 +3716,8 @@ class BuilderCalls:
             raise CallLimit(f"{where} passes through more than {MAX_ALIAS_ROUNDS} alias rounds")
         sites: list[CallSite] = []
         limits: list[str] = []
+        #: A caller writes into this module's namespace (#1146 review).
+        written = False
         for path in self._candidates(names | modules, module.path):
             caller = self._module(path)
             scopes = self.scopes(caller)
@@ -3748,6 +3794,7 @@ class BuilderCalls:
                             limits.append(
                                 f"{where}'s module is used through computed access or as a value at {caller.ref}:{node.lineno}"
                             )
+                            written = written or _writes_namespace(scopes, node)
                     resolved_node = self.resolve(caller, node) if imported else None
                     if imported and resolved_node is not None and not resolved_node.resolved:
                         parent = scopes.parents.get(node)
@@ -3766,6 +3813,7 @@ class BuilderCalls:
                                         limits.append(
                                             f"{where}'s retained namespace is used through computed access or as a value at {caller.ref}:{node.lineno}"
                                         )
+                                        written = written or _writes_namespace(scopes, node)
                 if (
                     isinstance(node, ast.Constant)
                     and isinstance(node.value, str)
@@ -3807,6 +3855,7 @@ class BuilderCalls:
                 )
             ),
             tuple(dict.fromkeys(limits)),
+            namespace_written=written,
         )
 
     def _expanding_imports(
@@ -4471,7 +4520,7 @@ class BuilderCalls:
         except _Stop as stop:
             raise CallLimit(f"import-search source evidence is unread: {stop.detail}") from None
         if limits:
-            raise CallLimit(limits[0])
+            raise CallLimit(str(limits[0]))
         self._namespace_directory_currency()
         return NamespaceSourceContext(tuple(modules), tuple(boundaries))
 

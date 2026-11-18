@@ -256,6 +256,25 @@ class Rebinding(str):
         made.names = None if names is None else frozenset(names)
         return made
 
+    def __getnewargs_ex__(self) -> tuple[tuple[str], dict[str, Any]]:
+        # ``copy``, ``deepcopy`` and ``pickle`` rebuild it with its structure.
+        return (str(self),), {"module": self.module, "names": self.names}
+
+
+def joined_rebinding(items: tuple[str, ...], module_ref: str) -> str:
+    """The first of ``items``, carrying what every one of them can rebind in ``module_ref``.
+
+    Two unread imports in one module (``from shared_a import config``, then
+    ``from shared_b import *``) both can rebind its names; naming only the
+    first would let the second's reach go unseen (#1146 review).
+    """
+
+    own = [item for item in items if isinstance(item, Rebinding) and item.module == module_ref]
+    if not own:
+        return items[0]
+    names = None if any(item.names is None for item in own) else frozenset().union(*(item.names or () for item in own))
+    return Rebinding(str(items[0]), module=module_ref, names=names)
+
 
 def rebound_names(issue: object, module_ref: str | None, names: Iterable[str]) -> list[str]:
     """Those of ``names``, bound in the module ``module_ref``, that ``issue`` can rebind (#1146 review)."""
@@ -303,6 +322,15 @@ class Resolution:
     @property
     def resolved(self) -> bool:
         return self.definition is not None
+
+    def __post_init__(self) -> None:
+        # What leaves the resolver is plain text: a reason's structure
+        # (:class:`Rebinding`) is for the constructor check, never for the
+        # evidence a tool or a report carries (#1146 review).
+        object.__setattr__(self, "caveats", tuple(str(item) for item in self.caveats))
+        object.__setattr__(self, "search_caveats", tuple(str(item) for item in self.search_caveats))
+        if self.detail is not None:
+            object.__setattr__(self, "detail", str(self.detail))
 
     @property
     def search_only(self) -> bool:
@@ -1330,7 +1358,7 @@ class ImportResolver:
         search_unread, search_issues = self._import_search_parts(runners)
         search_limits = (*search_unread, *search_issues)
         if external_symbol is not None and search_limits:
-            raise _Stop(REBOUND_NAME, search_limits[0])
+            raise _Stop(REBOUND_NAME, joined_rebinding(search_limits, defining.ref))
         caveats.extend(item for item in search_limits if item not in caveats)
         if external_symbol is not None:
             self._constructor_runners = tuple(runners)
@@ -1789,7 +1817,7 @@ class ImportResolver:
             search_limits = type_reader._import_search_limit(
                 [type_reader.scope_root / ref for ref in found.modules]
             )
-            found.unread.extend(item for item in search_limits if item not in found.unread)
+            found.unread.extend(str(item) for item in search_limits if item not in found.unread)
         return found
 
     def _other_module(
