@@ -257,6 +257,9 @@ def _create_workflow(target: Path, content: bytes, *, root: Path) -> bool:
     """Create the workflow under the repository, returning false if it exists."""
 
     parts = target.parent.relative_to(root).parts
+    # The caller-selected root can be a new workspace. Create that anchor
+    # before checking and creating any repository-controlled descendants.
+    root.mkdir(parents=True, exist_ok=True)
     directory_fd = None
     destination: str | Path = target
     if os.open in os.supports_dir_fd and os.mkdir in os.supports_dir_fd:

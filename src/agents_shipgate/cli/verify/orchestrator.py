@@ -174,6 +174,7 @@ from agents_shipgate.schemas.declaration_continuation import (
     DeclarationContinuationV1,
 )
 from agents_shipgate.schemas.exclusions import SurfaceExclusion
+from agents_shipgate.schemas.host_comparison import HostComparison
 from agents_shipgate.schemas.human_authorization import (
     AuthorizationEvaluationV1,
     HumanAuthorizationV1,
@@ -7399,6 +7400,22 @@ def _host_only_review_control(
     return result.control if result.control.human_review.required else None
 
 
+def _host_only_comparison_headline(comparison: HostComparison) -> str:
+    rows = len(comparison.rows)
+    if comparison.comparison_status == "comparable":
+        return (
+            f"{rows} repository-declared host capability row(s). "
+            "Advisory comparison only; no application release policy configured."
+        )
+    if comparison.comparison_status == "partial":
+        return (
+            f"Host comparison is partial: {rows} repository-declared host capability "
+            "row(s) outside what it could not compare, listed under host_comparison "
+            "in verifier.json; review its input limits before interpreting changes."
+        )
+    return "Host comparison is incomplete; review its input limits before interpreting changes."
+
+
 @owns_current_control("preview")
 def run_preview(
     *,
@@ -7682,8 +7699,9 @@ def run_preview(
     next_action: AgentControlAction
     if _host_review is not None:
         assert isinstance(_host_review.next_action, HumanControlAction)
+        assert host_comparison is not None
         next_action = _host_review.next_action
-        headline = next_action.why
+        headline = _host_only_comparison_headline(host_comparison)
     elif diff_input is not None:
         next_action = base_failure_action or _diff_failure_action(
             diff_input,
@@ -7820,20 +7838,7 @@ def run_preview(
                 command=retarget_command(join_argv(command)),
                 why="Run the local boundary check on these inputs to reach a review or completion state.",
             )
-        headline = (
-            f"{len(host_comparison.rows)} repository-declared host capability row(s). "
-            "Advisory comparison only; no application release policy configured."
-            if host_comparison.comparison_status == "comparable"
-            # Partial (#808): the rows are known, the comparison is not whole,
-            # and the route is the incomplete one's. The rows are named where
-            # they are published: the control envelope's `capability_rows`
-            # projects a partial comparison as incomparable, with none.
-            else f"Host comparison is partial: {len(host_comparison.rows)} repository-declared "
-            "host capability row(s) outside what it could not compare, listed under "
-            "host_comparison in verifier.json; review its input limits before interpreting changes."
-            if host_comparison.comparison_status == "partial"
-            else "Host comparison is incomplete; review its input limits before interpreting changes."
-        )
+        headline = _host_only_comparison_headline(host_comparison)
     elif resolution.contested:
         # Several projects own part of this change. `init` at the root would
         # refuse deterministically, so recommending it would be recommending
