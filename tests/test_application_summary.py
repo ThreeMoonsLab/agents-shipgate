@@ -29,7 +29,9 @@ from typer.testing import CliRunner
 import agents_shipgate.cli.application_diff as diff_module
 from agents_shipgate.cli.application_summary import (
     DETAIL_ROW_LIMIT,
+    MAX_TOOL_LINES,
     build_summary,
+    finding_lines,
     pattern_of,
     summary_lines,
 )
@@ -266,7 +268,7 @@ def test_one_line_per_cause_however_many_rows_share_it(repo):
 def test_the_json_differs_only_by_the_additive_summary(repo, monkeypatch):
     result, base, head = _added(repo, CALL)
     assert list(result)[:3] == ["application_comparison_schema_version", "comparison_status", "summary"]
-    assert result["application_comparison_schema_version"] == "0.4"
+    assert result["application_comparison_schema_version"] == "0.5"
     assert result["summary"] == build_summary(result)
     identity = result.pop("comparison_id")
     assert identity == diff_module._digest(result)
@@ -342,6 +344,91 @@ def _row(agent: str, tool: str, change: str, **fields) -> dict:
         "review_question": "q",
     }
     return {**row, **fields}
+
+
+def test_large_candidate_finding_names_the_specific_differences():
+    rows = [
+        _row(
+            "a", name, "not_established", candidate_change="changed",
+            before=_binding(name), after={**_binding(name), "binding_location": "agent.py:2"},
+        )
+        for name in (f"ambiguous_{index}" for index in range(7))
+    ]
+    rows.extend([
+        _row("a", "new_tool", "not_established", candidate_change="added", after=_binding("new_tool")),
+        _row(
+            "a", "edited", "not_established", candidate_change="changed",
+            before=_binding("edited"), after=_binding("edited", sha="b" * 64),
+        ),
+    ])
+    lines = summary_lines(build_summary(_payload(rows)))
+
+    assert any(line.startswith("  ?+new_tool (candidate, not established)") for line in lines)
+    assert any(
+        line.startswith("  ?~edited (candidate, not established): implementation changed")
+        for line in lines
+    )
+    assert sum(line.startswith("  ?") for line in lines) == 2
+    assert "  7 additional candidates: see --json summary.findings." in lines
+
+
+def test_large_candidate_finding_prioritizes_reach_and_ignores_unconfirmed_details():
+    candidates = [
+        _row("a", f"other_{index}", "not_established", candidate_change="added", after=_binding(f"other_{index}"))
+        for index in range(MAX_TOOL_LINES)
+    ]
+    reach = {
+        "calls": [{"method": "GET", "url": "https://example.invalid/status", "at": "t.py:9", "via": []}],
+        "effects": [],
+        "limits": [],
+    }
+    candidates.extend([
+        _row(
+            "a", "check_status", "not_established", candidate_change="changed",
+            before=_binding("check_status"), after=_binding("check_status", reach=reach),
+        ),
+        _row(
+            "a", "uncertain", "not_established", candidate_change="changed",
+            before=_binding("uncertain"), after=_binding("uncertain"), doubts=["definition_identity"],
+        ),
+    ])
+    [finding] = build_summary(_payload(candidates))["findings"]
+    # A different wording for the uncertainty must not make it a named change.
+    finding["tools"][-1]["facts"] = [{"kind": "change", "text": "Which definition is bound is unclear."}]
+    lines = finding_lines(finding)
+
+    assert "now also reaches GET https://example.invalid/status" in lines[1]
+    assert not any("no outbound call or library effect established" in line for line in lines)
+    assert "  5 additional candidates (4 with a named change): see --json summary.findings." in lines
+
+    established = _row("a", "known", "added", after=_binding("known"))
+    [mixed] = build_summary(_payload([established, *candidates]))["findings"]
+    assert "candidate details in --json summary.findings" in finding_lines(mixed)[0]
+
+
+def test_pinned_crm_candidate_finding_keeps_tool_names_and_binding_caveat():
+    # CRM #5, dae503cc671c...0935d0931c58, read by de64b2dfbd.
+    # The fixture is the Wycena finding from the application comparison 0.5 replay.
+    path = ROOT / "tests" / "fixtures" / "application-summary-crm5.json"
+    finding = json.loads(path.read_text(encoding="utf-8"))
+    lines = finding_lines(finding)
+
+    assert lines[0].startswith("Wycena [partial]")
+    assert "not read beyond bots_pro/agenci.py:65" in lines[0]
+    assert any("binding graph is also incomplete" in line for line in lines)
+    details = [line for line in lines if line.startswith("  ?")]
+    assert len(details) == MAX_TOOL_LINES
+    assert details[0].startswith("  ?+wyslij_obraz (candidate, not established)")
+    edited = ("policz_wycene", "policz_wysylke", "znajdz_klienta")
+    for tool in edited:
+        assert any(
+            line.startswith(f"  ?~{tool} (candidate, not established): implementation changed")
+            for line in details
+        )
+    assert any("8 bindings read the same" in line for line in lines)
+    assert not any("additional candidate" in line for line in lines)
+    [brief] = finding_lines(finding, full=False)
+    assert all(tool in brief for tool in ("wyslij_obraz", *edited))
 
 
 def test_text_never_obeys_a_control_character_in_a_name(capsys):
@@ -495,7 +582,10 @@ def test_each_scope_keeps_its_status_when_the_rows_are_not_printed(capsys):
 # development corpus (benchmark/application-q2/goldens.py regenerates them).
 GOLDEN = {
     "jpka_attest-3": 15,
-    "Tiendat2703_MIS_TALENT-7": 15,
+    # Re-rendered at #1146 from main's answer, which withholds every row: two
+    # agents with candidates, three whose bindings only read the same, and
+    # five shared causes (main's own rendering of that answer takes 22).
+    "Tiendat2703_MIS_TALENT-7": 21,
     "VidulaWickramasinghe_O.R.I.O.N-126": 40,
 }
 
@@ -523,19 +613,30 @@ def test_the_corpus_goldens_render_from_their_inputs(slug, capsys):
 
 
 def test_the_goldens_answer_what_the_change_lets_each_agent_do():
-    """The first finding line of each golden says it, checked against the hand-scored ledger (#908)."""
+    """Each golden's finding names the change the hand-scored ledger found (#908).
 
-    first = {}
+    The goldens were re-rendered at #1146 from main's answers, which establish
+    no row (#963, #964): each change is a candidate, and a tool that reads the
+    same on both sides is no row but one statement on its agent.
+    """
+
+    findings = {}
     for slug in GOLDEN:
         lines = (GOLDENS / f"{slug}.txt").read_text(encoding="utf-8").splitlines()
-        first[slug] = next(line for line in lines if re.match(r"^\S.*\[(partial|compared)\]:", line))
-    attest = first["jpka_attest-3"]
-    assert attest.startswith("attest_orchestrator [partial]: +recall_firm_memory, +remember_firm_finding")
-    assert "memory_bank.py:531" in attest
-    mis = first["Tiendat2703_MIS_TALENT-7"]
-    assert "+load_service_catalog" in mis and "~load_and_validate" in mis and "database read" in mis
-    orion = first["VidulaWickramasinghe_O.R.I.O.N-126"]
-    assert "58" in orion or "changed" in orion and "not established" in orion
+        findings[slug] = [line for line in lines if re.match(r"^\S.*\[(partial|compared)\]:", line)]
+    attest = findings["jpka_attest-3"][0]
+    assert attest.startswith("attest_orchestrator [partial]: ?+recall_firm_memory, ?+remember_firm_finding")
+    attest_text = (GOLDENS / "jpka_attest-3.txt").read_text(encoding="utf-8")
+    assert "  4 bindings read the same on both sides (append_evidence, get_adv_ground_truth, list_covered_firms, score_answer)" in attest_text
+    [mis] = [line for line in findings["Tiendat2703_MIS_TALENT-7"] if line.startswith("Finance_Agent_Preflight ")]
+    assert "?+load_service_catalog" in mis and "?~load_and_validate" in mis
+    mis_text = (GOLDENS / "Tiendat2703_MIS_TALENT-7.txt").read_text(encoding="utf-8")
+    assert "  ?+load_service_catalog (candidate, not established): reaches database read SELECT" in mis_text
+    orion = findings["VidulaWickramasinghe_O.R.I.O.N-126"][0]
+    assert "candidate changes" in orion and "not established" in orion
+    # No golden lists a tool whose two sides read the same.
+    for slug in GOLDEN:
+        assert "binding details changed" not in (GOLDENS / f"{slug}.txt").read_text(encoding="utf-8")
 
 
 def test_summary_counts_match_a_counter_of_rows():

@@ -121,6 +121,7 @@ agents-shipgate = "agents_shipgate.cli.main:app"
 shipgate = "agents_shipgate.cli.main:app"
 agents-shipgate-mcp = "agents_shipgate.mcp_server.server:main"
 
+# Built-ins are registered in BUILTIN_CHECKS. The registry skips its own distribution's entry points.
 [project.entry-points."agents_shipgate.checks"]
 inventory = "agents_shipgate.checks.inventory:run"
 documentation = "agents_shipgate.checks.documentation:run"

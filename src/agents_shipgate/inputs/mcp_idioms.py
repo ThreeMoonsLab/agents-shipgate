@@ -66,6 +66,8 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
+from agents_shipgate.core.python_source import parse_python
+
 #: The version of this registry's published vocabulary — the idiom ids, and the
 #: diff tokens the trigger catalog renders from them. Bumped when a consumer
 #: pinning an idiom id would have to change; adding an idiom bumps it, because
@@ -2609,7 +2611,7 @@ def python_server_exports(text: str) -> frozenset[str]:
 
 def _parse_python(text: str) -> ast.Module | None:
     try:
-        return ast.parse(text)
+        return parse_python(text)
     except (SyntaxError, ValueError, RecursionError, MemoryError):
         # ``ValueError`` for source containing a NUL byte, ``RecursionError``
         # for a deeply nested expression: both are the compiler declining to
@@ -3302,7 +3304,7 @@ def _parse_python_expression(text: str) -> ast.expr | None:
     """
 
     try:
-        parsed = ast.parse(text.strip(), mode="eval")
+        parsed = parse_python(text.strip(), mode="eval")
     except (SyntaxError, ValueError, RecursionError, MemoryError):
         return None
     return parsed.body

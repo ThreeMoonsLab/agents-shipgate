@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import jsonschema
@@ -537,6 +538,46 @@ def test_capability_export_loads_adapter_plugins_only_on_the_opt_in(
     assert opted_in.exit_code == 0, opted_in.output
     assert marker.exists(), "the fake plugin must be discoverable once opted in"
     assert json.loads(opted_in.stdout)["source"]["plugins_enabled"] is True
+
+
+@pytest.mark.parametrize(
+    ("opt_in", "extra_args", "expected"),
+    [(None, [], False), ("1", [], True), ("1", ["--no-plugins"], False)],
+)
+def test_verify_capability_lock_records_the_effective_plugin_setting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    opt_in: str | None,
+    extra_args: list[str],
+    expected: bool,
+) -> None:
+    _write_project(tmp_path)
+    for args in (
+        ["init", "-q", "-b", "main"],
+        ["add", "--", "shipgate.yaml", "tools.json"],
+        ["commit", "-qm", "fixture"],
+    ):
+        subprocess.run(
+            [
+                "git", "-c", "user.name=Fixture", "-c", "user.email=test@example.invalid",
+                "-c", "commit.gpgsign=false", *args,
+            ],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+        )
+    monkeypatch.chdir(tmp_path)
+    if opt_in is None:
+        monkeypatch.delenv("AGENTS_SHIPGATE_ENABLE_PLUGINS", raising=False)
+    else:
+        monkeypatch.setenv("AGENTS_SHIPGATE_ENABLE_PLUGINS", opt_in)
+
+    result = runner.invoke(app, ["verify", "-c", "shipgate.yaml", "--ci-mode", "advisory", *extra_args])
+
+    assert result.exit_code == 0, result.output
+    lock = tmp_path / "agents-shipgate-reports" / "capabilities.lock.json"
+    payload = json.loads(lock.read_text(encoding="utf-8"))
+    assert payload["source"]["plugins_enabled"] is expected
 
 
 def test_capability_diff_cli_exits_zero_when_differences_exist(tmp_path: Path) -> None:

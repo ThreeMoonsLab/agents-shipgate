@@ -168,8 +168,14 @@ def test_a_name_bound_once_in_the_function_is_read():
     [
         ("TOOLS = [a]\nTOOLS = [b]", "`TOOLS` is bound more than once, or conditionally, in agent.py (agent.py:3)"),
         ("if wanted:\n    TOOLS = [a]", "`TOOLS` is bound more than once, or conditionally, in agent.py (agent.py:3)"),
-        ("TOOLS = [a]\nTOOLS.append(b)", "`TOOLS` may be changed in place after it is built (agent.py:1)"),
-        ("TOOLS = [a]\nregister(TOOLS)", "`TOOLS` may be changed in place after it is built (agent.py:1)"),
+        (
+            "TOOLS = [a]\nTOOLS.append(b)",
+            "`TOOLS` may be changed in place after it is built by the call at agent.py:2 (agent.py:1)",
+        ),
+        (
+            "TOOLS = [a]\nregister(TOOLS)",
+            "`TOOLS` may be changed in place after it is built by the call at agent.py:2 (agent.py:1)",
+        ),
         ("TOOLS = [a]\nglobals()['TOOLS'] = [b]", "`TOOLS` may be changed in place after it is built (agent.py:1)"),
         ("def TOOLS():\n    return [a]", "`TOOLS` is a function, not a list of tools (agent.py:3)"),
         ("", "`TOOLS` is not bound where the list is read (agent.py:2)"),
@@ -519,7 +525,7 @@ def test_application_diff_reports_a_changed_tool_held_through_a_spread(tmp_path)
     head = _commit(tmp_path, {"tools.py": SDK_TOOLS.replace("    return path", "    return path.strip()")})
     result = _compare(tmp_path, base, head)
 
-    assert result["application_comparison_schema_version"] == "0.4"
+    assert result["application_comparison_schema_version"] == "0.5"
     assert result["comparison_status"] == "compared"
     assert _rows(result) == [("finance", "load_and_validate", "changed")]
 

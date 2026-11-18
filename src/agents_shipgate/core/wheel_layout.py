@@ -11,7 +11,9 @@ still at its repository path.
 projects it so a checkout and the wheel built from it have one engine-content
 identity, and :func:`packaged_path` reads through it so a checkout loads the
 packaged files a wheel loads. ``tests/test_packaged_default_policies.py``
-checks it against ``pyproject.toml``.
+checks it against ``pyproject.toml``. The wheel carries ``AGENTS.md`` and
+``STABILITY.md`` so its engine identity covers the contributor instructions
+and stability contract in effect at build time.
 """
 
 from __future__ import annotations
