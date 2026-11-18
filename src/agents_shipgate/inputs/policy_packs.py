@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from agents_shipgate.core.capability_policy import match_policy_pack_subject
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.core.policy_evidence import finding_support, policy_evidence_gap
 from agents_shipgate.core.static_inputs import read_static_input_bytes
 from agents_shipgate.core.surface_exclusions import (
@@ -80,7 +81,7 @@ def load_policy_packs(
             pack_file = PolicyPackFile.model_validate(data)
             _validate_policy_pack_team_refs(manifest, pack_file, config.path)
             pack_id = config.id or pack_file.id or path.stem
-            display_path = _relative_display_path(path, base_dir)
+            display_path = _display_path(path, base_dir, outside="resolved")
             pack = LoadedPolicyPack(
                 id=pack_id,
                 name=pack_file.name or pack_id,
@@ -270,10 +271,3 @@ def _validate_rule_ids(rules: list[ResolvedPolicyPackRule]) -> None:
                 f"already declared in {previous}."
             )
         seen[rule_id] = resolved.pack.path
-
-
-def _relative_display_path(path: Path, base_dir: Path) -> str:
-    try:
-        return path.resolve().relative_to(base_dir.resolve()).as_posix()
-    except ValueError:
-        return path.resolve().as_posix()

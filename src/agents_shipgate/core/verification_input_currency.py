@@ -7,6 +7,7 @@ import os
 import re
 from pathlib import Path
 
+from agents_shipgate.core.contained_write import write_contained
 from agents_shipgate.core.input_directory_identity import (
     directory_input_exclusions,
     validate_directory_inputs,
@@ -39,8 +40,10 @@ def write_portable_input(
         if source_logical_path is not None else ""
     )
     target = root / "verification-inputs" / category / f"{digest[:16]}{origin_suffix}-{safe_name}"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(data)
+    # The contained writer, as for every report beside it: a link at the copy
+    # or at any directory between ``root`` and it is refused, not followed
+    # out of the reports directory (#1031).
+    write_contained(target, data, root=root)
     return target
 
 
