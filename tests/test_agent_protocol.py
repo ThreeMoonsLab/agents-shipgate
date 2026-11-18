@@ -253,7 +253,9 @@ def test_codex_mcp_auto_approval_then_clean_detached_diff_still_denies_authority
     assert before_control["next_action"]["kind"] == "stop"
     assert before_control["next_action"]["actor"] == "human"
     assert before_payload["repair"]["safe_to_attempt"] is False
-    assert after_payload["decision"] == "allow"
+    # A detached diff establishes no checkout state, so its decision is
+    # never a pass beside this stop (#1154).
+    assert after_payload["decision"] == "require_review"
     after_control = _control(after_payload)
     assert after_control["state"] == "human_review_required"
     assert after_control["completion_allowed"] is False
@@ -441,6 +443,7 @@ def test_mcp_shipgate_check_is_read_only_static_adapter(
     assert payload == json.loads(cli.output)
     assert payload["schema_version"] == "shipgate.agent_boundary_result/v3"
     assert payload["agent"] == "cursor"
-    assert payload["decision"] == "allow"
+    assert payload["decision"] == "require_review"
+    assert payload["input_coverage"] == "unknown"
     assert payload["control"]["state"] == "human_review_required"
     assert not any(payload["control"]["permissions"].values())
