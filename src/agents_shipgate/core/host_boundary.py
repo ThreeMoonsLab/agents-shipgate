@@ -54,7 +54,6 @@ from agents_shipgate.core.codex_boundary import (
     _RISK_RANK,
     DEFAULT_POLICY_VERSION,
     _dedupe_violations,
-    _display_path,
 )
 from agents_shipgate.core.host_settings import (
     CLAUDE_SCALAR_SETTINGS,
@@ -64,6 +63,7 @@ from agents_shipgate.core.host_settings import (
     setting_value_text,
 )
 from agents_shipgate.core.jsonc import is_vscode_mcp_path, loads_jsonc
+from agents_shipgate.core.paths import display_path
 from agents_shipgate.core.permission_lattice import (
     PATH_TOOLS,
     exec_equivalent_argument,
@@ -363,7 +363,7 @@ def load_host_boundary_policy(
                         "Could not load host boundary policy "
                         f"({type(exc).__name__})."
                     ),
-                    path=_display_path(candidate, workspace),
+                    path=display_path(candidate, workspace),
                 )
             )
     elif policy_path == DEFAULT_POLICY_PATH:
@@ -403,7 +403,7 @@ def load_host_boundary_policy(
                         f"Host boundary policy rule {rule_id!r} cannot lower "
                         f"action below {base.action}."
                     ),
-                    path=_display_path(candidate, workspace),
+                    path=display_path(candidate, workspace),
                 )
             )
             action = base.action
@@ -420,7 +420,7 @@ def load_host_boundary_policy(
                         f"Host boundary policy rule {rule_id!r} cannot lower "
                         f"risk below {base.risk_level}."
                     ),
-                    path=_display_path(candidate, workspace),
+                    path=display_path(candidate, workspace),
                 )
             )
             risk = base.risk_level

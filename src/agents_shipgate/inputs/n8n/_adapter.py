@@ -36,7 +36,7 @@ from agents_shipgate.inputs.coverage import BoundaryCell, SourceCoverage
 from agents_shipgate.inputs.mcp import load_mcp_tools
 from agents_shipgate.inputs.n8n._common import (
     _append_unique,
-    _display_path,
+    _manifest_relative,
     _skip_path,
     _string_or_none,
 )
@@ -122,7 +122,7 @@ def _load_inventory_ref(
         artifacts.warnings.append(f"Optional n8n tool inventory {ref.path!r} failed to load.")
         return None
     artifacts.tool_inventory_files.append(
-        _display_path(resolve_input_path(base_dir, ref.path), base_dir)
+        _manifest_relative(resolve_input_path(base_dir, ref.path), base_dir)
     )
     for tool in loaded.tools:
         tool.source_type = "n8n_inventory"
@@ -144,7 +144,7 @@ def _load_credential_stubs(
 ) -> None:
     for path in _artifact_paths(refs, base_dir, artifacts.warnings, label="n8n credential stub"):
         data = load_structured_file(path)
-        _append_unique(artifacts.credential_stub_files, _display_path(path, base_dir))
+        _append_unique(artifacts.credential_stub_files, _manifest_relative(path, base_dir))
         for entry in _credential_entries(data):
             artifacts.credential_stubs.append(entry)
 
@@ -159,7 +159,7 @@ def _load_structured_refs(
 ) -> None:
     for path in _artifact_paths(refs, base_dir, warnings, label=label):
         load_structured_file(path)
-        _append_unique(target, _display_path(path, base_dir))
+        _append_unique(target, _manifest_relative(path, base_dir))
 
 
 def _artifact_paths(
@@ -193,7 +193,7 @@ def _artifact_paths(
                         and item.suffix.lower() in {".json", ".yaml", ".yml"}
                         and not _skip_path(item, path)
                     ),
-                    key=lambda item: _display_path(item, base_dir),
+                    key=lambda item: _manifest_relative(item, base_dir),
                 )
             )
         else:
