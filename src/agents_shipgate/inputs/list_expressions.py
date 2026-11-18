@@ -295,6 +295,20 @@ def read_only_use(
     """Whether this load of a list can only read it, never change or hand it on."""
 
     parent = parents.get(node)
+    while isinstance(parent, (ast.BoolOp, ast.IfExp, ast.Attribute)):
+        if isinstance(parent, ast.IfExp) and parent.test is node:
+            break
+        if isinstance(parent, ast.Attribute):
+            if parent.value is not node:
+                return False
+            grand = parents.get(parent)
+            if isinstance(grand, ast.Call) and grand.func is parent:
+                return parent.attr in {"count", "index", "copy", "get", "keys", "values", "items"}
+            if not isinstance(parent.ctx, ast.Load):
+                return False
+        # A Boolean/conditional result or an attribute may forward the value.
+        # Its enclosing use decides whether it is read-only.
+        node, parent = parent, parents.get(parent)
     if isinstance(parent, ast.keyword):
         call = parents.get(parent)
         return isinstance(call, ast.Call) and call_reads(call, None, parent.arg)
@@ -307,11 +321,6 @@ def read_only_use(
         return parent.iter is node
     if isinstance(parent, ast.Subscript):
         return parent.value is node and isinstance(parent.ctx, ast.Load)
-    if isinstance(parent, ast.BoolOp) or (
-        isinstance(parent, ast.IfExp) and parent.test is not node
-    ):
-        # ``TOOLS or [x]`` may be the list itself: its own use decides.
-        return read_only_use(parent, parents, call_reads)
     if isinstance(parent, ast.If | ast.While | ast.IfExp | ast.Assert):
         return parent.test is node
     if isinstance(parent, ast.UnaryOp):
@@ -323,14 +332,6 @@ def read_only_use(
     if isinstance(parent, ast.Compare | ast.FormattedValue | ast.Expr | ast.BinOp):
         # A comparison, a string, a bare expression, or ``TOOLS + [x]`` (a new list).
         return True
-    if isinstance(parent, ast.Attribute) and parent.value is node:
-        grand = parents.get(parent)
-        called = isinstance(grand, ast.Call) and grand.func is parent
-        if called:
-            return parent.attr in {"count", "index", "copy", "get", "keys", "values", "items"}
-        # ``helpers.TOOLS`` handed on: ``helpers`` is read, and the attribute's
-        # own use decides. A call (``helpers.register(x)``) may change anything.
-        return isinstance(parent.ctx, ast.Load) and read_only_use(parent, parents, call_reads)
     return False
 
 

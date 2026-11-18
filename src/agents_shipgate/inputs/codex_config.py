@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import ClassVar, Literal
 
 from agents_shipgate.core.artifact_models import CodexBoundaryArtifacts
+from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.inputs.common import (
     manifest_relative_path,
     resolve_input_path,
@@ -132,30 +133,25 @@ def _collect_codex_boundary_artifacts(root: Path, base_dir: Path) -> CodexBounda
     for path in walk_input_tree(root):
         if not path.is_file():
             continue
-        rel = _relative(path, root)
+        rel = _display_path(path, root, outside="resolved")
         if rel == ".codex/config.toml" or rel.endswith("/.codex/config.toml"):
-            artifact.config_files.append(_relative(path, base_dir))
+            artifact.config_files.append(_display_path(path, base_dir, outside="resolved"))
         elif rel == ".codex/hooks.json" or rel.endswith("/.codex/hooks.json"):
-            artifact.hooks_files.append(_relative(path, base_dir))
+            artifact.hooks_files.append(_display_path(path, base_dir, outside="resolved"))
         elif path.name in {"AGENTS.md", "AGENTS.override.md"}:
-            artifact.agent_instruction_files.append(_relative(path, base_dir))
+            artifact.agent_instruction_files.append(_display_path(path, base_dir, outside="resolved"))
         elif (
             path.name == "SKILL.md"
             and (rel.startswith(".agents/skills/") or "/.agents/skills/" in rel)
         ):
-            artifact.skill_files.append(_relative(path, base_dir))
+            artifact.skill_files.append(_display_path(path, base_dir, outside="resolved"))
         elif rel in {
             ".github/workflows/agents-shipgate.yml",
             ".github/workflows/agents-shipgate.yaml",
         } or rel.endswith("/.github/workflows/agents-shipgate.yml") or rel.endswith(
             "/.github/workflows/agents-shipgate.yaml"
         ):
-            artifact.github_workflow_files.append(_relative(path, base_dir))
+            artifact.github_workflow_files.append(_display_path(path, base_dir, outside="resolved"))
     return artifact
 
 
-def _relative(path: Path, root: Path) -> str:
-    try:
-        return path.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return str(path.resolve())

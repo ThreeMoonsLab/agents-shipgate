@@ -19,6 +19,7 @@ import yaml
 from agents_shipgate import _perf
 from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.git_env import hardened_git_env
 from agents_shipgate.core.privacy import redact_text, truncate_redacted
 from agents_shipgate.core.trust_roots import trust_root_class_for
 from agents_shipgate.core.workspace_input import workspace_input_error
@@ -3345,27 +3346,14 @@ def _resolved_diff_revspec(workspace: Path, revspec: str) -> str:
 
 
 def _git_object_environment() -> dict[str, str]:
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if not key.startswith("GIT_")
-    }
-    env.update(
-        {
-            "GIT_ATTR_NOSYSTEM": "1",
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_CONFIG_SYSTEM": os.devnull,
-            "GIT_ALLOW_PROTOCOL": "",
-            "GIT_NO_LAZY_FETCH": "1",
-            "GIT_NO_REPLACE_OBJECTS": "1",
-            "GIT_OPTIONAL_LOCKS": "0",
-            "GIT_PAGER": "cat",
-            "GIT_PROTOCOL_FROM_USER": "0",
-            "GIT_TERMINAL_PROMPT": "0",
-        }
-    )
-    return env
+    """The environment every Git child of ``verify`` runs with.
+
+    Kept as this module's own name so a test can drop one protection and prove
+    the others still hold (``tests/test_capability_diff_partial_clone.py``);
+    the variables themselves live in :mod:`agents_shipgate.core.git_env`.
+    """
+
+    return hardened_git_env()
 
 
 def _run_git_dir(

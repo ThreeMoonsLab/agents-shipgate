@@ -4,7 +4,8 @@ Per the v0.6 plan §3:
 - Discriminated union by ``kind`` (Pydantic ``Field(discriminator="kind")``).
 - ``target_file`` is an absolute path (per C13). ``apply-patches``
   enforces a containment check against ``report.manifest_dir`` before
-  any write.
+  any write, and against the directory it runs in and that directory's
+  git toplevel, which the report cannot name (#1031).
 - ``ManualPatch`` carries no target — it makes no machine-applicable
   claim; agents and humans use ``instructions`` to decide what to do.
 

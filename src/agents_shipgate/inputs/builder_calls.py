@@ -16,6 +16,7 @@ from pathlib import Path
 
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.privacy import redact_and_truncate
+from agents_shipgate.core.python_source import decode_python_source
 from agents_shipgate.core.static_inputs import active_static_input_snapshot
 from agents_shipgate.core.trust_roots import IdentityBoundReadSession
 from agents_shipgate.inputs.common import MAX_INPUT_FILE_BYTES, list_input_directory, load_text_file
@@ -459,9 +460,12 @@ class _FreshPrimitiveResolver(ImportResolver):
 
     def _live_text(self, path: Path) -> str:
         if path not in self._fresh_live_texts:
-            self._fresh_live_texts[path] = self._fresh_session.read_bytes(
+            data = self._fresh_session.read_bytes(
                 path.relative_to(self._fresh_session.root), max_bytes=MAX_INPUT_FILE_BYTES,
-            ).decode("utf-8")
+            )
+            self._fresh_live_texts[path] = (
+                decode_python_source(data) if path.suffix == ".py" else data.decode("utf-8")
+            )
         return self._fresh_live_texts[path]
 
     def _checked_module(self, module: PythonModule) -> PythonModule:

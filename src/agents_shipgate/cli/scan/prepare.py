@@ -6,6 +6,11 @@ from agents_shipgate.config.loader import (
     load_manifest_text_with_positions,
     load_manifest_with_positions,
 )
+from agents_shipgate.core.agent_controls import owned_git_root_for
+from agents_shipgate.core.contained_write import (
+    check_output_directory,
+    refuse_links_inside,
+)
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.schemas.common import parse_severity
 
@@ -63,13 +68,35 @@ def _prepare_scan(
         manifest.output.packet.formats = packet_formats
     if baseline_mode != "new-findings":
         raise ConfigError("--baseline-mode supports only new-findings")
+    base_dir = (
+        config_path.resolve().parent
+        if manifest_text is None
+        else config_path.parent.resolve()
+    )
+    if not output_dir:
+        _require_output_directory_inside(manifest.output.directory, base_dir)
+    else:
+        # An operator-typed --out is theirs above the repository; inside it,
+        # a committed link must not carry the reports out (#1031).
+        refuse_links_inside(base_dir / output_dir, owned_git_root_for(base_dir) or base_dir)
     return _ResolvedManifest(
         manifest=manifest,
         manifest_positions=manifest_positions,
         declared_ci=declared_ci,
-        base_dir=(
-            config_path.resolve().parent
-            if manifest_text is None
-            else config_path.parent.resolve()
-        ),
+        base_dir=base_dir,
     )
+
+
+def _require_output_directory_inside(directory: str, base_dir: Path) -> None:
+    """Refuse a manifest ``output.directory`` that is not plain directories below the manifest's.
+
+    The manifest schema already rejects absolute and ``..`` spellings; this is
+    the same boundary checked on the filesystem. A component that is a link —
+    one leading out of the workspace or one that stays inside it — is refused
+    before any input is read or any report is written or cleared (#1031).
+    ``--out`` is chosen by the operator, not the repository, and is not checked
+    here; the files written inside either kind of directory are checked by
+    :mod:`agents_shipgate.core.contained_write` as they are written.
+    """
+
+    check_output_directory(base_dir / directory, root=base_dir)

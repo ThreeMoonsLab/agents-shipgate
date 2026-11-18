@@ -107,6 +107,7 @@ def build_fix_task(
     report_path: str = "agents-shipgate-reports/report.json",
     repair_subject_available: bool = True,
     configured_gate_introduced: bool = False,
+    workspace: str | None = None,
 ) -> VerifierFixTask | None:
     """Project the head scan onto a single repair task.
 
@@ -209,6 +210,7 @@ def build_fix_task(
         report_path=report_path,
         repair_subject_available=repair_subject_available,
         configured_gate_introduced=configured_gate_introduced,
+        workspace=workspace,
     )
     if confirmation is not None:
         return VerifierFixTask(
@@ -268,6 +270,7 @@ def build_fix_task(
                 gating,
                 verification_command=verification_command,
                 report_path=report_path,
+                workspace=workspace,
             ),
             forbidden_repairs=_forbidden_repairs(gating),
             forbidden_shortcuts=list(FORBIDDEN_SHORTCUTS),
@@ -318,6 +321,7 @@ def declaration_route(
     report_path: str,
     repair_subject_available: bool,
     configured_gate_introduced: bool = False,
+    workspace: str | None = None,
 ) -> tuple[VerifierDeclarationConfirmation | None, str | None]:
     """The §D route, or the reason a run that could have taken it did not.
 
@@ -460,6 +464,7 @@ def declaration_route(
             for part in (
                 "agents-shipgate",
                 "apply-patches",
+                *_workspace_option(workspace),
                 "--from",
                 report_path,
                 "--kinds",
@@ -909,6 +914,17 @@ def _insufficient_evidence_remedies(report: ReadinessReport) -> list[str]:
     return out
 
 
+def _workspace_option(workspace: str | None) -> tuple[str, ...]:
+    """``--workspace <repo>`` for a printed ``apply-patches`` command.
+
+    ``apply-patches`` writes only under the workspace it is given (default: the
+    directory it runs in), never under a directory the report names (#1031).
+    Naming the repository keeps the printed command exact wherever it is run.
+    """
+
+    return ("--workspace", workspace) if workspace else ()
+
+
 def _mechanical_instructions(gating: list[Finding]) -> list[str]:
     return _dedupe_cap([finding.recommendation for finding in gating if finding.recommendation])
 
@@ -918,6 +934,7 @@ def _mechanical_repairs(
     *,
     verification_command: str,
     report_path: str,
+    workspace: str | None = None,
 ) -> list[VerifierRepair]:
     repairs: list[VerifierRepair] = []
     finding_ids = sorted(
@@ -930,6 +947,7 @@ def _mechanical_repairs(
     apply_parts = [
         "agents-shipgate",
         "apply-patches",
+        *_workspace_option(workspace),
         "--from",
         report_path,
     ]

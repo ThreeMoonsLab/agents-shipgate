@@ -395,14 +395,17 @@ ALLOWED_EXCEPTIONS: tuple[AllowedException, ...] = (
         surface="attr_call:subprocess.run",
         count=1,
         snippet=(
-            "subprocess.run(['git', *args], cwd=cwd, check=True, capture_output=True, text=True)"
+            "subprocess.run(['git', *_FIXTURE_GIT_CONFIG, *args], cwd=cwd, "
+            "check=True, capture_output=True, env=hardened_git_env(), text=True)"
         ),
         rationale=(
             "_git helper for the ai_generated_refund_pr fixture: runs local "
             "git init/config/add/commit/update-ref commands against a "
             "temporary bundled fixture copy. argv is assembled inside "
             "Shipgate, with no shell, no network fetch, and no user-code "
-            "execution."
+            "execution. It runs with the shared hardened Git environment "
+            "(no global or system config) and with hooks and signing "
+            "disabled (#1031)."
         ),
     ),
     # cli/self_check.py — validates the installed environment via __import__
