@@ -42,6 +42,11 @@ def _without_engine(node: dict) -> dict:
     return {key: value for key, value in node.items() if key not in NOT_THE_ANSWER}
 
 
+def _digest(payload: dict) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 def answer_id(payload: dict) -> str:
     """The digest of an answer: the engine's output without its own identity or its summary."""
 
@@ -50,8 +55,21 @@ def answer_id(payload: dict) -> str:
         answer["comparisons"] = [
             _without_engine(part) if isinstance(part, dict) else part for part in answer["comparisons"]
         ]
-    encoded = json.dumps(answer, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return _digest(answer)
+
+
+def presentation_id(payload: dict) -> str | None:
+    """Identify the rendered summaries, including those of individual scopes."""
+    presentation = {"summary": payload["summary"]} if "summary" in payload else {}
+    comparisons = payload.get("comparisons")
+    if isinstance(comparisons, list):
+        scopes = [
+            {"summary": part["summary"]} if isinstance(part, dict) and "summary" in part else {}
+            for part in comparisons
+        ]
+        if any(scopes):
+            presentation["comparisons"] = scopes
+    return _digest(presentation) if presentation else None
 
 
 def summarize_member(record: dict, payload: dict | None) -> dict:
@@ -70,6 +88,7 @@ def summarize_member(record: dict, payload: dict | None) -> dict:
     return {
         "status": status,
         "answer_id": answer_id(payload) if payload is not None else None,
+        "presentation_id": presentation_id(payload) if payload is not None else None,
         "rows": {kind: rows.get(kind, 0) for kind in CHANGE_KINDS},
         "sides_with_calls": sides_with_calls,
         "sides_with_unresolved_hop": sides_with_hop,

@@ -31,8 +31,8 @@ agents-shipgate diff --application --base <merge_base> --head <head> --json
 run in the clone's root with no `--scope`, so the scope is derived from the
 change, as it is for a new user. Nothing is fetched while the diff runs.
 [`run.py`](run.py) does exactly this: with `--fetch` it clones and fetches the
-pins, and it records every member's outcome (`ok`, `refused`, `timeout` or
-`unavailable`, with the reason) in `runs.json`. [`summarize.py`](summarize.py)
+pins, and it records every member's outcome (`ok`, `invalid_output`, `refused`,
+`timeout` or `unavailable`, with the reason) in `runs.json`. [`summarize.py`](summarize.py)
 counts statuses and rows from a run directory. The counts are mechanical. The
 Q1/Q2 scores below are not.
 
@@ -44,17 +44,28 @@ python benchmark/application-q2/summarize.py --corpus benchmark/application-q2/d
   --out ~/.cache/shipgate-q2/out-<build> --scores benchmark/application-q2/results/<ledger>.scores.json
 ```
 
-Each invocation first removes the corpus members' previous outputs and the
+A normal rerun first removes the corpus members' previous outputs and the
 previous `runs.json`, before it prepares any clone. A member that times out, is
 unavailable or is refused this time therefore has no answer, never an earlier
 build's, and a run that stops early leaves no `runs.json`, which `summarize.py`
 refuses to read. The engine's stderr tail is kept in `<slug>.err` when it ran;
-every member's outcome and reason is in `runs.json`. The runner exits non-zero
-unless every member answered `ok`.
+every member's outcome and reason is in `runs.json`. An engine exit of zero
+only counts as `ok` when the output has the expected comparison fields and
+reports the pinned commits. For `invalid_output`, the runner keeps the raw
+stdout for diagnosis and the summarizer assigns no answer identity. The
+runner exits non-zero unless every member answered `ok`.
+
+For a replay you want to keep, pass `--retain-run` and an empty `--out`
+directory. The runner saves the selected refs, corpus hash, launcher hash
+and run options in `run-inputs.json` before starting. Later invocations
+refuse to replace the retained outputs. For offline replay, use pre-populated
+clones and omit `--fetch`.
 
 The answer's `summary` block (#914) is a reading of its rows, derived from
 them. `summarize.py` leaves it out of `answer_id`, so a build that adds or
-rewords it does not make a hand score stale. [`goldens.py`](goldens.py)
+rewords it does not make a hand score stale. The separate `presentation_id`
+changes when the answer's summary or one of its scope summaries changes.
+[`goldens.py`](goldens.py)
 renders the text the CLI prints for six members from a run's JSON and holds it
 to [`goldens/`](goldens/): `jpka/attest#3`, `MIS_TALENT#7` and `O.R.I.O.N#126`,
 the three cases that issue names, and three more that reach a process, are a
