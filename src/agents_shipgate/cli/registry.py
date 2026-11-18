@@ -24,7 +24,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from dataclasses import dataclass
+import shlex
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,14 @@ from typing import Any
 import typer
 from pydantic import ValidationError
 
+from agents_shipgate.core.control_evidence import (
+    ControlMapError,
+    control_evidence,
+    extract_bytes,
+    extract_ref,
+    read_control_map,
+    render_control_evidence_markdown,
+)
 from agents_shipgate.core.drift_observation import (
     CapabilityDiffError,
     ObservationError,
@@ -41,6 +50,12 @@ from agents_shipgate.core.drift_observation import (
     parse_event_time,
 )
 from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.schemas.control_evidence import (
+    CONTROL_EVIDENCE_FILENAME,
+    CONTROL_EVIDENCE_MARKDOWN_FILENAME,
+    CONTROL_MAP_COPY_FILENAME,
+    LEDGER_EXTRACT_FILENAME,
+)
 from agents_shipgate.schemas.registry import (
     REGISTRY_LATE_DEFAULTED_FIELDS,
     REGISTRY_LATE_OPTIONAL_FIELDS,
@@ -70,6 +85,8 @@ class LoadedRegistry:
     rows: list[RegistryRowV1]
     skipped: list[RegistrySkippedRowV1]
     present: bool
+    #: Each row's line as the ledger stores it, paired with ``rows``.
+    lines: list[bytes] = field(default_factory=list)
 
 
 def _row_from_attestation(
@@ -217,17 +234,21 @@ def _load_registry(registry_path: Path, *, required: bool = False) -> LoadedRegi
     try:
         if registry_path.exists() and not registry_path.is_file():
             raise OSError("expected a regular ledger file")
-        text = registry_path.read_text(encoding="utf-8")
+        contents = registry_path.read_bytes()
     except FileNotFoundError as exc:
         if required:
             raise InputParseError(f"Registry does not exist: {registry_path}") from exc
         return LoadedRegistry(rows=[], skipped=[], present=False)
-    except (OSError, UnicodeError) as exc:
+    except OSError as exc:
         raise InputParseError(f"Could not read registry {registry_path}: {exc}") from exc
     rows: list[RegistryRowV1] = []
     skipped: list[RegistrySkippedRowV1] = []
-    for line_number, line in enumerate(text.splitlines(), start=1):
-        line = line.strip()
+    lines: list[bytes] = []
+    for line_number, raw_line in enumerate(contents.splitlines(keepends=True), start=1):
+        try:
+            line = raw_line.decode("utf-8").strip()
+        except UnicodeError as exc:
+            raise InputParseError(f"Could not read registry {registry_path}: {exc}") from exc
         if not line:
             continue
         try:
@@ -248,6 +269,7 @@ def _load_registry(registry_path: Path, *, required: bool = False) -> LoadedRegi
             continue
         try:
             rows.append(_coerce_row(loaded))
+            lines.append(raw_line)
         except ValidationError as exc:
             skipped.append(
                 RegistrySkippedRowV1(
@@ -255,7 +277,7 @@ def _load_registry(registry_path: Path, *, required: bool = False) -> LoadedRegi
                     reason=f"schema_validation_error: {exc.errors()[0]['msg']}",
                 )
             )
-    return LoadedRegistry(rows=rows, skipped=skipped, present=True)
+    return LoadedRegistry(rows=rows, skipped=skipped, present=True, lines=lines)
 
 
 def _load_rows(registry_path: Path) -> list[RegistryRowV1]:
@@ -790,16 +812,52 @@ def registry_report(
             "compare, or a gap."
         ),
     ),
+    control_map: Path | None = typer.Option(
+        None,
+        "--control-map",
+        help=(
+            "Report the rows, counts and gaps of one audit window (--since, "
+            "--until) arranged by a control map, such as "
+            "docs/control-maps/aiuc-1.yaml. States evidence; never says a control "
+            "is met."
+        ),
+    ),
+    out: Path | None = typer.Option(
+        None,
+        "--out",
+        help=(
+            "With --control-map: write control-evidence.json, control-evidence.md, "
+            "ledger-extract.jsonl (the cited ledger lines) and control-map.yaml "
+            "(the map read) to this directory."
+        ),
+    ),
 ) -> None:
-    """Emit derived registry reports: --bypass or --drift."""
-    if bypass == drift:
+    """Emit derived registry reports: --bypass, --drift or --control-map."""
+    modes = sum((bypass, drift, control_map is not None))
+    if modes != 1:
         typer.echo(
-            "Pass exactly one of --bypass or --drift."
-            if bypass
-            else "Nothing to report: pass --bypass or --drift.",
+            "Pass exactly one of --bypass, --drift or --control-map."
+            if modes
+            else "Nothing to report: pass --bypass, --drift or --control-map.",
             err=True,
         )
         raise typer.Exit(2)
+    if out is not None and control_map is None:
+        typer.echo("--out only applies to --control-map.", err=True)
+        raise typer.Exit(2)
+    if control_map is not None:
+        _control_map_command(
+            registry=registry,
+            control_map=control_map,
+            repo=repo,
+            since=since,
+            until=until,
+            expected_interval_days=expected_interval_days,
+            out=out,
+            json_output=json_output,
+            fail_flags={"--fail-on-bypass": fail_on_bypass, "--fail-on-drift": fail_on_drift},
+        )
+        return
     if drift:
         _drift_report_command(
             registry=registry,
@@ -851,6 +909,150 @@ def registry_report(
         )
     if fail_on_bypass and payload.bypass_count > 0:
         raise typer.Exit(20)
+
+
+def _protect_control_evidence_inputs(out: Path, registry: Path, control_map: Path) -> None:
+    """Refuse output paths that name either input, including existing links."""
+    try:
+        for filename in (
+            LEDGER_EXTRACT_FILENAME, CONTROL_MAP_COPY_FILENAME,
+            CONTROL_EVIDENCE_FILENAME, CONTROL_EVIDENCE_MARKDOWN_FILENAME,
+        ):
+            destination = out / filename
+            resolved_destination = destination.resolve()
+            for source in (registry, control_map):
+                try:
+                    same_file = destination.samefile(source)
+                except FileNotFoundError:
+                    same_file = False
+                if same_file or resolved_destination == source.resolve():
+                    raise ControlMapError(f"--out {destination} would overwrite input {source}")
+    except (OSError, RuntimeError) as exc:
+        raise ControlMapError(f"could not identify --out paths in {out}: {exc}") from exc
+
+
+def _control_map_command(
+    *,
+    registry: Path,
+    control_map: Path,
+    repo: str | None,
+    since: str | None,
+    until: str | None,
+    expected_interval_days: int | None,
+    out: Path | None,
+    json_output: bool,
+    fail_flags: dict[str, bool],
+) -> None:
+    misplaced = [flag for flag, value in fail_flags.items() if value]
+    if misplaced:
+        typer.echo(
+            f"{', '.join(misplaced)} do not apply to --control-map: it states "
+            "evidence and never fails a run.",
+            err=True,
+        )
+        raise typer.Exit(2)
+    if since is None or until is None:
+        typer.echo(
+            "--control-map needs --since and --until: the audit window, in UTC "
+            "days (YYYY-MM-DD).",
+            err=True,
+        )
+        raise typer.Exit(2)
+    since_day = _report_day(since, "--since")
+    until_day = _report_day(until, "--until")
+    assert since_day is not None and until_day is not None
+    if out is not None and out.exists() and not out.is_dir():
+        typer.echo(f"--out {out} exists and is not a directory.", err=True)
+        raise typer.Exit(2)
+    try:
+        if out is not None:
+            _protect_control_evidence_inputs(out, registry, control_map)
+        loaded_map, map_bytes = read_control_map(control_map)
+    except ControlMapError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    map_sha256 = hashlib.sha256(map_bytes).hexdigest()
+    loaded = _load_registry(registry)
+    # Spelled out rather than rendered from how this process was started, so
+    # two runs of one review print the same command on any machine. With
+    # --out it names the map and extract written there, so it runs from that
+    # directory alone, wherever the map was read from.
+    recompute = shlex.join(
+        [
+            "agents-shipgate",
+            "registry",
+            "report",
+            "--control-map",
+            CONTROL_MAP_COPY_FILENAME if out is not None else str(control_map),
+            "--registry",
+            LEDGER_EXTRACT_FILENAME if out is not None else str(registry),
+            "--since",
+            since_day.isoformat(),
+            "--until",
+            until_day.isoformat(),
+            *(["--repo", repo] if repo is not None else []),
+            *(
+                ["--expected-interval-days", str(expected_interval_days)]
+                if expected_interval_days is not None
+                else []
+            ),
+            "--json",
+        ]
+    )
+    try:
+        view, extract_lines = control_evidence(
+            control_map=loaded_map,
+            map_path=str(control_map),
+            map_sha256=map_sha256,
+            registry=str(registry),
+            rows=loaded.rows,
+            lines=loaded.lines,
+            skipped=loaded.skipped,
+            since=since_day,
+            until=until_day,
+            repo=repo,
+            expected_interval_days=expected_interval_days,
+            recompute=recompute,
+        )
+    except ControlMapError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(2) from exc
+    if out is not None:
+        view = view.model_copy(
+            update={"extract": extract_ref(LEDGER_EXTRACT_FILENAME, extract_lines)}
+        )
+        out.mkdir(parents=True, exist_ok=True)
+        # Bytes, not text: a text-mode write turns each \n into \r\n on
+        # Windows, and the extract and map would no longer hash to what the
+        # view says they do.
+        (out / LEDGER_EXTRACT_FILENAME).write_bytes(extract_bytes(extract_lines))
+        (out / CONTROL_MAP_COPY_FILENAME).write_bytes(map_bytes)
+        (out / CONTROL_EVIDENCE_FILENAME).write_bytes(
+            (view.model_dump_json(indent=2) + "\n").encode("utf-8")
+        )
+        (out / CONTROL_EVIDENCE_MARKDOWN_FILENAME).write_bytes(
+            render_control_evidence_markdown(view).encode("utf-8")
+        )
+    if json_output:
+        typer.echo(view.model_dump_json(indent=2))
+        return
+    found = sum(control.gap_count for control in view.controls)
+    typer.echo(
+        f"{len(view.controls)} control(s) from {view.map.framework_label}, "
+        f"{view.since} to {view.until}: {view.cited_row_count} row(s) cited, "
+        f"{found} gap(s) found"
+    )
+    for control in view.controls:
+        rows = sum(item.row_count for item in control.evidence)
+        label = "not evidenced by this ledger" if not control.evidence else f"{rows} row(s)"
+        typer.echo(f"- {control.id} {control.title}: {label}, {control.gap_count} gap(s)")
+    if out is not None:
+        typer.echo(
+            f"Wrote {CONTROL_EVIDENCE_FILENAME}, {CONTROL_EVIDENCE_MARKDOWN_FILENAME}, "
+            f"{LEDGER_EXTRACT_FILENAME} and {CONTROL_MAP_COPY_FILENAME} to {out}"
+        )
+    if loaded.skipped:
+        typer.echo(f"Skipped {len(loaded.skipped)} malformed registry row(s).", err=True)
 
 
 def _report_day(value: str | None, flag: str) -> date | None:
