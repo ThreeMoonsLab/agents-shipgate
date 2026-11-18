@@ -118,7 +118,7 @@ def _load_trace_items(
     if path.suffix.lower() == ".jsonl":
         items: list[_TraceInput] = []
         event_index = 0
-        for line_number, line in enumerate(load_text_file(path).splitlines(), start=1):
+        for line_number, line in enumerate(load_text_file(path).split("\n"), start=1):
             if not line.strip():
                 continue
             try:

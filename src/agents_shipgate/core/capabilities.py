@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from typing import Any
+
+from pydantic import BaseModel
 
 from agents_shipgate.core.domain import Action, Scope, Tool
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.lenses.action_surface import build_action
+from agents_shipgate.core.privacy import redact_data, redact_text
 from agents_shipgate.core.risk_hints import derive_side_effect
 from agents_shipgate.core.tool_identity import ToolSelectorIndex
 from agents_shipgate.schemas.capabilities import (
@@ -58,32 +62,19 @@ def capability_fact_from_action(
     evidence = _capability_evidence(action, tool)
     semantic_evidence = _semantic_evidence(action)
     hashes = CapabilityHashes(
-        identity_hash=_capability_stable_hash(identity.model_dump(mode="json")),
-        binding_hash=_capability_stable_hash(
-            semantic_evidence.binding.model_dump(mode="json")
-            if semantic_evidence is not None
-            else {"status": "unknown"}
-        ),
-        effect_hash=_capability_stable_hash(effect.model_dump(mode="json")),
-        authority_hash=_capability_stable_hash(authority.model_dump(mode="json")),
-        control_hash=_capability_stable_hash(controls.model_dump(mode="json")),
+        identity_hash=capability_identity_hash(identity),
+        binding_hash=capability_binding_hash(semantic_evidence),
+        effect_hash=capability_effect_hash(effect),
+        authority_hash=capability_authority_hash(authority),
+        control_hash=capability_control_hash(controls),
         schema_hash=_capability_stable_hash(
             {
                 "input_schema": action.input_schema,
                 "parameters": action.parameters_for_hash,
             }
         ),
-        risk_hash=_capability_stable_hash({"risk_tags": sorted(set(action.risk_tags))}),
-        evidence_hash=_capability_stable_hash(
-            {
-                "evidence": evidence.model_dump(mode="json"),
-                "semantic_assessment": (
-                    semantic_evidence.model_dump(mode="json")
-                    if semantic_evidence is not None
-                    else None
-                ),
-            }
-        ),
+        risk_hash=capability_risk_hash(action.risk_tags),
+        evidence_hash=capability_evidence_hash(evidence, semantic_evidence),
     )
     return CapabilityFactV1(
         id=f"cap_{hashes.identity_hash}",
@@ -236,27 +227,14 @@ def capability_fact_from_action_fact(action: ActionFact) -> CapabilityFactV1:
     )
     semantic_evidence = action.semantic_assessment
     hashes = CapabilityHashes(
-        identity_hash=_capability_stable_hash(identity.model_dump(mode="json")),
-        binding_hash=_capability_stable_hash(
-            semantic_evidence.binding.model_dump(mode="json")
-            if semantic_evidence is not None
-            else {"status": "unknown"}
-        ),
-        effect_hash=_capability_stable_hash(effect.model_dump(mode="json")),
-        authority_hash=_capability_stable_hash(authority.model_dump(mode="json")),
-        control_hash=_capability_stable_hash(controls.model_dump(mode="json")),
+        identity_hash=capability_identity_hash(identity),
+        binding_hash=capability_binding_hash(semantic_evidence),
+        effect_hash=capability_effect_hash(effect),
+        authority_hash=capability_authority_hash(authority),
+        control_hash=capability_control_hash(controls),
         schema_hash=action.input_schema_hash,
-        risk_hash=_capability_stable_hash({"risk_tags": sorted(set(action.risk_tags))}),
-        evidence_hash=_capability_stable_hash(
-            {
-                "evidence": evidence.model_dump(mode="json"),
-                "semantic_assessment": (
-                    semantic_evidence.model_dump(mode="json")
-                    if semantic_evidence is not None
-                    else None
-                ),
-            }
-        ),
+        risk_hash=capability_risk_hash(action.risk_tags),
+        evidence_hash=capability_evidence_hash(evidence, semantic_evidence),
     )
     return CapabilityFactV1(
         id=f"cap_{hashes.identity_hash}",
@@ -279,6 +257,203 @@ def capability_facts_from_action_surface_facts(
     ]
     _validate_unique_capability_ids(capability_facts)
     return sorted(capability_facts, key=capability_fact_sort_key)
+
+
+# --- The digest recipe ------------------------------------------------------
+#
+# One function per published digest, shared by both builders above and by
+# ``redacted_capability_fact``, so a digest recomputed over redacted text is
+# the digest a build over that text would have produced.
+
+
+def capability_identity_hash(identity: CapabilityIdentity) -> str:
+    """The identity digest; a capability's id is ``cap_<identity_hash>``."""
+
+    return _capability_stable_hash(identity.model_dump(mode="json"))
+
+
+def capability_binding_hash(semantic: ToolSemanticEvidence | None) -> str:
+    return _capability_stable_hash(
+        semantic.binding.model_dump(mode="json")
+        if semantic is not None
+        else {"status": "unknown"}
+    )
+
+
+def capability_effect_hash(effect: CapabilityEffect) -> str:
+    return _capability_stable_hash(effect.model_dump(mode="json"))
+
+
+def capability_authority_hash(authority: CapabilityAuthority) -> str:
+    return _capability_stable_hash(authority.model_dump(mode="json"))
+
+
+def capability_control_hash(controls: CapabilityControls) -> str:
+    return _capability_stable_hash(controls.model_dump(mode="json"))
+
+
+def capability_risk_hash(risk_tags: Iterable[str]) -> str:
+    return _capability_stable_hash({"risk_tags": sorted(set(risk_tags))})
+
+
+def capability_evidence_hash(
+    evidence: CapabilityEvidence,
+    semantic: ToolSemanticEvidence | None,
+) -> str:
+    return _capability_stable_hash(
+        {
+            "evidence": evidence.model_dump(mode="json"),
+            "semantic_assessment": (
+                semantic.model_dump(mode="json") if semantic is not None else None
+            ),
+        }
+    )
+
+
+# --- Publication (#1079) ----------------------------------------------------
+
+#: Tuple fields that hold a sorted set. Redaction is many-to-one, so after it
+#: two members can be equal or out of order; these are re-normalized, which is
+#: also what ``CapabilityFactV1``'s semantic projection check expects of
+#: ``authority.scopes``.
+_SORTED_SET_FIELDS: dict[type[BaseModel], tuple[str, ...]] = {
+    CapabilityIdentity: ("resource", "scope"),
+    CapabilityAuthority: ("scopes", "broad_scopes"),
+}
+
+
+def redacted_capability_fact(fact: CapabilityFactV1) -> CapabilityFactV1:
+    """``fact`` as the capability-lock family publishes it (#1079).
+
+    Every string in the identity, effect, authority, controls, evidence, risk
+    tags and semantic assessment goes through :func:`redact_data`, the rule
+    set ``report.json`` uses. Each digest whose input redaction changed is
+    recomputed over the redacted value by the recipe above, and the id follows
+    ``identity_hash``, so every digest computed here describes the published
+    text: a consumer that recomputes ``subject.key`` or a set digest from the
+    payload agrees with it. Ids a reader derived from source text before this
+    point, ``identity.tool_id`` (``tool_v2_…``) and the observation ids under
+    ``semantic_assessment.identity`` (``obs_v1_…``), are not recomputed: they
+    are the identity every other surface carries, so they stay digests of text
+    the lock does not show. A digest whose input redaction left alone keeps its
+    stored value, byte for byte, so a fact with nothing to redact - including one read
+    from an older lock whose digests came from an older recipe - is returned
+    unchanged. ``schema_hash`` and ``definition`` are digests of text no lock
+    publishes (the input schema, description, output schema and annotations),
+    so they stay digests of the source, as before.
+    """
+
+    identity = _redacted_model(fact.identity)
+    effect = _redacted_model(fact.effect)
+    authority = _redacted_model(fact.authority)
+    controls = _redacted_model(fact.controls)
+    evidence = _redacted_model(fact.evidence)
+    semantic = (
+        _redacted_model(fact.semantic_assessment)
+        if fact.semantic_assessment is not None
+        else None
+    )
+    risk_tags = tuple(redact_text(tag) or "" for tag in fact.risk_tags)
+    if risk_tags != fact.risk_tags:
+        risk_tags = tuple(sorted(set(risk_tags)))
+    if (identity, effect, authority, controls, evidence, semantic, risk_tags) == (
+        fact.identity,
+        fact.effect,
+        fact.authority,
+        fact.controls,
+        fact.evidence,
+        fact.semantic_assessment,
+        fact.risk_tags,
+    ):
+        return fact
+    updates: dict[str, str] = {}
+    if identity != fact.identity:
+        updates["identity_hash"] = capability_identity_hash(identity)
+    if _binding(semantic) != _binding(fact.semantic_assessment):
+        updates["binding_hash"] = capability_binding_hash(semantic)
+    if effect != fact.effect:
+        updates["effect_hash"] = capability_effect_hash(effect)
+    if authority != fact.authority:
+        updates["authority_hash"] = capability_authority_hash(authority)
+    if controls != fact.controls:
+        updates["control_hash"] = capability_control_hash(controls)
+    if risk_tags != fact.risk_tags:
+        updates["risk_hash"] = capability_risk_hash(risk_tags)
+    if evidence != fact.evidence or semantic != fact.semantic_assessment:
+        updates["evidence_hash"] = capability_evidence_hash(evidence, semantic)
+    hashes = fact.hashes.model_copy(update=updates)
+    return CapabilityFactV1(
+        id=f"cap_{hashes.identity_hash}" if "identity_hash" in updates else fact.id,
+        identity=identity,
+        effect=effect,
+        authority=authority,
+        controls=controls,
+        evidence=evidence,
+        semantic_assessment=semantic,
+        risk_tags=risk_tags,
+        hashes=hashes,
+        definition=fact.definition,
+    )
+
+
+def redacted_capability_facts(facts: Iterable[CapabilityFactV1]) -> list[CapabilityFactV1]:
+    """:func:`redacted_capability_fact` over a set, never merging two facts.
+
+    Redaction is many-to-one: two tools whose identities differ only inside a
+    credential redact to one identity, and so to one id. A diff keys facts by
+    id, so publishing both under it would silently drop one of them from every
+    comparison. When redaction makes two ids equal, each fact in that group
+    keeps the identity digest and id of its source, which do not describe the
+    published text: the lock then shows two indistinguishable names, but two
+    capabilities.
+
+    Only a caller whose ``tool_id`` is taken from the name reaches this. The
+    shipped readers' ``tool_v2_…`` ids hash the raw observation, so two tools
+    never share a redacted identity, and ``action_surface`` rejects duplicate
+    selectors. The diff rows this path produces are best effort, not correct:
+    a fact's id is its source digest while a twin exists and its redacted
+    digest when it is alone, and lineage pairing runs on the redacted
+    ``tool_name`` and ``tool_id``, which the twins share. A twin arriving or
+    leaving can therefore show as a ``reidentified`` row, or as an owner
+    change attributed to the wrong twin.
+    """
+
+    sources = list(facts)
+    redacted = [redacted_capability_fact(fact) for fact in sources]
+    by_id: dict[str, list[int]] = {}
+    for index, fact in enumerate(redacted):
+        by_id.setdefault(fact.id, []).append(index)
+    for indexes in by_id.values():
+        if len(indexes) < 2:
+            continue
+        for index in indexes:
+            source = sources[index]
+            fact = redacted[index]
+            if fact.id == source.id:
+                continue
+            redacted[index] = fact.model_copy(
+                update={
+                    "id": source.id,
+                    "hashes": fact.hashes.model_copy(
+                        update={"identity_hash": source.hashes.identity_hash}
+                    ),
+                }
+            )
+    return sorted(redacted, key=capability_fact_sort_key)
+
+
+def _redacted_model[M: BaseModel](model: M) -> M:
+    dumped = model.model_dump(mode="python")
+    redacted = redact_data(dumped)
+    if redacted == dumped:
+        return model
+    for name in _SORTED_SET_FIELDS.get(type(model), ()):
+        redacted[name] = tuple(sorted(set(redacted[name])))
+    return type(model).model_validate(redacted)
+
+
+def _binding(semantic: ToolSemanticEvidence | None) -> object:
+    return semantic.binding if semantic is not None else None
 
 
 def _capability_effect(action: Action) -> CapabilityEffect:
@@ -467,7 +642,16 @@ __all__ = [
     "CapabilityHashes",
     "CapabilityIdentity",
     "build_capability_facts",
+    "capability_authority_hash",
+    "capability_binding_hash",
+    "capability_control_hash",
+    "capability_effect_hash",
+    "capability_evidence_hash",
     "capability_fact_from_action_fact",
     "capability_facts_from_action_surface_facts",
     "capability_fact_from_action",
+    "capability_identity_hash",
+    "capability_risk_hash",
+    "redacted_capability_fact",
+    "redacted_capability_facts",
 ]

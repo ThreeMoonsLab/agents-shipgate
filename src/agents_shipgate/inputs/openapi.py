@@ -161,7 +161,11 @@ def load_openapi_tools(source: ToolSourceConfig, base_dir: Path) -> LoadedToolSo
                     warnings=warnings,
                     unresolved_carriers=unresolved_carriers,
                 )
-            except (RecursionError, MemoryError):
+            except RecursionError as exc:
+                raise InputParseError(
+                    f"OpenAPI operation {method_lower.upper()} {api_path} exceeds the nesting limit"
+                ) from exc
+            except MemoryError:
                 raise
             except Exception as exc:  # noqa: BLE001 - source parse boundary.
                 raise InputParseError(

@@ -20,7 +20,7 @@ from agents_shipgate import _perf
 from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.git_env import hardened_git_env
-from agents_shipgate.core.privacy import redact_text
+from agents_shipgate.core.privacy import redact_text, truncate_redacted
 from agents_shipgate.core.trust_roots import trust_root_class_for
 from agents_shipgate.core.workspace_input import workspace_input_error
 from agents_shipgate.schemas.human_authorization import canonical_https_git_endpoint
@@ -4050,15 +4050,26 @@ def _run_git_bounded_result(
 def _decode_git_stderr(payload: bytes | bytearray) -> str:
     """Return Git's diagnostic text as one safe, bounded, single-line string."""
 
-    text = bytes(payload).decode("utf-8", errors="replace")
+    raw = bytes(payload)
+    if len(raw) >= _GIT_STDERR_LIMIT:
+        # The capture stopped at its limit, so its last word may be the head
+        # of a longer one: a token cut there is too short for any rule to
+        # recognise. Drop everything after the last whitespace (#1079 review).
+        whole = re.match(rb"(?s)(.*\s)\S*\Z", raw)
+        raw = whole.group(1) if whole else b""
+    text = raw.decode("utf-8", errors="replace")
     collapsed = " ".join(
         part
         for part in "".join(
             character if character.isprintable() else " " for character in text
         ).split()
     )
+    # Redacted, then bounded (#1079): Git can echo a remote URL or a header,
+    # and this text is published as a diagnostic's detail. It used to be
+    # bounded and never redacted.
+    collapsed = redact_text(collapsed) or ""
     if len(collapsed) > _GIT_STDERR_EXCERPT_CHARS:
-        collapsed = collapsed[:_GIT_STDERR_EXCERPT_CHARS].rstrip() + "…"
+        collapsed = truncate_redacted(collapsed, _GIT_STDERR_EXCERPT_CHARS).rstrip() + "…"
     return collapsed
 
 

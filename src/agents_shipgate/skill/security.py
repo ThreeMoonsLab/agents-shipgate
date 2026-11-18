@@ -12,6 +12,7 @@ from agents_shipgate.core.privacy import (
 from agents_shipgate.schemas.report import Finding
 from agents_shipgate.skill.models import SkillArtifact, SkillReviewConfig, TextSegment
 from agents_shipgate.skill.rules_common import (
+    bounded_excerpt,
     excerpt,
     has_confirmation,
     has_dry_run,
@@ -217,7 +218,7 @@ def _script_security_rules(artifact: SkillArtifact) -> list[Finding]:
                     evidence={
                         "source_path": command.path,
                         "line": command.line,
-                        "excerpt": _command_excerpt(command.text),
+                        "excerpt": bounded_excerpt(command.text),
                     },
                     confidence="high",
                     recommendation="Vendor the script or pin and verify remote content instead of piping it directly to an interpreter.",
@@ -237,7 +238,7 @@ def _script_security_rules(artifact: SkillArtifact) -> list[Finding]:
                     evidence={
                         "source_path": command.path,
                         "line": command.line,
-                        "excerpt": _command_excerpt(command.text),
+                        "excerpt": bounded_excerpt(command.text),
                     },
                     confidence="medium",
                     recommendation="Add dry-run, confirmation, path validation, or remove destructive commands from the skill workflow.",
@@ -257,7 +258,7 @@ def _script_security_rules(artifact: SkillArtifact) -> list[Finding]:
                     evidence={
                         "source_path": command.path,
                         "line": command.line,
-                        "excerpt": _command_excerpt(command.text),
+                        "excerpt": bounded_excerpt(command.text),
                     },
                     confidence="high",
                     recommendation="Remove runtime remote-code execution or pin, verify, and sandbox the content explicitly.",
@@ -359,13 +360,6 @@ def _line_window(lines: list[str], line_number: int, *, radius: int = 3) -> str:
 
 def _has_nearby_guardrail(command: CommandContext) -> bool:
     return has_dry_run(command.nearby_text) or has_confirmation(command.nearby_text)
-
-
-def _command_excerpt(text: str, *, max_len: int = 180) -> str:
-    value = text.strip()
-    if len(value) <= max_len:
-        return value
-    return f"{value[:max_len]}..."
 
 
 def _remote_instruction_line(line: str) -> bool:

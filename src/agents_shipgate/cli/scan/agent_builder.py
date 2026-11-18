@@ -6,6 +6,13 @@ from agents_shipgate.core.artifact_models import (
     OpenAIApiArtifacts,
 )
 from agents_shipgate.core.domain import Agent, Tool
+from agents_shipgate.core.privacy import redact_and_truncate
+
+#: How much of a prompt file or ADK instruction the agent record publishes as
+#: ``instructions.value_preview``. The text is redacted before it is cut: cut
+#: first, a credential straddling the bound kept a head too short for the
+#: report-time redaction to recognise, and that head was published (#1079).
+INSTRUCTIONS_PREVIEW_CHARS = 500
 
 
 def _build_agent(
@@ -20,7 +27,9 @@ def _build_agent(
     instruction_source = "config" if instructions_preview else "dynamic_unknown"
     instruction_confidence = "high" if instructions_preview else "medium"
     if not instructions_preview and api_artifacts and api_artifacts.prompt_text:
-        instructions_preview = api_artifacts.prompt_text[:500]
+        instructions_preview = redact_and_truncate(
+            api_artifacts.prompt_text, INSTRUCTIONS_PREVIEW_CHARS
+        )
         instruction_source = "openai_api_prompt_files"
         instruction_confidence = "high"
     if (
@@ -28,13 +37,17 @@ def _build_agent(
         and anthropic_artifacts
         and anthropic_artifacts.prompt_text
     ):
-        instructions_preview = anthropic_artifacts.prompt_text[:500]
+        instructions_preview = redact_and_truncate(
+            anthropic_artifacts.prompt_text, INSTRUCTIONS_PREVIEW_CHARS
+        )
         instruction_source = "anthropic_prompt_files"
         instruction_confidence = "high"
     if not instructions_preview and adk_artifacts:
         adk_instruction = _first_adk_instruction_preview(adk_artifacts)
         if adk_instruction:
-            instructions_preview = adk_instruction[:500]
+            instructions_preview = redact_and_truncate(
+                adk_instruction, INSTRUCTIONS_PREVIEW_CHARS
+            )
             instruction_source = "google_adk_static"
             instruction_confidence = "medium"
     return Agent(
