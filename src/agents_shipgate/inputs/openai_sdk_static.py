@@ -20,6 +20,7 @@ from agents_shipgate.core.domain import (
 )
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.paths import display_path
+from agents_shipgate.core.python_source import parse_python
 from agents_shipgate.inputs.agent_construction_identity import (
     construction_identities,
     source_construction_label,
@@ -194,7 +195,7 @@ def _load_python_file(
 ) -> tuple[list[Tool], list[ToolkitScopeBound], list[GuardDependencyEvidence]]:
     try:
         source_text = load_text_file(path)
-        tree = ast.parse(source_text, filename=str(path))
+        tree = parse_python(source_text, filename=str(path))
     except SyntaxError as exc:
         raise InputParseError(f"Unable to parse OpenAI Agents SDK entrypoint {path}: {exc.msg}") from exc
     except InputParseError as exc:

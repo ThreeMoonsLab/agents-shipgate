@@ -1372,7 +1372,7 @@ def _evaluate_config_file(
         )
         return
     try:
-        data = bounded_parse(tomllib.loads, resolved.new_text)
+        data = bounded_parse(tomllib.loads, resolved.new_text.removeprefix("\ufeff"))
     except (tomllib.TOMLDecodeError, NestingLimitExceeded) as exc:
         add(
             "CODEX-CONFIG-PARSE-FAILED",
@@ -1381,7 +1381,9 @@ def _evaluate_config_file(
         )
         return
     try:
-        old_data = bounded_parse(tomllib.loads, resolved.old_text or "")
+        old_data = bounded_parse(
+            tomllib.loads, (resolved.old_text or "").removeprefix("\ufeff")
+        )
     except (tomllib.TOMLDecodeError, NestingLimitExceeded) as exc:
         add(
             "CODEX-CONFIG-PARSE-FAILED",

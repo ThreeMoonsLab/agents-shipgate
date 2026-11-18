@@ -35,6 +35,7 @@ from agents_shipgate.core.domain import (
 from agents_shipgate.core.errors import InputParseError
 from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.core.privacy import is_credential_key, redact_url_credentials
+from agents_shipgate.core.python_source import parse_python
 from agents_shipgate.core.source_warnings import adk_unresolved_tool_warning
 from agents_shipgate.inputs.builder_calls import (
     BuilderCalls,
@@ -558,7 +559,7 @@ def _load_python_path(
 ) -> list[LoadedToolSource]:
     text = load_text_file(path)
     try:
-        tree = ast.parse(text, filename=str(path))
+        tree = parse_python(text, filename=str(path))
     except SyntaxError as exc:
         raise InputParseError(f"Unable to parse Google ADK Python entrypoint {path}: {exc.msg}") from exc
     artifacts.python_entrypoints.append(_display_path(path, base_dir, outside="resolved"))
