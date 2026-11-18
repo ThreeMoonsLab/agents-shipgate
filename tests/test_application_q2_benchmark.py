@@ -408,21 +408,43 @@ def test_a_pinned_holdout_follows_its_rule() -> None:
     if HOLDOUT["status"] == "awaiting_window":
         assert HOLDOUT["members"] == [] and HOLDOUT["skipped"] == []
         return
+    assert HOLDOUT["status"] == "pinned"
     members = HOLDOUT["members"]
     assert len(members) == HOLDOUT["target_members"]
     development = {member["repository"] for member in DEVELOPMENT["members"]}
     walked = sorted([*members, *HOLDOUT["skipped"]], key=lambda item: (item["created_at"], item["url"]))
     assert [item["url"] for item in walked if item in members] == [item["url"] for item in members]
+    assert len({item["url"] for item in walked}) == len(walked)
+    # The walk stops at the 30th member (step 5): nothing after it was walked.
+    assert walked[-1] is members[-1]
+    assert HOLDOUT["walk"]["walked_through"] == members[-1]["created_at"]
+    assert HOLDOUT["walk"]["candidates_walked"] == len(walked)
+    # Every pull request created through the stop is accounted for: the ones steps 1-3
+    # set aside before judging, and the candidates walked.
+    counts = HOLDOUT["walk"]["through_walked_through"]
+    assert (
+        counts["pull_requests_created"]
+        - counts["in_development_repositories"]
+        - counts["closed_unmerged"]
+        - counts["no_non_test_python_file"]
+        == counts["candidates"]
+        == len(walked)
+    )
     for item in walked:
         assert item["reason"].strip()
         assert item["created_at"] >= HOLDOUT["window_start"]
         assert item["repository"] in POOL["repositories"]
         assert item["repository"] not in development
-    for member in members:
-        if member.get("unavailable_reason"):
-            assert member["merge_base"] is None and member["head"] is None
+        assert item["url"].startswith("https://github.com/") and item["url"].endswith(f"/pull/{item['number']}")
+        assert item["state"] in {"merged", "open"}
+        if item.get("unavailable_reason"):
+            assert item["merge_base"] is None and item["head"] is None
         else:
-            assert SHA.match(member["merge_base"]) and SHA.match(member["head"])
+            assert SHA.match(item["merge_base"]) and SHA.match(item["head"])
+            assert item["merge_base"] != item["head"]
+    # Who judged relevance, and that the judge consulted no engine output (#1158).
+    assert "consulted no engine output" in HOLDOUT["judge"]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", HOLDOUT["generated"])
 
 
 def test_every_release_after_1_2_0_records_the_count() -> None:
