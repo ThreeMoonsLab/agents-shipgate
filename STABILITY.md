@@ -436,11 +436,9 @@ row. Replayed with its real trees, it is now `comparable` with the six
   registry and checked in the working tree once per comparison. One
   directory may hold at most 10,000 files and, in a working tree, 64 MiB;
   one comparison examines at most 20,000 files and 128 MiB beneath all its
-  links together. Past a bound the link keeps its limit, and the refused
-  comparison's coverage `detail` for it ends with why: `It was not proven
-  unchanged: the directory it names holds more than …` or `… this comparison
-  already examined … beneath other unread directory links, its bound, so this
-  link was not examined.`
+  links together. The comparison also caps Git lookups at 1,024 and bounds
+  working-tree directory enumeration. Past a bound the link keeps its limit,
+  and the coverage `detail` identifies the bound that prevented proof.
 - **Configuration cannot be moved behind a link (owner ruling).** A link
   where a host reads agent configuration keeps its blocking limit, however
   unchanged. It is decided by the boundary registry's own patterns,

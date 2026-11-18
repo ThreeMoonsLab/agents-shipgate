@@ -118,6 +118,96 @@ def test_the_recipe_is_advisory_minimal_and_pinned() -> None:
     assert not (REPO_ROOT / "examples/github-actions/shipgate.yaml").exists()
 
 
+def test_host_only_init_installs_the_exercised_recipe_and_doctor_routes_to_host_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typer.testing import CliRunner
+
+    from agents_shipgate.cli.main import app
+
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text(_BASE_SETTINGS, encoding="utf-8")
+    runner = CliRunner()
+    init = ["init", "--workspace", str(tmp_path), "--write", "--ci", "--json"]
+    output_path = tmp_path / ".github/workflows/agents-shipgate.yml"
+
+    first = runner.invoke(app, init)
+    assert first.exit_code == 0, first.output
+    first_payload = json.loads(first.stdout)
+    assert first_payload["manifest_status"] == "not_applicable_host_review"
+    assert first_payload["workflow"]["status"] == "written"
+    assert Path(first_payload["workflow"]["path"]) == output_path.resolve()
+    assert output_path.read_bytes() == RECIPE.read_bytes()
+    assert not (tmp_path / "shipgate.yaml").exists()
+
+    again = runner.invoke(app, init)
+    assert again.exit_code == 0, again.output
+    assert json.loads(again.stdout)["workflow"]["status"] == "skipped_existing_target"
+    assert output_path.read_bytes() == RECIPE.read_bytes()
+
+    doctor = ["doctor", "--workspace", str(tmp_path), "--json"]
+    result = runner.invoke(app, doctor)
+    assert result.exit_code == 0, result.output
+    inspected = json.loads(result.stdout)
+    assert inspected["manifest_status"] == "not_applicable_host_review"
+    assert inspected["control"]["decision_source"] == "setup"
+    assert "audit --host" in inspected["control"]["next_action"]["command"]
+    assert not any(inspected["control"]["permissions"].values())
+
+    explicit = runner.invoke(app, [*doctor, "--config", "shipgate.yaml"])
+    assert explicit.exit_code == 2, explicit.output
+
+    monkeypatch.chdir(tmp_path)
+    default = runner.invoke(app, ["doctor", "--json"])
+    assert default.exit_code == 0, default.output
+    assert json.loads(default.stdout)["control"] == inspected["control"]
+
+
+@pytest.mark.parametrize("relative_dir", [".github", ".github/workflows"])
+def test_host_only_workflow_requires_plain_repository_directories(
+    tmp_path: Path, relative_dir: str,
+) -> None:
+    from agents_shipgate.cli.discovery.ci_workflow import write_ci_workflow
+    from agents_shipgate.core.errors import ConfigError
+
+    linked_directory = tmp_path / relative_dir
+    linked_directory.parent.mkdir(parents=True, exist_ok=True)
+    other_directory = tmp_path / "other"
+    other_directory.mkdir()
+    try:
+        linked_directory.symlink_to(other_directory, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable")
+
+    with pytest.raises(ConfigError, match="symbolic link"):
+        write_ci_workflow(tmp_path, host_only=True)
+
+    assert not list(other_directory.iterdir())
+
+
+def test_host_only_workflow_keeps_a_file_created_while_loading_the_recipe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agents_shipgate.cli.discovery import ci_workflow
+
+    target = tmp_path / ci_workflow.WORKFLOW_RELATIVE_PATH
+    existing = b"# workflow from a concurrent writer\n"
+
+    def load_recipe(relative_path: str) -> Path:
+        assert relative_path == "_meta/host-only-advisory.yml"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(existing)
+        return RECIPE
+
+    monkeypatch.setattr(ci_workflow, "packaged_path", load_recipe)
+
+    result = ci_workflow.write_ci_workflow(tmp_path, host_only=True)
+
+    assert result.status == "skipped_existing_target"
+    assert target.read_bytes() == existing
+
+
 def test_the_pinned_version_installs_from_the_index_not_the_pr() -> None:
     """With `shipgate_version` set, the Action installs that release by name.
 

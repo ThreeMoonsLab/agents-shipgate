@@ -1312,15 +1312,21 @@ def _reader_path(
 class _CommitEntries:
     """One commit's tree entries, each read exactly, by its own `ls-tree`."""
 
-    def __init__(self, workspace: Path, commit: str) -> None:
+    def __init__(
+        self, workspace: Path, commit: str, *, allow_lookup: Callable[[], bool] | None = None,
+    ) -> None:
         self._workspace = workspace
         self._commit = commit
+        self._allow_lookup = allow_lookup
         self._entries: dict[str, tuple[str, str, str] | None] = {}
+        self._link_texts: dict[str, str | None] = {}
 
     def entry(self, path: str) -> tuple[str, str, str] | None:
         """``(mode, type, oid)`` of exactly this path; ``None`` for none, or a Git failure."""
 
         if path not in self._entries:
+            if self._allow_lookup is not None and not self._allow_lookup():
+                return None
             self._entries[path] = self._read(path)
         return self._entries[path]
 
@@ -1364,8 +1370,16 @@ class _CommitEntries:
         entry = self.entry(path)
         if entry is None or entry[:2] != ("120000", "blob"):
             return None
+        oid = entry[2]
+        if oid not in self._link_texts:
+            if self._allow_lookup is not None and not self._allow_lookup():
+                return None
+            self._link_texts[oid] = self._read_link_text(oid)
+        return self._link_texts[oid]
+
+    def _read_link_text(self, oid: str) -> str | None:
         data = _run_git_bounded_output(
-            self._workspace, ["cat-file", "blob", entry[2]], max_output_bytes=_MAX_LINK_TEXT_BYTES
+            self._workspace, ["cat-file", "blob", oid], max_output_bytes=_MAX_LINK_TEXT_BYTES
         )
         if data is None:
             return None
@@ -1586,19 +1600,28 @@ _LINKED_DIRECTORY_BYTES = 64 * 1024 * 1024
 #: detail says why.
 _LINKED_DIRECTORIES_FILE_BUDGET = 20_000
 _LINKED_DIRECTORIES_BYTE_BUDGET = 128 * 1024 * 1024
+#: Bounds per-entry Git work even when many aliases name the same directory.
+_LINKED_DIRECTORIES_LOOKUP_BUDGET = 1024
+_LINKED_DIRECTORY_LOCATION_ENTRIES = 60_000
 
 #: Why a link was not proven unchanged, where a bound decided it (#1004).
 #: Appended to the refused comparison's coverage detail for that link.
 LINKED_DIRECTORY_PAST_BOUND = (
-    "It was not proven unchanged: the directory it names holds more than "
-    f"{_LINKED_DIRECTORY_FILES:,} files or {_LINKED_DIRECTORY_BYTES // (1024 * 1024)} MiB, "
-    "past what this entry compares beneath one link."
+    "It was not proven unchanged because reading the directory exceeded "
+    "the file, entry, or byte limit for one link."
 )
 LINKED_DIRECTORIES_BUDGET_SPENT = (
     "It was not proven unchanged: this comparison already examined "
     f"{_LINKED_DIRECTORIES_FILE_BUDGET:,} files or "
     f"{_LINKED_DIRECTORIES_BYTE_BUDGET // (1024 * 1024)} MiB beneath other unread "
     "directory links, its bound, so this link was not examined."
+)
+LINKED_DIRECTORIES_LOOKUP_BUDGET_SPENT = (
+    "It was not proven unchanged because the directory-link proof reached "
+    f"its limit of {_LINKED_DIRECTORIES_LOOKUP_BUDGET:,} Git lookups."
+)
+_UNEXAMINED_LINK_LIMIT = (
+    "The directory-link proof did not examine this path after reaching its comparison budget."
 )
 
 
@@ -1697,7 +1720,8 @@ def _worktree_directory_holds(
 ) -> tuple[bool | Literal["past_bound"], int]:
     """Whether a working-tree directory holds exactly ``files``, read without following a link (#1004).
 
-    Returns the answer and the bytes it hashed. Every entry beneath the
+    Returns the answer and the bytes it read, or a count over the byte cap
+    when it hit that cap. Every entry beneath the
     directory is typed by its own entry: a link, a special file or anything
     that cannot be typed fails, and so does a file Git's tree does not list,
     untracked or ignored alike. A directory holding no file is not compared,
@@ -1723,72 +1747,79 @@ def _worktree_directory_holds(
     import stat
 
     from agents_shipgate.core.host_grants import _WALK_SKIPPED_DIRECTORIES
-    from agents_shipgate.core.trust_roots import _directory_member_kind
+    from agents_shipgate.core.trust_roots import (
+        IdentityBoundReadSession,
+        IdentityReadBudgetExceeded,
+    )
 
-    root = workspace / directory
-    found: dict[str, str] = {}
-    skipped: list[str] = []
-    total = visited = 0
-    pending = [""]
-    while pending:
-        relative = pending.pop()
-        try:
-            names = sorted(os.listdir(root / relative))
-        except (OSError, ValueError):
-            return False, total
-        for name in names:
-            child = f"{relative}/{name}" if relative else name
-            visited += 1
-            if visited > 2 * _LINKED_DIRECTORY_FILES:
-                return _PAST_BOUND, total
-            entry = root / child
-            try:
-                kind = _directory_member_kind(entry)
+    root = Path(directory)
+    if root.drive:
+        return False, 0
+    entry_limit = 2 * _LINKED_DIRECTORY_FILES
+    # The session also inventories lexical ancestors and directories containing
+    # tracked files beneath a skipped name, and revalidates each inventory.
+    session_entry_limit = 3 * entry_limit
+    found: set[str] = set()
+    skipped: set[Path] = set()
+    visited = 0
+    pending = [root]
+    try:
+        reader = IdentityBoundReadSession(
+            workspace, max_entries=session_entry_limit, max_total_bytes=max_bytes
+        )
+        while pending:
+            parent = pending.pop()
+            names = reader.directory_entries(parent, max_entries=entry_limit - visited)
+            visited += len(names)
+            for name in names:
+                child = parent / name
+                kind = reader.directory_entry_kind(child)
                 if name in _WALK_SKIPPED_DIRECTORIES and kind in {"directory", "symlink"}:
-                    skipped.append(child)
-                    continue
-                if kind == "directory":
+                    skipped.add(child)
+                elif kind == "directory":
                     pending.append(child)
-                    continue
-                if kind != "file":
-                    return False, total
-                metadata = entry.lstat()
-            except (OSError, ValueError):
-                return False, total
-            found[child] = "100755" if metadata.st_mode & stat.S_IXUSR else "100644"
-            total += metadata.st_size
-            if len(found) > len(files):
-                return False, total
-            if total > max_bytes:
-                return _PAST_BOUND, total
+                elif kind == "file":
+                    relative = child.relative_to(root).as_posix()
+                    if relative not in files:
+                        return False, 0
+                    found.add(relative)
+                else:
+                    return False, 0
+    except IdentityReadBudgetExceeded:
+        return _PAST_BOUND, 0
+    except (OSError, ValueError, NotImplementedError):
+        return False, 0
 
-    def beneath_skipped(name: str) -> bool:
-        return any(name.startswith(f"{directory}/") for directory in skipped)
-
-    if found != {name: mode for name, (mode, _oid) in files.items() if not beneath_skipped(name)}:
-        return False, total
-    for name in sorted(name for name in files if beneath_skipped(name)):
-        parts = name.split("/")
-        try:
-            if any(
-                _directory_member_kind(root / "/".join(parts[:depth])) != "directory"
-                for depth in range(1, len(parts))
-            ) or _directory_member_kind(root / name) != "file":
-                return False, total
-            metadata = (root / name).lstat()
-        except (OSError, ValueError):
-            return False, total
-        if ("100755" if metadata.st_mode & stat.S_IXUSR else "100644") != files[name][0]:
-            return False, total
-        total += metadata.st_size
-        if total > max_bytes:
-            return _PAST_BOUND, total
-    names = sorted(files)
-    hashes = _unfiltered_worktree_hashes(workspace, [f"{directory}/{name}" for name in names])
-    return (
-        len(hashes) == len(names)
-        and all(hashes.get(f"{directory}/{name}") == files[name][1] for name in names)
-    ), total
+    try:
+        for name, (mode, oid) in sorted(files.items()):
+            path = Path(name)
+            if path.drive or path.is_absolute() or ".." in path.parts:
+                return False, reader.bytes_read
+            child = root / path
+            if name not in found and not any(parent in skipped for parent in child.parents):
+                return False, reader.bytes_read
+            content, file_mode = reader.read_bytes_and_mode(child)
+            executable = bool(file_mode & stat.S_IXUSR)
+            if executable != (mode == "100755"):
+                return False, reader.bytes_read
+            # Git's unfiltered blob identity prefixes the exact bytes with
+            # their type and length, using the repository's object format.
+            algorithm = "sha1" if len(oid) == 40 else "sha256"
+            digest = hashlib.new(algorithm, usedforsecurity=False)
+            digest.update(f"blob {len(content)}\0".encode("ascii"))
+            digest.update(content)
+            if digest.hexdigest() != oid:
+                return False, reader.bytes_read
+        reader.finish()
+    except IdentityReadBudgetExceeded:
+        # Keep the caller's distinction between an entry bound and a byte
+        # bound even when the reader could reject the file before opening it.
+        if reader.entries_scanned > session_entry_limit:
+            return _PAST_BOUND, reader.bytes_read
+        return _PAST_BOUND, max_bytes + 1
+    except (OSError, ValueError, NotImplementedError):
+        return False, reader.bytes_read
+    return True, reader.bytes_read
 
 
 @dataclass
@@ -1823,6 +1854,8 @@ class UnreadLinkProver:
     """
 
     def __init__(self, workspace: Path, base: str, head: str | None) -> None:
+        from agents_shipgate.core.trust_roots import IdentityReadBudget
+
         self._workspace = workspace
         self._base = base
         self._head = head
@@ -1832,11 +1865,19 @@ class UnreadLinkProver:
         self._commits: dict[str, _CommitEntries | None] = {}
         self._files_left = _LINKED_DIRECTORIES_FILE_BUDGET
         self._bytes_left = _LINKED_DIRECTORIES_BYTE_BUDGET
+        self._lookups_left = _LINKED_DIRECTORIES_LOOKUP_BUDGET
+        self._lookup_limit_reached = False
         self._spent = False
+        self._location_budget = IdentityReadBudget(
+            max_entries=_LINKED_DIRECTORY_LOCATION_ENTRIES, max_total_bytes=0,
+        )
 
     def __call__(self, path: str) -> bool:
         if path not in self._answers:
-            self._answers[path] = self._prove(path)
+            proven = not self._lookup_limit_reached and self._prove(path)
+            if not proven and self._lookup_limit_reached:
+                self._reasons.setdefault(path, LINKED_DIRECTORIES_LOOKUP_BUDGET_SPENT)
+            self._answers[path] = proven
         return self._answers[path]
 
     def reason(self, path: str) -> str | None:
@@ -1851,18 +1892,26 @@ class UnreadLinkProver:
 
         if path in self._reasons:
             return self._reasons[path]
-        if not self._spent or path in self._answers or is_host_configuration_location(path):
+        if path in self._answers or is_host_configuration_location(path):
             return None
-        # Only a link the proof would have examined: anything else is not one.
-        base_tree = self._entries(self._base)
-        if base_tree is None or base_tree.kind(path) != "link":
-            return None
-        return LINKED_DIRECTORIES_BUDGET_SPENT
+        if self._lookup_limit_reached:
+            return LINKED_DIRECTORIES_LOOKUP_BUDGET_SPENT
+        return _UNEXAMINED_LINK_LIMIT if self._spent else None
+
+    def _allow_lookup(self) -> bool:
+        if self._lookups_left == 0:
+            self._lookup_limit_reached = True
+            return False
+        self._lookups_left -= 1
+        return True
 
     def _entries(self, ref: str) -> _CommitEntries | None:
         if ref not in self._commits:
             commit = commit_sha(self._workspace, ref)
-            self._commits[ref] = _CommitEntries(self._workspace, commit) if commit else None
+            self._commits[ref] = (
+                _CommitEntries(self._workspace, commit, allow_lookup=self._allow_lookup)
+                if commit else None
+            )
         return self._commits[ref]
 
     def _target(self, link: str, target: str, tree: str) -> _LinkedTarget:
@@ -1871,6 +1920,8 @@ class UnreadLinkProver:
         key = (target, tree)
         if key in self._targets:
             return self._targets[key]
+        if not self._allow_lookup():
+            return _LinkedTarget(files=None, bound=LINKED_DIRECTORIES_LOOKUP_BUDGET_SPENT)
         listed = _linked_directory_files(self._workspace, tree)
         if listed == _PAST_BOUND:
             facts = _LinkedTarget(files=None, bound=LINKED_DIRECTORY_PAST_BOUND)
@@ -1964,25 +2015,31 @@ class UnreadLinkProver:
                 and head_tree.entry(target) == target_entry
             )
 
-        from agents_shipgate.core.trust_roots import _directory_member_kind
+        from agents_shipgate.core.trust_roots import (
+            IdentityBoundReadSession,
+            IdentityReadBudgetExceeded,
+        )
 
         kinds = {"directory": "tree", "file": "blob", "symlink": "link"}
-
-        def kind(entry: str) -> str | None:
-            try:
-                return kinds.get(_directory_member_kind(self._workspace / entry))
-            except (OSError, ValueError):
-                return None
-
-        if any(kind(prefix) != "tree" for prefix in above) or kind(path) != "link":
-            return False
         try:
-            worktree_text = os.readlink(self._workspace / path)
-        except (OSError, ValueError):
+            reader = IdentityBoundReadSession(self._workspace, budget=self._location_budget)
+
+            def kind(entry: str) -> str | None:
+                return kinds.get(reader.directory_entry_kind(Path(entry)))
+
+            if any(kind(prefix) != "tree" for prefix in above) or kind(path) != "link":
+                return False
+            worktree_text = reader.link_target(Path(path))
+            if worktree_text != text or _linked_directory(path, worktree_text, kind) != target:
+                return False
+            held = self._worktree_holds(facts, target)
+            if held:
+                reader.finish()
+        except IdentityReadBudgetExceeded:
+            self._reasons[path] = "The comparison reached its working-tree link location entry limit."
             return False
-        if worktree_text != text or _linked_directory(path, worktree_text, kind) != target:
+        except (OSError, ValueError, NotImplementedError):
             return False
-        held = self._worktree_holds(facts, target)
         if not held and facts.bound is not None:
             self._reasons[path] = facts.bound
         return held

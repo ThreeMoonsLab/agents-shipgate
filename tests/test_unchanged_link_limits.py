@@ -681,6 +681,76 @@ def test_a_tracked_file_beneath_a_skipped_name_still_counts(tmp_path: Path) -> N
     assert not unread_link_unchanged(repo, "main", None, LINK)
 
 
+def test_the_worktree_proof_revalidates_a_file_after_reading_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agents_shipgate.core.trust_roots import IdentityBoundReadSession
+
+    repo = _repository(tmp_path)
+    original_read = IdentityBoundReadSession.read_bytes_and_mode
+
+    def edit_after_read(
+        reader: IdentityBoundReadSession, path: Path, *, max_bytes: int | None = None
+    ) -> tuple[bytes, int]:
+        result = original_read(reader, path, max_bytes=max_bytes)
+        if path.as_posix() == f"{TARGET}/main.tf":
+            _write(repo, path.as_posix(), MODULE + "# edited while the proof ran\n")
+        return result
+
+    monkeypatch.setattr(IdentityBoundReadSession, "read_bytes_and_mode", edit_after_read)
+
+    assert not unread_link_unchanged(repo, "main", None, LINK)
+
+
+def test_the_worktree_proof_stops_enumeration_at_its_entry_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from contextlib import contextmanager
+
+    from agents_shipgate.cli.verify import git as verify_git
+
+    repo = _repository(tmp_path)
+    for index in range(8):
+        (repo / TARGET / f"empty{index}").mkdir()
+    observed: list[str] = []
+    original_scan = os.scandir
+
+    @contextmanager
+    def record_scan(path):
+        with original_scan(path) as scan:
+            def entries():
+                for entry in scan:
+                    if path == repo / TARGET:
+                        observed.append(entry.name)
+                    yield entry
+
+            yield entries()
+
+    monkeypatch.setattr(os, "scandir", record_scan)
+    monkeypatch.setattr(verify_git, "_LINKED_DIRECTORY_FILES", 2)
+    prover = verify_git.unread_link_prover(repo, "main", None)
+
+    assert not prover(LINK)
+    assert prover.reason(LINK) == verify_git.LINKED_DIRECTORY_PAST_BOUND
+    assert len(observed) == 5  # The fifth entry establishes that the bound was exceeded.
+
+
+def test_the_worktree_proof_uses_sha256_for_a_sha256_repository(tmp_path: Path) -> None:
+    repo = tmp_path / "sha256"
+    repo.mkdir()
+    try:
+        _git(repo, "init", "-q", "-b", "main", "--object-format=sha256")
+    except subprocess.CalledProcessError as error:
+        if "unknown option" not in error.stderr:
+            raise
+        pytest.skip("Git does not support SHA-256 repositories")
+    _write(repo, f"{TARGET}/main.tf", MODULE)
+    _link(repo, LINK, TEXT)
+    _commit(repo, "SHA-256 fixture")
+
+    assert unread_link_unchanged(repo, "main", None, LINK)
+
+
 def test_a_directory_several_links_name_is_examined_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -755,6 +825,27 @@ def test_past_the_working_tree_byte_budget_a_link_keeps_its_limit(
     assert prover.reason(LINK) == verify_git.LINKED_DIRECTORIES_BUDGET_SPENT
     # A commit head hashes nothing from a working tree.
     assert verify_git.unread_link_prover(repo, "main", "HEAD")(LINK)
+
+
+def test_aliases_share_a_bounded_number_of_git_lookups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agents_shipgate.cli.verify import git as verify_git
+
+    links = [f".happy/terraform/envs/dev/link{index:02d}" for index in range(24)]
+    repo = _repository(tmp_path, {f"{TARGET}/main.tf": MODULE}, dict.fromkeys(links, TEXT))
+    monkeypatch.setattr(verify_git, "_LINKED_DIRECTORIES_LOOKUP_BUDGET", 16)
+    prover = verify_git.unread_link_prover(repo, "main", "HEAD")
+    proven = [link for link in links if prover(link)]
+
+    assert 0 < len(proven) < len(links)
+    assert prover.reason(links[-1]) == verify_git.LINKED_DIRECTORIES_LOOKUP_BUDGET_SPENT
+    def unexpected_lookup(*args):
+        pytest.fail("coverage must not perform more lookups after the budget is spent")
+
+    monkeypatch.setattr(verify_git._CommitEntries, "_read", unexpected_lookup)
+    assert prover.reason("unexamined/link") == verify_git.LINKED_DIRECTORIES_LOOKUP_BUDGET_SPENT
+    assert prover(proven[0])
 
 
 def test_past_the_ten_thousand_file_bound_a_link_keeps_its_limit(tmp_path: Path) -> None:

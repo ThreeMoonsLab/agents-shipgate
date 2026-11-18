@@ -343,9 +343,19 @@ class IdentityBoundReadSession:
     def read_bytes(self, relative: Path, *, max_bytes: int) -> bytes:
         """Read one session-relative file within per-file and aggregate limits."""
 
+        raw, _mode = self.read_bytes_and_mode(relative, max_bytes=max_bytes)
+        return raw
+
+    def read_bytes_and_mode(
+        self, relative: Path, *, max_bytes: int | None = None,
+    ) -> tuple[bytes, int]:
+        """Read bytes and the mode of the same file, with an optional per-file cap."""
+
         if self._finished:
             raise ValueError("identity-read session is already finished")
-        if relative.is_absolute() or ".." in relative.parts or max_bytes < 0:
+        if relative.is_absolute() or ".." in relative.parts or (
+            max_bytes is not None and max_bytes < 0
+        ):
             raise ValueError("path is outside the identity-bound read root")
         components = self._inspect_components(relative)
         if not components:
@@ -353,18 +363,22 @@ class IdentityBoundReadSession:
         final_metadata = components[-1][2]
         if not stat.S_ISREG(final_metadata.st_mode) or final_metadata.st_nlink != 1:
             raise ValueError("path is not one singly-linked regular file")
-        if final_metadata.st_size > max_bytes:
+        if max_bytes is not None and final_metadata.st_size > max_bytes:
             raise ValueError(f"file exceeds the {max_bytes}-byte read limit")
         remaining = self._budget.remaining_bytes
         if final_metadata.st_size > remaining:
             raise IdentityReadBudgetExceeded(
                 "identity reads exceeded their aggregate byte bound"
             )
+        if max_bytes is None:
+            # Leave the aggregate guard responsible for reporting this bound.
+            max_bytes = remaining + 1
 
         file_flags = (
             os.O_RDONLY
             | getattr(os, "O_NOFOLLOW", 0)
             | getattr(os, "O_NONBLOCK", 0)
+            | getattr(os, "O_BINARY", 0)
         )
         if os.open not in os.supports_dir_fd:
             raw = self._read_portable(
@@ -382,7 +396,7 @@ class IdentityBoundReadSession:
                 remaining=remaining,
             )
         self._budget.consume_bytes(len(raw))
-        return raw
+        return raw, final_metadata.st_mode
 
     def directory_entries(
         self,
