@@ -71,11 +71,12 @@ checks:
   default_severity: critical
   mvp_tier: lifecycle
   floor_severity: high
+  advisory_when_policy_ineligible: true
   description: Action effect escalated compared with the base surface.
   rationale: Effect escalation changes what the agent can do in the real world and
     needs explicit review.
-  fires_when: An action changes to a higher-risk effect such as read to write or write
-    to destructive.
+  fires_when: |-
+    An action changes to a higher-risk effect such as read to write or write to destructive. It blocks only when a reviewed or structural claim establishes the higher effect; an escalation that only wording in a name or description supports is published as a medium, non-blocking advisory that does not move the verdict.
   evidence_fields:
   - change
   recommendation: |-
@@ -122,10 +123,12 @@ checks:
 - id: SHIP-ACTION-SAFEGUARD-REMOVED
   default_severity: high
   mvp_tier: lifecycle
+  advisory_when_policy_ineligible: true
   description: Action safeguard was removed.
   rationale: Removing audit, idempotency, rollback, or dry-run safeguards expands
     blast radius.
-  fires_when: A previously true action safeguard is false or absent in the head surface.
+  fires_when: |-
+    A previously true action safeguard is false or absent in the head surface. It blocks only when the action's effect is established by a reviewed or structural claim; on an action whose effect only wording supports it is a medium, non-blocking advisory that does not move the verdict.
   evidence_fields:
   - change
   recommendation: |-

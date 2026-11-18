@@ -17,6 +17,28 @@ _REMEDIATION_FALLBACK = {
     "docs_url": None,
 }
 
+#: ``evidence.issues`` value the stale-manifest checks give a manifest entry
+#: naming a tool that is in the tool catalog but not proven reachable. Such an
+#: entry is not stale — the tool exists — so nothing may propose removing it:
+#: neither a patch generator nor the catalog's ``remove_pointer`` default
+#: (#1035).
+BINDING_NOT_ESTABLISHED = "binding_not_established"
+
+
+def names_unbound_catalog_tool(finding: Finding) -> bool:
+    """Whether ``finding`` is about an entry naming an unbound catalog tool.
+
+    A suppression whose check id is also unknown is stale whatever its tool,
+    so it does not count.
+    """
+
+    issues = finding.evidence.get("issues")
+    return (
+        isinstance(issues, list)
+        and BINDING_NOT_ESTABLISHED in issues
+        and "unknown_check_id" not in issues
+    )
+
 def annotate_remediation(
     findings: list[Finding],
     check_metadata_lookup: dict[str, CheckMetadata],
@@ -43,7 +65,10 @@ def annotate_remediation(
     - A finding retained solely because its catalog entry opts into
       ``publish_when_policy_ineligible`` is informational for remediation.
       Its unsupported evidence may still produce an evidence gap, but the
-      finding itself cannot create a second human-review route.
+      finding itself cannot create a second human-review route. The same
+      holds for an advisory instance retained through
+      ``advisory_when_policy_ineligible``, which raises no gap at all
+      (#1055, Option A).
 
     Caller (`scan.run_scan`) builds the metadata lookup from the
     catalog with the scan's actual ``plugins_enabled`` setting, so this
@@ -69,6 +94,12 @@ def annotate_remediation(
                 autofix_safe = meta.autofix_safe
                 requires_human_review = meta.requires_human_review
                 suggested_patch_kind = meta.suggested_patch_kind
+                if names_unbound_catalog_tool(finding):
+                    # The catalog's ``remove_pointer`` describes a stale
+                    # entry; this one names a real tool (#1035).
+                    autofix_safe = False
+                    requires_human_review = True
+                    suggested_patch_kind = "manual"
             else:
                 autofix_safe = bool(_REMEDIATION_FALLBACK["autofix_safe"])
                 requires_human_review = bool(
@@ -107,7 +138,10 @@ def annotate_remediation(
         # catalog-level remediation defaults that describe supported instances.
         if (
             meta is not None
-            and meta.publish_when_policy_ineligible
+            and (
+                meta.publish_when_policy_ineligible
+                or meta.advisory_when_policy_ineligible
+            )
             and finding.support is not None
             and not finding.support.policy_eligible
         ):

@@ -3,7 +3,7 @@
 - Project: support-refund-agent
 - Agent: refund-assistant
 - Environment: production\_like
-- Run id: agents\_shipgate\_aa4dd3174f262a9c
+- Run id: agents\_shipgate\_3ee288224e7fd555
 - Generated at: 2026-01-01T00:00:00\+00:00
 - Packet schema: 0\.18
 
@@ -54,6 +54,8 @@ This packet is a reviewer-shaped synthesis of a static Agents Shipgate scan. See
 ## §1A Evidence matrix — compact review summary
 
 - Evidence Matrix Light is derived from public report.json only. Release decisions, CI exit behavior, and baseline semantics remain owned by release\_decision. Domain rows intentionally overlap; a single finding can appear in multiple rows when it is relevant to each review lens.
+- Advisory \(lexical evidence, does not gate\): SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on stripe.create\_refund: stripe.create\_refund appears to overlap with a prohibited action
+- Advisory \(lexical evidence, does not gate\): SHIP-SCOPE-PROHIBITED-TOOL-PRESENT on gmail.send\_customer\_email: gmail.send\_customer\_email appears to overlap with a prohibited action
 
 | Domain | Evidence present | Evidence source | Confidence | Missing controls | Blocking findings | Review items |
 |---|---|---|---|---|---|---|
@@ -235,3 +237,4 @@ Agents Shipgate is an advisory tool: the deterministic merge gate for AI-generat
 - Low-confidence tool extractions: none
 - Suppressed findings in effect: none
 - Memory isolation is not modeled by the v0.1 manifest schema; no static evidence is available.
+- 2 active finding\(s\) came from heuristic provenance \(keyword\_heuristic=2, regex\_heuristic=0\); review the finding evidence before acting.
