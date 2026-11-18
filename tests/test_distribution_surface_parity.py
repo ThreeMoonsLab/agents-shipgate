@@ -74,6 +74,7 @@ from agents_shipgate.published_release import (
 from agents_shipgate.schemas.contract import (
     MERGE_VERDICTS,
     RELEASE_DECISIONS,
+    build_contract_payload,
 )
 
 # One definition of the shapes an adopter's machine has to resolve. #506 owns
@@ -112,6 +113,7 @@ CLAIMS = frozenset(
         "executable_pin",
         "contract_floor",
         "report_schema_pin",
+        "agent_schema_pin",
     }
 )
 
@@ -154,6 +156,7 @@ _VOCABULARY = ("test_surface_enumerations_match_the_engine_vocabulary",)
 #: validates their `report.json` against the file these name, so a stale one
 #: sends them to a schema the engine does not produce.
 _REPORT_SCHEMA = ("test_surface_names_the_current_report_schema",)
+_AGENT_SCHEMA = ("test_surface_names_the_current_agent_schemas",)
 
 SURFACES: tuple[Surface, ...] = (
     Surface(
@@ -452,6 +455,7 @@ SURFACES: tuple[Surface, ...] = (
             "contract_floor": _FLOOR,
             "release_decision_vocabulary": _VOCABULARY,
             "placeholder_ownership": _OWNERSHIP,
+            "agent_schema_pin": _AGENT_SCHEMA,
             "report_schema_pin": _REPORT_SCHEMA,
         },
     ),
@@ -463,6 +467,7 @@ SURFACES: tuple[Surface, ...] = (
             "contract_floor": _FLOOR,
             "release_decision_vocabulary": _VOCABULARY,
             "placeholder_ownership": _OWNERSHIP,
+            "agent_schema_pin": _AGENT_SCHEMA,
             "report_schema_pin": _REPORT_SCHEMA,
         },
     ),
@@ -484,6 +489,7 @@ SURFACES: tuple[Surface, ...] = (
             ),
             "release_decision_vocabulary": _VOCABULARY,
             "placeholder_ownership": _OWNERSHIP,
+            "agent_schema_pin": _AGENT_SCHEMA,
             "report_schema_pin": _REPORT_SCHEMA,
         },
     ),
@@ -499,7 +505,11 @@ SURFACES: tuple[Surface, ...] = (
     Surface(
         "examples",
         ("examples",),
-        {"executable_pin": _PIN, "merge_verdict_vocabulary": _VOCABULARY},
+        {
+            "executable_pin": _PIN,
+            "merge_verdict_vocabulary": _VOCABULARY,
+            "agent_schema_pin": _AGENT_SCHEMA,
+        },
     ),
     Surface("policies", ("policies",), {}),
     Surface(
@@ -551,6 +561,7 @@ SURFACES: tuple[Surface, ...] = (
         {
             "executable_pin": ("test_executable_pin_resolves_in_a_published_channel",),
             "placeholder_ownership": _OWNERSHIP,
+            "agent_schema_pin": _AGENT_SCHEMA,
             "report_schema_pin": _REPORT_SCHEMA,
         },
     ),
@@ -1280,6 +1291,53 @@ def _alternation(pattern: re.Pattern[str]) -> set[str]:
     match = re.search(r"\(([a-z_|]+)\)", pattern.pattern)
     assert match, f"not a simple alternation: {pattern.pattern!r}"
     return set(match.group(1).split("|"))
+
+
+def _assert_current_agent_schema_references(paths: list[Path]) -> None:
+    contract = build_contract_payload()
+    versions = (
+        (r"shipgate\.agent_boundary_result/v\d+", contract.agent_boundary_result_schema_version),
+        (
+            r"agent-boundary-result-schema\.v\d+\.json",
+            Path(contract.agent_boundary_result_schema_path).name,
+        ),
+        (r'verifier_schema_version["\`]?\s*:\s*["\`]?(\d+\.\d+)', contract.verifier_schema_version),
+        (r"verifier-schema\.v(\d+\.\d+)\.json", contract.verifier_schema_version),
+    )
+    found = False
+    errors = []
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        for pattern, current in versions:
+            values = set(re.findall(pattern, text))
+            found |= bool(values)
+            errors.extend(
+                f"{path.relative_to(REPO_ROOT)} names {value!r}, expected {current!r}"
+                for value in sorted(values - {current})
+            )
+    assert found, "No agent schema references found in this surface"
+    assert not errors, "\n".join(errors)
+
+
+@pytest.mark.parametrize(
+    "surface",
+    [surface for surface in SURFACES if "agent_schema_pin" in surface.claims],
+    ids=lambda surface: surface.id,
+)
+def test_surface_names_the_current_agent_schemas(surface: Surface) -> None:
+    _assert_current_agent_schema_references(
+        _surface_files(surface, (".md", ".txt", ".mdc", ".json"))
+    )
+
+
+def test_repository_agent_mirrors_name_the_current_agent_schemas() -> None:
+    prefixes = (".agents/skills/", ".claude/commands/", ".claude/skills/")
+    _assert_current_agent_schema_references([
+        REPO_ROOT / path
+        for path in _tracked_files()
+        if path in {"llms.txt", "llms-full.txt"}
+        or (path.startswith(prefixes) and path.endswith(".md"))
+    ])
 
 
 _REPORT_SCHEMA_FILE = re.compile(r"report-schema\.v(\d+\.\d+)\.json")
