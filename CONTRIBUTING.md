@@ -320,10 +320,9 @@ sweep table will tell you.
 
 ## Schema Changes
 
-The JSON Schemas under `docs/` (`manifest-v0.1.json`, `checks.json`,
-`report-schema.v0.<minor>.json`, `packet-schema.v0.<minor>.json`) are
-**generated artifacts**, not hand-written. They are checked into the
-repo so external consumers can validate against a stable URL.
+The [JSON Schema index](docs/schemas.md) lists the schemas generated under
+`docs/`. Commit the generated schemas and index so external consumers
+can find the current contracts and validate against stable URLs.
 
 If you change a Pydantic model — adding/removing a field, bumping
 `report_schema_version`, editing `CheckMetadata` — you must regenerate
@@ -344,6 +343,10 @@ the generator writes nothing and exits 1 rather than change one. Put the
 change in a successor schema version instead (#1044). The schemas are
 rendered by the locked pydantic (`constraints/dev.txt`); another version can
 render a published file differently, and the generator refuses that too.
+Bump a schema family's version at most once between release tags. A correctness
+fix may require another version. Explain the exception in its migration note (#492).
+Check the [schema family overlap](docs/engineering/schema-family-overlap.md)
+before combining contracts.
 After a report or contract change, run
 `python scripts/regenerate_goldens.py`, inspect the semantic diff, then run
 `python scripts/regenerate_goldens.py --check` and the affected behavioral

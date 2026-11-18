@@ -56,6 +56,7 @@ remain separate, pending work.
 
 ## Reference
 
+- [JSON Schema index](schemas.md) — current generated schemas, their producers, and documentation
 - [`checks.md`](checks.md) — full check catalog (human-readable)
 - [`checks.json`](checks.json) — machine-readable check catalog (regenerated each release)
 - [`determinism-boundary.json`](determinism-boundary.json) — machine-readable determinism boundary (`shipgate.determinism_boundary/v1`; regenerated from the adapter registry, drift-checked in CI)
