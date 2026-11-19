@@ -947,13 +947,13 @@ def _no_grant_change_shown(
 MAX_UNMODELLED_KEYS_NAMED = 5
 
 
-def _unmodelled_changes(read: list[list[dict[str, Any]]]) -> str | None:
-    """A coverage detail naming the keys no reader compares that differ between the sides (#1027).
+def _unmodelled_changed_keys(read: list[list[dict[str, Any]]]) -> list[str]:
+    """The keys no reader compares whose digest differs between the sides (#1027).
 
     ``read`` is each side's artifacts for one file. Read off the
     ``unmodelled_keys`` a Claude Code settings artifact publishes: a key whose
-    digest differs, or which only one side has. ``None`` when none does, as
-    for a redacted value's edit, which moves neither digest.
+    digest differs, or which only one side has. Empty when none does, as for a
+    redacted value's edit, which moves neither digest.
     """
 
     sides = [
@@ -964,9 +964,12 @@ def _unmodelled_changes(read: list[list[dict[str, Any]]]) -> str | None:
         }
         for artifacts in read
     ]
-    changed = sorted({key for key, _digest in sides[0] ^ sides[1]})
-    if not changed:
-        return None
+    return sorted({key for key, _digest in sides[0] ^ sides[1]})
+
+
+def _unmodelled_detail(changed: list[str]) -> str:
+    """The coverage detail naming ``changed``, the keys no reader compares (#1027)."""
+
     named = ", ".join(changed[:MAX_UNMODELLED_KEYS_NAMED])
     more = len(changed) - MAX_UNMODELLED_KEYS_NAMED
     return f"keys this entry does not compare: {named}" + (f" and {more} more" if more > 0 else "")
@@ -1149,12 +1152,15 @@ def _compared_facts(
         )
         item["hosts"].add(host)
         item["rows"] += count
-        if not count and status in {"changed_without_grant_change", "changed_without_rows"}:
-            # A change in keys no reader compares is named, never read as no
-            # change (#1027).
-            detail = _unmodelled_changes([by_key.get(key, []) for by_key in published])
-            if detail:
-                item["detail"] = detail
+        # A change in keys no reader compares is named, never read as no
+        # change (#1027) and never dropped beside a row (#1153).
+        unmodelled = _unmodelled_changed_keys([by_key.get(key, []) for by_key in published])
+        if unmodelled:
+            item.setdefault("_unmodelled_keys", set()).update(unmodelled)
+    for item in facts.values():
+        keys = item.pop("_unmodelled_keys", None)
+        if keys:
+            item["detail"] = _unmodelled_detail(sorted(keys))
     return facts
 
 

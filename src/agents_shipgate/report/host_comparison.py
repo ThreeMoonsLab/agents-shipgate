@@ -636,6 +636,11 @@ def coverage_item_text(
         finding = "changed, but no row is attributed to this path"
     elif item.rows:
         finding = f"{item.rows} row{'s' if item.rows != 1 else ''}"
+        if item.detail:
+            # Keys no reader compares moved beside the rows the file publishes
+            # (#1153): a reviewer reading the row must not read the file as
+            # compared in full.
+            finding += f"; changed, not compared ({_text(item.detail, markdown=markdown)})"
     elif item.side == "both":
         # Only a file whose bytes were proven identical on both sides.
         finding = "no change in what this entry reads"

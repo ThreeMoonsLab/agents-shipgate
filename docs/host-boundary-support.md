@@ -1590,10 +1590,11 @@ key), each `permissions.<key>` beside the rules and modelled settings, and
 `env` for the entries above it does not model, each with a digest of the key
 and its value as `config_sha256`'s input holds them (an `env` or secret-named
 value redacted). It is display-only: out of artifact equality, the inventory
-digests and saved baselines. When a comparison finds no row for a settings
-file whose such keys changed, its coverage item names them in `detail`
-(`keys this entry does not compare: someFutureSetting`), and `diff`, `verify`
-and the PR comment lead with `Changed, not compared: .claude/settings.json
+digests and saved baselines. When these keys change, the settings file's
+coverage item names them in `detail` (`keys this entry does not compare:
+someFutureSetting`). `diff`, `verify` and the PR comment show this detail
+alongside any rows for the same file. If the file has no row, those outputs
+lead with `Changed, not compared: .claude/settings.json
 (keys this entry does not compare: someFutureSetting). No host-grant row
 describes this change. No verdict is implied.` instead of `No static
 host-grant changes detected`. The same headline names, without keys, any
