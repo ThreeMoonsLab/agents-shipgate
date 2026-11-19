@@ -99,11 +99,21 @@ def test_real_delete_finding_has_exact_claim_and_dependency_join(tmp_path):
 def test_observed_operation_requires_canonical_source_method_key(tmp_path, method_key):
     root = tmp_path / "repo"
     workspace(root)
-    before = scan(root, tmp_path / "before")
     document = spec()
     path_item = document["paths"]["/documents/{id}"]
     path_item[method_key] = path_item.pop("delete")
     workspace(root, document)
+    if method_key != "delete":
+        from agents_shipgate.core.errors import InputParseError
+        from agents_shipgate.inputs.openapi import load_openapi_tools
+        from agents_shipgate.schemas.manifest import ToolSourceConfig
+
+        with pytest.raises(InputParseError, match="noncanonical"):
+            load_openapi_tools(
+                ToolSourceConfig(id="documents", type="openapi", path="api.json"), root
+            )
+        return
+    before = scan(root, tmp_path / "before")
     after = scan(root, tmp_path / "after")
     (row,) = after.tool_surface_facts.operation_attributions
     base = ReconstructedOperationBase(
@@ -117,13 +127,6 @@ def test_observed_operation_requires_canonical_source_method_key(tmp_path, metho
             captured = captured[token.replace("~1", "/").replace("~0", "~")]
         assert captured == path_item[method_key]
         assert comparison.declared_target_domain == "unchanged"
-    else:
-        assert row.status == row.operation.status == "unresolved"
-        assert row.operation.reason == "noncanonical_method_key"
-        assert row.operation.declared_targets == []
-        assert row.predicates == []
-        assert comparison.declared_target_domain == "unresolved"
-        assert comparison.approval_predicate == "unresolved"
     assert comparison.finding_exclusion_eligible is False
 
 
