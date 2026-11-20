@@ -112,13 +112,22 @@ What a finding states, and from where:
   can rebind any of its names (a wildcard import, `globals()`/`vars()`/
   `__dict__` writes, exec- or setattr-style calls, an unread module
   star-imported there) or an unread module the tool's own name is imported
-  from, a name bound by name only, a handoff or sub-agent target bound more
-  than once), when what a tool object is was read only in part (an MCP
-  server's URL, command or arguments the read cannot name) and its agent is
-  already uncertain, when the agent's settings were not read or conflict, and
+  from, code in a module of the agent's caller census that writes into the
+  agent module's namespace, a name bound by name only, a handoff or sub-agent
+  target bound more than once), when what a tool object is was read only in
+  part (an MCP server's URL, command or arguments the read cannot name) and
+  its agent is already uncertain, when the agent's settings were not read or conflict, and
   for any doubt no reader classified. A named import from an unread module
   that binds another name (`from ..config import config`) doubts only the
-  constructor, so it stays with the agent. An object read in part on an
+  constructor, so it stays with the agent. A caller's write fails closed on
+  its syntax: an attribute stored on or deleted from the module
+  (`m.lookup = f` doubts `lookup`; `m.__dict__ |= d` doubts every name),
+  `setattr`/`delattr` on it, `vars(m)` or `m.__dict__` changed, bound to a
+  name, passed to any call or augmented, the module bound to another name, or
+  a write through `sys.modules[...]`, `importlib.import_module(...)` or
+  `globals()[...]` that may reach it (`setattr(sys.modules['app.agent'], k,
+  v)`). Reading the module or passing it on as a value (`return m`) is not a
+  write and doubts only the constructor. An object read in part on an
   otherwise proved agent is an agent limit and no row, as before. A handoff
   or sub-agent target whose name is bound more than once, and an MCP endpoint
   the read cannot name, make the comparison `partial`, where it could be
