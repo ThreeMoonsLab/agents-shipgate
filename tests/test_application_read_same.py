@@ -558,6 +558,10 @@ _MORE_NAMESPACE_WRITES = {
     "object-setattr": "object.__setattr__(a, 'lookup', PATCHES['lookup'])\n",
     "saved-update-called": "saved = vars(a).update\nsaved(PATCHES)\n",
     "module-alias-chain": "b = a\nc = b\nsetattr(c, 'lookup', PATCHES['lookup'])\n",
+    # siada#6's `launch_ui_with_acp.py`: the package's `__path__` redirected
+    # through `sys.modules.get(...)`, and its submodules dropped.
+    "package-path-redirected": "import sys\n\n_pkg = sys.modules.get('app')\nif _pkg:\n    _pkg.__path__ = ['/elsewhere']\n",
+    "submodules-dropped": "import sys\n\nfor k in [k for k in sys.modules if k.startswith('app.')]:\n    del sys.modules[k]\n",
     "reloaded-and-bound": "import importlib\n\nm = importlib.reload(a)\nm.lookup = PATCHES['lookup']\n",
 }
 _SDK_PATCHES = "from agents import function_tool\n" + (

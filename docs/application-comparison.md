@@ -123,11 +123,12 @@ What a finding states, and from where:
   its syntax: an attribute stored on or deleted from the module
   (`m.lookup = f` doubts `lookup`; `m.__dict__ |= d` doubts every name),
   `setattr`/`delattr` on it, `vars(m)` or `m.__dict__` changed, bound to a
-  name, passed to any call or augmented, the module bound to another name, or
-  a write through `sys.modules[...]`, `importlib.import_module(...)` or
-  `globals()[...]` that may reach it (`setattr(sys.modules['app.agent'], k,
-  v)`). Reading the module or passing it on as a value (`return m`) is not a
-  write and doubts only the constructor. An object read in part on an
+  name, passed to any call or augmented, any of these through a plain name
+  the module is bound to (`b = m`), or a write through `sys.modules[...]`,
+  `importlib.import_module(...)` or `globals()[...]` that may reach it
+  (`setattr(sys.modules['app.agent'], k, v)`). Reading the module or passing
+  it on as a value (`return m`, `register(m)`, `self.m = m`) is not a write
+  and doubts only the constructor. An object read in part on an
   otherwise proved agent is an agent limit and no row, as before. A handoff
   or sub-agent target whose name is bound more than once, and an MCP endpoint
   the read cannot name, make the comparison `partial`, where it could be
