@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -499,3 +500,98 @@ def test_action_validates_the_policy_before_the_scan_runs():
     payload = action["runs"]["steps"][steps["Build Agents Shipgate check-run payload"]]
     for step in (validate, payload):
         assert step["env"]["VERIFY_MODE"] == "${{ inputs.verify_mode }}"
+
+
+# --- #1165: the verdict comes only from evidence this run validated ---------
+
+COMPLETED = github_check_run.ActionInvocation(exit_code="0", head="HEAD")
+
+
+def _from_evidence(tmp_path: Path, policy: str, **kwargs) -> dict:
+    kwargs.setdefault("invocation", COMPLETED)
+    kwargs.setdefault("validated_receipt_id", "")
+    return github_check_run.check_run_payload_from_evidence(
+        tmp_path, check_run_policy=policy, **kwargs
+    )
+
+
+@pytest.mark.parametrize("policy", sorted(CHECK_RUN_POLICIES))
+def test_a_refused_directory_states_no_verdict_and_never_passes(policy):
+    payload = github_check_run.refused_check_run_payload(
+        reason="ValueError: `bad`\nnews", check_run_policy=policy
+    )
+    assert payload["conclusion"] == ("neutral" if policy == "advisory" else "failure")
+    assert payload["output"]["title"] == "merge_verdict: unknown (evidence not admitted)"
+    assert payload["output"]["annotations"] == []
+    # The reason is quoted on one line, without breaking out of its code span.
+    assert "Reason: `ValueError: 'bad' news`" in payload["output"]["summary"]
+
+
+def test_a_refusal_reason_is_capped():
+    payload = github_check_run.refused_check_run_payload(reason="x" * 5000)
+    reason = payload["output"]["summary"].split("Reason: `", 1)[1].split("`", 1)[0]
+    assert len(reason) == github_check_run.MAX_REFUSAL_CHARS and reason.endswith("…")
+
+
+@pytest.mark.parametrize("policy", sorted(CHECK_RUN_POLICIES))
+def test_an_unreadable_verifier_is_refused_not_read_as_missing(tmp_path, policy):
+    (tmp_path / "verifier.json").write_text("not json", encoding="utf-8")
+    (tmp_path / "pr-comment.md").write_text("merge_verdict: mergeable", encoding="utf-8")
+    payload = _from_evidence(tmp_path, policy)
+    assert payload["conclusion"] != "success"
+    assert "evidence not admitted" in payload["output"]["title"]
+    # Nothing from the refused directory is shown as this run's.
+    assert "merge_verdict: mergeable" not in payload["output"]["summary"]
+
+
+def test_a_verdict_no_receipt_binds_does_not_pass(tmp_path):
+    """A verifier labelled as written before receipts owes none, and passes nothing."""
+
+    (tmp_path / "verifier.json").write_text(
+        json.dumps({"verifier_schema_version": "0.4", "merge_verdict": "mergeable",
+                    "can_merge_without_human": True}),
+        encoding="utf-8",
+    )
+    for policy in sorted(CHECK_RUN_POLICIES):
+        payload = _from_evidence(tmp_path, policy, validated_receipt_id="sha256:" + "0" * 64)
+        assert payload["conclusion"] != "success"
+        assert "no verification receipt binds this verdict" in payload["output"]["summary"]
+
+
+def test_a_run_with_no_verifier_keeps_its_mapping(tmp_path):
+    for policy, expected in (("advisory", "neutral"), ("require-mergeable", "failure")):
+        payload = _from_evidence(tmp_path, policy)
+        assert payload["conclusion"] == expected
+        assert payload["output"]["title"] == "merge_verdict: unknown"
+
+
+def test_the_payload_replaces_a_link_and_returns_the_digest_of_what_it_wrote(tmp_path):
+    outside = tmp_path / "outside.json"
+    outside.write_text("keep\n", encoding="utf-8")
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    path = reports / PAYLOAD_FILENAME
+    path.symlink_to(outside)
+
+    digest = github_check_run.write_payload(path, {"conclusion": "neutral"})
+
+    assert outside.read_text(encoding="utf-8") == "keep\n"
+    assert not path.is_symlink()
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
+    assert json.loads(path.read_text(encoding="utf-8")) == {"conclusion": "neutral"}
+
+
+def test_the_payload_is_not_written_over_a_directory(tmp_path):
+    (tmp_path / PAYLOAD_FILENAME).mkdir()
+    with pytest.raises(IsADirectoryError):
+        github_check_run.write_payload(tmp_path / PAYLOAD_FILENAME, {})
+
+
+def test_the_step_hands_the_payload_digest_to_the_check_step(tmp_path, monkeypatch):
+    output = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    assert _main(tmp_path, monkeypatch, "advisory") == 0
+    written = (tmp_path / PAYLOAD_FILENAME).read_bytes()
+    assert output.read_text(encoding="utf-8") == (
+        f"payload_sha256={hashlib.sha256(written).hexdigest()}\n"
+    )

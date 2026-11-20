@@ -456,7 +456,8 @@
   "tests/test_output_directory_containment.py": 0.5,
   "tests/test_unreadable_host_input.py": 297.8,
   "tests/test_unchanged_link_limits.py": 77.2,
-  "tests/test_capability_lock_redaction.py": 0.1
+  "tests/test_capability_lock_redaction.py": 0.1,
+  "tests/test_action_check_run_evidence.py": 135.1
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -819,6 +820,17 @@
    },
    "case_count": 8,
    "command": "python -m pytest tests/test_capability_lock_redaction.py --junitxml=capability-lock-redaction.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "25ffbf134e80 with issue #1165 check-run evidence increment",
+   "report_sha256": "75466356aca3953311541611c8ebae6fb7160b2d1a70e8a7a9dc8e0ef4a5d57f",
+   "files": {
+    "tests/test_action_check_run_evidence.py": 135.1
+   },
+   "case_count": 27,
+   "command": "python -m pytest tests/test_action_check_run_evidence.py -n 4 --junitxml=check-run-evidence.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

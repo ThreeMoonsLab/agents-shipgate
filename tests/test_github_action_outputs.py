@@ -565,3 +565,35 @@ def test_legacy_scan_summary_keeps_computed_severity_counts(tmp_path, monkeypatc
     assert "- Critical: 1 - High: 2 - Medium: 3" in text
     assert f"- Report JSON: `{output_dir / 'report.json'}`" in text
     assert "Scan report: unavailable" not in text
+
+
+@pytest.mark.parametrize(
+    ("code", "completed"),
+    [("0", True), ("20", True), (" 20\n", True), ("2", False), ("3", False), ("4", False),
+     ("1", False), ("137", False), ("", False), ("021", False)],
+)
+def test_only_a_run_that_completed_owns_a_receipt(code: str, completed: bool) -> None:
+    """`0`, and the gate failure on a decision the run reached, are completions (#1165)."""
+
+    from agents_shipgate.ci.exit_policy import GATE_FAILURE_EXIT_CODE
+    from scripts.github_action_outputs import COMPLETED_RUN_EXIT_CODES, ActionInvocation
+
+    assert COMPLETED_RUN_EXIT_CODES == {"0", str(GATE_FAILURE_EXIT_CODE)}
+    invocation = ActionInvocation.from_env({"SHIPGATE_EXIT_CODE": code})
+    assert invocation.completed is completed
+
+
+def test_a_run_that_did_not_complete_still_publishes_a_run_with_no_receipt(tmp_path) -> None:
+    """The binding refuses receipts only: a no-outcome run publishes as before."""
+
+    from scripts.github_action_outputs import ActionInvocation
+
+    output_dir = tmp_path / "reports"
+    output_dir.mkdir()
+    _write_json(output_dir / "verifier.json", {
+        "verifier_schema_version": "0.21", "execution": "failed", "head_status": "failed",
+        "merge_verdict": "unknown", "can_merge_without_human": False,
+    })
+    outputs = extract_outputs(output_dir, invocation=ActionInvocation(exit_code="2", head=""))
+    assert outputs["merge_verdict"] == "unknown"
+    assert outputs["receipt_id"] == ""

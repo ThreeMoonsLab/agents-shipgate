@@ -1541,6 +1541,80 @@ the command.
 
 ---
 
+<a id="check-run-evidence-1165"></a>
+
+## Migration Note: Unreleased — the Check Run is concluded only from this run's validated evidence (#1165)
+
+**What was wrong.** With `check_run: true`, the payload step read
+`verifier.json`, `report.json`, `report.sarif` and `pr-comment.md` from the
+output directory as plain JSON and text, and both it and the step that creates
+the check ran under `always()` with nothing tying them to the outputs step,
+which validates the verification receipt (#1022). A run whose CLI stopped
+before it published a terminal artifact set, or whose directory the outputs
+step refused (a receipt missing or altered, an artifact set left by an earlier
+run), could still post a `success` check, `require-mergeable` included, while
+the job and the verifier's own result said otherwise. The step that creates the
+check also posted whatever `check-run-payload.json` it found, whether or not
+the payload step had written it.
+
+**What changes.**
+
+- The payload step reads the output directory only through the outputs step's
+  own validation, `validate_evidence` in `scripts/github_action_outputs.py`:
+  the receipt over every artifact it binds, this run's report, verifier and
+  verify-run identities against it, and the control projection. No second
+  version list or validator is added.
+- That validation is bound to this run. A receipt counts only after a CLI that
+  completed, exit `0` or `20` (`STABILITY.md` § Exit codes), and only when the
+  verification plan it binds names the evaluated workspace's repository and
+  the commit the run step's `--head` resolves to, read with the engine's own
+  Git helpers. Exit `20` is the configured gate failing on a decision the run
+  reached, so its evidence is admitted and its verdict mapped as before; every
+  other code, and none, is a run that did not complete.
+- A directory the validation refuses states no merge verdict: the check is
+  `failure` under `blocked-fails` and `require-mergeable` and `neutral` under
+  `advisory`, titled `merge_verdict: unknown (evidence not admitted)`. Its
+  summary gives the reason and shows no summary text or annotation from the
+  refused directory.
+- `success` also needs a terminal receipt, the one the outputs step validated
+  and published as `receipt_id` in this job, whose own outcome passes the
+  policy too. A verdict no receipt binds, such as a verifier labelled as
+  written before receipts, no longer passes a check.
+- The outputs step applies the same binding: where a receipt is present but the
+  CLI did not complete, or the receipt names another repository or head, the
+  step fails with empty outputs instead of publishing that receipt's verdict
+  and identities. A run that wrote no receipt and owed none, such as a missing
+  manifest, publishes as before.
+- The payload is written as a new file, removing whatever was at its path and
+  never writing through a link, and its SHA-256 goes to the payload step's
+  `payload_sha256` output. The step that creates the check runs only when that
+  output is set, and posts only a file with that digest; otherwise it creates
+  no check and fails.
+
+**What does not change.** No input or Action output is added, renamed or
+removed; `payload_sha256` and the new environment the two steps read are
+internal to the composite. No schema, contract version, check ID, exit code or
+merge verdict moves. A run that completes keeps its conclusion under every
+policy: `mergeable` passes, `blocked` fails, and `human_review_required` is
+`neutral` under `advisory` and `blocked-fails` and `failure` under
+`require-mergeable`. The check still mirrors the verdict and never replaces
+the release gate.
+
+**Who must act.**
+
+- Nobody whose runs complete. A workflow that relied on a passing check, or on
+  the outputs, from a run whose CLI failed now gets a failing or `neutral`
+  check and a failed outputs step: fix the failure the run step reports and
+  re-run.
+- A job that uses the Action twice with one `output_dir` gets, for the second
+  use, only that use's own evidence: if its CLI stops early, the first use's
+  receipt is refused rather than reported again.
+- If the payload step itself fails, no check is created for that run. A branch
+  protection rule that requires the check then waits, rather than reading an
+  earlier payload.
+
+---
+
 <a id="capability-definitions"></a>
 
 ## Migration Note: 1.3.0 — the capability lock records tool definitions (capability standard `0.6`, lock `0.9`, lock diff `0.10`, #1117)

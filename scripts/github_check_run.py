@@ -20,17 +20,29 @@ Mapping contract:
   is an error, never ``advisory``, and so is either strict policy with
   ``verify_mode: scan``, which writes no ``verifier.json`` (#1032). The conclusion mirrors — never replaces — the one
   decision engine: ``report.json.release_decision.decision`` stays the gate.
+- The verdict is read only through the outputs step's own validation
+  (``github_action_outputs.validate_evidence``), bound to this invocation: the
+  CLI completed, and the receipt names the evaluated repository and head. A
+  directory it refuses states no merge verdict, so the check is never
+  ``success`` and its summary says why. ``success`` also needs a receipt, and
+  that receipt must be the one the outputs step validated and published as
+  ``receipt_id`` in this job (#1165).
 - PR projection items → up to ``MAX_ANNOTATIONS`` line-level annotations
   (Checks API caps one request at 50). SARIF remains the full finding export;
   Check Runs intentionally annotate only merge-relevant PR items.
 - ``pr-comment.md`` → check summary (truncated to the API limit).
+- The payload is written as a new file, never through whatever occupied its
+  path, and its SHA-256 goes to ``GITHUB_OUTPUT`` as ``payload_sha256``. The
+  step that creates the check posts only a payload with that digest.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import stat
 import sys
 from pathlib import Path
 from typing import Any
@@ -40,6 +52,11 @@ from agents_shipgate.report.pr_projection import (
     item_to_check_run_annotation,
     select_pr_items,
 )
+
+if __package__:  # Imported from the repository (the tests).
+    from scripts.github_action_outputs import ActionInvocation, ValidatedEvidence, validate_evidence
+else:  # Run by path from action.yml, with this directory first on sys.path.
+    from github_action_outputs import ActionInvocation, ValidatedEvidence, validate_evidence
 
 MAX_ANNOTATIONS = 50
 # Checks API hard limit is 65535 chars for output.summary; keep headroom.
@@ -273,6 +290,154 @@ def build_check_run_payload(
     }
 
 
+#: The most of a refusal's own text a check summary carries.
+MAX_REFUSAL_CHARS = 400
+
+
+def refused_check_run_payload(
+    *,
+    reason: str,
+    name: str = DEFAULT_CHECK_NAME,
+    check_run_policy: str = DEFAULT_CHECK_RUN_POLICY,
+) -> dict[str, Any]:
+    """The check for a run whose merge verdict could not be admitted.
+
+    Concluded as a run that states no verdict: ``failure`` under the strict
+    policies, ``neutral`` under ``advisory``, never ``success``. Nothing from
+    the refused directory is shown, so no summary or annotation it carries can
+    read as this run's.
+    """
+
+    policy = normalize_check_run_policy(check_run_policy)
+    conclusion = conclusion_for(None, policy=policy)
+    detail = " ".join(reason.replace("`", "'").split())
+    if len(detail) > MAX_REFUSAL_CHARS:
+        detail = detail[: MAX_REFUSAL_CHARS - 1].rstrip() + "…"
+    summary = (
+        f"_This run's verification evidence was not admitted, so it states no merge "
+        f"verdict and the `{policy}` check-run policy concludes `{conclusion}`._\n\n"
+        f"Reason: `{detail}`\n\n"
+        "The job's log and the Agents Shipgate outputs step name the cause. Re-run the "
+        "workflow once it is fixed; nothing from that directory is shown here."
+    )
+    return {
+        "name": name,
+        "conclusion": conclusion,
+        "output": {
+            "title": "merge_verdict: unknown (evidence not admitted)",
+            "summary": summary[:MAX_SUMMARY_CHARS],
+            "annotations": [],
+        },
+    }
+
+
+def check_run_payload_from_evidence(
+    output_dir: Path,
+    *,
+    invocation: ActionInvocation,
+    validated_receipt_id: str,
+    name: str = DEFAULT_CHECK_NAME,
+    check_run_policy: str = DEFAULT_CHECK_RUN_POLICY,
+) -> dict[str, Any]:
+    """The Check Run payload for this invocation's output directory.
+
+    The directory goes through :func:`validate_evidence`, the outputs step's
+    own validation, bound to ``invocation``. Anything it refuses gives
+    :func:`refused_check_run_payload`. A verdict it admits is mapped as before
+    (blocked and review-required outcomes keep their policy mapping), except
+    that ``success`` is concluded only from a terminal receipt that is the one
+    the outputs step validated in this job (``validated_receipt_id``) and whose
+    own outcome maps to ``success`` too.
+    """
+
+    policy = normalize_check_run_policy(check_run_policy)
+    try:
+        evidence = validate_evidence(output_dir, invocation=invocation)
+    except Exception as exc:  # noqa: BLE001 - whatever stops validation refuses the directory.
+        return refused_check_run_payload(
+            reason=f"{type(exc).__name__}: {exc}", name=name, check_run_policy=policy
+        )
+    verifier = dict(evidence.verifier) if evidence.verifier else None
+    if verifier is not None:
+        # The validated control projection, not the raw field.
+        verifier["can_merge_without_human"] = evidence.can_merge_without_human
+    # SARIF annotates only a run with no projection source of its own: the
+    # scan route. Beside a verifier that names no report it is another run's.
+    sarif = _load_json(output_dir / "report.sarif") if verifier is None else None
+    payload = build_check_run_payload(
+        verifier=verifier,
+        report=evidence.report,
+        sarif=sarif,
+        summary_markdown=_read_text(output_dir / "pr-comment.md"),
+        name=name,
+        check_run_policy=policy,
+    )
+    if payload["conclusion"] == "success":
+        withheld = _success_withheld(evidence, validated_receipt_id, policy)
+        if withheld is not None:
+            return refused_check_run_payload(reason=withheld, name=name, check_run_policy=policy)
+    return payload
+
+
+def _success_withheld(
+    evidence: ValidatedEvidence, validated_receipt_id: str, policy: str
+) -> str | None:
+    receipt = evidence.receipt
+    if receipt is None:
+        return "no verification receipt binds this verdict, so it cannot pass the check"
+    if not validated_receipt_id or validated_receipt_id != receipt.receipt_id:
+        return (
+            "the Agents Shipgate outputs step did not validate this receipt in this job, "
+            "so its verdict cannot pass the check"
+        )
+    if (
+        conclusion_for(
+            receipt.merge_verdict,
+            policy=policy,
+            can_merge_without_human=receipt.can_merge_without_human,
+        )
+        != "success"
+    ):
+        return "the verification receipt's own outcome does not pass this check-run policy"
+    return None
+
+
+def write_payload(path: Path, payload: dict[str, Any]) -> str:
+    """Write ``payload`` as a new file at ``path`` and return its SHA-256.
+
+    Whatever was there is removed first, a file or a link, and never written
+    through: a payload left by an earlier run or shipped in the checkout cannot
+    stand in for this one, and a link cannot point the write elsewhere. A
+    directory there is an error.
+    """
+
+    data = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        existing = path.lstat()
+    except FileNotFoundError:
+        existing = None
+    if existing is not None:
+        if stat.S_ISDIR(existing.st_mode):
+            raise IsADirectoryError(f"{path} is a directory, not a check-run payload")
+        path.unlink()
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(path, flags, 0o644)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(data)
+    return hashlib.sha256(data).hexdigest()
+
+
+def _read_text(path: Path) -> str:
+    if not path.is_file():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
 def _sarif_result_count(sarif: dict[str, Any] | None) -> int:
     if not isinstance(sarif, dict):
         return 0
@@ -315,28 +480,22 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     output_dir = Path(os.environ.get("OUTPUT_DIR") or "agents-shipgate-reports")
     name = os.environ.get("CHECK_RUN_NAME") or DEFAULT_CHECK_NAME
-    verifier = _load_json(output_dir / "verifier.json")
-    report = _load_json(output_dir / "report.json")
-    sarif = _load_json(output_dir / "report.sarif")
-    comment_path = output_dir / "pr-comment.md"
-    summary_markdown = ""
-    if comment_path.is_file():
-        try:
-            summary_markdown = comment_path.read_text(encoding="utf-8")
-        except OSError:
-            summary_markdown = ""
-    payload = build_check_run_payload(
-        verifier=verifier,
-        report=report,
-        sarif=sarif,
-        summary_markdown=summary_markdown,
+    payload = check_run_payload_from_evidence(
+        output_dir,
+        invocation=ActionInvocation.from_env(),
+        # The outputs step publishes `receipt_id` only after it validated this
+        # directory: empty when it refused it, failed, or found no receipt.
+        validated_receipt_id=(os.environ.get("VALIDATED_RECEIPT_ID") or "").strip(),
         name=name,
         check_run_policy=check_run_policy,
     )
     out_path = output_dir / PAYLOAD_FILENAME
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"Wrote {out_path}")
+    digest = write_payload(out_path, payload)
+    github_output = os.environ.get("GITHUB_OUTPUT")
+    if github_output:
+        with open(github_output, "a", encoding="utf-8") as handle:
+            handle.write(f"payload_sha256={digest}\n")
+    print(f"Wrote {out_path} ({payload['conclusion']})")
     return 0
 
 
