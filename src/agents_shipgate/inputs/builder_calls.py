@@ -469,26 +469,58 @@ def _dead_binding(module: PythonModule, scopes: ScopeIndex, node: ast.AST) -> bo
     )
 
 
-def _aliased(module: PythonModule, scopes: ScopeIndex, node: ast.AST) -> bool:
-    """Whether ``node``'s value is bound to a name, whose uses the census does not follow.
+def _alias_names(scopes: ScopeIndex, node: ast.AST) -> frozenset[str]:
+    """The plain names ``node``'s value is bound to, to follow as the same object.
 
-    An assignment, ``:=``, ``with ... as``, a loop over it or a default
-    argument, also through a tuple or list display (``m, n = a, b``). A name
-    the module never reads cannot write anything, so it is not one.
+    ``m = node``, ``m: T = node``, ``(m := node)``, ``with node as m`` and
+    ``m, n = node, x``. Bound to anything else (an attribute, an item, a
+    parameter default, a display kept whole), it has escaped as a value; not
+    bound at all, it is no alias. Both give no name.
     """
 
-    child, parent = node, scopes.parents.get(node)
-    while isinstance(parent, ast.Tuple | ast.List | ast.Starred) and isinstance(parent.ctx, ast.Load):
-        child, parent = parent, scopes.parents.get(parent)
-    if isinstance(parent, ast.Assign | ast.AnnAssign | ast.AugAssign | ast.NamedExpr):
-        bound = parent.value is child
-    elif isinstance(parent, ast.withitem):
-        bound = parent.context_expr is child and parent.optional_vars is not None
-    elif isinstance(parent, ast.For | ast.AsyncFor | ast.comprehension):
-        bound = parent.iter is child
+    parent = scopes.parents.get(node)
+    if isinstance(parent, ast.Tuple | ast.List) and isinstance(parent.ctx, ast.Load):
+        statement = scopes.parents.get(parent)
+        if not (isinstance(statement, ast.Assign) and statement.value is parent):
+            return frozenset()
+        position = next(index for index, item in enumerate(parent.elts) if item is node)
+        return frozenset(
+            target.elts[position].id
+            for target in statement.targets
+            if isinstance(target, ast.Tuple | ast.List) and len(target.elts) == len(parent.elts)
+            and not any(isinstance(item, ast.Starred) for item in (*target.elts, *parent.elts))
+            and isinstance(target.elts[position], ast.Name)
+        )
+    if isinstance(parent, ast.Assign) and parent.value is node:
+        targets: list[ast.expr] = list(parent.targets)
+    elif isinstance(parent, ast.AnnAssign | ast.NamedExpr) and parent.value is node:
+        targets = [parent.target]
+    elif isinstance(parent, ast.withitem) and parent.context_expr is node and parent.optional_vars is not None:
+        targets = [parent.optional_vars]
     else:
-        bound = isinstance(parent, ast.arguments)
-    return bound and not _dead_binding(module, scopes, child)
+        return frozenset()
+    return frozenset(target.id for target in targets if isinstance(target, ast.Name))
+
+
+def _alias_uses(module: PythonModule, scopes: ScopeIndex, node: ast.AST, names: frozenset[str]) -> list[ast.Name]:
+    """Where ``names``, bound at ``node``, are read: in its function, or the module.
+
+    A function that declares one of them ``global`` binds it for the whole
+    module. Spelling decides, so a reuse of the name elsewhere in the same
+    scope is followed too, failing closed.
+    """
+
+    scope = scopes.parents.get(node)
+    while scope is not None and not isinstance(scope, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda | ast.Module):
+        scope = scopes.parents.get(scope)
+    if scope is None or any(
+        isinstance(statement, ast.Global) and names & set(statement.names) for statement in ast.walk(scope)
+    ):
+        scope = module.tree
+    return [
+        use for use in ast.walk(scope)
+        if isinstance(use, ast.Name) and use.id in names and isinstance(use.ctx, ast.Load)
+    ]
 
 
 def _namespace_written(module: PythonModule, scopes: ScopeIndex, namespace: ast.AST) -> bool:
@@ -520,16 +552,25 @@ def _namespace_written(module: PythonModule, scopes: ScopeIndex, namespace: ast.
     return not _dead_binding(module, scopes, namespace)
 
 
-def _module_written(module: PythonModule, scopes: ScopeIndex, node: ast.AST, *, chain: bool = False) -> bool:
+#: How many names in a row one module is followed through (``b = a``,
+#: ``c = b``) before the census stops following and fails closed.
+MAX_MODULE_ALIASES = 8
+
+
+def _module_written(
+    module: PythonModule, scopes: ScopeIndex, node: ast.AST, *, chain: bool = False,
+    followed: frozenset[str] = frozenset(),
+) -> bool:
     """Whether this use of a module object may write into its namespace (#1146 follow-up).
 
     Every syntactic write form counts: an attribute stored on or deleted from
     it (``m.lookup = f``, ``del m.lookup``, ``m.__dict__ |= d``);
-    ``setattr``/``delattr`` with it first, or its ``__setattr__``; its
+    ``setattr``/``delattr`` with it first, or its ``__setattr__``; and its
     namespace (``vars(m)``, ``m.__dict__``) used as :func:`_namespace_written`
-    says; or the module bound to a name, whose uses the census does not
-    follow. Reading an attribute of it, or passing it on as a value
-    (``return m``, ``f(m)``), is not one: that is an escape, not a write.
+    says. A plain name it is bound to (``b = m``) is followed, so a write
+    through that name counts too. Reading an attribute of it, or passing it
+    on as a value (``return m``, ``f(m)``, ``self.m = m``), is not one: that
+    is an escape, not a write.
 
     With ``chain``, an attribute of the module, or ``getattr`` of it, is taken
     for a module too: a package reached by reflection or a dynamic import
@@ -561,7 +602,15 @@ def _module_written(module: PythonModule, scopes: ScopeIndex, node: ast.AST, *, 
                 current = parent
                 continue
             return False
-        return _aliased(module, scopes, current)
+        names = _alias_names(scopes, current) - followed
+        if not names:
+            return False
+        if len(followed) >= MAX_MODULE_ALIASES:
+            return True
+        return any(
+            _module_written(module, scopes, use, chain=chain, followed=followed | names)
+            for use in _alias_uses(module, scopes, current, names)
+        )
 
 
 def _module_scope(scopes: ScopeIndex, node: ast.AST) -> bool:
@@ -589,14 +638,15 @@ def _namespace_entry(scopes: ScopeIndex, namespace: ast.AST) -> tuple[ast.AST, a
 
 
 def _module_table_written(
-    module: PythonModule, scopes: ScopeIndex, table: ast.AST, reaches: Callable[[ast.AST | None], bool]
+    module: PythonModule, scopes: ScopeIndex, table: ast.AST, reaches: Callable[[ast.AST | None], bool | None]
 ) -> bool:
     """Whether this use of ``sys.modules`` may change, through it, a module ``reaches`` (#1146 follow-up).
 
     Storing or deleting an entry (``sys.modules['app.agent'] = fake``,
     ``.pop``, ``.setdefault``) replaces a module; an entry read (``[...]``,
     ``.get``) and then written as :func:`_module_written` says, with its
-    attributes taken for submodules, changes one. Testing membership,
+    attributes taken for submodules when it may be a package, changes one.
+    ``reaches`` says which modules a key may name. Testing membership,
     iterating the names and ``.keys()`` are reads; any other use, the table
     bound to a name or passed to a call included, fails closed.
     """
@@ -605,16 +655,18 @@ def _module_table_written(
         return False  # Rebinding the name ``modules`` itself, not the table.
     parent = scopes.parents.get(table)
     if isinstance(parent, ast.Subscript) and parent.value is table:
-        return reaches(parent.slice) and (
-            not isinstance(parent.ctx, ast.Load) or _module_written(module, scopes, parent, chain=True)
+        reach = reaches(parent.slice)
+        return reach is not None and (
+            not isinstance(parent.ctx, ast.Load) or _module_written(module, scopes, parent, chain=reach)
         )
     if isinstance(parent, ast.Attribute) and parent.value is table:
         if parent.attr in _MODULE_TABLE_READS:
             return False
         call = scopes.parents.get(parent)
         if parent.attr in {"get", "pop", "setdefault"} and isinstance(call, ast.Call) and call.func is parent:
-            return reaches(call.args[0] if call.args else None) and (
-                parent.attr != "get" or _module_written(module, scopes, call, chain=True)
+            reach = reaches(call.args[0] if call.args else None)
+            return reach is not None and (
+                parent.attr != "get" or _module_written(module, scopes, call, chain=reach)
             )
         return True
     if isinstance(parent, ast.Compare) and (parent.left is table or table in parent.comparators):
@@ -626,6 +678,9 @@ def _module_table_written(
 
 #: Import machinery that hands back a module: the one it imports, or reloads.
 _MODULE_LOADERS = frozenset({"__import__", "import_module", "reload"})
+#: The modules ``reload`` is called from (``importlib.reload(m)``); another
+#: object's ``.reload()`` is not import machinery.
+_RELOADERS = frozenset({"importlib", "imp"})
 
 
 @dataclass(frozen=True)
@@ -1096,10 +1151,12 @@ class BuilderCalls:
         - in another module, an entry of its own namespace that an import
           bound, written (``setattr(globals()['agent'], k, v)``).
 
-        A module is named by a string key or argument: one whose dotted parts
-        share no name with ``subject``'s path cannot be it, and ``__name__``
-        is ``subject`` only in ``subject`` or a package ``__init__`` above it.
-        Any other key may name any module.
+        A module is named by a string key or argument, by its last dotted
+        part: ``subject``'s own name is ``subject``, a directory above it in the
+        repository is a package that may hold it (its attributes are followed
+        as submodules), and any other name cannot be it. ``__name__`` is
+        ``subject`` in ``subject``, a package above it in an ``__init__`` above
+        it, and neither elsewhere. Any other key may name any module.
         """
 
         key = (id(caller.tree), subject.path)
@@ -1108,22 +1165,29 @@ class BuilderCalls:
         scopes = self.scopes(caller)
         excluded = self.runtime_exclusions(caller)
         own = caller.path == subject.path
-        holds = own or (caller.path.name == "__init__.py" and subject.path.is_relative_to(caller.path.parent))
-        # The directories from the repository root down to ``subject``: a
-        # package any of them names may hold it. Without the repository's
-        # layout, any name may.
+        holds = caller.path.name == "__init__.py" and subject.path.is_relative_to(caller.path.parent)
+        # The directories from the repository root down to ``subject``.
+        # Without the repository's layout, any name may be a package above it.
         layout = self.resolver._layout
         root = self.resolver.scope_root
-        words = (
+        packages = (
             None if layout is None or not subject.path.is_relative_to(root)
-            else {*PurePosixPath(layout.scope).parts, *subject.path.relative_to(root).parts[:-1], *_module_words(subject.path)}
+            else {*PurePosixPath(layout.scope).parts, *subject.path.relative_to(root).parts[:-1]}
         )
+        names = _module_words(subject.path)
 
-        def reaches(name: ast.AST | None) -> bool:
+        def reaches(name: ast.AST | None) -> bool | None:
+            """None: not ``subject``; False: ``subject``; True: may hold it, or be any module."""
+
             if isinstance(name, ast.Constant):
-                return isinstance(name.value, str) and (words is None or bool(words & set(name.value.split("."))))
+                if not isinstance(name.value, str):
+                    return None
+                last = name.value.rsplit(".", 1)[-1]
+                if packages is None or last in packages:
+                    return True
+                return False if last in names else None
             if isinstance(name, ast.Name) and name.id == "__name__":
-                return holds
+                return False if own else True if holds else None
             return True
 
         def imported(name: ast.AST | None) -> bool:
@@ -1133,15 +1197,28 @@ class BuilderCalls:
                 )
             return True
 
-        #: The spelling a loader is called by, and which loader it is.
-        loaders = {name: name for name in _MODULE_LOADERS}
+        #: A plain name a loader is called by, and which loader it is; and
+        #: the names ``importlib`` itself is bound to.
+        loaders = {"__import__": "__import__", "import_module": "import_module"}
+        reloaders = set(_RELOADERS)
         for node in ast.walk(caller.tree):
             if isinstance(node, ast.ImportFrom) and not node.level and (
-                (node.module or "").split(".", 1)[0] == "importlib" or node.module == "builtins"
+                (node.module or "").split(".", 1)[0] in _RELOADERS or node.module == "builtins"
             ):
                 loaders.update(
-                    (alias.asname, alias.name) for alias in node.names if alias.name in _MODULE_LOADERS and alias.asname
+                    (alias.asname or alias.name, alias.name) for alias in node.names if alias.name in _MODULE_LOADERS
                 )
+            elif isinstance(node, ast.Import):
+                reloaders.update(alias.asname for alias in node.names if alias.name in _RELOADERS and alias.asname)
+
+        def loader_of(function: ast.expr) -> str | None:
+            spelling = reference_spelling(function) or ""
+            if "." not in spelling:
+                return loaders.get(spelling)
+            head, last = spelling.split(".", 1)[0], spelling.rsplit(".", 1)[-1]
+            if last in {"__import__", "import_module"} or last == "reload" and head in reloaders:
+                return last
+            return None
 
         def writes(node: ast.AST) -> bool:
             if (
@@ -1154,12 +1231,12 @@ class BuilderCalls:
                 return entry is not None and imported(entry[1]) and _module_written(caller, scopes, entry[0], chain=True)
             if not isinstance(node, ast.Call):
                 return _module_table_written(caller, scopes, node, reaches)
-            loader = loaders.get((reference_spelling(node.func) or "").rsplit(".", 1)[-1])
+            loader = loader_of(node.func)
             if loader is None:
                 return False
             # ``reload`` hands back the module it is given, whichever that is.
-            name = node.args[0] if node.args and loader != "reload" else None
-            return reaches(name) and _module_written(caller, scopes, node, chain=True)
+            reach = reaches(node.args[0] if node.args and loader != "reload" else None)
+            return reach is not None and _module_written(caller, scopes, node, chain=reach)
 
         sites = (
             *reflective_sites(caller.tree, excluded=excluded),
