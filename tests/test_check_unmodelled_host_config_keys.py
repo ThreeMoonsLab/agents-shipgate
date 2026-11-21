@@ -164,7 +164,10 @@ _ADAPTER_FOR_PATH = {
 
 
 def _git(repo: Path, *args: str) -> None:
-    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+    # The root conftest drops inherited GIT_DIR and its kind, which would
+    # otherwise outrank `-C` and point this at the repository the suite was
+    # started from (tests/test_git_fixture_isolation.py).
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
 
 
 def _repo(
@@ -547,7 +550,7 @@ def test_provided_diff_beside_an_input_issue_names_it(
         extra_base_files=_UNREADABLE_LEGACY_HOST_POLICY,
     )
     diff_text = subprocess.run(
-        ["git", "diff"], cwd=tmp_path, check=True, capture_output=True, text=True
+        ["git", "-C", str(tmp_path), "diff"], check=True, capture_output=True, text=True
     ).stdout
     diff_path = tmp_path.parent / f"{tmp_path.name}.diff"
     diff_path.write_text(diff_text, encoding="utf-8")
@@ -602,7 +605,7 @@ def test_provided_diff_with_an_unmodelled_key_is_comparable(
 
     _repo(tmp_path, ".claude/settings.json", _settings(), head, mode="worktree")
     diff_text = subprocess.run(
-        ["git", "diff"], cwd=tmp_path, check=True, capture_output=True, text=True
+        ["git", "-C", str(tmp_path), "diff"], check=True, capture_output=True, text=True
     ).stdout
     diff_path = tmp_path.parent / f"{tmp_path.name}.diff"
     diff_path.write_text(diff_text, encoding="utf-8")
