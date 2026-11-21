@@ -640,6 +640,85 @@ def test_after_a_cli_that_did_not_complete_no_report_is_this_runs(tmp_path) -> N
     assert outputs["decision"] == "passed"
 
 
+def test_the_no_result_outputs_name_every_output(tmp_path) -> None:
+    """The fixed set covers exactly the outputs a validated run publishes."""
+
+    from scripts.github_action_outputs import no_result_outputs
+
+    output_dir = tmp_path / "reports"
+    output_dir.mkdir()
+    assert set(no_result_outputs()) == set(extract_outputs(output_dir))
+
+
+@pytest.mark.parametrize(
+    "verifier",
+    [
+        # A control that authorizes completion, under a pre-receipt label.
+        {"verifier_schema_version": "0.4", "merge_verdict": "unknown", "execution": "skipped",
+         "control": {
+             "state": "complete", "reason": "Release ready.", "completion_allowed": True,
+             "must_stop": False, "verify_required": False, "next_action": None,
+             "allowed_next_commands": [], "human_review": {"required": False},
+             "stop_reason": None,
+         }},
+        # A legacy controller block saying the same.
+        {"verifier_schema_version": "0.4", "merge_verdict": "unknown",
+         "agent_controller": {"state": "complete", "must_stop": False,
+                              "completion_allowed": True, "reason": "Release ready."}},
+    ],
+    ids=["control", "agent-controller"],
+)
+def test_a_run_that_did_not_complete_publishes_the_fixed_no_result_values(
+    tmp_path, verifier,
+) -> None:
+    from scripts.github_action_outputs import ActionInvocation, no_result_outputs
+
+    output_dir = tmp_path / "reports"
+    output_dir.mkdir()
+    _write_json(output_dir / "verifier.json", verifier)
+    for name in ("pr-comment.md", "attestation.json", "org-evidence-bundle.json"):
+        (output_dir / name).write_text("{}", encoding="utf-8")
+
+    outputs = extract_outputs(output_dir, invocation=ActionInvocation(exit_code="2", head=""))
+
+    assert outputs == no_result_outputs()
+    assert outputs["agent_control_state"] == "human_review_required"
+    assert outputs["agent_controller_must_stop"] == "true"
+    assert outputs["agent_controller_completion_allowed"] == "false"
+    assert outputs["can_merge_without_human"] == "false"
+    assert outputs["merge_verdict"] == "unknown"
+    assert all(outputs[key] == "" for key in (
+        "attestation_json", "org_evidence_bundle_json", "pr_comment_markdown", "verifier_json",
+    ))
+
+
+def test_the_no_result_summary_reads_nothing_from_the_directory(tmp_path, monkeypatch) -> None:
+    from scripts import github_action_outputs as outputs_script
+
+    output_dir = tmp_path / "reports"
+    output_dir.mkdir()
+    _write_json(output_dir / "verifier.json", {
+        "verifier_schema_version": "0.21", "execution": "failed", "merge_verdict": "unknown",
+        "agent_controller": {"state": "agent_action_required",
+                             "reason": "Point --config at the manifest.",
+                             "next_action": {"actor": "coding_agent", "kind": "edit"}},
+    })
+    summary = tmp_path / "summary.md"
+    github_output = tmp_path / "github-output"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    monkeypatch.setenv("GITHUB_OUTPUT", str(github_output))
+    monkeypatch.setenv("OUTPUT_DIR", str(output_dir))
+    monkeypatch.setenv("SHIPGATE_EXIT_CODE", "2")
+
+    assert outputs_script.main([]) == 0
+
+    text = summary.read_text(encoding="utf-8")
+    assert "No validated verification result: agents-shipgate exited 2." in text
+    assert "Point --config" not in text
+    assert "coding_agent/edit" not in text and "Merge verdict" not in text
+    assert "evidence=no_result\n" in github_output.read_text(encoding="utf-8")
+
+
 def test_only_a_completed_run_has_a_result_for_the_other_steps(tmp_path) -> None:
     from scripts.github_action_outputs import ActionInvocation, check_evidence
 

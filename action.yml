@@ -88,7 +88,7 @@ inputs:
   upload_artifact:
     required: false
     default: "true"
-    description: Upload reports as a workflow artifact.
+    description: Upload reports as a workflow artifact. For a run without a validated verification result the artifact is the output directory as found, kept for diagnosis; nothing in it is validated as that run's result.
   check_annotations:
     required: false
     default: "true"
@@ -535,6 +535,9 @@ runs:
         INPUT_HEAD_REF: ${{ inputs.head_ref }}
         EVALUATED_HEAD_SHA: ${{ github.sha }}
       run: |
+        # Any attestation already in the directory is not this run's: only the
+        # one `attest` writes below may be left there.
+        rm -f -- "${OUTPUT_DIR}/attestation.json"
         if [ ! -f "${OUTPUT_DIR}/verifier.json" ]; then
           echo "Agents Shipgate verifier.json not found; attestation skipped." >&2
         elif ! "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py" --check-evidence; then
@@ -597,6 +600,9 @@ runs:
         EVALUATED_HEAD_SHA: ${{ github.sha }}
       run: |
         mkdir -p "${OUTPUT_DIR}"
+        # Any bundle already in the directory is not this run's: only the one
+        # `org bundle` writes below may be left there.
+        rm -f -- "${OUTPUT_DIR}/org-evidence-bundle.json"
         if [ ! -f "${OUTPUT_DIR}/verifier.json" ]; then
           echo "Agents Shipgate verifier.json not found; org bundle skipped." >&2
         elif ! "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py" --check-evidence; then

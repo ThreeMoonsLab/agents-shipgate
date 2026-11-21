@@ -69,6 +69,81 @@ COMPLETED_RUN_EXIT_CODES = frozenset({"0", str(GATE_FAILURE_EXIT_CODE)})
 EVIDENCE_VALIDATED = "validated"
 EVIDENCE_NO_RESULT = "no_result"
 
+#: The reason a run that did not complete publishes in place of a control.
+NO_RESULT_REASON = (
+    "This run has no validated verification result, so nothing in the output "
+    "directory is published as its result. The run step's log names the error."
+)
+
+
+def no_result_outputs() -> dict[str, object]:
+    """Every output, fixed, for a run that did not complete (#1165).
+
+    Built without reading the output directory: no verdict, no merge authority,
+    a control that stops, no identities and no artifact paths. The state is
+    `human_review_required`, the one agent-control state whose `must_stop` is
+    true and which authorizes nothing.
+    """
+
+    return {
+        "status": "",
+        "critical_count": 0,
+        "high_count": 0,
+        "medium_count": 0,
+        "baseline_new_count": 0,
+        "baseline_matched_count": 0,
+        "baseline_resolved_count": 0,
+        "adk_agent_count": 0,
+        "adk_dynamic_toolset_count": 0,
+        "report_json": "",
+        "report_markdown": "",
+        "report_sarif": "",
+        "verifier_json": "",
+        "verify_run_json": "",
+        "agent_handoff_json": "",
+        "verification_receipt_json": "",
+        "run_id": "",
+        "request_id": "",
+        "receipt_id": "",
+        "decision_id": "",
+        "artifact_set_id": "",
+        "pr_comment_markdown": "",
+        "check_annotations_json": "",
+        "capability_lock_json": "",
+        "base_capability_lock_json": "",
+        "capability_lock_diff_json": "",
+        "attestation_json": "",
+        "org_evidence_bundle_json": "",
+        "host_grants_json": "",
+        "org_status_json": "",
+        "decision": "",
+        "blocker_count": 0,
+        "review_item_count": 0,
+        "ci_would_fail": "false",
+        "diff_enabled": "false",
+        "action_diff_enabled": "false",
+        "actions_added": 0,
+        "actions_modified": 0,
+        "actions_removed": 0,
+        "should_run": "",
+        "trigger_action": "",
+        "trigger_evaluation_status": "",
+        "trigger_rule_ids": "",
+        "verifier_verdict": "",
+        "merge_verdict": "unknown",
+        "can_merge_without_human": "false",
+        "agent_control_state": "human_review_required",
+        "agent_control_reason": NO_RESULT_REASON,
+        "agent_controller_must_stop": "true",
+        "agent_controller_stop_reason": NO_RESULT_REASON,
+        "agent_controller_completion_allowed": "false",
+        "trust_root_touched": "false",
+        "policy_weakened": "false",
+        "capability_changes_added": 0,
+        "capability_changes_modified": 0,
+        "capability_changes_removed": 0,
+    }
+
 
 @dataclass(frozen=True)
 class ActionInvocation:
@@ -277,6 +352,10 @@ def extract_outputs(
     org_status_json = output_dir / "org-status.json"
 
     evidence = validate_evidence(output_dir, invocation=invocation)
+    if invocation is not None and not invocation.completed:
+        # Validated only so that a directory stating an outcome fails the step;
+        # nothing in it is this run's, so nothing is projected from it.
+        return no_result_outputs()
     verifier_payload = evidence.verifier
     payload = evidence.report or {}
     verify_run = evidence.verify_run
@@ -877,8 +956,23 @@ def main(argv: list[str] | None = None) -> int:
     write_github_outputs(
         {"evidence": EVIDENCE_VALIDATED if invocation.completed else EVIDENCE_NO_RESULT}
     )
-    append_step_summary(output_dir, values)
+    if invocation.completed:
+        append_step_summary(output_dir, values)
+    else:
+        append_no_result_summary(invocation)
     return 0
+
+
+def append_no_result_summary(invocation: ActionInvocation) -> None:
+    """The step summary of a run that did not complete: fixed, read from nothing."""
+
+    step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not step_summary:
+        return
+    with open(step_summary, "a", encoding="utf-8") as summary_file:
+        summary_file.write("## Agents Shipgate\n\n")
+        summary_file.write(f"- No validated verification result: agents-shipgate {invocation.ending}.\n")
+        summary_file.write(f"- {NO_RESULT_REASON}\n")
 
 
 if __name__ == "__main__":

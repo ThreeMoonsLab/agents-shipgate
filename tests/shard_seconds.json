@@ -457,7 +457,7 @@
   "tests/test_unreadable_host_input.py": 297.8,
   "tests/test_unchanged_link_limits.py": 77.2,
   "tests/test_capability_lock_redaction.py": 0.1,
-  "tests/test_action_check_run_evidence.py": 163.1
+  "tests/test_action_check_run_evidence.py": 195.4
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -824,12 +824,12 @@
   },
   {
    "source": "junit",
-   "measured_at": "3047a5a6d8e7 with issue #1165 review increment (every publishing step)",
-   "report_sha256": "fa2c6db6eb278aa9c5936720249cd358112460adc6aa1cbd42a7d60f31ce17ab",
+   "measured_at": "601757a20b45 with issue #1165 review cycle 2 increment",
+   "report_sha256": "cddafc0df862f3ec54f75fe8d2b972c8cb4abae3da39fb2b433874ea122de8bd",
    "files": {
-    "tests/test_action_check_run_evidence.py": 163.1
+    "tests/test_action_check_run_evidence.py": 195.4
    },
-   "case_count": 32,
+   "case_count": 35,
    "command": "python -m pytest tests/test_action_check_run_evidence.py -n 4 --junitxml=check-run-evidence.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }

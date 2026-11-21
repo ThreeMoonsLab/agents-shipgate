@@ -735,12 +735,20 @@ def test_a_complete_run_feeds_every_publishing_step(completed, tmp_path: Path) -
     assert _posted(run)["conclusion"] == "success"
 
 
+def _earlier_attestation_and_bundle(run: ActionRun) -> None:
+    """An attestation and an org bundle already in the directory, not this run's."""
+
+    _write_json(run.reports / "attestation.json", {"receipt_id": "sha256:" + "e" * 64})
+    _write_json(run.reports / "org-evidence-bundle.json", {"receipt_id": "sha256:" + "e" * 64})
+
+
 def test_after_an_early_cli_failure_no_step_publishes_the_directory(
     completed, tmp_path: Path,
 ) -> None:
     run = completed(PASSED).copy_to(tmp_path)
     _rerun(run, tmp_path / "rerun", **REFUSED_INPUT)
     _enable_every_publisher(run)
+    _earlier_attestation_and_bundle(run)
 
     _publish(run, tmp_path / "scratch", EVERY_PUBLISHER)
 
@@ -793,19 +801,105 @@ def test_a_fresh_failed_run_publishes_its_unknown_outputs_and_nothing_from_the_d
     assert verifier["execution"] == "failed"
     assert not (run.reports / "verification-receipt.json").exists()
     _enable_every_publisher(run)
+    _earlier_attestation_and_bundle(run)
 
     _publish(run, tmp_path / "scratch", EVERY_PUBLISHER)
 
     assert run.outcomes["report_outputs"] == "success", run.logs[EXTRACT]
-    assert run.outputs["report_outputs"]["evidence"] == "no_result"
-    assert run.outputs["report_outputs"]["merge_verdict"] == "unknown"
-    assert run.outputs["report_outputs"]["receipt_id"] == ""
+    # The fixed no-result values, every one of them, read from nothing.
+    assert run.outputs["report_outputs"] == {**_no_result_outputs(), "evidence": "no_result"}
+    summary = (tmp_path / "scratch" / "step-summary").read_text(encoding="utf-8")
+    assert f"No validated verification result: agents-shipgate exited {exit_code}." in summary
+    assert verifier["control"]["reason"] not in summary
     assert not (run.reports / "attestation.json").exists()
     assert not (run.reports / "org-evidence-bundle.json").exists()
     assert run.outcomes[ANNOTATE] == "skipped"
     [comment] = run.pr_comments
     assert NO_RESULT_NOTE in comment["body"]
     _assert_no_verdict(run, "require-mergeable", reason=f"exited {exit_code}")
+
+
+def _no_result_outputs() -> dict[str, str]:
+    """`no_result_outputs()` as the step writes it to GITHUB_OUTPUT."""
+
+    from scripts.github_action_outputs import clean, no_result_outputs
+
+    return {key: clean(value) for key, value in no_result_outputs().items()}
+
+
+#: What a run that did not complete may publish about merge authority.
+NO_AUTHORITY = {
+    "merge_verdict": "unknown",
+    "can_merge_without_human": "false",
+    "agent_control_state": "human_review_required",
+    "agent_controller_must_stop": "true",
+    "agent_controller_completion_allowed": "false",
+    "receipt_id": "",
+    "attestation_json": "",
+    "org_evidence_bundle_json": "",
+    "pr_comment_markdown": "",
+}
+
+
+def _as_receiptless(run: ActionRun, variant: str) -> None:
+    """Rewrite the earlier passing set as one with no receipt and no stated verdict.
+
+    Each keeps a control that authorizes completion: the current `control`
+    block under a pre-receipt label, a legacy `agent_controller` block, or no
+    version label at all.
+    """
+
+    for name in ("verification-receipt.json", "report.json"):
+        (run.reports / name).unlink(missing_ok=True)
+    verifier = _json(run.reports / "verifier.json")
+    for name in ("request_id", "subject_id", "input_set_id", "engine_requirement_id",
+                 "executor_id", "decision_id", "head_report_json", "decision",
+                 "release_decision", "can_merge_without_human", "applicability"):
+        verifier.pop(name, None)
+    verifier["artifacts"].pop("report_json", None)
+    verifier.update(merge_verdict="unknown", execution="skipped", head_status="skipped")
+    assert verifier["control"]["state"] == "complete"
+    if variant == "control":
+        verifier["verifier_schema_version"] = "0.4"
+    elif variant == "agent-controller":
+        verifier["verifier_schema_version"] = "0.4"
+        control = verifier.pop("control")
+        verifier["agent_controller"] = {
+            "state": "complete", "reason": control["reason"], "must_stop": False,
+            "completion_allowed": True, "stop_reason": None,
+        }
+    else:
+        verifier.pop("verifier_schema_version")
+        verifier.pop("execution")
+        verifier.pop("head_status")
+    _write_json(run.reports / "verifier.json", verifier)
+
+
+@pytest.mark.parametrize("variant", ["control", "agent-controller", "unlabelled"])
+def test_a_run_that_did_not_complete_publishes_no_merge_authority(
+    completed, tmp_path: Path, variant: str,
+) -> None:
+    run = completed(PASSED).copy_to(tmp_path)
+    _rerun(run, tmp_path / "rerun", **REFUSED_INPUT)
+    _as_receiptless(run, variant)
+    _enable_every_publisher(run)
+
+    _publish(run, tmp_path / "scratch", EVERY_PUBLISHER)
+
+    outputs = run.outputs.get("report_outputs", {})
+    if run.outcomes["report_outputs"] == "failure":
+        assert outputs == {}
+    else:
+        assert outputs == {**_no_result_outputs(), "evidence": "no_result"}
+        assert {key: outputs[key] for key in NO_AUTHORITY} == NO_AUTHORITY
+    assert not (run.reports / "attestation.json").exists()
+    assert not (run.reports / "org-evidence-bundle.json").exists()
+    assert run.outcomes[ANNOTATE] == "skipped"
+    [comment] = run.pr_comments
+    assert NO_RESULT_NOTE in comment["body"]
+    _assert_no_verdict_under_each_policy(
+        run, tmp_path / "scratch", reason="This run has no validated verification result"
+    )
 
 
 def test_the_evidence_binding_reads_the_head_the_run_step_passed(tmp_path: Path) -> None:
@@ -840,8 +934,14 @@ def test_every_reader_of_the_evidence_sees_what_the_run_step_did() -> None:
         for variable in ("INPUT_HEAD_REF", "EVALUATED_HEAD_SHA"):
             assert reader["env"][variable] == run["env"][variable]
         assert reader["env"]["SHIPGATE_EXIT_CODE"] == "${{ steps.scan.outputs.exit_code }}"
-    for checker in (_step(ATTEST), _step(BUNDLE)):
+    for checker, artifact in ((_step(ATTEST), "attestation.json"),
+                              (_step(BUNDLE), "org-evidence-bundle.json")):
         assert 'scripts/github_action_outputs.py" --check-evidence' in checker["run"]
+        # Removed before anything else, so only this run's can be left.
+        removal = f'rm -f -- "${{OUTPUT_DIR}}/{artifact}"'
+        assert checker["run"].index(removal) < checker["run"].index("--check-evidence")
+    # The upload is the directory as found, and says so.
+    assert "nothing in it is validated" in ACTION["inputs"]["upload_artifact"]["description"]
     assert "steps.report_outputs.outputs.evidence == 'validated'" in _step(ANNOTATE)["if"]
     assert _step(COMMENT)["env"]["EVIDENCE"] == "${{ steps.report_outputs.outputs.evidence }}"
     assert payload["env"]["VALIDATED_RECEIPT_ID"] == "${{ steps.report_outputs.outputs.receipt_id }}"
