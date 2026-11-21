@@ -1591,8 +1591,9 @@ run either. The check step now posts only the payload this run built.
 - **The Check Run** for a run without `evidence=validated` states no merge
   verdict: `failure` under `blocked-fails` and `require-mergeable` and
   `neutral` under `advisory`, titled `merge_verdict: unknown (no validated
-  result)`, with the reason and nothing from the output directory.
-  `success` also needs the terminal receipt the outputs step validated and
+  result)`, with the reason and nothing from the output directory. For a run
+  that did not complete the reason is a fixed sentence naming the CLI's exit
+  code. `success` also needs the terminal receipt the outputs step validated and
   published as `receipt_id` in this job, whose own outcome passes the policy
   too, so a verdict no receipt binds no longer passes a check.
 - **The payload** is written as a new file at its path, and its SHA-256 goes
@@ -1604,11 +1605,16 @@ run either. The check step now posts only the payload this run built.
   any other run it posts, in the same place, a short note that the run has no
   validated verification result, so an earlier run's review does not stay up
   as this one's. The application comment is unchanged.
+- **The files the Action's own steps write** (`attestation.json`,
+  `org-evidence-bundle.json`, `host-grants.json`, `org-status.json`,
+  `check-annotations.json` and `check-run-payload.json`) are removed from the
+  output directory by the run step before the CLI runs, as the CLI clears the
+  files it writes. Any of them there afterwards is this use's, so a second use
+  of the Action, or a reused workspace, never names, uploads or posts an
+  earlier use's.
 - **The attestation and org bundle** steps, which run before the outputs step,
-  first remove any `attestation.json` or `org-evidence-bundle.json` already
-  in the directory, then ask the same validation
-  (`github_action_outputs.py --check-evidence`) and are skipped, with a
-  message, unless the run completed and validated.
+  ask the same validation (`github_action_outputs.py --check-evidence`) and
+  are skipped, with a message, unless the run completed and validated.
 - **The uploaded report artifact** is still the output directory. For a run
   without a validated result it is kept for diagnosis only: nothing in it is
   validated as that run's result.
@@ -1638,7 +1644,10 @@ The check still mirrors the verdict and never replaces the release gate.
   - re-run once the error the run step reports is fixed.
 - A job that uses the Action twice with one `output_dir` gets, for the second
   use, only that use's own result: if its CLI stops early, nothing the first
-  use wrote is published again.
+  use wrote is published again, and if it completes, the first use's
+  attestation, org bundle, host grants, org status, annotations and payload
+  are gone before it runs. A later step that read one of those files after the
+  second use, expecting the first use's, must copy it elsewhere in between.
 - If the payload step itself fails, no check is created for that run. A branch
   protection rule that requires the check then waits, rather than reading an
   earlier payload.

@@ -513,6 +513,12 @@ runs:
           args+=(--no-plugins)
         fi
         echo "execution_mode=manifest" >> "${GITHUB_OUTPUT}"
+        # The files this Action's own later steps write are removed before the
+        # CLI runs, so any of them in the directory afterwards is this use's
+        # (#1165). The CLI clears what it writes itself.
+        rm -f -- "${OUTPUT_DIR}/attestation.json" "${OUTPUT_DIR}/org-evidence-bundle.json" \
+          "${OUTPUT_DIR}/host-grants.json" "${OUTPUT_DIR}/org-status.json" \
+          "${OUTPUT_DIR}/check-annotations.json" "${OUTPUT_DIR}/check-run-payload.json"
         set +e
         "${SHIPGATE_BIN}/agents-shipgate" "${args[@]}"
         exit_code=$?

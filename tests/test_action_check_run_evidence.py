@@ -37,6 +37,8 @@ STEPS: list[dict[str, Any]] = ACTION["runs"]["steps"]
 VALIDATE = "Validate Agents Shipgate check-run policy"
 RUN = "Run Agents Shipgate"
 ATTEST = "Build Agents Shipgate attestation"
+HOST_AUDIT = "Build Agents Shipgate host audit"
+ORG_STATUS = "Build Agents Shipgate org status"
 BUNDLE = "Build Agents Shipgate org evidence bundle"
 EXTRACT = "Extract Agents Shipgate outputs"
 ANNOTATE = "Emit Agents Shipgate annotations"
@@ -313,6 +315,10 @@ def _sample_run(root: Path, sample: str, *, ci_mode: str = "advisory") -> Action
     head = _git(workspace, "rev-parse", "HEAD").strip()
     _git(workspace, "remote", "add", "origin", "https://github.com/owner/repo.git")
     bin_dir = _bin_dir(root)
+    # The install step puts both console scripts there; the host audit step runs `shipgate`.
+    shim = bin_dir / "shipgate"
+    shim.write_text((bin_dir / "agents-shipgate").read_text(encoding="utf-8"), encoding="utf-8")
+    shim.chmod(0o755)
     inputs = {name: str(spec.get("default", "")) for name, spec in ACTION["inputs"].items()}
     inputs.update({"check_run": "true", "check_run_policy": "advisory", "ci_mode": ci_mode,
                    "base_ref": base})
@@ -492,7 +498,9 @@ def test_an_early_cli_failure_does_not_publish_an_earlier_runs_passing_verdict(
     # The earlier run's complete and internally valid artifact set is still there.
     assert _json(run.reports / "verification-receipt.json") == earlier
 
-    _assert_no_verdict_under_each_policy(run, tmp_path / "scratch", reason="is not this run")
+    _assert_no_verdict_under_each_policy(
+        run, tmp_path / "scratch", reason=f"agents-shipgate exited {exit_code}, so"
+    )
     assert run.outcomes["report_outputs"] == "failure"
     assert "is not this run's" in run.logs[EXTRACT]
     assert run.outputs["report_outputs"] == {}
@@ -554,7 +562,10 @@ def test_an_artifact_set_the_outputs_step_refuses_never_passes_the_check(
         assert run.outputs["scan"]["exit_code"] == "2"
     edit(run.reports)
 
-    _assert_no_verdict_under_each_policy(run, tmp_path / "scratch", reason=reason)
+    # After a run that did not complete the check quotes nothing the directory
+    # holds, so it gives the fixed reason; the outputs step's log names the cause.
+    check_reason = "agents-shipgate exited 2, so" if cli == "early-failure" else reason
+    _assert_no_verdict_under_each_policy(run, tmp_path / "scratch", reason=check_reason)
     assert run.outcomes["report_outputs"] == "failure"
     assert reason in run.logs[EXTRACT]
     assert run.outputs["report_outputs"] == {}
@@ -595,11 +606,12 @@ def test_evidence_for_another_head_or_repository_never_passes_the_check(
     named = _move(run, where)
     if cli == "early-failure":
         _rerun(run, tmp_path / "rerun", **REFUSED_INPUT)
+        check_reason = "agents-shipgate exited 2, so"
     else:
         _rerun(run, tmp_path / "rerun", cli=_stub_cli(tmp_path, "exit 0"))
-        reason = f"{reason} {named}"
+        reason = check_reason = f"{reason} {named}"
 
-    _assert_no_verdict_under_each_policy(run, tmp_path / "scratch", reason=reason)
+    _assert_no_verdict_under_each_policy(run, tmp_path / "scratch", reason=check_reason)
     assert run.outcomes["report_outputs"] == "failure"
     assert reason in run.logs[EXTRACT]
 
@@ -621,7 +633,7 @@ def test_a_payload_already_in_the_directory_is_never_posted(completed, tmp_path:
     _publish(run, tmp_path / "scratch")
 
     # The check posted is this run's own, never the payload found on disk.
-    _assert_no_verdict(run, "require-mergeable", reason="is not this run")
+    _assert_no_verdict(run, "require-mergeable", reason="agents-shipgate exited 2, so")
     assert _posted(run)["output"]["summary"] != "earlier"
 
 
@@ -705,8 +717,11 @@ def test_an_outcome_no_receipt_binds_is_not_this_runs_after_an_early_failure(
                     can_merge_without_human=True)
     _write_json(run.reports / "verifier.json", verifier)
 
-    _assert_no_verdict_under_each_policy(run, tmp_path / "scratch", reason="is not this run")
+    _assert_no_verdict_under_each_policy(
+        run, tmp_path / "scratch", reason="agents-shipgate exited 2, so"
+    )
     assert run.outcomes["report_outputs"] == "failure"
+    assert "is not this run's" in run.logs[EXTRACT]
     assert run.outputs["report_outputs"] == {}
 
 
@@ -763,7 +778,45 @@ def test_after_an_early_cli_failure_no_step_publishes_the_directory(
     assert NO_RESULT_NOTE in comment["body"]
     earlier_review = (run.reports / "pr-comment.md").read_text(encoding="utf-8")
     assert earlier_review[40:200] not in comment["body"]
-    _assert_no_verdict(run, "require-mergeable", reason="is not this run")
+    _assert_no_verdict(run, "require-mergeable", reason="agents-shipgate exited 2, so")
+
+
+def test_a_second_use_publishes_only_its_own_files(completed, tmp_path: Path) -> None:
+    """Two uses of the Action with one output directory, the second completing.
+
+    Files the Action's own steps wrote for the first use are gone before the
+    second use's CLI runs, so none of them is named, uploaded or posted as the
+    second use's.
+    """
+
+    run = completed(PASSED).copy_to(tmp_path)
+    _enable_every_publisher(run)
+    run.inputs.update(host_audit="true", org_status="true", check_annotations="true")
+    _publish(run, tmp_path / "first",
+             (ATTEST, HOST_AUDIT, ORG_STATUS, BUNDLE, EXTRACT, ANNOTATE, PAYLOAD))
+    first_receipt = _json(run.reports / "verification-receipt.json")["receipt_id"]
+    first_files = ("attestation.json", "org-evidence-bundle.json", "host-grants.json",
+                   "org-status.json", "check-annotations.json", "check-run-payload.json")
+    for name in first_files:
+        assert (run.reports / name).is_file(), (name, run.logs)
+    assert _json(run.reports / "attestation.json")["receipt_id"] == first_receipt
+
+    # The second use: a strict run that completes, with the opt-in steps off.
+    _rerun(run, tmp_path / "rerun", ci_mode="strict", attestation="false", org_bundle="false",
+           host_audit="false", org_status="false", check_annotations="false")
+    assert run.outputs["scan"]["exit_code"] in {"0", "20"}, run.logs
+    _publish(run, tmp_path / "second", EVERY_PUBLISHER)
+
+    second_receipt = run.outputs["report_outputs"]["receipt_id"]
+    assert second_receipt and second_receipt != first_receipt
+    assert run.outputs["report_outputs"]["evidence"] == "validated"
+    for name in first_files[:-1]:
+        assert not (run.reports / name).exists(), name
+    # The only payload is the one this use built.
+    assert _json(run.reports / "check-run-payload.json") == {
+        key: value for key, value in _posted(run).items()
+        if key not in {"owner", "repo", "head_sha", "status"}
+    }
 
 
 def _malform_the_head(run: ActionRun) -> None:
@@ -844,9 +897,10 @@ NO_AUTHORITY = {
 def _as_receiptless(run: ActionRun, variant: str) -> None:
     """Rewrite the earlier passing set as one with no receipt and no stated verdict.
 
-    Each keeps a control that authorizes completion: the current `control`
-    block under a pre-receipt label, a legacy `agent_controller` block, or no
-    version label at all.
+    Each keeps a control that authorizes completion, and each passes the
+    validation a run that did not complete gets: the current `control` block
+    under a pre-receipt label; a legacy `agent_controller` block under that
+    label; and a legacy block with no version label and no execution at all.
     """
 
     for name in ("verification-receipt.json", "report.json"):
@@ -858,20 +912,20 @@ def _as_receiptless(run: ActionRun, variant: str) -> None:
         verifier.pop(name, None)
     verifier["artifacts"].pop("report_json", None)
     verifier.update(merge_verdict="unknown", execution="skipped", head_status="skipped")
-    assert verifier["control"]["state"] == "complete"
+    control = verifier["control"]
+    assert control["state"] == "complete"
+    legacy = {"state": "complete", "reason": control["reason"], "must_stop": False,
+              "completion_allowed": True, "stop_reason": None}
     if variant == "control":
         verifier["verifier_schema_version"] = "0.4"
     elif variant == "agent-controller":
         verifier["verifier_schema_version"] = "0.4"
-        control = verifier.pop("control")
-        verifier["agent_controller"] = {
-            "state": "complete", "reason": control["reason"], "must_stop": False,
-            "completion_allowed": True, "stop_reason": None,
-        }
+        verifier.pop("control")
+        verifier["agent_controller"] = legacy
     else:
-        verifier.pop("verifier_schema_version")
-        verifier.pop("execution")
-        verifier.pop("head_status")
+        for name in ("verifier_schema_version", "execution", "head_status", "control"):
+            verifier.pop(name)
+        verifier["agent_controller"] = legacy
     _write_json(run.reports / "verifier.json", verifier)
 
 
@@ -886,12 +940,13 @@ def test_a_run_that_did_not_complete_publishes_no_merge_authority(
 
     _publish(run, tmp_path / "scratch", EVERY_PUBLISHER)
 
-    outputs = run.outputs.get("report_outputs", {})
-    if run.outcomes["report_outputs"] == "failure":
-        assert outputs == {}
-    else:
-        assert outputs == {**_no_result_outputs(), "evidence": "no_result"}
-        assert {key: outputs[key] for key in NO_AUTHORITY} == NO_AUTHORITY
+    # The directory passes validation, so the step publishes; what it publishes
+    # carries no merge authority. Checked field by field first, so the defect
+    # itself fails here.
+    assert run.outcomes["report_outputs"] == "success", run.logs[EXTRACT]
+    outputs = run.outputs["report_outputs"]
+    assert {key: outputs.get(key) for key in NO_AUTHORITY} == NO_AUTHORITY
+    assert outputs == {**_no_result_outputs(), "evidence": "no_result"}
     assert not (run.reports / "attestation.json").exists()
     assert not (run.reports / "org-evidence-bundle.json").exists()
     assert run.outcomes[ANNOTATE] == "skipped"
@@ -942,6 +997,11 @@ def test_every_reader_of_the_evidence_sees_what_the_run_step_did() -> None:
         assert checker["run"].index(removal) < checker["run"].index("--check-evidence")
     # The upload is the directory as found, and says so.
     assert "nothing in it is validated" in ACTION["inputs"]["upload_artifact"]["description"]
+    # Every file the Action's own steps write is removed before the CLI runs.
+    before_cli = run["run"].split('"${SHIPGATE_BIN}/agents-shipgate" "${args[@]}"')[0]
+    for artifact in ("attestation.json", "org-evidence-bundle.json", "host-grants.json",
+                     "org-status.json", "check-annotations.json", "check-run-payload.json"):
+        assert f'"${{OUTPUT_DIR}}/{artifact}"' in before_cli.split("rm -f --", 1)[1], artifact
     assert "steps.report_outputs.outputs.evidence == 'validated'" in _step(ANNOTATE)["if"]
     assert _step(COMMENT)["env"]["EVIDENCE"] == "${{ steps.report_outputs.outputs.evidence }}"
     assert payload["env"]["VALIDATED_RECEIPT_ID"] == "${{ steps.report_outputs.outputs.receipt_id }}"

@@ -671,7 +671,7 @@ def test_the_no_result_outputs_name_every_output(tmp_path) -> None:
 def test_a_run_that_did_not_complete_publishes_the_fixed_no_result_values(
     tmp_path, verifier,
 ) -> None:
-    from scripts.github_action_outputs import ActionInvocation, no_result_outputs
+    from scripts.github_action_outputs import ActionInvocation
 
     output_dir = tmp_path / "reports"
     output_dir.mkdir()
@@ -681,7 +681,7 @@ def test_a_run_that_did_not_complete_publishes_the_fixed_no_result_values(
 
     outputs = extract_outputs(output_dir, invocation=ActionInvocation(exit_code="2", head=""))
 
-    assert outputs == no_result_outputs()
+    # Field by field first, so the defect itself is what fails.
     assert outputs["agent_control_state"] == "human_review_required"
     assert outputs["agent_controller_must_stop"] == "true"
     assert outputs["agent_controller_completion_allowed"] == "false"
@@ -690,6 +690,9 @@ def test_a_run_that_did_not_complete_publishes_the_fixed_no_result_values(
     assert all(outputs[key] == "" for key in (
         "attestation_json", "org_evidence_bundle_json", "pr_comment_markdown", "verifier_json",
     ))
+    from scripts.github_action_outputs import no_result_outputs
+
+    assert outputs == no_result_outputs()
 
 
 def test_the_no_result_summary_reads_nothing_from_the_directory(tmp_path, monkeypatch) -> None:

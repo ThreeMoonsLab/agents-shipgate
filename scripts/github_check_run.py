@@ -352,17 +352,19 @@ def check_run_payload_from_evidence(
     """
 
     policy = normalize_check_run_policy(check_run_policy)
+    if not invocation.completed:
+        # Nothing in the directory is this run's, so not even a validation
+        # error about it is quoted: the reason is fixed.
+        return refused_check_run_payload(
+            reason=f"agents-shipgate {invocation.ending}, so this run has no verification result",
+            name=name,
+            check_run_policy=policy,
+        )
     try:
         evidence = validate_evidence(output_dir, invocation=invocation)
     except Exception as exc:  # noqa: BLE001 - whatever stops validation refuses the directory.
         return refused_check_run_payload(
             reason=f"{type(exc).__name__}: {exc}", name=name, check_run_policy=policy
-        )
-    if not invocation.completed:
-        return refused_check_run_payload(
-            reason=f"agents-shipgate {invocation.ending}, so this run has no verification result",
-            name=name,
-            check_run_policy=policy,
         )
     verifier = dict(evidence.verifier) if evidence.verifier else None
     if verifier is not None:

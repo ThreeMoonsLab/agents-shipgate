@@ -562,6 +562,30 @@ def test_a_run_that_did_not_complete_shows_nothing_from_the_directory(tmp_path, 
         assert "Fix the manifest path." not in payload["output"]["summary"]
 
 
+@pytest.mark.parametrize("code", ["2", "137", ""])
+def test_a_run_that_did_not_complete_quotes_nothing_its_directory_holds(tmp_path, code):
+    """Not even a validation error about the directory: the reason is fixed."""
+
+    marker = "TEXT-FROM-THE-DIRECTORY"
+    (tmp_path / "verifier.json").write_text(
+        json.dumps({"verifier_schema_version": "0.21", "merge_verdict": "mergeable",
+                    "can_merge_without_human": True, "headline": marker}),
+        encoding="utf-8",
+    )
+    (tmp_path / "verification-receipt.json").write_text(
+        json.dumps({"receipt_id": marker, "decision_id": marker}), encoding="utf-8"
+    )
+    invocation = github_check_run.ActionInvocation(exit_code=code, head="HEAD")
+    for policy in sorted(CHECK_RUN_POLICIES):
+        payload = _from_evidence(tmp_path, policy, invocation=invocation)
+        assert payload["conclusion"] != "success"
+        assert marker not in json.dumps(payload)
+        ended = f"exited {code}" if code else "recorded no exit code"
+        assert f"agents-shipgate {ended}, so this run has no verification result" in (
+            payload["output"]["summary"]
+        )
+
+
 def test_a_verdict_no_receipt_binds_does_not_pass(tmp_path):
     """A verifier labelled as written before receipts owes none, and passes nothing."""
 
