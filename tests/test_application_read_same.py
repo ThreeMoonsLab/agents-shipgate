@@ -547,6 +547,11 @@ _NAMESPACE_WRITES = {
     "sys-modules": "import sys\n\nfor k, v in PATCHES.items():\n    setattr(sys.modules['app.agent'], k, v)\n",
     # #1217 review B1: `__import__` without a `fromlist` hands back the package.
     "dunder-import-package": "__import__('app.agent').agent.lookup = PATCHES['lookup']\n",
+    # #1217 review cycle 2: removing an entry is no write, but `.pop` and
+    # `.popitem` hand back the module, which is then written.
+    "sys-modules-pop-written": "import sys\n\nsys.modules.pop('app.agent').lookup = PATCHES['lookup']\n",
+    "sys-modules-pop-bound-written": "import sys\n\nm = sys.modules.pop('app.agent')\nm.lookup = PATCHES['lookup']\n",
+    "sys-modules-popitem-written": "import sys\n\nk, m = sys.modules.popitem()\nm.lookup = PATCHES['lookup']\n",
 }
 #: Further write forms, read with the ADK reader: each keeps the row too.
 _MORE_NAMESPACE_WRITES = {
@@ -943,6 +948,15 @@ def test_an_unread_named_import_does_not_mask_a_local_namespace_write(repo):
     "import sys\n\n_pkg = sys.modules.get('app')\nif _pkg:\n    _pkg.__path__ = ['/elsewhere']",
     "import sys\n\nfor k in [k for k in sys.modules if k.startswith('app.')]:\n    del sys.modules[k]",
     "import sys\n\nsys.modules.pop('app.agent', None)\nsys.path.insert(0, '/elsewhere')\nsys.path = sys.path[1:]",
+    # #1217 review cycle 2: an entry stored for another module (a test stub,
+    # chromadb's `pysqlite3` swap) is no write into the agent module.
+    "import sys\nfrom unittest.mock import MagicMock\n\nsys.modules['torch'] = MagicMock()\nprint(a)",
+    "__import__('pysqlite3')\nimport sys\n\nsys.modules['sqlite3'] = sys.modules.pop('pysqlite3')\nprint(a)",
+    # A parameter or local named `vars` is not the builtin, and `getattr` of
+    # an object no import gives hands back no module namespace.
+    "def fill(template, vars):\n    return template.format(**vars)\n\n\nprint(a)",
+    "def render():\n    vars = {'x': 1}\n    return vars\n\n\nprint(a)",
+    "class C:\n    pass\n\n\nd = getattr(C(), '__dict__')\nprint(a)",
 ])
 def test_a_caller_reading_the_module_without_writing_it_does_not_rebind_tools(repo, caller_code):
     files = _CALLER_WRITES(_CALLER_ADK_AGENT)

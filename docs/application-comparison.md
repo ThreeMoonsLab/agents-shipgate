@@ -129,21 +129,28 @@ What a finding states, and from where:
     indexed, iterated, tested for membership or read with a reading method.
     This is broad on purpose: `print(vars(m))` or `{**vars(m)}` counts too;
   - any of these through a plain name the module is bound to (`b = m`);
-  - the module passed on as a value in a file that also holds `setattr`,
-    `delattr` or `vars` as a value (`s = setattr`,
-    `functools.partial(setattr, m)`);
-  - through `sys.modules[...]`, `importlib.import_module(...)`,
-    `__import__(...)` (the top-level package, without a `fromlist`),
-    `importlib.reload(...)` or a `globals()` entry that may reach it
-    (`setattr(sys.modules['app.agent'], k, v)`), or a module stored in
-    `sys.modules`.
+  - the module passed on as a value in a file that also holds the builtin
+    `setattr`, `delattr` or `vars` as a value (`s = setattr`,
+    `functools.partial(setattr, m)`), or `getattr` of one from what may be
+    a module. A parameter or local named `vars` is not the builtin;
+  - through `sys.modules[...]`, what `sys.modules.pop(...)` or `.popitem()`
+    hands back, `importlib.import_module(...)`, `__import__(...)` (the
+    top-level package, without a `fromlist`), `importlib.reload(...)` or a
+    `globals()` entry that may reach it
+    (`setattr(sys.modules['app.agent'], k, v)`);
+  - an entry of `sys.modules` stored under a key that may name it or a
+    package above it, or holding the agent module itself.
 
   A string key names the agent module by its last dotted part: its own name,
-  a directory above it (a package whose attributes are followed), or a key
-  the file stored a module at. Not a write, and so a doubt about the agent:
-  reading the module, passing it on with no such writer in the file
-  (`return m`, `register(m)`), and moving where an import search looks (a
-  package's `__path__`, `sys.path`, `del sys.modules[k]`, `.pop`). Missed,
+  or a directory above it (a package whose attributes are followed). A later
+  read of a key the file stored a module at (`sys.modules['alias'] = m`) may
+  be either. Not a write, and so a doubt about the agent: reading the module,
+  passing it on with no such writer in the file (`return m`, `register(m)`),
+  an entry stored for another module (`sys.modules['torch'] = MagicMock()`),
+  and moving where an import search looks (a package's `__path__`,
+  `sys.path`, `del sys.modules[k]`, removing an entry with `.pop`). Those
+  count as import-search changes, but no `import_search` doubt is added for
+  them: the binding keeps its agent's statement (`construction`). Missed,
   though each is a write: one made through a container, a loop, a class
   attribute, an `if` or `or` expression, a walrus, a helper or lambda the
   module is passed to, a holder such as `SimpleNamespace`, or a method's
