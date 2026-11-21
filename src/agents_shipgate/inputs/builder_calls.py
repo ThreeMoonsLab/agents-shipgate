@@ -449,6 +449,9 @@ def _calls_namespace_builtin(module: PythonModule, scopes: ScopeIndex, call: ast
 _NAMESPACE_READS = frozenset({"get", "keys", "values", "items", "copy", "__contains__", "__getitem__", "__len__", "__iter__"})
 #: The ``sys.modules`` methods that neither change it nor hand back a module.
 _MODULE_TABLE_READS = frozenset({"keys", "__contains__", "__len__", "__iter__"})
+#: The ``sys.modules`` methods that only remove entries: the next import
+#: searches again, which is where an import search looks, not a write.
+_MODULE_TABLE_REMOVALS = frozenset({"pop", "popitem", "clear", "__delitem__"})
 #: Called with an object first, these store or delete one of its attributes.
 _ATTRIBUTE_WRITERS = frozenset({"setattr", "delattr", "__setattr__", "__delattr__"})
 
@@ -555,6 +558,45 @@ def _namespace_written(module: PythonModule, scopes: ScopeIndex, namespace: ast.
 #: How many names in a row one module is followed through (``b = a``,
 #: ``c = b``) before the census stops following and fails closed.
 MAX_MODULE_ALIASES = 8
+#: Builtins that write an object's attributes or hand back its namespace.
+_NAMESPACE_WRITERS = frozenset({"setattr", "delattr", "vars"})
+#: ``getattr(x, name)`` with one of these hands back a writer or a namespace.
+_WRITER_ATTRIBUTES = frozenset({"setattr", "delattr", "vars", "__setattr__", "__delattr__", "__dict__"})
+_INDIRECT_WRITERS: dict[int, tuple[ast.Module, bool]] = {}
+
+
+def _indirect_writer(module: PythonModule) -> bool:
+    """Whether ``module`` holds a namespace writer the census cannot follow to its object.
+
+    ``setattr``, ``delattr`` or ``vars`` used as a value (``s = setattr``,
+    ``functools.partial(setattr, m)``, ``map(setattr, ...)``), or fetched by
+    name (``getattr(builtins, 'setattr')``, ``getattr(m, '__dict__')``). In
+    such a module, the agent module passed on as a value may be written
+    (#1146 follow-up review).
+    """
+
+    found = _INDIRECT_WRITERS.get(id(module.tree))
+    if found is not None and found[0] is module.tree:
+        return found[1]
+    scopes = ScopeIndex(module.tree)
+    written = False
+    for node in ast.walk(module.tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in _NAMESPACE_WRITERS:
+            parent = scopes.parents.get(node)
+            written = not (isinstance(parent, ast.Call) and parent.func is node) and not any(
+                not isinstance(binding.node, ast.alias) for binding in module.bindings.get(node.id, [])
+            )
+        elif isinstance(node, ast.Call) and len(node.args) > 1 and (
+            isinstance(node.func, ast.Name) and node.func.id == "getattr"
+        ):
+            name = node.args[1]
+            written = isinstance(name, ast.Constant) and name.value in _WRITER_ATTRIBUTES
+        if written:
+            break
+    if len(_INDIRECT_WRITERS) > 512:
+        _INDIRECT_WRITERS.clear()
+    _INDIRECT_WRITERS[id(module.tree)] = (module.tree, written)
+    return written
 
 
 def _module_written(
@@ -581,7 +623,11 @@ def _module_written(
     while True:
         parent = scopes.parents.get(current)
         if isinstance(parent, ast.Attribute) and parent.value is current:
-            if not isinstance(parent.ctx, ast.Load) or parent.attr in {"__setattr__", "__delattr__"}:
+            if not isinstance(parent.ctx, ast.Load):
+                # A package's ``__path__`` only moves where an import search
+                # looks: that is which file it reaches, not a definition.
+                return parent.attr != "__path__"
+            if parent.attr in {"__setattr__", "__delattr__", "__getattribute__"}:
                 return True
             if parent.attr == "__dict__":
                 return _namespace_written(module, scopes, parent)
@@ -595,16 +641,19 @@ def _module_written(
                 _calls_namespace_builtin(module, scopes, parent, "setattr", "delattr")
                 or isinstance(function, ast.Attribute) and function.attr in _ATTRIBUTE_WRITERS
             ):
-                return True
+                name = parent.args[1] if len(parent.args) > 1 else None
+                return not (isinstance(name, ast.Constant) and name.value == "__path__")
             if _calls_namespace_builtin(module, scopes, parent, "vars"):
                 return _namespace_written(module, scopes, parent)
             if chain and _calls_namespace_builtin(module, scopes, parent, "getattr"):
                 current = parent
                 continue
-            return False
+            # Passed on to other code: a writer the census cannot follow may get it.
+            return _indirect_writer(module)
         names = _alias_names(scopes, current) - followed
         if not names:
-            return False
+            # Passed on as a value: a writer the census cannot follow may get it.
+            return _indirect_writer(module)
         if len(followed) >= MAX_MODULE_ALIASES:
             return True
         return any(
@@ -642,8 +691,11 @@ def _module_table_written(
 ) -> bool:
     """Whether this use of ``sys.modules`` may change, through it, a module ``reaches`` (#1146 follow-up).
 
-    Storing or deleting an entry (``sys.modules['app.agent'] = fake``,
-    ``.pop``, ``.setdefault``) replaces a module; an entry read (``[...]``,
+    Storing an entry (``sys.modules['app.agent'] = fake``, ``.setdefault``,
+    ``.update``) replaces a module. Removing one (``del sys.modules[k]``,
+    ``.pop``, ``.clear``) only makes the next import search for it again:
+    that is which file an import search reaches, not a write. An entry read
+    (``[...]``,
     ``.get``) and then written as :func:`_module_written` says, with its
     attributes taken for submodules when it may be a package, changes one.
     ``reaches`` says which modules a key may name. Testing membership,
@@ -655,18 +707,20 @@ def _module_table_written(
         return False  # Rebinding the name ``modules`` itself, not the table.
     parent = scopes.parents.get(table)
     if isinstance(parent, ast.Subscript) and parent.value is table:
+        if isinstance(parent.ctx, ast.Del):
+            return False
         reach = reaches(parent.slice)
         return reach is not None and (
-            not isinstance(parent.ctx, ast.Load) or _module_written(module, scopes, parent, chain=reach)
+            isinstance(parent.ctx, ast.Store) or _module_written(module, scopes, parent, chain=reach)
         )
     if isinstance(parent, ast.Attribute) and parent.value is table:
-        if parent.attr in _MODULE_TABLE_READS:
+        if parent.attr in _MODULE_TABLE_READS or parent.attr in _MODULE_TABLE_REMOVALS:
             return False
         call = scopes.parents.get(parent)
-        if parent.attr in {"get", "pop", "setdefault"} and isinstance(call, ast.Call) and call.func is parent:
+        if parent.attr in {"get", "setdefault"} and isinstance(call, ast.Call) and call.func is parent:
             reach = reaches(call.args[0] if call.args else None)
             return reach is not None and (
-                parent.attr != "get" or _module_written(module, scopes, call, chain=reach)
+                parent.attr == "setdefault" or _module_written(module, scopes, call, chain=reach)
             )
         return True
     if isinstance(parent, ast.Compare) and (parent.left is table or table in parent.comparators):
@@ -687,13 +741,16 @@ _RELOADERS = frozenset({"importlib", "imp"})
 class CallerCensus:
     sites: tuple[CallSite, ...] = ()
     limits: tuple[str, ...] = ()
-    #: Names another module writes in the builder module (``m.lookup = f``),
-    #: or ``None`` when a write can rebind any name there: any other syntactic
-    #: write form (:func:`_module_written`,
-    #: :meth:`BuilderCalls.reflective_write`), such as ``vars(m).update(d)``
-    #: or ``setattr(sys.modules['app.agent'], k, v)`` (#1146 follow-up).
-    #: Reading the module, or passing it on as a value, is not a write.
-    namespace_writes: frozenset[str] | None = frozenset()
+    #: A module of the census writes into the builder module's namespace
+    #: (:func:`_module_written`, :meth:`BuilderCalls.reflective_write`):
+    #: ``m.lookup = f``, ``vars(m).update(d)``,
+    #: ``setattr(sys.modules['app.agent'], k, v)``. Any of them can rebind any
+    #: name there, the tools' own and every name a tool list is built from
+    #: (``a.TOOLS = [f]``, ``a.search = f`` for ``search = lookup``), so it
+    #: doubts them all (#1146 follow-up). Reading the module, passing it on
+    #: as a value, or redirecting where an import search finds it
+    #: (``m.__path__``, ``del sys.modules[...]``) is not a write.
+    namespace_written: bool = False
 
 
 @dataclass(frozen=True)
@@ -904,7 +961,7 @@ class BuilderCalls:
         modules: dict[Path, PythonModule] = {module.path: module}
         pending = [(module, self.function_at(module, call), 0)]
         seen: set[int] = set()
-        writes: frozenset[str] | None = frozenset()
+        written = False
         try:
             while pending:
                 home, function, depth = pending.pop()
@@ -914,8 +971,9 @@ class BuilderCalls:
                     raise CallLimit("the constructor caller chain exceeds its depth bound")
                 seen.add(id(function))
                 census = self.callers(home, function, allow_empty=True)
-                if home.path == module.path and writes is not None:
-                    writes = None if census.namespace_writes is None else writes | census.namespace_writes
+                # Only a census of the agent's own module sees writes into
+                # its namespace (#1146 follow-up).
+                written = written or (home.path == module.path and census.namespace_written)
                 if census.limits:
                     raise CallLimit("; ".join(census.limits))
                 for site in census.sites:
@@ -926,8 +984,8 @@ class BuilderCalls:
             )
         except CallLimit as exc:
             issue = f"the constructor caller census is not established: {exc}"
-            if writes is None or writes:
-                issue = Rebinding(issue, module=module.ref, names=writes)
+            if written:
+                issue = Rebinding(issue, module=module.ref)
         self._constructors[key] = issue
         return issue
 
@@ -1175,20 +1233,57 @@ class BuilderCalls:
             else {*PurePosixPath(layout.scope).parts, *subject.path.relative_to(root).parts[:-1]}
         )
         names = _module_words(subject.path)
+        # ``sys.modules['alias'] = a`` makes ``'alias'`` name whatever ``a`` is.
+        stored = {
+            parent.slice.value
+            for node in reflective_sites(caller.tree, excluded=excluded)
+            if isinstance(parent := scopes.parents.get(node), ast.Subscript) and parent.value is node
+            and isinstance(parent.ctx, ast.Store)
+            and isinstance(parent.slice, ast.Constant) and isinstance(parent.slice.value, str)
+        }
+
+        def named(text: str) -> bool | None:
+            last = text.rsplit(".", 1)[-1]
+            if packages is None or last in packages or text in stored:
+                return True
+            return False if last in names else None
 
         def reaches(name: ast.AST | None) -> bool | None:
             """None: not ``subject``; False: ``subject``; True: may hold it, or be any module."""
 
             if isinstance(name, ast.Constant):
-                if not isinstance(name.value, str):
-                    return None
-                last = name.value.rsplit(".", 1)[-1]
-                if packages is None or last in packages:
-                    return True
-                return False if last in names else None
+                return named(name.value) if isinstance(name.value, str) else None
             if isinstance(name, ast.Name) and name.id == "__name__":
                 return False if own else True if holds else None
             return True
+
+        def imported_by(call: ast.Call, loader: str) -> bool | None:
+            """What a loader call hands back, as :func:`reaches` says.
+
+            ``__import__('app.agent')`` hands back the package ``app`` unless
+            a non-empty ``fromlist`` asks for ``app.agent`` itself (#1146
+            follow-up review).
+            """
+
+            if loader == "reload":
+                return True  # It hands back the module it is given, whichever that is.
+            keyword = {item.arg: item.value for item in call.keywords if item.arg}
+            name = call.args[0] if call.args else keyword.get("name")
+            if loader != "__import__":
+                return reaches(name)
+            if not (isinstance(name, ast.Constant) and isinstance(name.value, str)):
+                return reaches(name)
+            fromlist = call.args[3] if len(call.args) > 3 else keyword.get("fromlist")
+            top = named(name.value.split(".", 1)[0])
+            if fromlist is None or isinstance(fromlist, ast.Constant) and not fromlist.value or (
+                isinstance(fromlist, ast.List | ast.Tuple) and not fromlist.elts
+            ):
+                return None if top is None else True if "." in name.value else top
+            leaf = named(name.value)
+            if isinstance(fromlist, ast.List | ast.Tuple | ast.Constant):
+                return leaf
+            # A computed ``fromlist`` may hand back either.
+            return None if top is None and leaf is None else bool(top or leaf or "." in name.value)
 
         def imported(name: ast.AST | None) -> bool:
             if isinstance(name, ast.Constant):
@@ -1210,6 +1305,15 @@ class BuilderCalls:
                 )
             elif isinstance(node, ast.Import):
                 reloaders.update(alias.asname for alias in node.names if alias.name in _RELOADERS and alias.asname)
+        for node in ast.walk(caller.tree):
+            # ``load = importlib.import_module``: a loader under another name.
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                spelling = reference_spelling(node.value) or ""
+                last = spelling.rsplit(".", 1)[-1]
+                if last in {"__import__", "import_module"} or spelling in loaders or (
+                    last == "reload" and spelling.split(".", 1)[0] in reloaders
+                ):
+                    loaders[node.targets[0].id] = loaders.get(spelling, last)
 
         def loader_of(function: ast.expr) -> str | None:
             spelling = reference_spelling(function) or ""
@@ -1234,8 +1338,7 @@ class BuilderCalls:
             loader = loader_of(node.func)
             if loader is None:
                 return False
-            # ``reload`` hands back the module it is given, whichever that is.
-            reach = reaches(node.args[0] if node.args and loader != "reload" else None)
+            reach = imported_by(node, loader)
             return reach is not None and _module_written(caller, scopes, node, chain=reach)
 
         sites = (
@@ -4079,7 +4182,6 @@ class BuilderCalls:
         sites: list[CallSite] = []
         limits: list[str] = []
         written = False
-        written_names: set[str] = set()
         for path in self._candidates(names | modules, module.path):
             caller = self._module(path)
             scopes = self.scopes(caller)
@@ -4166,11 +4268,11 @@ class BuilderCalls:
                             limits.append(
                                 f"{where}'s module attribute {parent.attr!r} is written at {caller.ref}:{node.lineno}"
                             )
-                            if parent.attr.startswith("__") and parent.attr.endswith("__"):
-                                # ``m.__dict__ |= d`` rebinds any name (#1146 follow-up).
-                                written = True
-                            else:
-                                written_names.add(parent.attr)
+                            # Any attribute: ``a.TOOLS = [f]`` or ``a.search = f``
+                            # changes a tool its name does not show; ``__path__``
+                            # only moves where an import search looks (#1146
+                            # follow-up).
+                            written = written or parent.attr != "__path__"
                         elif not (isinstance(parent, ast.Attribute) and parent.attr in names) and node not in namespaces.values:
                             limits.append(
                                 f"{where}'s module is used through computed access or as a value at {caller.ref}:{node.lineno}"
@@ -4237,7 +4339,7 @@ class BuilderCalls:
                 )
             ),
             tuple(dict.fromkeys(limits)),
-            namespace_writes=None if written else frozenset(written_names),
+            namespace_written=written,
         )
 
     def _expanding_imports(
