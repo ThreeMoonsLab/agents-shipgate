@@ -69,6 +69,7 @@ const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
 def _run(
     tmp_path: Path, *, status: int = 0, prior: bool = False, headers=None,
     comments: list[dict] | None = None, application: bool = False,
+    evidence: str = "validated",
 ) -> dict:
     action = yaml.safe_load((ROOT / "action.yml").read_text())
     step = next(s for s in action["runs"]["steps"] if s["name"] == "Comment on pull request")
@@ -81,7 +82,9 @@ def _run(
         input=json.dumps(payload),
         text=True, capture_output=True, check=True,
         env={**os.environ, "OUTPUT_DIR": str(tmp_path), "GITHUB_SERVER_URL": "https://github.com",
-             "GITHUB_RUN_ID": "123", "APPLICATION": "true" if application else "false"},
+             "GITHUB_RUN_ID": "123", "APPLICATION": "true" if application else "false",
+             # The outputs step's `evidence` output (#1165).
+             "EVIDENCE": evidence},
     )
     return json.loads(result.stdout)
 
@@ -173,3 +176,26 @@ def test_a_denied_create_after_skipping_an_impostor_still_falls_back_to_the_summ
     assert [call["kind"] for call in result["calls"]] == ["create"]
     assert result["error"] is None and result["warnings"] == [LIMITATION]
     assert _published_body() in result["summary"]
+
+
+# --- #1165: a run without a validated result posts no review ----------------
+
+
+@pytest.mark.parametrize("evidence", ["", "no_result", "VALIDATED "])
+@pytest.mark.parametrize("prior", [False, True])
+def test_a_run_without_validated_evidence_posts_a_fixed_note_not_the_review(
+    tmp_path, evidence, prior,
+):
+    result = _run(tmp_path, evidence=evidence, prior=prior)
+    [call] = result["calls"]
+    assert call["kind"] == ("update" if prior else "create")
+    body = call["value"]["body"]
+    assert body.startswith(PR_MARKER)
+    assert "This run has no validated verification result, so no review is shown." in body
+    assert "Review this change." not in body
+
+
+def test_the_application_comment_does_not_read_the_verifier_evidence(tmp_path):
+    result = _run(tmp_path, evidence="", application=True)
+    [call] = result["calls"]
+    assert call["value"]["body"] == _published_body()

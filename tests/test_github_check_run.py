@@ -521,7 +521,7 @@ def test_a_refused_directory_states_no_verdict_and_never_passes(policy):
         reason="ValueError: `bad`\nnews", check_run_policy=policy
     )
     assert payload["conclusion"] == ("neutral" if policy == "advisory" else "failure")
-    assert payload["output"]["title"] == "merge_verdict: unknown (evidence not admitted)"
+    assert payload["output"]["title"] == "merge_verdict: unknown (no validated result)"
     assert payload["output"]["annotations"] == []
     # The reason is quoted on one line, without breaking out of its code span.
     assert "Reason: `ValueError: 'bad' news`" in payload["output"]["summary"]
@@ -539,9 +539,27 @@ def test_an_unreadable_verifier_is_refused_not_read_as_missing(tmp_path, policy)
     (tmp_path / "pr-comment.md").write_text("merge_verdict: mergeable", encoding="utf-8")
     payload = _from_evidence(tmp_path, policy)
     assert payload["conclusion"] != "success"
-    assert "evidence not admitted" in payload["output"]["title"]
+    assert "no validated result" in payload["output"]["title"]
     # Nothing from the refused directory is shown as this run's.
     assert "merge_verdict: mergeable" not in payload["output"]["summary"]
+
+
+@pytest.mark.parametrize("code", ["2", "3", "4", "137", ""])
+def test_a_run_that_did_not_complete_shows_nothing_from_the_directory(tmp_path, code):
+    """A fresh failed run's own verifier states no outcome; the check still shows none of it."""
+
+    (tmp_path / "verifier.json").write_text(
+        json.dumps({"verifier_schema_version": "0.21", "execution": "failed",
+                    "merge_verdict": "unknown", "can_merge_without_human": False}),
+        encoding="utf-8",
+    )
+    (tmp_path / "pr-comment.md").write_text("Fix the manifest path.", encoding="utf-8")
+    invocation = github_check_run.ActionInvocation(exit_code=code, head="HEAD")
+    for policy in sorted(CHECK_RUN_POLICIES):
+        payload = _from_evidence(tmp_path, policy, invocation=invocation)
+        assert payload["conclusion"] == ("neutral" if policy == "advisory" else "failure")
+        assert "no validated result" in payload["output"]["title"]
+        assert "Fix the manifest path." not in payload["output"]["summary"]
 
 
 def test_a_verdict_no_receipt_binds_does_not_pass(tmp_path):
@@ -565,17 +583,17 @@ def test_a_run_with_no_verifier_keeps_its_mapping(tmp_path):
         assert payload["output"]["title"] == "merge_verdict: unknown"
 
 
-def test_the_payload_replaces_a_link_and_returns_the_digest_of_what_it_wrote(tmp_path):
-    outside = tmp_path / "outside.json"
-    outside.write_text("keep\n", encoding="utf-8")
+def test_the_payload_is_a_new_file_and_its_digest_is_returned(tmp_path):
+    other = tmp_path / "other.json"
+    other.write_text("keep\n", encoding="utf-8")
     reports = tmp_path / "reports"
     reports.mkdir()
     path = reports / PAYLOAD_FILENAME
-    path.symlink_to(outside)
+    path.symlink_to(other)
 
     digest = github_check_run.write_payload(path, {"conclusion": "neutral"})
 
-    assert outside.read_text(encoding="utf-8") == "keep\n"
+    assert other.read_text(encoding="utf-8") == "keep\n"
     assert not path.is_symlink()
     assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
     assert json.loads(path.read_text(encoding="utf-8")) == {"conclusion": "neutral"}

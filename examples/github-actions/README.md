@@ -172,10 +172,11 @@ mergeable/success, blocked/failure, human-routed/neutral behavior.
 branch protection, use `check_run_policy: require-mergeable`; only
 `can_merge_without_human == true` succeeds. `check_run_policy` first shipped in
 v1.0.0; the Check Run policy example pins v1.3.0, which carries it. From the
-next release the Check Run reads its verdict only from evidence the outputs
-step validated for the same run: when the CLI fails before publishing, or the
-outputs step refuses the directory, the check states no verdict and is never
-`success` (#1165).
+next release the Check Run, PR comment, annotations, attestation and org
+bundle publish only a result the outputs step validated for the same run: for
+a run whose CLI did not complete, or whose directory the outputs step refuses,
+the check states no verdict and is never `success`, and the PR comment says
+the run has no validated result (#1165).
 
 `verify` writes static capability artifacts to the workflow artifact when
 available: `capabilities.lock.json`, `base.capabilities.lock.json`, and

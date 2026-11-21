@@ -597,3 +597,59 @@ def test_a_run_that_did_not_complete_still_publishes_a_run_with_no_receipt(tmp_p
     outputs = extract_outputs(output_dir, invocation=ActionInvocation(exit_code="2", head=""))
     assert outputs["merge_verdict"] == "unknown"
     assert outputs["receipt_id"] == ""
+
+
+@pytest.mark.parametrize(
+    "stated",
+    [
+        {"merge_verdict": "mergeable"},
+        {"can_merge_without_human": True},
+        {"decision": "passed"},
+        {"release_decision": {"decision": "passed"}},
+    ],
+)
+@pytest.mark.parametrize("label", ["0.4", "0.21"])
+def test_after_a_cli_that_did_not_complete_no_verifier_outcome_is_this_runs(
+    tmp_path, stated, label,
+) -> None:
+    """Whatever version it names, an outcome without a run that completed is refused."""
+
+    from scripts.github_action_outputs import ActionInvocation, check_evidence
+
+    output_dir = tmp_path / "reports"
+    output_dir.mkdir()
+    _write_json(output_dir / "verifier.json", {"verifier_schema_version": label, **stated})
+    invocation = ActionInvocation(exit_code="2", head="")
+    # A current label owes the receipt first; the legacy one is refused as not this run's.
+    refusal = "is not this run's" if label == "0.4" else "verification-receipt.json is missing"
+    with pytest.raises(ValueError, match=refusal):
+        extract_outputs(output_dir, invocation=invocation)
+    assert refusal in (check_evidence(output_dir, invocation) or "")
+
+
+def test_after_a_cli_that_did_not_complete_no_report_is_this_runs(tmp_path) -> None:
+    from scripts.github_action_outputs import ActionInvocation
+
+    output_dir = tmp_path / "reports"
+    output_dir.mkdir()
+    _write_json(output_dir / "report.json", {"release_decision": {"decision": "passed"}})
+    with pytest.raises(ValueError, match="is not this run's"):
+        extract_outputs(output_dir, invocation=ActionInvocation(exit_code="3", head=""))
+    # The same scan-route report after a run that completed is published as before.
+    outputs = extract_outputs(output_dir, invocation=ActionInvocation(exit_code="0", head=""))
+    assert outputs["decision"] == "passed"
+
+
+def test_only_a_completed_run_has_a_result_for_the_other_steps(tmp_path) -> None:
+    from scripts.github_action_outputs import ActionInvocation, check_evidence
+
+    output_dir = tmp_path / "reports"
+    output_dir.mkdir()
+    _write_json(output_dir / "verifier.json", {
+        "verifier_schema_version": "0.21", "execution": "failed", "merge_verdict": "unknown",
+    })
+    reason = check_evidence(output_dir, ActionInvocation(exit_code="2", head=""))
+    assert reason == "agents-shipgate exited 2, so this run has no verification result"
+    assert check_evidence(output_dir, ActionInvocation(exit_code="", head="")) == (
+        "agents-shipgate recorded no exit code, so this run has no verification result"
+    )

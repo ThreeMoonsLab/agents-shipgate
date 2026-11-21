@@ -23,17 +23,18 @@ Mapping contract:
 - The verdict is read only through the outputs step's own validation
   (``github_action_outputs.validate_evidence``), bound to this invocation: the
   CLI completed, and the receipt names the evaluated repository and head. A
-  directory it refuses states no merge verdict, so the check is never
-  ``success`` and its summary says why. ``success`` also needs a receipt, and
-  that receipt must be the one the outputs step validated and published as
-  ``receipt_id`` in this job (#1165).
+  run that did not complete, or a directory the validation refuses, states no
+  merge verdict, so the check is never ``success`` and shows nothing from the
+  directory. ``success`` also needs a receipt, and that receipt must be the
+  one the outputs step validated and published as ``receipt_id`` in this job
+  (#1165).
 - PR projection items → up to ``MAX_ANNOTATIONS`` line-level annotations
   (Checks API caps one request at 50). SARIF remains the full finding export;
   Check Runs intentionally annotate only merge-relevant PR items.
 - ``pr-comment.md`` → check summary (truncated to the API limit).
-- The payload is written as a new file, never through whatever occupied its
-  path, and its SHA-256 goes to ``GITHUB_OUTPUT`` as ``payload_sha256``. The
-  step that creates the check posts only a payload with that digest.
+- The payload is written as a new file, and its SHA-256 goes to
+  ``GITHUB_OUTPUT`` as ``payload_sha256``. The step that creates the check
+  posts only a payload with that digest.
 """
 
 from __future__ import annotations
@@ -300,11 +301,11 @@ def refused_check_run_payload(
     name: str = DEFAULT_CHECK_NAME,
     check_run_policy: str = DEFAULT_CHECK_RUN_POLICY,
 ) -> dict[str, Any]:
-    """The check for a run whose merge verdict could not be admitted.
+    """The check for a run with no validated verification result.
 
     Concluded as a run that states no verdict: ``failure`` under the strict
     policies, ``neutral`` under ``advisory``, never ``success``. Nothing from
-    the refused directory is shown, so no summary or annotation it carries can
+    the output directory is shown, so no summary or annotation it holds can
     read as this run's.
     """
 
@@ -314,17 +315,17 @@ def refused_check_run_payload(
     if len(detail) > MAX_REFUSAL_CHARS:
         detail = detail[: MAX_REFUSAL_CHARS - 1].rstrip() + "…"
     summary = (
-        f"_This run's verification evidence was not admitted, so it states no merge "
+        f"_This run has no validated verification result, so it states no merge "
         f"verdict and the `{policy}` check-run policy concludes `{conclusion}`._\n\n"
         f"Reason: `{detail}`\n\n"
-        "The job's log and the Agents Shipgate outputs step name the cause. Re-run the "
-        "workflow once it is fixed; nothing from that directory is shown here."
+        "The job's log names the cause. Re-run the workflow once it is fixed; nothing "
+        "from the output directory is shown here."
     )
     return {
         "name": name,
         "conclusion": conclusion,
         "output": {
-            "title": "merge_verdict: unknown (evidence not admitted)",
+            "title": "merge_verdict: unknown (no validated result)",
             "summary": summary[:MAX_SUMMARY_CHARS],
             "annotations": [],
         },
@@ -342,12 +343,12 @@ def check_run_payload_from_evidence(
     """The Check Run payload for this invocation's output directory.
 
     The directory goes through :func:`validate_evidence`, the outputs step's
-    own validation, bound to ``invocation``. Anything it refuses gives
-    :func:`refused_check_run_payload`. A verdict it admits is mapped as before
-    (blocked and review-required outcomes keep their policy mapping), except
-    that ``success`` is concluded only from a terminal receipt that is the one
-    the outputs step validated in this job (``validated_receipt_id``) and whose
-    own outcome maps to ``success`` too.
+    own validation, bound to ``invocation``. Anything it refuses, and any run
+    whose CLI did not complete, gives :func:`refused_check_run_payload`. A
+    verdict it admits is mapped as before (blocked and review-required outcomes
+    keep their policy mapping), except that ``success`` is concluded only from
+    a terminal receipt that is the one the outputs step validated in this job
+    (``validated_receipt_id``) and whose own outcome maps to ``success`` too.
     """
 
     policy = normalize_check_run_policy(check_run_policy)
@@ -356,6 +357,12 @@ def check_run_payload_from_evidence(
     except Exception as exc:  # noqa: BLE001 - whatever stops validation refuses the directory.
         return refused_check_run_payload(
             reason=f"{type(exc).__name__}: {exc}", name=name, check_run_policy=policy
+        )
+    if not invocation.completed:
+        return refused_check_run_payload(
+            reason=f"agents-shipgate {invocation.ending}, so this run has no verification result",
+            name=name,
+            check_run_policy=policy,
         )
     verifier = dict(evidence.verifier) if evidence.verifier else None
     if verifier is not None:
@@ -405,10 +412,9 @@ def _success_withheld(
 def write_payload(path: Path, payload: dict[str, Any]) -> str:
     """Write ``payload`` as a new file at ``path`` and return its SHA-256.
 
-    Whatever was there is removed first, a file or a link, and never written
-    through: a payload left by an earlier run or shipped in the checkout cannot
-    stand in for this one, and a link cannot point the write elsewhere. A
-    directory there is an error.
+    Whatever was at ``path`` is removed and a new file created, so the file
+    the check step reads is the one this run wrote. A directory there is an
+    error.
     """
 
     data = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")

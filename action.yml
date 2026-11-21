@@ -100,7 +100,7 @@ inputs:
   pr_comment:
     required: false
     default: "false"
-    description: Post a short PR comment when running on pull_request.
+    description: Post a short PR comment when running on pull_request. A run without a validated verification result posts a short note saying so instead of a review.
   pr_comment_style:
     required: false
     default: capability-review
@@ -113,9 +113,9 @@ inputs:
       merge verdict as the check conclusion (mergeable=success,
       blocked=failure, otherwise neutral) and up to 50 line-level
       annotations from the PR projection. The verdict is read only from
-      evidence the outputs step validated for this run: a directory it
-      refuses states no verdict, and success needs this run's terminal
-      receipt. Requires `checks: write` permission on the workflow.
+      evidence the outputs step validated for this run: a run without a
+      validated result states no verdict, and success needs this run's
+      terminal receipt. Requires `checks: write` permission on the workflow.
   check_run_policy:
     required: false
     default: advisory
@@ -143,7 +143,7 @@ inputs:
   attestation:
     required: false
     default: "false"
-    description: Emit agents-shipgate-reports/attestation.json from verifier.json/report.json.
+    description: Emit agents-shipgate-reports/attestation.json from verifier.json/report.json, only for a run with a validated verification result.
   registry_repo_label:
     required: false
     default: ""
@@ -151,7 +151,7 @@ inputs:
   org_bundle:
     required: false
     default: "false"
-    description: Emit agents-shipgate-reports/org-evidence-bundle.json for org/fleet aggregation.
+    description: Emit agents-shipgate-reports/org-evidence-bundle.json for org/fleet aggregation, only for a run with a validated verification result.
   host_audit:
     required: false
     default: "false"
@@ -519,16 +519,27 @@ runs:
         echo "exit_code=${exit_code}" >> "${GITHUB_OUTPUT}"
         exit 0
 
+    # The attestation and org bundle steps run before the outputs step, so each
+    # asks the outputs script's own validation, bound to this run, whether the
+    # directory holds a result this run published (#1165).
     - name: Build Agents Shipgate attestation
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.attestation == 'true' }}
       shell: bash
       env:
+        SHIPGATE_PYTHON: ${{ steps.install.outputs.python }}
         SHIPGATE_BIN: ${{ steps.install.outputs.bin }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
         CONFIG: ${{ inputs.config }}
         REGISTRY_REPO_LABEL: ${{ inputs.registry_repo_label }}
+        SHIPGATE_EXIT_CODE: ${{ steps.scan.outputs.exit_code }}
+        INPUT_HEAD_REF: ${{ inputs.head_ref }}
+        EVALUATED_HEAD_SHA: ${{ github.sha }}
       run: |
-        if [ -f "${OUTPUT_DIR}/verifier.json" ]; then
+        if [ ! -f "${OUTPUT_DIR}/verifier.json" ]; then
+          echo "Agents Shipgate verifier.json not found; attestation skipped." >&2
+        elif ! "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py" --check-evidence; then
+          echo "Agents Shipgate attestation skipped: this run has no validated result." >&2
+        else
           args=(
             attest
             --from "${OUTPUT_DIR}/verifier.json"
@@ -540,8 +551,6 @@ runs:
             args+=(--repo "${REGISTRY_REPO_LABEL}")
           fi
           "${SHIPGATE_BIN}/agents-shipgate" "${args[@]}"
-        else
-          echo "Agents Shipgate verifier.json not found; attestation skipped." >&2
         fi
 
     - name: Build Agents Shipgate host audit
@@ -578,13 +587,21 @@ runs:
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.org_bundle == 'true' }}
       shell: bash
       env:
+        SHIPGATE_PYTHON: ${{ steps.install.outputs.python }}
         SHIPGATE_BIN: ${{ steps.install.outputs.bin }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
         CONFIG: ${{ inputs.config }}
         REGISTRY_PATH: ${{ inputs.registry_path }}
+        SHIPGATE_EXIT_CODE: ${{ steps.scan.outputs.exit_code }}
+        INPUT_HEAD_REF: ${{ inputs.head_ref }}
+        EVALUATED_HEAD_SHA: ${{ github.sha }}
       run: |
         mkdir -p "${OUTPUT_DIR}"
-        if [ -f "${OUTPUT_DIR}/verifier.json" ]; then
+        if [ ! -f "${OUTPUT_DIR}/verifier.json" ]; then
+          echo "Agents Shipgate verifier.json not found; org bundle skipped." >&2
+        elif ! "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py" --check-evidence; then
+          echo "Agents Shipgate org bundle skipped: this run has no validated result." >&2
+        else
           args=(
             org
             bundle
@@ -599,8 +616,6 @@ runs:
           fi
           "${SHIPGATE_BIN}/agents-shipgate" "${args[@]}" >/dev/null || \
             echo "Agents Shipgate org evidence bundle failed; artifact skipped." >&2
-        else
-          echo "Agents Shipgate verifier.json not found; org bundle skipped." >&2
         fi
 
     - name: Extract Agents Shipgate outputs
@@ -618,8 +633,10 @@ runs:
       run: |
         "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/github_action_outputs.py"
 
+    # Annotations come only from a run whose evidence the outputs step
+    # validated for this run (#1165).
     - name: Emit Agents Shipgate annotations
-      if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.check_annotations == 'true' }}
+      if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.check_annotations == 'true' && steps.report_outputs.outputs.evidence == 'validated' }}
       shell: bash
       env:
         SHIPGATE_PYTHON: ${{ steps.install.outputs.python }}
@@ -642,6 +659,7 @@ runs:
       env:
         OUTPUT_DIR: ${{ steps.scan.outputs.execution_mode == 'application' && steps.scan.outputs.application_reports || inputs.output_dir }}
         APPLICATION: ${{ steps.scan.outputs.execution_mode == 'application' }}
+        EVIDENCE: ${{ steps.report_outputs.outputs.evidence }}
       with:
         github-token: ${{ inputs.github_token || github.token }}
         script: |
@@ -649,13 +667,21 @@ runs:
           const path = require("path");
           const outputDir = process.env.OUTPUT_DIR || "agents-shipgate-reports";
           const commentPath = path.join(outputDir, "pr-comment.md");
-          if (!fs.existsSync(commentPath)) {
+          const application = process.env.APPLICATION === 'true';
+          const STICKY = application ? "<!-- agents-shipgate-application-comment -->" : "<!-- agents-shipgate-pr-comment -->";
+          // A verifier comment is posted only from a run whose evidence the outputs
+          // step validated for this run. Otherwise the comment says so, and replaces
+          // an earlier run's review rather than leaving it standing (#1165).
+          const validated = application || process.env.EVIDENCE === "validated";
+          if (validated && !fs.existsSync(commentPath)) {
             core.warning(`Agents Shipgate PR comment not found at ${commentPath}`);
             return;
           }
-          const application = process.env.APPLICATION === 'true';
-          const STICKY = application ? "<!-- agents-shipgate-application-comment -->" : "<!-- agents-shipgate-pr-comment -->";
-          let body = fs.readFileSync(commentPath, "utf8").slice(0, 6000);
+          let body = validated
+            ? fs.readFileSync(commentPath, "utf8").slice(0, 6000)
+            : `${STICKY}\n## Agents Shipgate\n\n` +
+              "This run has no validated verification result, so no review is shown. " +
+              "The workflow run's log names the error; re-run once it is fixed.";
           const serverUrl = process.env.GITHUB_SERVER_URL || "https://github.com";
           const runId = process.env.GITHUB_RUN_ID;
           const runUrl = `${serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${runId}`;
@@ -734,8 +760,7 @@ runs:
       run: |
         "${SHIPGATE_PYTHON}" "${GITHUB_ACTION_PATH}/scripts/github_check_run.py"
 
-    # Posts only the payload the step above wrote in this run, by its digest:
-    # never a check-run-payload.json an earlier run or the checkout left.
+    # Posts only the payload the step above wrote in this run, by its digest.
     - name: Create Agents Shipgate check run
       if: ${{ always() && steps.scan.outputs.execution_mode == 'manifest' && inputs.check_run == 'true' && steps.check_run_payload.outputs.payload_sha256 != '' }}
       uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3

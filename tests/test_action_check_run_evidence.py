@@ -36,11 +36,18 @@ ACTION = yaml.safe_load((ROOT / "action.yml").read_text(encoding="utf-8"))
 STEPS: list[dict[str, Any]] = ACTION["runs"]["steps"]
 VALIDATE = "Validate Agents Shipgate check-run policy"
 RUN = "Run Agents Shipgate"
+ATTEST = "Build Agents Shipgate attestation"
+BUNDLE = "Build Agents Shipgate org evidence bundle"
 EXTRACT = "Extract Agents Shipgate outputs"
+ANNOTATE = "Emit Agents Shipgate annotations"
+COMMENT = "Comment on pull request"
 PAYLOAD = "Build Agents Shipgate check-run payload"
 CREATE = "Create Agents Shipgate check run"
 #: The publication sequence, in the order action.yml runs it.
 PUBLICATION = (EXTRACT, PAYLOAD, CREATE)
+#: Every step that publishes what the output directory holds, in that order.
+EVERY_PUBLISHER = (ATTEST, BUNDLE, EXTRACT, ANNOTATE, COMMENT, PAYLOAD, CREATE)
+NO_RESULT_NOTE = "This run has no validated verification result, so no review is shown."
 POLICIES = ("advisory", "blocked-fails", "require-mergeable")
 #: How each policy concludes a run that states no verdict: never `success`.
 NO_VERDICT = {"advisory": "neutral", "blocked-fails": "failure", "require-mergeable": "failure"}
@@ -56,14 +63,26 @@ pytestmark = [
 
 CHECK_HARNESS = r"""
 const input = JSON.parse(require('fs').readFileSync(0, 'utf8'));
-const calls = [], warnings = [], failures = [];
-const github = {rest: {checks: {create: async (value) => { calls.push(value); }}}};
+const calls = [], comments = [], warnings = [], failures = [];
+const github = {
+  paginate: async () => [],
+  rest: {
+    checks: {create: async (value) => { calls.push(value); }},
+    issues: {
+      listComments: () => {},
+      createComment: async (value) => { comments.push(value); },
+      updateComment: async (value) => { comments.push(value); },
+    },
+  },
+};
 const core = {
   warning: (value) => warnings.push(String(value)),
   setFailed: (value) => failures.push(String(value)),
+  summary: {addRaw() { return this; }, async write() {}},
 };
 const context = {
   repo: {owner: 'owner', repo: 'repo'},
+  issue: {number: 7},
   sha: input.sha,
   payload: {pull_request: {head: {sha: input.head_sha}}},
 };
@@ -74,7 +93,7 @@ const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
     await new AsyncFunction('require', 'github', 'core', 'context', input.script)(
       require, github, core, context);
   } catch (caught) { error = String((caught && caught.message) || caught); }
-  process.stdout.write(JSON.stringify({calls, warnings, failures, error}));
+  process.stdout.write(JSON.stringify({calls, comments, warnings, failures, error}));
 })();
 """
 
@@ -117,6 +136,7 @@ class ActionRun:
     outcomes: dict[str, str] = field(default_factory=dict)
     logs: dict[str, str] = field(default_factory=dict)
     check_runs: list[dict[str, Any]] = field(default_factory=list)
+    pr_comments: list[dict[str, Any]] = field(default_factory=list)
     script_failures: list[str] = field(default_factory=list)
 
     @property
@@ -263,6 +283,7 @@ def _run_step(run: ActionRun, name: str, scratch: Path) -> None:
         posted = json.loads(result.stdout)
         run.logs[name] = json.dumps(posted)
         run.check_runs.extend(posted["calls"])
+        run.pr_comments.extend(posted["comments"])
         run.script_failures.extend(posted["failures"])
         failed = bool(posted["failures"]) or posted["error"] is not None
         run.outcomes[key] = "failure" if failed else "success"
@@ -347,6 +368,7 @@ def _rerun(run: ActionRun, scratch: Path, *, cli: Path | None = None, **inputs: 
     run.outputs = {"install": install, "python": run.outputs["python"]}
     run.outcomes, run.logs = {}, {}
     run.check_runs.clear()
+    run.pr_comments.clear()
     run.script_failures.clear()
     return _publish(run, scratch, (VALIDATE, RUN))
 
@@ -585,27 +607,22 @@ def test_evidence_for_another_head_or_repository_never_passes_the_check(
 # --- defect: only the payload this run built is posted -----------------------
 
 
-def _planted_payload() -> dict[str, Any]:
+def _earlier_payload() -> dict[str, Any]:
     return {"name": "Agents Shipgate", "conclusion": "success",
-            "output": {"title": "merge_verdict: mergeable", "summary": "planted",
+            "output": {"title": "merge_verdict: mergeable", "summary": "earlier",
                        "annotations": []}}
 
 
-def test_a_payload_left_in_the_directory_is_never_posted(completed, tmp_path: Path) -> None:
-    """An unreadable verdict must not leave an earlier payload to be posted."""
-
+def test_a_payload_already_in_the_directory_is_never_posted(completed, tmp_path: Path) -> None:
     run = completed(PASSED).copy_to(tmp_path)
     _rerun(run, tmp_path / "rerun", check_run_policy="require-mergeable", **REFUSED_INPUT)
-    verifier = _json(run.reports / "verifier.json")
-    verifier["release_decision"] = "unreadable"
-    _write_json(run.reports / "verifier.json", verifier)
-    _write_json(run.reports / "check-run-payload.json", _planted_payload())
+    _write_json(run.reports / "check-run-payload.json", _earlier_payload())
 
     _publish(run, tmp_path / "scratch")
 
-    # The check posted is this run's refusal, never the payload found on disk.
-    _assert_no_verdict(run, "require-mergeable", reason="hash does not match")
-    assert _posted(run)["output"]["summary"] != "planted"
+    # The check posted is this run's own, never the payload found on disk.
+    _assert_no_verdict(run, "require-mergeable", reason="is not this run")
+    assert _posted(run)["output"]["summary"] != "earlier"
 
 
 def test_the_check_step_posts_only_the_payload_this_run_built(
@@ -616,7 +633,7 @@ def test_the_check_step_posts_only_the_payload_this_run_built(
     _publish(run, tmp_path / "scratch", (EXTRACT, PAYLOAD))
     assert _json(run.reports / "check-run-payload.json")["conclusion"] == "failure"
     # Replaced between the two steps.
-    _write_json(run.reports / "check-run-payload.json", _planted_payload())
+    _write_json(run.reports / "check-run-payload.json", _earlier_payload())
 
     _publish(run, tmp_path / "scratch", (CREATE,))
 
@@ -627,7 +644,7 @@ def test_the_check_step_posts_only_the_payload_this_run_built(
 
 def test_no_check_is_created_when_the_payload_step_wrote_none(completed, tmp_path: Path) -> None:
     run = completed(PASSED).copy_to(tmp_path)
-    _write_json(run.reports / "check-run-payload.json", _planted_payload())
+    _write_json(run.reports / "check-run-payload.json", _earlier_payload())
     run.outcomes["check_run_payload"] = "failure"
     run.outputs["check_run_payload"] = {}
 
@@ -637,17 +654,15 @@ def test_no_check_is_created_when_the_payload_step_wrote_none(completed, tmp_pat
     assert run.check_runs == []
 
 
-def test_the_payload_step_replaces_a_link_and_never_writes_through_it(
-    completed, tmp_path: Path,
-) -> None:
+def test_the_payload_step_writes_a_new_file(completed, tmp_path: Path) -> None:
     run = completed(PASSED).copy_to(tmp_path)
-    outside = tmp_path / "outside.json"
-    outside.write_text('{"keep": true}\n', encoding="utf-8")
-    (run.reports / "check-run-payload.json").symlink_to(outside)
+    other = tmp_path / "other.json"
+    other.write_text('{"keep": true}\n', encoding="utf-8")
+    (run.reports / "check-run-payload.json").symlink_to(other)
 
     _publish(run, tmp_path / "scratch")
 
-    assert outside.read_text(encoding="utf-8") == '{"keep": true}\n'
+    assert other.read_text(encoding="utf-8") == '{"keep": true}\n'
     payload = run.reports / "check-run-payload.json"
     assert not payload.is_symlink()
     assert _json(payload)["conclusion"] == "success"
@@ -668,6 +683,129 @@ def test_success_needs_the_receipt_the_outputs_step_validated(completed, tmp_pat
         run.check_runs.clear()
         _publish(run, tmp_path / "scratch", (PAYLOAD, CREATE))
         _assert_no_verdict(run, "require-mergeable", reason="did not validate this receipt")
+
+
+# --- defect: after a CLI that did not complete, no outcome is this run's ------
+
+
+def test_an_outcome_no_receipt_binds_is_not_this_runs_after_an_early_failure(
+    completed, tmp_path: Path,
+) -> None:
+    """A receipt-less verifier stating an outcome is refused, whatever version it names."""
+
+    run = completed(PASSED).copy_to(tmp_path)
+    _rerun(run, tmp_path / "rerun", **REFUSED_INPUT)
+    (run.reports / "verification-receipt.json").unlink()
+    verifier = _json(run.reports / "verifier.json")
+    for field_name in ("request_id", "subject_id", "input_set_id", "engine_requirement_id",
+                       "executor_id", "decision_id", "head_report_json"):
+        verifier.pop(field_name, None)
+    verifier["artifacts"].pop("report_json", None)
+    verifier.update(verifier_schema_version="0.4", merge_verdict="mergeable",
+                    can_merge_without_human=True)
+    _write_json(run.reports / "verifier.json", verifier)
+
+    _assert_no_verdict_under_each_policy(run, tmp_path / "scratch", reason="is not this run")
+    assert run.outcomes["report_outputs"] == "failure"
+    assert run.outputs["report_outputs"] == {}
+
+
+# --- every step that publishes the directory reads the same validation ------
+
+
+def _enable_every_publisher(run: ActionRun) -> None:
+    run.inputs.update(attestation="true", org_bundle="true", pr_comment="true",
+                      check_run_policy="require-mergeable")
+
+
+def test_a_complete_run_feeds_every_publishing_step(completed, tmp_path: Path) -> None:
+    run = completed(PASSED).copy_to(tmp_path)
+    _enable_every_publisher(run)
+
+    _publish(run, tmp_path / "scratch", EVERY_PUBLISHER)
+
+    receipt = _json(run.reports / "verification-receipt.json")
+    assert run.outputs["report_outputs"]["evidence"] == "validated"
+    assert _json(run.reports / "attestation.json")["receipt_id"] == receipt["receipt_id"]
+    assert (run.reports / "org-evidence-bundle.json").is_file(), run.logs[BUNDLE]
+    assert run.outcomes[ANNOTATE] == "success"
+    [comment] = run.pr_comments
+    review = (run.reports / "pr-comment.md").read_text(encoding="utf-8")
+    assert comment["body"].startswith(review[:200])
+    assert _posted(run)["conclusion"] == "success"
+
+
+def test_after_an_early_cli_failure_no_step_publishes_the_directory(
+    completed, tmp_path: Path,
+) -> None:
+    run = completed(PASSED).copy_to(tmp_path)
+    _rerun(run, tmp_path / "rerun", **REFUSED_INPUT)
+    _enable_every_publisher(run)
+
+    _publish(run, tmp_path / "scratch", EVERY_PUBLISHER)
+
+    assert not (run.reports / "attestation.json").exists()
+    assert "attestation skipped: this run has no validated result" in run.logs[ATTEST]
+    assert not (run.reports / "org-evidence-bundle.json").exists()
+    assert "org bundle skipped: this run has no validated result" in run.logs[BUNDLE]
+    assert run.outcomes["report_outputs"] == "failure"
+    assert run.outcomes[ANNOTATE] == "skipped"
+    [comment] = run.pr_comments
+    assert comment["body"].startswith("<!-- agents-shipgate-pr-comment -->")
+    assert NO_RESULT_NOTE in comment["body"]
+    earlier_review = (run.reports / "pr-comment.md").read_text(encoding="utf-8")
+    assert earlier_review[40:200] not in comment["body"]
+    _assert_no_verdict(run, "require-mergeable", reason="is not this run")
+
+
+def _malform_the_head(run: ActionRun) -> None:
+    """A new head whose tool source does not parse, so the head scan exits 3."""
+
+    (run.workspace / "tools.json").write_text("{ not json\n", encoding="utf-8")
+    _git(run.workspace, "commit", "-qam", "unparseable tools")
+    later = _git(run.workspace, "rev-parse", "HEAD").strip()
+    run.github["sha"] = later
+    run.github["event"]["pull_request"]["head"]["sha"] = later
+
+
+@pytest.mark.parametrize(
+    ("failure", "exit_code"),
+    [pytest.param("missing-config", "2", id="missing-config"),
+     pytest.param("head-scan-error", "3", id="head-scan-error")],
+)
+def test_a_fresh_failed_run_publishes_its_unknown_outputs_and_nothing_from_the_directory(
+    completed, tmp_path: Path, failure: str, exit_code: str,
+) -> None:
+    """A run that failed on its own writes a verifier stating no outcome.
+
+    Its outputs still publish, as `unknown` with no receipt. Being a run that
+    did not complete, it has no result for any other step to publish.
+    """
+
+    run = completed(PASSED).copy_to(tmp_path)
+    if failure == "missing-config":
+        _rerun(run, tmp_path / "rerun", config="missing.yaml")
+    else:
+        _malform_the_head(run)
+        _rerun(run, tmp_path / "rerun")
+    assert run.outputs["scan"]["exit_code"] == exit_code, run.logs
+    verifier = _json(run.reports / "verifier.json")
+    assert verifier["execution"] == "failed"
+    assert not (run.reports / "verification-receipt.json").exists()
+    _enable_every_publisher(run)
+
+    _publish(run, tmp_path / "scratch", EVERY_PUBLISHER)
+
+    assert run.outcomes["report_outputs"] == "success", run.logs[EXTRACT]
+    assert run.outputs["report_outputs"]["evidence"] == "no_result"
+    assert run.outputs["report_outputs"]["merge_verdict"] == "unknown"
+    assert run.outputs["report_outputs"]["receipt_id"] == ""
+    assert not (run.reports / "attestation.json").exists()
+    assert not (run.reports / "org-evidence-bundle.json").exists()
+    assert run.outcomes[ANNOTATE] == "skipped"
+    [comment] = run.pr_comments
+    assert NO_RESULT_NOTE in comment["body"]
+    _assert_no_verdict(run, "require-mergeable", reason=f"exited {exit_code}")
 
 
 def test_the_evidence_binding_reads_the_head_the_run_step_passed(tmp_path: Path) -> None:
@@ -692,15 +830,20 @@ def test_the_evidence_binding_reads_the_head_the_run_step_passed(tmp_path: Path)
         assert ActionInvocation.from_env(env).head == passed, (head_ref, sha, argv)
 
 
-def test_both_readers_of_the_evidence_see_what_the_run_step_did() -> None:
-    """The outputs and payload steps get the run step's head and exit code, by the
-    same expressions, and the check step depends on the payload step's digest."""
+def test_every_reader_of_the_evidence_sees_what_the_run_step_did() -> None:
+    """Each step that validates the directory gets the run step's head and exit
+    code by the same expressions; the steps after the outputs step read its
+    `evidence`, and the check step depends on the payload step's digest."""
 
     run, extract, payload, create = (_step(name) for name in (RUN, EXTRACT, PAYLOAD, CREATE))
-    for reader in (extract, payload):
+    for reader in (_step(ATTEST), _step(BUNDLE), extract, payload):
         for variable in ("INPUT_HEAD_REF", "EVALUATED_HEAD_SHA"):
             assert reader["env"][variable] == run["env"][variable]
         assert reader["env"]["SHIPGATE_EXIT_CODE"] == "${{ steps.scan.outputs.exit_code }}"
+    for checker in (_step(ATTEST), _step(BUNDLE)):
+        assert 'scripts/github_action_outputs.py" --check-evidence' in checker["run"]
+    assert "steps.report_outputs.outputs.evidence == 'validated'" in _step(ANNOTATE)["if"]
+    assert _step(COMMENT)["env"]["EVIDENCE"] == "${{ steps.report_outputs.outputs.evidence }}"
     assert payload["env"]["VALIDATED_RECEIPT_ID"] == "${{ steps.report_outputs.outputs.receipt_id }}"
     assert payload["id"] == "check_run_payload"
     # Both still run after a failure, so that a failing check is published.
@@ -709,4 +852,6 @@ def test_both_readers_of_the_evidence_see_what_the_run_step_did() -> None:
     assert "steps.check_run_payload.outputs.payload_sha256 != ''" in create["if"]
     assert create["env"]["PAYLOAD_SHA256"] == "${{ steps.check_run_payload.outputs.payload_sha256 }}"
     order = [step.get("name") for step in STEPS]
-    assert order.index(RUN) < order.index(EXTRACT) < order.index(PAYLOAD) < order.index(CREATE)
+    assert [order.index(name) for name in (RUN, *EVERY_PUBLISHER)] == sorted(
+        order.index(name) for name in (RUN, *EVERY_PUBLISHER)
+    )

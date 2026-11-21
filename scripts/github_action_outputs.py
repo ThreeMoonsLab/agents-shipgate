@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,11 +58,16 @@ _WITHHELD_STATUSES = frozenset({"unclassified", "not_evaluated"})
 
 #: The exit codes of a `scan` or `verify` that ran to completion: `0`, and the
 #: gate failure on a decision the run reached (STABILITY.md § Exit codes). Every
-#: other code, and none, is a run that stopped before it published a terminal
-#: artifact set. `verify` clears an earlier run's verifier artifacts only once
-#: it gets that far, so a receipt found after any other code is not this run's
-#: (#1165).
+#: other code, and none, is a run that did not publish a verification result,
+#: so no result in the directory is this run's (#1165).
 COMPLETED_RUN_EXIT_CODES = frozenset({"0", str(GATE_FAILURE_EXIT_CODE)})
+
+#: What the outputs step tells the Action's later steps, as its `evidence`
+#: output: `validated` for a run that completed and whose directory validated,
+#: `no_result` for a run that did not complete and states no outcome. A
+#: directory the step refuses publishes no outputs at all.
+EVIDENCE_VALIDATED = "validated"
+EVIDENCE_NO_RESULT = "no_result"
 
 
 @dataclass(frozen=True)
@@ -91,6 +97,12 @@ class ActionInvocation:
     @property
     def completed(self) -> bool:
         return self.exit_code in COMPLETED_RUN_EXIT_CODES
+
+    @property
+    def ending(self) -> str:
+        """How the CLI ended, for a message: ``exited 2``."""
+
+        return f"exited {self.exit_code}" if self.exit_code else "recorded no exit code"
 
 
 @dataclass(frozen=True)
@@ -197,9 +209,8 @@ def validate_evidence(
     step run (#1165): the terminal receipt over every artifact it binds, this
     run's ``report.json``, ``verifier.json`` and ``verify-run.json`` against the
     receipt's request and decision (#1022), and the control projection. Given
-    the ``invocation`` that ran the CLI, a receipt is also refused unless that
-    CLI completed and the receipt's subject is the repository and head it
-    evaluated.
+    the ``invocation`` that ran the CLI, the directory must also be that
+    invocation's: see :func:`_require_this_invocation`.
     """
 
     verifier_json = output_dir / "verifier.json"
@@ -225,8 +236,14 @@ def validate_evidence(
         if verifier_json.is_file()
         else None
     )
-    if receipt is not None and invocation is not None:
-        _require_invocation_receipt(output_dir, receipt, invocation)
+    if invocation is not None:
+        _require_this_invocation(
+            output_dir,
+            verifier=verifier_payload,
+            report=run_report,
+            receipt=receipt,
+            invocation=invocation,
+        )
     release_decision = (run_report or {}).get("release_decision") or {}
     control, can_merge_without_human = _control_projection(verifier_payload, release_decision)
     return ValidatedEvidence(
@@ -405,30 +422,46 @@ def _validated_receipt(
     return receipt
 
 
-def _require_invocation_receipt(
-    output_dir: Path, receipt: VerificationReceipt, invocation: ActionInvocation
+def _states_an_outcome(verifier_payload: dict[str, Any]) -> bool:
+    """Whether ``verifier.json`` states any outcome, whatever version it names."""
+
+    return bool(
+        verifier_payload.get("merge_verdict") not in (None, "", "unknown")
+        or verifier_payload.get("can_merge_without_human")
+        or verifier_payload.get("decision") is not None
+        or verifier_payload.get("release_decision")
+    )
+
+
+def _require_this_invocation(
+    output_dir: Path,
+    *,
+    verifier: dict[str, Any],
+    report: dict[str, Any] | None,
+    receipt: VerificationReceipt | None,
+    invocation: ActionInvocation,
 ) -> None:
-    """Refuse a valid receipt that this invocation did not produce (#1165).
+    """Refuse a result in ``output_dir`` that this invocation did not publish (#1165).
 
     Validation shows that an artifact set is internally consistent, not whose
-    it is. A run that stops before it publishes (a refused input, an output
-    directory it will not write to, a crash) leaves whatever an earlier run, a
-    restored cache or the checkout put in the directory. So the receipt counts
-    only after a CLI that completed, and only for the subject the run step
-    asked for: the plan the receipt binds must name this workspace's
-    repository and the commit its ``--head`` resolves to, read with the
-    engine's own Git helpers.
+    it is. A CLI that did not complete published no result, so after one the
+    directory may state none: no receipt, no report, and a ``verifier.json``
+    with no outcome, whatever version it names. After a CLI that completed, a
+    receipt counts only for the subject the run step asked for: the plan the
+    receipt binds must name this workspace's repository and the commit its
+    ``--head`` resolves to, read with the engine's own Git helpers.
     """
 
     if not invocation.completed:
-        ended = (
-            f"exited {invocation.exit_code}" if invocation.exit_code else "recorded no exit code"
-        )
+        if receipt is None and report is None and not _states_an_outcome(verifier):
+            return
         raise ValueError(
-            f"agents-shipgate {ended} before it published a terminal artifact set, so the "
-            f"verification receipt in {output_dir} is not this run's; rerun once the run "
-            "step's error is fixed"
+            f"agents-shipgate {invocation.ending} before it published a verification result, so the "
+            f"result in {output_dir} is not this run's; rerun once the run step's error "
+            "is fixed"
         )
+    if receipt is None:
+        return
     ref = receipt.artifact_manifest.artifacts.get("verification_plan_json")
     if ref is None:
         raise ValueError("the verification receipt binds no verification plan")
@@ -808,12 +841,45 @@ def _merge_verdict(verdict: object) -> str:
     return ""
 
 
-def main() -> None:
+def check_evidence(output_dir: Path, invocation: ActionInvocation) -> str | None:
+    """Why the Action must publish nothing from ``output_dir``, or ``None``.
+
+    The steps that publish what the directory holds (annotations, the PR
+    comment, the attestation and the org bundle) do so only for a run that
+    completed and whose directory :func:`validate_evidence` admits, the
+    outputs step's ``evidence=validated``.
+    """
+
+    try:
+        validate_evidence(output_dir, invocation=invocation)
+    except Exception as exc:  # noqa: BLE001 - whatever stops validation refuses the directory.
+        return f"{type(exc).__name__}: {exc}"
+    if not invocation.completed:
+        return f"agents-shipgate {invocation.ending}, so this run has no verification result"
+    return None
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
     output_dir = Path(os.environ.get("OUTPUT_DIR") or "agents-shipgate-reports")
-    values = extract_outputs(output_dir, invocation=ActionInvocation.from_env())
+    invocation = ActionInvocation.from_env()
+    if args == ["--check-evidence"]:
+        reason = check_evidence(output_dir, invocation)
+        if reason is not None:
+            print(f"Agents Shipgate: no validated result to publish. {reason}", file=sys.stderr)
+            return 1
+        return 0
+    if args:
+        print(f"Unknown arguments: {' '.join(args)}", file=sys.stderr)
+        return 2
+    values = extract_outputs(output_dir, invocation=invocation)
     write_github_outputs(values)
+    write_github_outputs(
+        {"evidence": EVIDENCE_VALIDATED if invocation.completed else EVIDENCE_NO_RESULT}
+    )
     append_step_summary(output_dir, values)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
