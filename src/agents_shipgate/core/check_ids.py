@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from functools import lru_cache
 
 # Reward-hacking guard. Findings in these categories define the release
 # gate's trust spine (trust-root protection). A manifest ``checks.ignore``
@@ -84,3 +85,37 @@ def governing_configured_check_id(
 
 def known_check_ids_with_legacy(check_ids: Iterable[str]) -> set[str]:
     return {*check_ids, *LEGACY_CHECK_ID_ALIASES}
+
+
+@lru_cache(maxsize=1)
+def retired_check_ids() -> dict[str, tuple[str, ...]]:
+    """Every retired built-in check id and the ids that replace it (#1047).
+
+    A legacy alias, or a catalog entry marked ``lifecycle: deprecated``. Both
+    still match configuration, but a baseline naming one names a check that no
+    longer emits findings under that id. The replacement tuple is empty when
+    nothing replaces the check.
+    """
+    from agents_shipgate.checks._metadata_loader import load_check_metadata
+
+    retired = {
+        entry.id: tuple(entry.replaced_by)
+        for entry in load_check_metadata()
+        if entry.lifecycle == "deprecated"
+    }
+    retired.update(LEGACY_CHECK_ID_ALIASES)
+    return retired
+
+
+@lru_cache(maxsize=1)
+def projection_check_ids() -> frozenset[str]:
+    """Built-in catalog ids that label a projection row and are never findings.
+
+    No manifest setting may name one: there is no finding to suppress or
+    re-rate (#1047).
+    """
+    from agents_shipgate.checks._metadata_loader import load_check_metadata
+
+    return frozenset(
+        entry.id for entry in load_check_metadata() if entry.lifecycle == "projection"
+    )

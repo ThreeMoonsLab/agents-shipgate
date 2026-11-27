@@ -15,6 +15,18 @@ from agents_shipgate.schemas.report import (
 
 PR_PROJECTION_SCHEMA_VERSION = "0.1"
 
+# Check ids this projection prints that no check emits. Each is a catalog entry
+# with ``lifecycle: projection`` (docs/checks/review_projection.yaml) so
+# ``explain`` answers for it; none can be suppressed or re-rated (#1047).
+CAPABILITY_CHANGE_CHECK_ID = "SHIP-CAPABILITY-CHANGE"
+DECLARATION_UNVERIFIED_CHECK_ID = "SHIP-ACTION-DECLARATION-UNVERIFIED"
+OVERRIDE_ACKNOWLEDGED_CHECK_ID = "SHIP-ACTION-EFFECT-OVERRIDE-ACKNOWLEDGED"
+PROJECTION_CHECK_IDS = (
+    CAPABILITY_CHANGE_CHECK_ID,
+    DECLARATION_UNVERIFIED_CHECK_ID,
+    OVERRIDE_ACKNOWLEDGED_CHECK_ID,
+)
+
 _SEVERITY_ORDER = {
     "critical": 0,
     "high": 1,
@@ -243,9 +255,9 @@ def _item_from_declaration_review_row(
     manifest_path = row.manifest_path or None
     acknowledged = row.bucket == "acknowledged_override"
     check_id = (
-        "SHIP-ACTION-EFFECT-OVERRIDE-ACKNOWLEDGED"
+        OVERRIDE_ACKNOWLEDGED_CHECK_ID
         if acknowledged
-        else "SHIP-ACTION-DECLARATION-UNVERIFIED"
+        else DECLARATION_UNVERIFIED_CHECK_ID
     )
     title = (
         f"Acknowledged override declaration: {row.subject}"
@@ -287,7 +299,7 @@ def _item_from_acknowledged_override(
         message += f" Source evidence agrees with the declaration ({', '.join(agrees)})."
     message += f" Evidence: {evidence} — Reason: {reason}"
     return PrReviewItem(
-        check_id="SHIP-ACTION-EFFECT-OVERRIDE-ACKNOWLEDGED",
+        check_id=OVERRIDE_ACKNOWLEDGED_CHECK_ID,
         title=f"{subject} declares {declared!r} against inferred {inferred!r}",
         severity="medium",
         level=_action_level("medium"),
@@ -313,7 +325,7 @@ def _item_from_capability_change(change: dict[str, Any]) -> PrReviewItem:
     source_path = _str_or_none(change.get("source_path"))
     line = _int_or_none(change.get("source_start_line"))
     return PrReviewItem(
-        check_id="SHIP-CAPABILITY-CHANGE",
+        check_id=CAPABILITY_CHANGE_CHECK_ID,
         title=title,
         severity=severity,
         level=_action_level(severity),

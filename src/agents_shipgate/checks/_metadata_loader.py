@@ -187,5 +187,25 @@ def load_check_metadata() -> list[CheckMetadata]:
                     f"for {check_id!r}: {exc}"
                 ) from exc
 
+    _validate_replacements(out, seen_ids)
     out.sort(key=lambda check: check.id)
     return out
+
+
+def _validate_replacements(
+    catalog: list[CheckMetadata], defined_in: dict[str, str]
+) -> None:
+    """A deprecated ID's ``replaced_by`` must name active catalog checks.
+
+    The baseline integrity check tells a reader to move an entry to these IDs,
+    so a replacement that is itself retired, a projection or absent would send
+    them somewhere that emits nothing (#1047).
+    """
+    lifecycle = {check.id: check.lifecycle for check in catalog}
+    for check in catalog:
+        for replacement in check.replaced_by:
+            if lifecycle.get(replacement) != "active":
+                raise ValueError(
+                    f"{defined_in[check.id]}: entry {check.id!r} is replaced_by "
+                    f"{replacement!r}, which is not an active check in the catalog."
+                )
