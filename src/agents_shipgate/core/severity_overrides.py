@@ -232,6 +232,16 @@ def resolve_severity_overrides(
                 f"unknown check_id. Use `agents-shipgate list-checks --json` "
                 f"to list valid IDs."
             )
+        if target_metadata.lifecycle == "projection":
+            # Catalogued so `explain` answers for it, but it is never a
+            # finding, so there is no severity to change (#1047).
+            raise ConfigError(
+                f"checks.severity_overrides[{check_id!r}] targets a projection "
+                f"ID: it labels a PR annotation or SARIF row and is never a "
+                f"finding, so it has no severity to override. Remove the entry; "
+                f"`agents-shipgate list-checks --json` marks these with "
+                f'"lifecycle": "projection".'
+            )
 
         # v0.18 (PR #1): internal-consistency guard. A catalog check
         # carrying ``dynamic_default=True`` MUST have a corresponding

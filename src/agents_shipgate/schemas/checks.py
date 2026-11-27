@@ -8,6 +8,14 @@ from agents_shipgate.schemas.common import Severity
 from agents_shipgate.schemas.patches import SuggestedPatchKind
 
 MvpTier = Literal["core", "adapter", "evidence", "lifecycle", "hygiene"]
+# Where a catalog ID stands (#1047). ``active`` checks emit findings.
+# ``deprecated`` IDs stay published and configurable for at least one minor
+# cycle (STABILITY.md § Check IDs) but new runs emit no findings for them.
+# ``projection`` IDs are never findings: they label rows a projection prints —
+# a PR annotation or a SARIF result for a semantic evidence gap — and are
+# catalogued so ``explain`` answers for every ID the tool prints. No manifest
+# setting can name one.
+CheckLifecycle = Literal["active", "deprecated", "projection"]
 
 
 class CheckMetadata(BaseModel):
@@ -25,6 +33,11 @@ class CheckMetadata(BaseModel):
     # This is catalog metadata only: it does not affect severity,
     # fingerprints, baselines, release decisions, or CI exit behavior.
     mvp_tier: MvpTier = "hygiene"
+    lifecycle: CheckLifecycle = "active"
+    # The release whose notes deprecated the ID, and the IDs that now carry
+    # its meaning (empty when nothing replaces it). Set only on deprecated IDs.
+    deprecated_in: str | None = None
+    replaced_by: list[str] = Field(default_factory=list)
     description: str
     rationale: str | None = None
     fires_when: str | None = None
@@ -102,6 +115,15 @@ class CheckMetadata(BaseModel):
             raise ValueError(
                 f"floor_severity={self.floor_severity!r} must not exceed "
                 f"default_severity={self.default_severity!r} for {self.id!r}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_deprecation_fields_need_deprecated(self) -> CheckMetadata:
+        if self.lifecycle != "deprecated" and (self.deprecated_in or self.replaced_by):
+            raise ValueError(
+                f"check {self.id!r} sets deprecated_in or replaced_by but its "
+                f"lifecycle is {self.lifecycle!r}; only a deprecated ID has them."
             )
         return self
 

@@ -146,6 +146,8 @@ checks:
   default_severity: medium
   floor_severity: medium
   mvp_tier: lifecycle
+  lifecycle: deprecated
+  deprecated_in: 1.1.0
   requires_human_review: true
   description: Deprecated in 1.1.0; retained for historical reports and
     configuration. New runs emit no findings for this ID.

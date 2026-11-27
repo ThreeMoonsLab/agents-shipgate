@@ -1,0 +1,129 @@
+# Check catalog · category: semantic_evidence
+#
+# Projection IDs (#1047). The SARIF report prints one rule per semantic
+# evidence gap kind, SHIP-SEMANTIC-<KIND>, for rows of
+# release_decision.evidence_coverage.evidence_gaps[]. A gap is not a finding:
+# it holds the decision at insufficient_evidence until the evidence is
+# complete. Each entry is lifecycle: projection, so `agents-shipgate explain`
+# and the SARIF helpUri answer for it while checks.ignore and
+# checks.severity_overrides cannot name it. One entry per member of
+# agents_shipgate.core.domain.SemanticIssueKind; a test holds the two equal.
+# Every entry merges the shared fields of the first (YAML merge key `<<`).
+#
+# After editing this file, regenerate docs/checks.json with:
+#   python scripts/generate_schemas.py
+# docs/checks.md is human-maintained — update it by hand.
+checks:
+- &semantic_gap
+  id: SHIP-SEMANTIC-AMBIGUOUS-LEGACY-TOOL-IDENTITY
+  default_severity: high
+  mvp_tier: evidence
+  lifecycle: projection
+  description: "Static semantic evidence gap: a legacy tool identity is ambiguous."
+  rationale: A semantic evidence gap is an evidence_gaps[] row, not a finding.
+    It keeps release_decision at insufficient_evidence until the static
+    evidence is complete and conflict-free; no suppression or severity
+    override closes it.
+  fires_when: An evidence_gaps[] row has kind ambiguous_legacy_tool_identity.
+  recommendation: Follow the gap's next_action, which names the input or
+    declaration that closes it.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-AMBIGUOUS-ROOT-AGENT
+  description: "Static semantic evidence gap: the root agent is ambiguous."
+  fires_when: An evidence_gaps[] row has kind ambiguous_root_agent.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-AMBIGUOUS-TOOL-SELECTOR
+  description: "Static semantic evidence gap: a manifest tool selector resolves to several tools."
+  fires_when: An evidence_gaps[] row has kind ambiguous_tool_selector.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-CONFLICTING-AUTHORITY-EVIDENCE
+  description: "Static semantic evidence gap: an action carries conflicting authority evidence."
+  fires_when: An evidence_gaps[] row has kind conflicting_authority_evidence.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-CONFLICTING-BINDING-EVIDENCE
+  description: "Static semantic evidence gap: declared and structural binding evidence disagree."
+  fires_when: An evidence_gaps[] row has kind conflicting_binding_evidence.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-CONFLICTING-EFFECT-EVIDENCE
+  description: "Static semantic evidence gap: an action carries conflicting effect evidence."
+  fires_when: An evidence_gaps[] row has kind conflicting_effect_evidence.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-CONFLICTING-TOOL-IDENTITY
+  description: "Static semantic evidence gap: tools joined as one capability disagree about it."
+  fires_when: An evidence_gaps[] row has kind conflicting_tool_identity.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-DECLARATION-BELOW-INFERRED-EVIDENCE
+  description: "Static semantic evidence gap: a declared effect does not account for the evidence inferred for it."
+  fires_when: An evidence_gaps[] row has kind declaration_below_inferred_evidence.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-DECLARATION-DRIFT
+  description: "Static semantic evidence gap: a confirmed declaration no longer matches the evidence behind it."
+  fires_when: An evidence_gaps[] row has kind declaration_drift.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-INCOMPLETE-HANDOFF-GRAPH
+  description: "Static semantic evidence gap: the agent handoff graph is incomplete."
+  fires_when: An evidence_gaps[] row has kind incomplete_handoff_graph.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-INCOMPLETE-SURFACE
+  description: "Static semantic evidence gap: the tool surface could not be fully enumerated."
+  fires_when: An evidence_gaps[] row has kind incomplete_surface.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-INCOMPLETE-TOOL-IDENTITY
+  description: "Static semantic evidence gap: a tool identity is incomplete."
+  fires_when: An evidence_gaps[] row has kind incomplete_tool_identity.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-INFERRED-EFFECT-ONLY
+  description: "Static semantic evidence gap: an action's effect is inferred, not declared."
+  fires_when: An evidence_gaps[] row has kind inferred_effect_only.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-INVALID-BINDING-ANNOTATION
+  description: "Static semantic evidence gap: a binding annotation is invalid."
+  fires_when: An evidence_gaps[] row has kind invalid_binding_annotation.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-INVALID-EVIDENCE-PROVENANCE
+  description: "Static semantic evidence gap: an evidence provenance claim is invalid."
+  fires_when: An evidence_gaps[] row has kind invalid_evidence_provenance.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-INVALID-SEMANTIC-ANNOTATION
+  description: "Static semantic evidence gap: a semantic annotation is invalid."
+  fires_when: An evidence_gaps[] row has kind invalid_semantic_annotation.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-INVALID-TOOL-BINDING
+  description: "Static semantic evidence gap: a tool_identity binding does not apply."
+  fires_when: An evidence_gaps[] row has kind invalid_tool_binding.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-MISSING-AUTHORITY-EVIDENCE
+  description: "Static semantic evidence gap: an action has no declared authority."
+  fires_when: An evidence_gaps[] row has kind missing_authority_evidence.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-MISSING-BINDING-EVIDENCE
+  description: "Static semantic evidence gap: the agent's tool bindings are unproven."
+  fires_when: An evidence_gaps[] row has kind missing_binding_evidence.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-MISSING-EFFECT-EVIDENCE
+  description: "Static semantic evidence gap: an action has no declared effect."
+  fires_when: An evidence_gaps[] row has kind missing_effect_evidence.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-PARTIAL-AUTHORITY-EVIDENCE
+  description: "Static semantic evidence gap: an action's authority is only partly declared."
+  fires_when: An evidence_gaps[] row has kind partial_authority_evidence.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-PARTIAL-BINDING-EVIDENCE
+  description: "Static semantic evidence gap: some tools cannot be traced to an agent that can call them."
+  fires_when: An evidence_gaps[] row has kind partial_binding_evidence.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-UNATTESTED-SURFACE
+  description: "Static semantic evidence gap: no reviewed tool inventory attests this surface."
+  fires_when: An evidence_gaps[] row has kind unattested_surface.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-UNRESOLVED-AGENT-BINDING
+  description: "Static semantic evidence gap: an agent binding target does not resolve."
+  fires_when: An evidence_gaps[] row has kind unresolved_agent_binding.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-UNRESOLVED-BOUND-TOOL
+  description: "Static semantic evidence gap: a bound tool does not resolve."
+  fires_when: An evidence_gaps[] row has kind unresolved_bound_tool.
+- <<: *semantic_gap
+  id: SHIP-SEMANTIC-UNRESOLVED-TOOL-SELECTOR
+  description: "Static semantic evidence gap: a manifest tool selector resolves to nothing."
+  fires_when: An evidence_gaps[] row has kind unresolved_tool_selector.

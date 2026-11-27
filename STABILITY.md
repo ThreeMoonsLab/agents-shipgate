@@ -6780,6 +6780,27 @@ display/triage only. Current values are `core`, `adapter`, `evidence`,
 `lifecycle`, and `hygiene`. This field does not affect check execution,
 severity, fingerprints, baselines, `release_decision`, or CI exit behavior.
 
+The same surfaces expose `lifecycle`, `deprecated_in` and `replaced_by`
+(#1047): additive fields with defaults (`active`, `null`, `[]`), so no schema
+or contract version moves (`docs/checks.json` has no versioned schema).
+`active` checks emit findings. A `deprecated` ID stays published and
+configurable (§ Check IDs), new runs emit no findings for it, `deprecated_in`
+names the release whose notes deprecated it, `replaced_by` the active checks
+that carry its meaning, and a baseline entry naming it is reported as
+`SHIP-BASELINE-ENTRY-STALE` (`deprecated_check_id`):
+`SHIP-API-OPERATIONAL-READINESS` (`0.4.0`, its seven atomic `SHIP-API-*`
+checks), `SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED`,
+`SHIP-CODEX-BOUNDARY-SKILL-COMMAND-CHANGED` and
+`SHIP-VERIFY-AGENT-INSTRUCTIONS-WEAKENED` (`1.1.0`, no replacement). A
+`projection` ID is never a finding: it labels a PR annotation
+(`SHIP-CAPABILITY-CHANGE`, `SHIP-ACTION-DECLARATION-UNVERIFIED`,
+`SHIP-ACTION-EFFECT-OVERRIDE-ACKNOWLEDGED`) or a SARIF semantic-gap result
+(`SHIP-SEMANTIC-<KIND>`) and is catalogued so `explain` answers for it.
+`checks.severity_overrides` naming one is a configuration error (exit `2`), a
+`checks.ignore` entry naming one is reported like an unknown ID, and a plugin
+may not declare it. Tools that generate configuration or count checks from the
+catalog should skip projection entries.
+
 ### Static Python extraction
 
 OpenAI Agents SDK, CrewAI, and LangChain/LangGraph AST extractors share the
