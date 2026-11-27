@@ -6799,7 +6799,10 @@ checks), `SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED`,
 `checks.severity_overrides` naming one is a configuration error (exit `2`), a
 `checks.ignore` entry naming one is reported like an unknown ID, and a plugin
 may not declare it. Tools that generate configuration or count checks from the
-catalog should skip projection entries.
+catalog should skip projection entries. A projection ID whose emitter is
+retired (a semantic gap kind removed, say) is never removed either: it stays
+catalogued as `projection`, so it stays non-configurable and `explain` still
+answers for reports that printed it.
 
 ### Static Python extraction
 

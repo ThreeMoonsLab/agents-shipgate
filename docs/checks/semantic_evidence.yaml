@@ -8,6 +8,8 @@
 # and the SARIF helpUri answer for it while checks.ignore and
 # checks.severity_overrides cannot name it. One entry per member of
 # agents_shipgate.core.domain.SemanticIssueKind; a test holds the two equal.
+# An entry whose kind is removed stays here (STABILITY.md § Check catalog
+# metadata) and is named in the test's RETIRED_PROJECTIONS.
 # Every entry merges the shared fields of the first (YAML merge key `<<`).
 #
 # After editing this file, regenerate docs/checks.json with:

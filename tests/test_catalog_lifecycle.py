@@ -30,6 +30,7 @@ from agents_shipgate.core.check_ids import LEGACY_CHECK_ID_ALIASES
 from agents_shipgate.core.domain import SemanticIssueKind
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.severity_overrides import resolve_severity_overrides
+from agents_shipgate.inputs.coverage import BoundaryCoverageError, build_boundary_matrix
 from agents_shipgate.report.pr_projection import PROJECTION_CHECK_IDS, select_pr_items
 from agents_shipgate.report.sarif import _semantic_gap_rule_id
 from agents_shipgate.schemas.baseline import BaselineFile, BaselineFinding, BaselineProvenance
@@ -47,6 +48,10 @@ DEPRECATED = {
 }
 SEMANTIC_RULE_IDS = {_semantic_gap_rule_id(kind) for kind in get_args(SemanticIssueKind)}
 PROJECTIONS = {*PROJECTION_CHECK_IDS, *SEMANTIC_RULE_IDS}
+# Projection IDs the code no longer prints. A shipped ID is never removed
+# (STABILITY.md § Check catalog metadata), so a retired one stays catalogued
+# with lifecycle projection; name it here when its emitter goes away.
+RETIRED_PROJECTIONS: frozenset[str] = frozenset()
 
 
 def _catalog() -> dict[str, CheckMetadata]:
@@ -86,7 +91,7 @@ def test_list_checks_json_and_docs_catalog_carry_lifecycle() -> None:
             assert {"lifecycle", "deprecated_in", "replaced_by"} <= entry.keys(), entry["id"]
             by_lifecycle.setdefault(entry["lifecycle"], {})[entry["id"]] = entry["deprecated_in"]
         assert by_lifecycle["deprecated"] == DEPRECATED
-        assert set(by_lifecycle["projection"]) == PROJECTIONS
+        assert set(by_lifecycle["projection"]) == PROJECTIONS | RETIRED_PROJECTIONS
         assert "SHIP-POLICY-APPROVAL-MISSING" in by_lifecycle["active"]
 
 
@@ -112,10 +117,7 @@ def test_list_checks_text_and_explain_show_the_lifecycle() -> None:
     ] == "active"
 
 
-@pytest.mark.parametrize("check_id", sorted(DEPRECATED))
-def test_a_baseline_naming_any_deprecated_id_is_reported_stale(
-    tmp_path: Path, check_id: str
-) -> None:
+def _baseline_naming(tmp_path: Path, check_id: str) -> tuple[Path, Path]:
     baseline_path = tmp_path / "baseline.json"
     provenance = BaselineProvenance(
         scanner_version="1.0.0", run_id="run_x", recorded_at="2026-01-01T00:00:00Z"
@@ -144,10 +146,16 @@ def test_a_baseline_naming_any_deprecated_id_is_reported_stale(
             hash_after=compute_baseline_hash_from_file(baseline_path),
         ),
     )
+    return baseline_path, audit_path
 
+
+@pytest.mark.parametrize("check_id", sorted(DEPRECATED))
+def test_a_baseline_naming_any_deprecated_id_is_reported_stale(
+    tmp_path: Path, check_id: str
+) -> None:
     issues = [
         issue
-        for issue in verify_baseline(baseline_path, audit_path)
+        for issue in verify_baseline(*_baseline_naming(tmp_path, check_id))
         if issue.kind == "deprecated_check_id"
     ]
 
@@ -155,6 +163,23 @@ def test_a_baseline_naming_any_deprecated_id_is_reported_stale(
     replacements = issues[0].evidence["replacement_check_ids"]
     assert replacements == sorted(_catalog()[check_id].replaced_by)
     assert replacements or "remove the entry" in issues[0].title
+
+
+@pytest.mark.parametrize("check_id", sorted(DEPRECATED))
+def test_a_scan_reports_a_deprecated_baseline_entry_once(tmp_path: Path, check_id: str) -> None:
+    """The entry is also unmatched, but one entry is one stale finding."""
+
+    baseline_path, _ = _baseline_naming(tmp_path, check_id)
+    report, _ = run_scan(
+        config_path=REPO_ROOT / "samples" / "clean_read_only_agent" / "shipgate.yaml",
+        output_dir=tmp_path / "out",
+        formats=["json"],
+        ci_mode="strict",
+        baseline_path=baseline_path,
+    )
+
+    stale = [f for f in report.findings if f.check_id == "SHIP-BASELINE-ENTRY-STALE"]
+    assert [finding.evidence["kind"] for finding in stale] == ["deprecated_check_id"]
 
 
 def test_only_a_deprecated_entry_carries_deprecation_fields() -> None:
@@ -187,7 +212,8 @@ def test_loader_refuses_a_replacement_that_is_not_an_active_check(
 def test_the_catalogued_projections_are_exactly_what_the_projections_print() -> None:
     assert {
         check_id for check_id, check in _catalog().items() if check.lifecycle == "projection"
-    } == PROJECTIONS
+    } == PROJECTIONS | RETIRED_PROJECTIONS
+    assert not PROJECTIONS & RETIRED_PROJECTIONS
     assert len(SEMANTIC_RULE_IDS) == len(get_args(SemanticIssueKind))
 
 
@@ -315,6 +341,20 @@ def test_configurable_ids_exclude_projections_and_keep_deprecated() -> None:
 
     assert not configurable & PROJECTIONS
     assert set(DEPRECATED) <= configurable
+
+
+def test_a_boundary_cell_may_not_publish_a_projection_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A coverage cell's ``raises`` must name a check, not a catalogued label."""
+
+    raised = "SHIP-CONDUCTOR-DYNAMIC-TOOL-SURFACE-NOT-ENUMERABLE"  # a real cell's
+    catalog = [
+        check.model_copy(update={"lifecycle": "projection"}) if check.id == raised else check
+        for check in registry.check_catalog(plugins_enabled=False)
+    ]
+    monkeypatch.setattr(registry, "check_catalog", lambda **_kwargs: catalog)
+
+    with pytest.raises(BoundaryCoverageError, match=f"{raised}.*no registered check owns"):
+        build_boundary_matrix()
 
 
 def test_a_plugin_cannot_declare_the_projection_lifecycle() -> None:

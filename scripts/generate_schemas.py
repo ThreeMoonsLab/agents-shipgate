@@ -1577,7 +1577,10 @@ def build_checks_catalog() -> tuple[Path, str]:
         ),
         "title": "Agents Shipgate Check Catalog",
         "description": (
-            "Machine-readable catalog of built-in checks. Generated from "
+            "Machine-readable catalog of built-in check IDs. Each entry's "
+            "lifecycle says whether it is an active check, a deprecated one "
+            "that emits no new findings, or a projection ID that labels a PR "
+            "annotation or SARIF row and is never a finding. Generated from "
             "agents_shipgate.checks.registry.check_catalog(). Do not edit by hand."
         ),
         "checks": [check.model_dump(mode="json") for check in check_catalog(plugins_enabled=False)],
