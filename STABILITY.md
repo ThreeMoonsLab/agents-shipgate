@@ -6797,9 +6797,10 @@ checks), `SHIP-CODEX-BOUNDARY-AGENTS-SHIPGATE-REQUIREMENT-REMOVED`,
 `SHIP-ACTION-EFFECT-OVERRIDE-ACKNOWLEDGED`) or a SARIF semantic-gap result
 (`SHIP-SEMANTIC-<KIND>`) and is catalogued so `explain` answers for it.
 `checks.severity_overrides` naming one is a configuration error (exit `2`), a
-`checks.ignore` entry naming one is reported like an unknown ID, and a plugin
-may not declare it. Tools that generate configuration or count checks from the
-catalog should skip projection entries. A projection ID whose emitter is
+`checks.ignore` entry naming one is reported like an unknown ID. Registered
+plugin checks use `active` because they can emit findings. Tools that generate
+configuration or count checks from the catalog should skip projection entries.
+A projection ID whose emitter is
 retired (a semantic gap kind removed, say) is never removed either: it stays
 catalogued as `projection`, so it stays non-configurable and `explain` still
 answers for reports that printed it.

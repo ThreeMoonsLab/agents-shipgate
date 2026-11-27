@@ -182,10 +182,11 @@ def test_a_scan_reports_a_deprecated_baseline_entry_once(tmp_path: Path, check_i
     assert [finding.evidence["kind"] for finding in stale] == ["deprecated_check_id"]
 
 
-def test_only_a_deprecated_entry_carries_deprecation_fields() -> None:
+@pytest.mark.parametrize("version", ["1.0", ""])
+def test_only_a_deprecated_entry_carries_deprecation_fields(version: str) -> None:
     with pytest.raises(ValueError, match="only a deprecated ID"):
         CheckMetadata(
-            id="SHIP-X", category="x", default_severity="low", description="x", deprecated_in="1.0"
+            id="SHIP-X", category="x", default_severity="low", description="x", deprecated_in=version
         )
 
 
@@ -357,16 +358,17 @@ def test_a_boundary_cell_may_not_publish_a_projection_id(monkeypatch: pytest.Mon
         build_boundary_matrix()
 
 
-def test_a_plugin_cannot_declare_the_projection_lifecycle() -> None:
+@pytest.mark.parametrize("lifecycle", ["deprecated", "projection"])
+def test_a_plugin_cannot_declare_a_non_active_lifecycle(lifecycle: str) -> None:
     def plugin(context):
         return []
 
     plugin.AGENTS_SHIPGATE_METADATA = {
-        "id": "ACME-PROJECTION",
+        "id": "ACME-CHECK",
         "category": "custom",
         "default_severity": "low",
-        "description": "Claims to be a projection.",
-        "lifecycle": "projection",
+        "description": "Claims a non-active lifecycle.",
+        "lifecycle": lifecycle,
     }
 
     class EntryPoint:

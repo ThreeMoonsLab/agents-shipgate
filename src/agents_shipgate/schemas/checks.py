@@ -120,7 +120,7 @@ class CheckMetadata(BaseModel):
 
     @model_validator(mode="after")
     def _check_deprecation_fields_need_deprecated(self) -> CheckMetadata:
-        if self.lifecycle != "deprecated" and (self.deprecated_in or self.replaced_by):
+        if self.lifecycle != "deprecated" and (self.deprecated_in is not None or self.replaced_by):
             raise ValueError(
                 f"check {self.id!r} sets deprecated_in or replaced_by but its "
                 f"lifecycle is {self.lifecycle!r}; only a deprecated ID has them."

@@ -162,15 +162,14 @@ def validate_entry_point(
 
     info["check_id"] = metadata.id
 
-    # A plugin's findings are findings; ``projection`` is reserved for the
-    # built-in IDs that label PR annotation and SARIF rows (#1047). Accepting
-    # it would make the plugin's own findings unconfigurable.
-    if metadata.lifecycle == "projection":
+    # Registered plugins run and can emit findings. The built-in catalog owns
+    # retired IDs and IDs used only to label PR annotations or SARIF rows.
+    if metadata.lifecycle != "active":
         return _fail(
             info,
             BAD_METADATA,
-            "plugin metadata declared lifecycle='projection'; that lifecycle "
-            "is reserved for built-in IDs that are never findings.",
+            f"Plugin metadata declared lifecycle={metadata.lifecycle!r}. "
+            "Registered plugin checks must use lifecycle='active'.",
         )
 
     # Gate 5: ID collision
