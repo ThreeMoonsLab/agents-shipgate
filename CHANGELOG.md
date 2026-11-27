@@ -103,6 +103,7 @@
 
 ### Documentation
 
+- **Every relative link and anchor in the repository's tracked Markdown is checked.** `tests/test_repository_links.py` resolves each inline link, image, reference definition and HTML `href`/`src` in the files `git ls-files` lists against the tracked tree, and each `#fragment` against the heading anchors GitHub gives the target and its explicit `id`s; code and comments are skipped, and a target that exists but is untracked or ignored counts as broken. It found 28 broken links: 25 in the `docs/changelog/` release records, whose prose was moved from `CHANGELOG.md` with root-relative targets and whose targets now start `../../` (the prose is unchanged), the 0.7.0 entry's `STABILITY.md#stability-contract`, which the title's version stamp had renamed and which now points at the `report_schema_version` rule it cites, `samples/README.md`'s link to the cold-start regeneration section, and `docs/upstream-integrations.md`'s link to a `docs/api-trace-evidence.md` that never existed, which now points at the trace-sample shape in `docs/manifest-v0.1.md`. The release runbook says to rewrite those targets when the prose moves. (#1039)
 - **STABILITY.md lists every key `agents-shipgate contract --json` emits.** Its *Runtime contract JSON* list named 53 of the 84 keys. It now documents the other 31 as well, among them `deprecated_surfaces{}`, `agent_boundary_result_schema_version`, the four `verification_*` versions, the `human_review_*` and `host_grants_*` versions, and the capability payload and delta attestation keys. A key whose payload belongs to a provisional command (`attest`, `registry`, `org bundle`, `audit --host`) says so, and `external_integration_surfaces[]` no longer calls every surface it names stable. `tests/test_stability_contract_fields.py` holds the list equal to the emitted keys in both directions and checks the `[]`/`{}` suffix against the JSON type. The *Provisional CLI command surface* paragraph states the `1.x` position instead of the `0.14.x` line's. No key, value or command changes. (Refs #1054)
 
 ## 1.3.0 - 2026-11-08
@@ -1936,7 +1937,7 @@ metadata so agents can route findings without re-walking the catalog.
   - `docs_url` always sourced from CheckMetadata (patches don't carry
     per-instance documentation URLs).
 - Report schema bumped to `v0.7` per
-  [STABILITY.md](STABILITY.md#stability-contract) ("`report_schema_version`
+  [STABILITY.md](STABILITY.md#json-report-fields-stable) ("`report_schema_version`
   bumps minor on additive changes"). `docs/report-schema.v0.7.json`
   added; `v0.6.json` retained as a frozen reference.
 - `_run_id` excludes the four new derived fields plus `patches` so
