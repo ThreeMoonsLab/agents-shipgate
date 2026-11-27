@@ -65,8 +65,17 @@ neither there), one inside a `.claude`, `.codex`, `.github`, `.shipgate` or
 that through the link would be one a host reads, all decided by the boundary
 registry's own patterns. Any change to the link or to what it names, and a
 dangling, external, escaping, looping or chained link, still refuses. A
-configured `verify --head`, as the Action runs it, still refuses any committed
-link before it compares anything (#688).
+configured `verify` scans a committed tree — the base, and the head under
+`--head` as the Action runs it — with the links a checkout of that commit
+holds: a link that opens a file or directory inside the repository, such as
+`CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`, is recreated
+as that link instead of failing the tree. A reader that refuses links refuses
+it there too, and a read that follows it reaches only that commit's own files.
+A committed link that is absolute, leaves the repository, dangles, loops or
+passes more than eight links, a link this system cannot create, a name that
+collides with another on a case- or normalization-insensitive filesystem, and
+on Windows any committed link, still refuse that tree before anything is
+compared (#688).
 Path classification is case-insensitive so protected files cannot evade review
 on macOS or Windows. A case variant is also read as its lower-case spelling:
 `.github/workflows/CI.YML` is parsed and evaluated as a workflow, and
