@@ -41,8 +41,9 @@ cases that check and its two reviews covered. Known shapes it reads
 differently, none of them in the repository then:
 
 * a link inside another link's text (``[a [b](c) d](e)``) also yields ``e``;
-* blockquotes are not tracked as containers, so indented code or a raw HTML
-  block inside ``>`` is read as prose (``> <div>`` does not open a block);
+* blockquotes are tracked only for fences (a fence inside ``>`` ends with
+  it), so indented code or a raw HTML block inside ``>`` is read as prose
+  (``> <div>`` does not open a block);
 * a heading or code span inside a list item indented four or more columns,
   a setext heading inside a container, a ``- - -`` thematic break (read as a
   list item) and a table row that does not begin with ``|`` follow the
@@ -73,6 +74,7 @@ MARKDOWN_SUFFIXES = (".md", ".markdown")
 
 _FENCE_OPEN = re.compile(r"^(?P<indent>[ \t]*)(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
 _ATX_HEADING = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")
+_BLOCK_QUOTE_MARKER = re.compile(r"^ {0,3}>[ \t]?")
 # A blockquote marker or list item marker in front of a heading: `> ## A`, `- ## B`.
 _CONTAINER_MARKER = re.compile(r"^ {0,3}(?:>[ ]?|(?:[-+*]|\d{1,9}[.)])[ \t]+)")
 _SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
@@ -209,13 +211,13 @@ def _block_masks(lines: list[str]) -> tuple[list[bool], list[bool]]:
 
     Code is front matter, fenced code and indented code. A fence closes on a
     line of the same character at least as long, as CommonMark says; an
-    unclosed fence runs to the end of the file, and a closing line indented
-    four or more columns past the opening one is content. Indentation is
-    measured from the content column of the list item a line belongs to, so
-    a fence inside a list item is a fence, and a line four or more columns
-    past it is indented code unless it continues a paragraph. Inside a raw
-    HTML block a fence opens nothing, Markdown is not rendered, and its tags'
-    attributes are.
+    unclosed fence runs to the end of its blockquote or the file, and a
+    closing line indented four or more columns past the opening one is
+    content. Indentation is measured from the content column of the list item
+    a line belongs to, so a fence inside a list item is a fence, and a line
+    four or more columns past it is indented code unless it continues a
+    paragraph. Inside a raw HTML block a fence opens nothing, Markdown is not
+    rendered, and its tags' attributes are.
     """
 
     code = [False] * len(lines)
@@ -224,6 +226,7 @@ def _block_masks(lines: list[str]) -> tuple[list[bool], list[bool]]:
         code[index] = True
     open_fence: str | None = None
     open_indent = 0
+    open_quote_depth = 0
     html_until: str | None = None  # "" ends at a blank line
     list_items: list[int] = []  # the content column of each open list item
     previous = "blank"  # what the last line was: blank, paragraph, code or other
@@ -233,13 +236,25 @@ def _block_masks(lines: list[str]) -> tuple[list[bool], list[bool]]:
         stripped = line.strip()
         content = line.lstrip(" \t")
         indent = _columns(line[: len(line) - len(content)])
+        # A fence inside a blockquote is read without its markers, and ends with it.
+        fence_line = line
+        quote_depth = 0
+        while quote := _BLOCK_QUOTE_MARKER.match(fence_line):
+            fence_line = fence_line[quote.end() :]
+            quote_depth += 1
+        if open_fence is not None and quote_depth < open_quote_depth:
+            open_fence = None
         if open_fence is not None:
             code[index] = True
+            # A deeper quote marker is content within the open fence.
+            closing_line = fence_line if quote_depth == open_quote_depth else line
+            closing = closing_line.lstrip(" \t")
+            closing_indent = _columns(closing_line[: len(closing_line) - len(closing)])
             if (
-                stripped
-                and set(stripped) == {open_fence[0]}
-                and len(stripped) >= len(open_fence)
-                and indent < open_indent + 4
+                closing.strip()
+                and set(closing.strip()) == {open_fence[0]}
+                and len(closing.strip()) >= len(open_fence)
+                and closing_indent < open_indent + 4
             ):
                 open_fence = None
                 previous = "other"
@@ -276,10 +291,11 @@ def _block_masks(lines: list[str]) -> tuple[list[bool], list[bool]]:
             code[index] = True
             previous = "code"
             continue
-        fence = _FENCE_OPEN.match(line)
+        fence = _FENCE_OPEN.match(fence_line)
         if fence and not (fence.group("fence")[0] == "`" and "`" in fence.group("info")):
             open_fence = fence.group("fence")
-            open_indent = indent
+            open_indent = _columns(fence.group("indent"))
+            open_quote_depth = quote_depth
             code[index] = True
             continue
         if (ending := _html_block(content, previous == "paragraph")) is not None:
@@ -908,6 +924,9 @@ def test_code_and_comments_hide_links_and_nothing_else() -> None:
         "## Second ` [h2](heading-line.md)\nnext ` line\n\n"
         "```\ncode\n    ```\n[in fence](after-indented-closer.md)\n```\n\n"
         "\\[escaped](escaped-bracket.md)\n"
+        "\n> ~~~md\n> [tilde fence](quoted-tilde.md)\n> ~~~\n\n"
+        "> > ```md\n> > [unclosed fence](unclosed-quote.md)\n"
+        "> [outer quote](outer-quote.md)\n\n"
     )
     assert [destination for _, destination in links_in(text)] == [
         "a.md",
@@ -919,6 +938,7 @@ def test_code_and_comments_hide_links_and_nothing_else() -> None:
         "cross-table.md",
         "cross-heading.md",
         "heading-line.md",
+        "outer-quote.md",
         "h.md",
     ]
 
