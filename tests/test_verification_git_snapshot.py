@@ -538,6 +538,54 @@ def test_verification_snapshot_writes_a_file_beside_a_folding_directory_or_types
         }
 
 
+@pytest.mark.parametrize(
+    ("entries", "method", "name", "error", "failing"),
+    [
+        (
+            {"BUILD": ("100644", b"b\n"), "build/x": ("100644", b"x\n")},
+            "mkdir", "build", FileExistsError, "build/x",
+        ),
+        (
+            {"BUILD": ("100644", b"b\n"), "build/x": ("100644", b"x\n")},
+            "write_bytes", "x", NotADirectoryError, "build/x",
+        ),
+        (
+            {"caf\u00e9": ("100644", b"b\n"), "cafe\u0301/x": ("100644", b"x\n")},
+            "write_bytes", "caf\u00e9", IsADirectoryError, "caf\u00e9",
+        ),
+    ],
+    ids=["directory-over-file", "file-as-directory", "file-over-directory"],
+)
+def test_verification_snapshot_types_a_write_a_merging_filesystem_refuses(
+    tmp_path, monkeypatch, entries, method, name, error, failing
+):
+    # The refusal a filesystem that merges these names gives, raised here on
+    # any filesystem, is a typed refusal naming the tree path, never an
+    # internal error naming a temporary one.
+    import errno
+
+    root = _repo(tmp_path)
+    _commit_tree(root, entries)
+    original = getattr(Path, method)
+
+    def refusing(self, *args, **kwargs):
+        if self.name == name:
+            code = {
+                FileExistsError: errno.EEXIST,
+                NotADirectoryError: errno.ENOTDIR,
+                IsADirectoryError: errno.EISDIR,
+            }[error]
+            raise error(code, os.strerror(code), str(self))
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, method, refusing)
+    with pytest.raises(ConfigError) as refused:
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+    assert str(refused.value) == (
+        f"Git tree path {failing} collides with another path on this filesystem."
+    )
+
+
 def _links_not_within(root: Path) -> list[str]:
     resolved = os.path.realpath(root)
     return [
