@@ -460,7 +460,7 @@ def test_verification_snapshot_refuses_a_name_that_collides_with_a_directory(
     )
 
 
-def _escapes(root: Path) -> list[str]:
+def _links_not_within(root: Path) -> list[str]:
     resolved = os.path.realpath(root)
     return [
         os.path.join(directory, name)
@@ -484,9 +484,9 @@ _MERGES = {
 def test_verification_snapshot_holds_each_link_in_its_own_directory(
     tmp_path, monkeypatch, merge, layer
 ):
-    # With the name-collision check out of the way, the link-by-link checks
-    # still refuse, on a filesystem that merges these names, and nothing the
-    # snapshot holds opens outside it.
+    # With the name-collision check disabled, the per-link checks still
+    # refuse on a filesystem that merges these names, and every link the
+    # snapshot holds stays within it.
     from agents_shipgate.cli.verify import git as git_module
 
     entries, written, looked_up = _MERGES[merge]
@@ -505,7 +505,7 @@ def test_verification_snapshot_holds_each_link_in_its_own_directory(
     with pytest.raises(ConfigError, match="collides with another path on this filesystem"):
         archive_verification_tree(root, "HEAD", out)
     if layer == "parent":
-        assert _escapes(out) == []
+        assert _links_not_within(out) == []
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
