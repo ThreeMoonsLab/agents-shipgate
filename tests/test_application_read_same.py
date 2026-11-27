@@ -938,6 +938,10 @@ def test_an_unread_named_import_does_not_mask_a_local_namespace_write(repo):
     # Another object's `.reload()` is not import machinery.
     "import importlib\n\n\nclass Settings:\n    def reload(self):\n        return a\n\n\nsettings = Settings().reload()",
     "print(vars(a).get('lookup'))",
+    pytest.param(
+        "print(getattr(a, '__dict__').get('lookup'))\nprint(a)",
+        id="reflected-namespace-read",
+    ),
     "assert 'lookup' in vars(a)",
     "for k in vars(a):\n    print(k)",
     # `__name__` here names this module, and `json` is not the agent's.

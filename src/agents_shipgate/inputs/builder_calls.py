@@ -526,9 +526,9 @@ def _alias_uses(module: PythonModule, scopes: ScopeIndex, node: ast.AST, names: 
 def _namespace_written(module: PythonModule, scopes: ScopeIndex, namespace: ast.AST) -> bool:
     """Whether this use of a module's namespace may change it (#1146 follow-up).
 
-    The namespace is ``vars(m)``, ``m.__dict__`` or the module's own
-    ``globals()``. It fails closed: only indexing it, iterating it, testing
-    membership in it or using a reading dictionary method (``.get``,
+    The namespace is ``vars(m)``, ``m.__dict__``, ``getattr(m, '__dict__')``
+    or the module's own ``globals()``. It fails closed: only indexing it,
+    iterating it, testing membership in it or using a reading dictionary method (``.get``,
     ``.items``, ...) is a read. Anything else is a write: stored into or
     deleted from, changed through any other method (``.update(d)``), the
     target of ``|=``, bound to a name (``ns = vars(m); ns.update(d)``),
@@ -689,9 +689,13 @@ def _module_written(
                 return not (isinstance(name, ast.Constant) and name.value == "__path__")
             if _calls_namespace_builtin(module, scopes, parent, "vars"):
                 return _namespace_written(module, scopes, parent)
-            if chain and _calls_namespace_builtin(module, scopes, parent, "getattr"):
-                current = parent
-                continue
+            if _calls_namespace_builtin(module, scopes, parent, "getattr"):
+                name = parent.args[1] if len(parent.args) > 1 else None
+                if isinstance(name, ast.Constant) and name.value == "__dict__":
+                    return _namespace_written(module, scopes, parent)
+                if chain:
+                    current = parent
+                    continue
             # Passed on to other code: a writer the census cannot follow may get it.
             return writers(module)
         if _stored_in_module_table(module, scopes, current):
@@ -1284,7 +1288,8 @@ class BuilderCalls:
         The builtin ``setattr``, ``delattr`` or ``vars`` used as a value
         (``s = setattr``, ``functools.partial(setattr, m)``,
         ``map(setattr, ...)``), or one fetched from what may be a module
-        (``getattr(builtins, 'setattr')``, ``getattr(m, '__dict__')``). A
+        (``getattr(builtins, 'setattr')``), or a namespace fetched with
+        ``getattr(m, '__dict__')`` that may be written. A
         parameter, local or module name that shadows the builtin
         (``def fill(template, vars)``) is not one, nor is ``getattr`` of an
         object no import gives (``getattr(C(), '__dict__')``). In such a
@@ -1312,6 +1317,7 @@ class BuilderCalls:
                 written = (
                     isinstance(name, ast.Constant) and name.value in _WRITER_ATTRIBUTES
                     and _may_be_module(module, scopes, node.args[0])
+                    and (name.value != "__dict__" or _namespace_written(module, scopes, node))
                 )
             if written:
                 break
