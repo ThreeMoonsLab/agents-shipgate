@@ -281,7 +281,7 @@ ci:
 
 **Pitfalls**:
 - The `response_formats[].downstream_critical_fields` array names the JSON keys that downstream code branches on. Listing them lets `SHIP-API-STRUCTURED-OUTPUT-READINESS` validate that those keys are constrained (enum, oneOf) rather than free-form.
-- Trace samples must be JSON Lines with `approved` / `confirmed` / `decision` fields when the matching policy rule requires them — see [`docs/api-trace-evidence.md`](api-trace-evidence.md) for the canonical shape.
+- Trace samples must be JSON Lines with `approved` / `confirmed` / `decision` fields when the matching policy rule requires them — see [`docs/manifest-v0.1.md` § OpenAI API Artifacts](manifest-v0.1.md#openai-api-artifacts) for the canonical shape.
 
 ## Anthropic Messages API artifacts
 
