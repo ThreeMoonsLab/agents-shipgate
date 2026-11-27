@@ -226,7 +226,8 @@ running sandbox.
 
 Configured committed verification supports contained link chains, selected
 policy links among them, read from the same verified Git object store as the
-application snapshot; the worktree cannot authorize one. A changed reference
+application snapshot; the worktree cannot authorize one. On Windows, a
+committed link still refuses the snapshot. A changed reference
 retains review independently of any supported policy expansion, including an
 expansion on the linked document. Submodules retain the snapshot's refusal,
 and so do links that escape, are absolute, dangle, cycle or exceed eight hops,

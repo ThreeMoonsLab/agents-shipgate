@@ -69,10 +69,13 @@ configured `verify` scans a committed tree — the base, and the head under
 `--head` as the Action runs it — with the links a checkout of that commit
 holds: a link that opens a file or directory inside the repository, such as
 `CLAUDE.md -> AGENTS.md` or `.claude/skills -> ../.agents/skills`, is recreated
-as that link and read exactly as in a working tree. A committed link that is
-absolute, leaves the repository, dangles, loops or passes more than eight
-links, or one this system cannot create, still refuses that tree before
-anything is compared (#688).
+as that link instead of failing the tree. A reader that refuses links refuses
+it there too, and a read that follows it reaches only that commit's own files.
+A committed link that is absolute, leaves the repository, dangles, loops or
+passes more than eight links, a link this system cannot create, a name that
+collides with another on a case- or normalization-insensitive filesystem, and
+on Windows any committed link, still refuse that tree before anything is
+compared (#688).
 Path classification is case-insensitive so protected files cannot evade review
 on macOS or Windows. A case variant is also read as its lower-case spelling:
 `.github/workflows/CI.YML` is parsed and evaluated as a workflow, and

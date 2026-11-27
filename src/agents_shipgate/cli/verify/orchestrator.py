@@ -1517,6 +1517,14 @@ def run_verify(
             head_config_path = head_tree_dir / config_relative
             if overlay_worktree_manifest:
                 assert worktree_manifest_text is not None
+                # The archived tree holds the links its commit holds, so the
+                # path is checked before anything is written to it.
+                _reject_symlink_components(
+                    head_tree_dir,
+                    config_relative,
+                    label=f"Head manifest {config_relative.as_posix()}",
+                    allow_filesystem_alias=True,
+                )
                 head_config_path.parent.mkdir(parents=True, exist_ok=True)
                 head_config_path.write_text(worktree_manifest_text, encoding="utf-8")
             _reject_symlink_components(

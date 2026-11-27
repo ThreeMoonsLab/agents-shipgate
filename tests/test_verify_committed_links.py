@@ -183,3 +183,104 @@ def test_verify_meets_a_committed_tool_source_link_as_a_checkout_does(tmp_path):
     shutil.copyfile(repo / "inventories/tools.json", repo / "tools.json")
     again = _verify(repo, tmp_path / "out-again", "--base", "HEAD~1", "--head", "HEAD")
     assert (again.exit_code, _error_line(again)) == (archived.exit_code, _error_line(archived))
+
+
+def _git_out(repo: Path, *args: str, data: bytes | None = None) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=repo, input=data, check=True, capture_output=True
+    ).stdout.decode().strip()
+
+
+def _commit_on_top(repo: Path, extra: dict[str, tuple[str, bytes]]) -> None:
+    """Commit HEAD's tree plus ``extra`` (path -> (mode, bytes)) through plumbing.
+
+    The worktree is left alone, so a tree that one filesystem cannot hold can
+    still be committed on it.
+    """
+
+    nested: dict = {}
+
+    def place(path: str, value: tuple[str, str]) -> None:
+        *parents, name = path.split("/")
+        node = nested
+        for part in parents:
+            node = node.setdefault(part, {})
+        node[name] = value
+
+    for record in _git_out(repo, "ls-tree", "-r", "-z", "HEAD").split("\0"):
+        if record:
+            metadata, path = record.split("\t", 1)
+            mode, _kind, oid = metadata.split(" ")
+            place(path, (mode, oid))
+    for path, (mode, data) in extra.items():
+        place(path, (mode, _git_out(repo, "hash-object", "-w", "--stdin", data=data)))
+
+    def write(node: dict) -> str:
+        lines = [
+            f"040000 tree {write(value)}\t{name}"
+            if isinstance(value, dict)
+            else f"{value[0]} blob {value[1]}\t{name}"
+            for name, value in node.items()
+        ]
+        return _git_out(repo, "mktree", data=("\n".join(lines) + "\n").encode())
+
+    commit = _git_out(repo, "commit-tree", write(nested), "-p", "HEAD", "-m", "plumbed")
+    _git_out(repo, "update-ref", "HEAD", commit)
+
+
+def test_verify_refuses_a_tree_whose_names_collide_as_a_typed_error(tmp_path):
+    # A file and a directory whose names a case-insensitive filesystem merges
+    # are refused with a typed error on every filesystem, never an internal
+    # error naming a temporary path.
+    repo = _repo(tmp_path)
+    _commit_on_top(repo, {
+        "A": ("100644", b"a\n"),
+        "B": ("100644", b"b\n"),
+        "a/x": ("120000", b"../B"),
+    })
+    result = _verify(repo, tmp_path / "out", "--base", "HEAD~1", "--head", "HEAD")
+    assert result.exit_code == 2, result.output
+    assert _error_line(result) == (
+        "Config error: Git tree contains filesystem-colliding paths: 'a' and 'A'"
+    )
+    assert "agents-shipgate-verify" not in result.output
+
+
+def test_verify_checks_the_head_manifest_path_before_writing_to_it(tmp_path, monkeypatch):
+    # The manifest is not committed at either side, so the worktree's copy is
+    # written into the archived head. That tree holds the commit's links, so
+    # the path is refused before anything is written through one.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
+    (repo / "real-agent").mkdir()
+    (repo / "real-agent/tools.json").write_text(TOOLS, encoding="utf-8")
+    _commit(repo, "base")
+    (repo / "agent").symlink_to("real-agent")
+    _commit(repo, "link the agent directory")
+    (repo / "agent").unlink()
+    (repo / "agent").mkdir()
+    (repo / "agent/shipgate.yaml").write_text(MANIFEST, encoding="utf-8")
+    (repo / "agent/tools.json").write_text(TOOLS, encoding="utf-8")
+
+    written_through_links: list[Path] = []
+    write_text = Path.write_text
+
+    def recording(self: Path, *args, **kwargs):
+        if self.name == "shipgate.yaml" and any(parent.is_symlink() for parent in self.parents):
+            written_through_links.append(self)
+        return write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", recording)
+    result = runner.invoke(app, [
+        "verify", "--workspace", str(repo), "--config", "agent/shipgate.yaml", "--json",
+        "--out", str(tmp_path / "out"), "--base", "HEAD~1", "--head", "HEAD",
+    ])
+    assert result.exit_code == 2, result.output
+    assert _error_line(result) == (
+        "Config error: Head manifest agent/shipgate.yaml must not contain symlink "
+        "components: agent"
+    )
+    assert written_through_links == []

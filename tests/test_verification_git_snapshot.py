@@ -350,6 +350,199 @@ def test_verification_snapshot_bounds_a_link_chain(tmp_path, hops):
             archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
 
 
+_NOT_CONTAINED = (
+    "Git tree contains unsupported external binding at link (mode 120000, type blob): "
+    "only a link that opens a file or directory inside the repository is recreated."
+)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+@pytest.mark.parametrize(
+    "links",
+    [
+        {"link": "../AGENTS.md"},
+        {"link": "/AGENTS.md"},
+        {"pkg/root": "..", "link": "pkg/root/../AGENTS.md"},
+    ],
+    ids=["above-the-root", "absolute", "above-the-root-through-a-link"],
+)
+def test_verification_snapshot_refuses_a_link_that_leaves_the_tree_by_a_held_name(
+    tmp_path, links
+):
+    # Each text names a file the tree holds, so only the rule against leaving
+    # the tree, not the absence of the name, refuses it.
+    root = _repo(tmp_path)
+    _commit_links(root, links)
+    with pytest.raises(ConfigError) as refused:
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+    assert str(refused.value) == _NOT_CONTAINED
+
+
+def _commit_tree(root: Path, entries: dict[str, tuple[str, bytes]]) -> None:
+    """Commit exactly ``entries`` (path -> (mode, bytes)) as HEAD, bypassing the worktree.
+
+    Built with plumbing, so a tree whose names one filesystem would merge can be
+    committed on that filesystem too.
+    """
+
+    def blob(data: bytes) -> str:
+        return subprocess.run(
+            ["git", "-C", str(root), "hash-object", "-w", "--stdin"],
+            input=data, check=True, capture_output=True,
+        ).stdout.decode().strip()
+
+    nested: dict = {}
+    for path, value in entries.items():
+        *parents, name = path.split("/")
+        node = nested
+        for part in parents:
+            node = node.setdefault(part, {})
+        node[name] = value
+
+    def write(node: dict) -> str:
+        lines = []
+        for name, value in node.items():
+            if isinstance(value, dict):
+                lines.append(f"040000 tree {write(value)}\t{name}")
+            else:
+                mode, data = value
+                lines.append(f"{mode} blob {blob(data)}\t{name}")
+        return subprocess.run(
+            ["git", "-C", str(root), "mktree"],
+            input="\n".join(lines).encode() + b"\n", check=True, capture_output=True,
+        ).stdout.decode().strip()
+
+    commit = _git_output(root, "commit-tree", write(nested), "-m", "plumbed tree")
+    _git(root, "update-ref", "HEAD", commit)
+
+
+def _merges_on_this_filesystem(tmp_path: Path, written: str, looked_up: str) -> bool:
+    probe = tmp_path / "filesystem-probe"
+    probe.mkdir()
+    (probe / written).write_text("")
+    return (probe / looked_up).exists() and len(os.listdir(probe)) == 1
+
+
+_AGENTS = ("100644", b"# Agents\n")
+_CASE = {"Alpha": ("120000", b"."), "alpha/inner": ("120000", b"../AGENTS.md"), "AGENTS.md": _AGENTS}
+_NORMALIZATION = {
+    "cafe\u0301": ("120000", b"."),
+    "caf\u00e9/inner": ("120000", b"../AGENTS.md"),
+    "AGENTS.md": _AGENTS,
+}
+_BLOB_BESIDE_DIRECTORY = {
+    "A": _AGENTS,
+    "B": _AGENTS,
+    "a/x": ("120000", b"../B"),
+}
+
+
+@pytest.mark.parametrize(
+    ("entries", "pair"),
+    [
+        (_CASE, ("alpha", "Alpha")),
+        (_NORMALIZATION, ("caf\u00e9", "cafe\u0301")),
+        (_BLOB_BESIDE_DIRECTORY, ("a", "A")),
+    ],
+    ids=["case", "normalization", "blob"],
+)
+def test_verification_snapshot_refuses_a_name_that_collides_with_a_directory(
+    tmp_path, entries, pair
+):
+    # Refused on every filesystem, as whole paths that collide already are,
+    # before anything is written.
+    root = _repo(tmp_path)
+    _commit_tree(root, entries)
+    with pytest.raises(ConfigError) as refused:
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+    assert str(refused.value) == (
+        f"Git tree contains filesystem-colliding paths: {pair[0]!r} and {pair[1]!r}"
+    )
+
+
+def _escapes(root: Path) -> list[str]:
+    resolved = os.path.realpath(root)
+    return [
+        os.path.join(directory, name)
+        for directory, names, files in os.walk(root)
+        for name in [*names, *files]
+        if os.path.islink(os.path.join(directory, name))
+        and not os.path.realpath(os.path.join(directory, name)).startswith(resolved + os.sep)
+        and os.path.realpath(os.path.join(directory, name)) != resolved
+    ]
+
+
+_MERGES = {
+    "case": (_CASE, "probe", "PROBE"),
+    "normalization": (_NORMALIZATION, "cafe\u0301", "caf\u00e9"),
+}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+@pytest.mark.parametrize("merge", sorted(_MERGES))
+@pytest.mark.parametrize("layer", ["parent", "result"])
+def test_verification_snapshot_holds_each_link_in_its_own_directory(
+    tmp_path, monkeypatch, merge, layer
+):
+    # With the name-collision check out of the way, the link-by-link checks
+    # still refuse, on a filesystem that merges these names, and nothing the
+    # snapshot holds opens outside it.
+    from agents_shipgate.cli.verify import git as git_module
+
+    entries, written, looked_up = _MERGES[merge]
+    if not _merges_on_this_filesystem(tmp_path, written, looked_up):
+        pytest.skip(f"this filesystem keeps {merge} variants apart")
+    root = _repo(tmp_path)
+    _commit_tree(root, entries)
+    monkeypatch.setattr(git_module, "_portable_tree_path_key", lambda path: path)
+    if layer == "result":
+        def unchecked(root_path, path_text, link_text, *, directory):
+            (root_path / path_text).parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(link_text, root_path / path_text, target_is_directory=directory)
+
+        monkeypatch.setattr(git_module, "_create_admitted_link", unchecked)
+    out = tmp_path / "snapshot"
+    with pytest.raises(ConfigError, match="collides with another path on this filesystem"):
+        archive_verification_tree(root, "HEAD", out)
+    if layer == "parent":
+        assert _escapes(out) == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+def test_verification_snapshot_types_a_link_its_directory_cannot_hold(tmp_path, monkeypatch):
+    # A file where the link's directory should be is a typed refusal of the
+    # link, never an internal error.
+    from agents_shipgate.cli.verify import git as git_module
+
+    if not _merges_on_this_filesystem(tmp_path, "probe", "PROBE"):
+        pytest.skip("this filesystem keeps case variants apart")
+    root = _repo(tmp_path)
+    _commit_tree(root, _BLOB_BESIDE_DIRECTORY)
+    monkeypatch.setattr(git_module, "_portable_tree_path_key", lambda path: path)
+    with pytest.raises(ConfigError) as refused:
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+    assert str(refused.value) == (
+        "Git tree contains unsupported external binding at a/x (mode 120000, type blob): "
+        "it collides with another path on this filesystem."
+    )
+
+
+def test_verification_snapshot_keeps_refusing_links_on_windows(tmp_path, monkeypatch):
+    # Where a recreated link would not be the link a checkout holds, every
+    # committed link keeps the refusal, with the reason.
+    from agents_shipgate.cli.verify import git as git_module
+
+    monkeypatch.setattr(git_module, "_recreates_committed_links", lambda: False)
+    root = _repo(tmp_path)
+    _commit_tree(root, {"AGENTS.md": _AGENTS, "link": ("120000", b"AGENTS.md")})
+    with pytest.raises(ConfigError) as refused:
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+    assert str(refused.value) == (
+        "Git tree contains unsupported external binding at link (mode 120000, type blob): "
+        "committed links are not recreated on Windows."
+    )
+
+
 def test_exact_snapshot_rejects_portable_filesystem_path_collisions(tmp_path: Path) -> None:
     root = _repo(tmp_path)
     blob = _git_output(root, "hash-object", "-w", "--stdin", input_text="bound\n")
