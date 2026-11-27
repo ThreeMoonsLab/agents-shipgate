@@ -186,26 +186,30 @@ def _columns(indentation: str) -> int:
     return _advance(0, indentation)
 
 
-def _strip_containers(line: str) -> tuple[str, int, int, int, list[int]]:
+def _strip_containers(line: str, start: int = 0) -> tuple[str, int, int, int, list[int]]:
     """The line after the blockquote and list item markers that open it.
 
     Returns ``(rest, column, base, quotes, items)``: the text after the
     markers, the column it starts at, the column just after the last ``>``
     (0 without one), how many ``>`` markers it passed, and the content column
     of each list item it opens before any ``>``. A marker may be indented up
-    to three columns. One column of whitespace after ``>`` belongs to the
-    marker; a list item's content starts after its marker and gap, or one
-    column after the marker when the gap is five or more (the rest is then
-    indented code).
+    to three columns past the content column ``start`` of the list item the
+    line is in (so ``    - b`` under ``- a`` is a nested item), and later
+    markers up to three past the one before. One column of whitespace after
+    ``>`` belongs to the marker; a list item's content starts after its
+    marker and gap, or one column after the marker when the gap is five or
+    more (the rest is then indented code).
     """
 
     rest, column, base, quotes = line, 0, 0, 0
     items: list[int] = []
+    reference = start
     while True:
         text = rest.lstrip(" \t")
         lead = _advance(column, rest[: len(rest) - len(text)])
-        if lead - column > 3:
+        if lead - max(reference, column) > 3:
             return rest, column, base, quotes, items
+        reference = 0
         if text.startswith(">"):
             after = text[1:]
             body = after.lstrip(" \t")
@@ -353,7 +357,9 @@ def _block_masks(lines: list[str]) -> tuple[list[bool], list[bool]]:
             continue
         # What follows the line's own blockquote and list markers: a fence on
         # the same line as `2.` or `>` is a fence (`2. ```bash`, `> - ````).
-        inner, inner_column, base, quotes, items = _strip_containers(line)
+        inner, inner_column, base, quotes, items = _strip_containers(
+            line, list_items[-1] if list_items else 0
+        )
         list_items.extend(items)
         inner_text = inner.lstrip(" \t")
         inner_indent = _advance(inner_column, inner[: len(inner) - len(inner_text)]) - inner_column
@@ -1143,6 +1149,30 @@ def test_fences_and_code_after_list_and_quote_markers_match_github() -> None:
         "end.md",
     ]
     assert heading_anchors(text) == ["usage", "end"]
+
+
+def test_nested_list_items_indented_four_columns_keep_their_paragraphs() -> None:
+    """GitHub's reading of nested lists indented four columns (2026-11-27).
+
+    ``    - b`` under ``- a`` (the MkDocs style) is a nested item, because its
+    indentation counts from the parent item's content column. Counted from
+    column 0 it was no item, and the paragraph or fence under it read as
+    indented code, which hid its links.
+    """
+
+    text = (
+        "- a\n    - b\n\n      See [x](p1.md)\n\nBreak one.\n\n"
+        "- a\n    - b\n\n      ```bash\n      run\n      ```\n\n      after [x](p5.md)\n\n"
+        "Break two.\n\n"
+        "- a\n  - b\n    - c\n\n        [x](p7.md)\n\nBreak three.\n\n"
+        "* one\n    * two\n        * three\n\n            [deep](deep.md)\n"
+    )
+    assert [destination for _, destination in links_in(text)] == [
+        "p1.md",
+        "p5.md",
+        "p7.md",
+        "deep.md",
+    ]
 
 
 def test_a_start_in_indented_code_hides_no_later_link_or_heading(tmp_path: Path) -> None:
