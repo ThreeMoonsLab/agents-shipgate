@@ -456,7 +456,8 @@
   "tests/test_output_directory_containment.py": 0.5,
   "tests/test_unreadable_host_input.py": 297.8,
   "tests/test_unchanged_link_limits.py": 77.2,
-  "tests/test_capability_lock_redaction.py": 0.1
+  "tests/test_capability_lock_redaction.py": 0.1,
+  "tests/test_action_check_run_evidence.py": 189.7
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -819,6 +820,17 @@
    },
    "case_count": 8,
    "command": "python -m pytest tests/test_capability_lock_redaction.py --junitxml=capability-lock-redaction.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "21dcb3fc43f9 with issue #1165 review cycle 3 increment",
+   "report_sha256": "fac00138803a471824de4e68d397cccf48313c3364451eeccc0a2c16008c15a5",
+   "files": {
+    "tests/test_action_check_run_evidence.py": 189.7
+   },
+   "case_count": 36,
+   "command": "python -m pytest tests/test_action_check_run_evidence.py -n 4 --junitxml=check-run-evidence.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

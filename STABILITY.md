@@ -1541,6 +1541,121 @@ the command.
 
 ---
 
+<a id="check-run-evidence-1165"></a>
+
+## Migration Note: Unreleased — only a result this run validated is published (#1165)
+
+**What was wrong.** With `check_run: true`, the payload step read
+`verifier.json`, `report.json`, `report.sarif` and `pr-comment.md` from the
+output directory as plain JSON and text, and both it and the step that creates
+the check ran under `always()` with nothing tying them to the outputs step,
+which validates the verification receipt (#1022). A run whose CLI stopped
+before it published a verification result, or whose directory the outputs step
+refused (a receipt missing or altered, an artifact set from an earlier run),
+could still post a `success` check, `require-mergeable` included, while the job
+and the verifier's own result said otherwise. The PR comment, annotations,
+attestation and org bundle steps read the same directory with no tie to this
+run either. The check step now posts only the payload this run built.
+
+**What changes.**
+
+- **One validation.** Every step that publishes from the output directory
+  reads it through the outputs step's own validation, `validate_evidence` in
+  `scripts/github_action_outputs.py`: the receipt over every artifact it
+  binds, this run's report, verifier and verify-run identities against it, and
+  the control projection. No second version list or validator is added.
+- **Bound to this run.** A run completed when its CLI exited `0` or `20`
+  (`STABILITY.md` § Exit codes); `20` is the configured gate failing on a
+  decision the run reached. Every other code, and none, is a run that did not
+  complete. After a run that completed, a receipt counts only when the
+  verification plan it binds names the evaluated workspace's repository and
+  the commit the run step's `--head` resolves to, read with the engine's own
+  Git helpers.
+- **A run that completed:** the outputs step publishes as before when the
+  directory validates, and fails with empty outputs when it does not. Its
+  internal `evidence` output is `validated`.
+- **A run that did not complete publishes nothing read from the directory.**
+  - The outputs step fails with empty outputs when the directory holds a
+    receipt or `report.json`, or a `verifier.json` with a merge verdict other
+    than `unknown`, a decision or release decision, or merge authority,
+    whatever version it names, or one that does not validate.
+  - Otherwise it publishes fixed values, the same for every such run: an
+    empty `status`, `decision` and identities, zero counts, every artifact
+    path empty, `merge_verdict` `unknown`, `can_merge_without_human` `false`,
+    `agent_control_state` `human_review_required` with
+    `agent_controller_must_stop` `true`,
+    `agent_controller_completion_allowed` `false` and a fixed reason, and
+    `evidence` `no_result`. Its step summary is a fixed line saying the run
+    has no validated result. The engine's own reason and next step for its
+    failure are in the run step's log.
+- **The Check Run** for a run without `evidence=validated` states no merge
+  verdict: `failure` under `blocked-fails` and `require-mergeable` and
+  `neutral` under `advisory`, titled `merge_verdict: unknown (no validated
+  result)`, with the reason and nothing from the output directory. For a run
+  that did not complete the reason is a fixed sentence naming the CLI's exit
+  code. `success` also needs the terminal receipt the outputs step validated and
+  published as `receipt_id` in this job, whose own outcome passes the policy
+  too, so a verdict no receipt binds no longer passes a check.
+- **The payload** is written as a new file at its path, and its SHA-256 goes
+  to the payload step's internal `payload_sha256` output. The step that
+  creates the check runs only when that output is set and posts only a file
+  with that digest; otherwise it creates no check and fails.
+- **Annotations** are emitted only for `evidence=validated`.
+- **The PR comment** posts `pr-comment.md` only for `evidence=validated`. For
+  any other run it posts, in the same place, a short note that the run has no
+  validated verification result, so an earlier run's review does not stay up
+  as this one's. The application comment is unchanged.
+- **The files the Action's own steps write** (`attestation.json`,
+  `org-evidence-bundle.json`, `host-grants.json`, `org-status.json`,
+  `check-annotations.json` and `check-run-payload.json`) are removed from the
+  output directory by the run step before the CLI runs, as the CLI clears the
+  files it writes. Any of them there afterwards is this use's, so a second use
+  of the Action, or a reused workspace, never names, uploads or posts an
+  earlier use's.
+- **The attestation and org bundle** steps, which run before the outputs step,
+  ask the same validation (`github_action_outputs.py --check-evidence`) and
+  are skipped, with a message, unless the run completed and validated.
+- **The uploaded report artifact** is still the output directory. For a run
+  without a validated result it is kept for diagnosis only: nothing in it is
+  validated as that run's result.
+
+**What does not change.** No input or Action output is added, renamed or
+removed; `evidence`, `payload_sha256` and the environment the steps read are
+internal to the composite. No schema, contract version, check ID, exit code or
+merge verdict moves. A run that completes keeps its outputs, annotations,
+comment, attestation, org bundle and check conclusion under every policy:
+`mergeable` passes, `blocked` fails, and `human_review_required` is `neutral`
+under `advisory` and `blocked-fails` and `failure` under `require-mergeable`.
+The check still mirrors the verdict and never replaces the release gate.
+
+**Who must act.**
+
+- Nobody whose runs complete.
+- For a run whose CLI exited with any code other than `0` or `20`, a missing
+  manifest or a head scan that could not parse its input included:
+  - the outputs step either fails with empty outputs or publishes the fixed
+    no-result values above. It no longer publishes the verifier's own
+    `agent_control_*`, `run_id`, trigger or artifact path values for such a
+    run; read the run step's log for the failure and its fix;
+  - the check states no verdict, annotations, attestation and org bundle are
+    not produced, and the PR comment is the no-result note instead of that
+    run's `pr-comment.md`. A first run that fails on setup therefore shows
+    the note in the pull request, with the guidance in the job log;
+  - re-run once the error the run step reports is fixed.
+- A job that uses the Action twice with one `output_dir` gets, for the second
+  use, only that use's own result: if its CLI stops early, nothing the first
+  use wrote is published again, and if it completes, the first use's
+  attestation, org bundle, host grants, org status, annotations and payload
+  are gone before it runs. A later step that read one of those files after the
+  second use, expecting the first use's, must copy it elsewhere in between.
+- If the payload step itself fails, no check is created for that run. A branch
+  protection rule that requires the check then waits, rather than reading an
+  earlier payload.
+- A workflow that reads files from the uploaded artifact of a failed run must
+  treat them as unvalidated.
+
+---
+
 <a id="capability-definitions"></a>
 
 ## Migration Note: 1.3.0 — the capability lock records tool definitions (capability standard `0.6`, lock `0.9`, lock diff `0.10`, #1117)

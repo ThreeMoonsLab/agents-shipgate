@@ -175,7 +175,7 @@ const context = {repo: {owner: 'acme', repo: 'review-agent'}, issue: {number: 7}
 const moduleFor = (name) => name === 'fs' ? {
   existsSync() {return true;}, readFileSync() {return input.body;},
 } : require(name);
-const env = {GITHUB_SERVER_URL: 'https://github.com', GITHUB_RUN_ID: '123'};
+const env = {GITHUB_SERVER_URL: 'https://github.com', GITHUB_RUN_ID: '123', EVIDENCE: 'validated'};
 const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor;
 (async () => {
   let thrown = null;
