@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import posixpath
@@ -3553,7 +3554,7 @@ def _materialize_isolated_tree(
     with _perf.phase("archive.tree.links"):
         for (oid, path_text), blob in zip(links, _isolated_blobs(git_dir, links), strict=True):
             target = root / path_text
-            if not _within(root, target.parent):
+            if scope is not None and not _within(root, target.parent):
                 raise ConfigError(f"Git tree path escapes destination: {path_text}")
             if _git_object_id("blob", blob, algorithm=object_format) != oid:
                 raise ConfigError(f"Git blob failed object-ID validation: {path_text}")
@@ -3620,8 +3621,9 @@ def _create_admitted_link(root: Path, path_text: str, link_text: str, *, directo
     """Recreate one admitted link of an unscoped archive at its exact tree path.
 
     The parent must resolve to the very directory the tree names, through no
-    link, before and after it is created; anything else, and any filesystem
-    error, is a typed refusal of that link rather than an internal error.
+    link, before and after it is created; anything else, any filesystem error
+    and a resolution that cannot finish are a typed refusal of that link
+    rather than an internal error.
     """
 
     target = root / path_text
@@ -3636,17 +3638,17 @@ def _create_admitted_link(root: Path, path_text: str, link_text: str, *, directo
         if target.parent.resolve() != expected_parent:
             raise refusal
         os.symlink(link_text, target, target_is_directory=directory)
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
+        # RuntimeError is how Python reports a resolution that loops.
+        collides = isinstance(exc, (FileExistsError, NotADirectoryError, RuntimeError)) or (
+            isinstance(exc, OSError) and exc.errno == errno.ELOOP
+        )
         raise ConfigError(
             _unsupported_binding(
                 path_text,
                 "120000",
                 "blob",
-                reason=(
-                    _LINK_COLLIDES
-                    if isinstance(exc, (FileExistsError, NotADirectoryError))
-                    else "this system could not create the link"
-                ),
+                reason=_LINK_COLLIDES if collides else "this system could not create the link",
             )
         ) from exc
 
@@ -3919,7 +3921,12 @@ def _materialize_link_target_types(
 
 
 def _within(root: Path, candidate: Path) -> bool:
-    resolved = candidate.resolve()
+    try:
+        resolved = candidate.resolve()
+    except (OSError, RuntimeError):
+        # A path that cannot be resolved, such as one through a link loop
+        # (Python raises RuntimeError for that), is not known to be within.
+        return False
     return resolved == root or root in resolved.parents
 
 

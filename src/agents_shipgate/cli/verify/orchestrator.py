@@ -6703,6 +6703,21 @@ def _reject_symlink_components(
             # checks compare the two spellings by same-entry identity. An
             # unresolved alias (``actual is None``) did not prove that
             # same-entry relationship and therefore remains fail-closed.
+            #
+            # The stored entry is held to the same rule as the spelling: it
+            # may not be a link, and the rest of the path is inspected from it.
+            if os.path.islink(issue.actual):
+                raise ConfigError(
+                    f"{label} must not contain symlink components: {requested}"
+                )
+            stored = Path(issue.actual).relative_to(root)
+            remaining = relative.parts[len(Path(issue.requested).relative_to(root).parts):]
+            _reject_symlink_components(
+                root,
+                Path(*stored.parts, *remaining),
+                label=label,
+                allow_filesystem_alias=True,
+            )
             return
         actual = (
             _display_path(issue.actual, root, resolve=False)

@@ -635,6 +635,33 @@ def test_verification_snapshot_holds_each_link_in_its_own_directory(
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+@pytest.mark.parametrize("target", [b"p", b"p/x"], ids=["directory", "file"])
+def test_verification_snapshot_types_a_link_whose_directory_cannot_be_resolved(
+    tmp_path, monkeypatch, target
+):
+    # With the name-collision check disabled, a link whose directory this
+    # filesystem cannot resolve is a typed refusal of that link, never an
+    # internal error naming a temporary path.
+    from agents_shipgate.cli.verify import git as git_module
+
+    if not _merges_on_this_filesystem(tmp_path, "probe", "PROBE"):
+        pytest.skip("this filesystem keeps case variants apart")
+    root = _repo(tmp_path)
+    _commit_tree(root, {
+        "AGENTS.md": _AGENTS,
+        "P": ("120000", target),
+        "p/x": ("120000", b"../AGENTS.md"),
+    })
+    monkeypatch.setattr(git_module, "_portable_tree_path_key", lambda path: path)
+    with pytest.raises(ConfigError) as refused:
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+    assert str(refused.value) == (
+        "Git tree contains unsupported external binding at p/x (mode 120000, type blob): "
+        "it collides with another path on this filesystem."
+    )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
 def test_verification_snapshot_types_a_link_its_directory_cannot_hold(tmp_path, monkeypatch):
     # A file where the link's directory should be is a typed refusal of the
     # link, never an internal error.
