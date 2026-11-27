@@ -7,6 +7,7 @@ import typer
 from agents_shipgate import __version__
 from agents_shipgate.cli._helpers import _parse_fail_on, _parse_formats
 from agents_shipgate.core.errors import (
+    INTERNAL_VALIDATION_LABEL,
     AgentsShipgateError,
     ConfigError,
     InputParseError,
@@ -184,7 +185,7 @@ def _run(
         typer.echo(f"Agents Shipgate error: {exc}", err=True)
         raise typer.Exit(4) from exc
     except Exception as exc:  # noqa: BLE001 - CLI should map unexpected failures.
-        detail = format_exception_text(exc, validation_label="Invalid input")
+        detail = format_exception_text(exc, validation_label=INTERNAL_VALIDATION_LABEL)
         typer.echo(f"Internal error: {detail}", err=True)
         raise typer.Exit(4) from exc
 

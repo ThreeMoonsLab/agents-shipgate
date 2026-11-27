@@ -461,7 +461,7 @@
   "tests/test_capability_lock_redaction.py": 0.1,
   "tests/test_control_evidence.py": 0.2,
   "tests/test_audit_dependency_locks.py": 0.5,
-  "tests/test_validation_error_messages.py": 6.8
+  "tests/test_validation_error_messages.py": 6.9
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -861,14 +861,14 @@
   },
   {
    "source": "junit",
-   "measured_at": "12e7b9761540 plus the #1222 review round with issue #1040 validation-message sweep",
-   "report_sha256": "0d6c5dfbbbe73de3218008e319aa14f115ffa58f3b8ad16ea6e38c73435ede26",
+   "measured_at": "40a7122c199b plus the #1222 final review round with issue #1040 validation-message sweep",
+   "report_sha256": "956a28c5ade6503c5bb547d3cc691ce22fa168487760d131ab8d5137d72c7800",
    "files": {
-    "tests/test_validation_error_messages.py": 6.8
+    "tests/test_validation_error_messages.py": 6.9
    },
-   "case_count": 152,
+   "case_count": 156,
    "command": "python -m pytest -m \"not perf and not slow\" tests/test_validation_error_messages.py tests/test_agent_mode.py --junitxml=i1040-weights.xml",
-   "time_basis": "JUnit testcase time; original full-suite measurements retained. The same run put the 17 cases #1040 added to tests/test_agent_mode.py at 0.2 s, so that file keeps its full-suite weight"
+   "time_basis": "JUnit testcase time; original full-suite measurements retained. One test, the package source walk, builds the package index and is 6.8 s of the file; the synthetic cases index only their own source. The same run put the 17 cases #1040 added to tests/test_agent_mode.py at 0.2 s, so that file keeps its full-suite weight"
   }
  ]
 }

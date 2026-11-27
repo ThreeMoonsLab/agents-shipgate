@@ -81,6 +81,12 @@ def format_error_message(exc: BaseException, *, label: str) -> str:
     return f"{label}: {exc}"
 
 
+#: The ``validation_label`` for an internal-error boundary. A ValidationError
+#: that reaches one comes from a model Agents Shipgate built, not from the
+#: user's input, which every input boundary describes on its own (#1040, #328).
+INTERNAL_VALIDATION_LABEL = "an internal model failed validation"
+
+
 def format_exception_text(exc: BaseException, *, validation_label: str) -> str:
     """``str(exc)``, with a ``ValidationError`` described under
     ``validation_label`` the way :func:`format_validation_error` does.

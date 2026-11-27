@@ -30,6 +30,7 @@ from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_controls import git_root_for
 from agents_shipgate.core.current_control import CurrentControlPublishError
 from agents_shipgate.core.errors import (
+    INTERNAL_VALIDATION_LABEL,
     AgentsShipgateError,
     ConfigError,
     InputParseError,
@@ -617,7 +618,7 @@ def register(app: typer.Typer) -> None:
         except Exception as exc:  # noqa: BLE001 - CLI boundary.
             if verbose:
                 logger.exception("unhandled exception")
-            detail = format_exception_text(exc, validation_label="Invalid input")
+            detail = format_exception_text(exc, validation_label=INTERNAL_VALIDATION_LABEL)
             typer.echo(f"Internal error: {detail}", err=True)
             guidance = (
                 "Re-run with --verbose for a stack trace; this is a bug — please "

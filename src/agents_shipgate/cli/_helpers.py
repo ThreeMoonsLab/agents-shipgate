@@ -24,6 +24,7 @@ from agents_shipgate.core.disclaimers import (
     STATIC_VERDICT_DISCLAIMER,
 )
 from agents_shipgate.core.errors import (
+    INTERNAL_VALIDATION_LABEL,
     AgentsShipgateError,
     ConfigError,
     InputParseError,
@@ -416,7 +417,7 @@ def _run_multi_scan(
             scan_exit_code = 4
             if verbose:
                 logger.exception("unhandled exception while scanning %s", config_path)
-            detail = format_exception_text(exc, validation_label="Invalid input")
+            detail = format_exception_text(exc, validation_label=INTERNAL_VALIDATION_LABEL)
             typer.echo(f"{config_path}: internal_error - {detail}", err=True)
         else:
             # Apply --strict-plugins after the scan but before printing

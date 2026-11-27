@@ -17,12 +17,14 @@ by subclass (``ValueError``, ``Exception``) around code that can raise one: a
 function in this package that does either without catching it, followed
 through any depth of such functions. In a checked handler the exception, or a
 plain alias of it, must not reach an f-string, ``%``, ``str``/``repr``/
-``format``, ``.json()``, an unfiltered ``.errors()``, or any call: an
-in-package function it is passed to is checked the same way, and only a
-``format_*`` helper or a type test receives it unread, and a call or
-comparison that only decides an ``if`` reads it without rendering it. A branch,
-or the rest of a block after an early exit, that has established the exception
-is or is not a ``ValidationError`` is read accordingly.
+``format``, ``.json()``, or any call; nor may an unfiltered ``.errors()``, one
+of its entries, or an entry's ``input``. An in-package function it is passed to
+is checked the same way; only a ``format_*`` helper or a type test receives it
+unread, and a call or comparison that only decides an ``if`` reads it without
+rendering it. A branch, or the rest of a block after an early exit, that has
+established the exception is or is not a ``ValidationError`` is read
+accordingly. Only the package walk builds the package index (a few seconds);
+the synthetic cases index their own source and a small helper module.
 """
 
 from __future__ import annotations
@@ -94,9 +96,24 @@ class _Index:
     raising: set[tuple[str, str]]
 
 
+def _statements(statements: list[ast.stmt]):
+    """Every statement, nested ones included, without walking expressions."""
+
+    for statement in statements:
+        yield statement
+        for value in ast.iter_fields(statement):
+            items = value[1]
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, ast.stmt):
+                        yield from _statements([item])
+                    elif isinstance(item, ast.excepthandler | ast.match_case):
+                        yield from _statements(item.body)
+
+
 def _import_table(module: _Module, known: set[str]) -> dict[str, tuple[str, str | None]]:
     table: dict[str, tuple[str, str | None]] = {}
-    for node in ast.walk(module.tree):
+    for node in _statements(module.tree.body):
         if isinstance(node, ast.ImportFrom):
             if node.level:
                 base = module.name.split(".")
@@ -200,33 +217,33 @@ def _escaping_calls(statements: list[ast.stmt]) -> list[ast.Call]:
     return calls
 
 
-def _build_index(sources: dict[str, tuple[bool, str]], base: _Index | None = None) -> _Index:
-    """Index ``sources``, on top of ``base`` when given (which they may import)."""
-
-    added = {
+def _build_index(sources: dict[str, tuple[bool, str]]) -> _Index:
+    modules = {
         name: _Module(name, is_package, ast.parse(text))
         for name, (is_package, text) in sources.items()
     }
-    modules = {**(base.modules if base else {}), **added}
-    for module in added.values():
+    for module in modules.values():
         module.imports = _import_table(module, set(modules))
-    functions = {key: node for module in added.values() for key, node in _function_table(module).items()}
-    index = _Index(
-        modules,
-        {**(base.functions if base else {}), **functions},
-        set(base.raising if base else ()),
-    )
-    changed = True
-    while changed:
-        changed = False
-        for key, node in functions.items():
-            if key in index.raising:
-                continue
-            for call in _escaping_calls(node.body):
-                if _is_validation(call) or _resolve(index, key[0], call) in index.raising:
-                    index.raising.add(key)
-                    changed = True
-                    break
+    functions = {
+        key: node for module in modules.values() for key, node in _function_table(module).items()
+    }
+    index = _Index(modules, functions, set())
+    # Read each function once: does it validate, and whom does it call,
+    # outside a try that catches the error? Then spread "can raise" from
+    # the validators to their callers.
+    callers: dict[tuple[str, str], set[tuple[str, str]]] = {}
+    pending: list[tuple[str, str]] = []
+    for key, node in functions.items():
+        for call in _escaping_calls(node.body):
+            if _is_validation(call):
+                pending.append(key)
+            elif (target := _resolve(index, key[0], call)) is not None:
+                callers.setdefault(target, set()).add(key)
+    while pending:
+        key = pending.pop()
+        if key not in index.raising:
+            index.raising.add(key)
+            pending.extend(callers.get(key, ()))
     return index
 
 
@@ -282,8 +299,27 @@ def _unfiltered_errors(node: ast.AST, names: frozenset[str]) -> bool:
     return not {"include_input", "include_url"} <= filtered
 
 
+#: Keys of one ``errors()`` entry that carry what the input held.
+_INPUT_KEYS = frozenset({"input", "url", "ctx"})
+
+
 def _is_exception(node: ast.AST, names: frozenset[str]) -> bool:
-    return (isinstance(node, ast.Name) and node.id in names) or _unfiltered_errors(node, names)
+    """The exception, its unfiltered ``errors()``, one entry of that list, or
+    an entry's ``input``/``url``/``ctx`` field: all of them carry the input."""
+
+    if isinstance(node, ast.Name) and node.id in names:
+        return True
+    if _unfiltered_errors(node, names):
+        return True
+    if isinstance(node, ast.Subscript) and _unfiltered_errors(node.value, names):
+        return True  # `exc.errors()[0]`: a whole entry
+    return (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Subscript)
+        and _unfiltered_errors(node.value.value, names)
+        and isinstance(node.slice, ast.Constant)
+        and node.slice.value in _INPUT_KEYS
+    )
 
 
 @dataclass
@@ -465,10 +501,26 @@ def _leaks_in(index: _Index, module: str) -> list[int]:
     return leaks
 
 
-def _leaks(source: str) -> list[int]:
-    """The walk over one synthetic module, which may import from the package."""
+#: A module the synthetic cases import, so they exercise resolution across
+#: modules without paying for the package index.
+_HELPERS = """\
+from pydantic import ValidationError
 
-    index = _build_index({"synthetic": (False, source)}, base=_package_index())
+def load(d):
+    return M.model_validate(d)
+
+def load_quietly(d):
+    try:
+        return M.model_validate(d)
+    except ValidationError as e:
+        raise ValueError(format_it(e)) from e
+"""
+
+
+def _leaks(source: str) -> list[int]:
+    """The walk over one synthetic module, beside :data:`_HELPERS`."""
+
+    index = _build_index({"synthetic": (False, source), "helpers": (False, _HELPERS)})
     return _leaks_in(index, "synthetic")
 
 
@@ -501,11 +553,9 @@ _PRELUDE = "from pydantic import ValidationError\n"
             "try:\n outer(d)\nexcept ValueError as e:\n raise E(str(e))\n",
             [7],
         ),
-        (
-            "from agents_shipgate.core.agent_handoff import build_agent_handoff\n"
-            "try:\n build_agent_handoff(verifier={})\nexcept ValueError as e:\n raise E(f'{e}')\n",
-            [4],
-        ),
+        ("from helpers import load\ntry:\n load(d)\nexcept ValueError as e:\n raise E(f'{e}')\n", [4]),
+        ("import helpers\ntry:\n helpers.load(d)\nexcept Exception as e:\n raise E(str(e))\n", [4]),
+        ("from helpers import load_quietly\ntry:\n load_quietly(d)\nexcept ValueError as e:\n raise E(str(e))\n", []),
         # A helper the exception is handed to is read the same way.
         (
             "def say(error):\n return 'bad: ' + str(error)\n"
@@ -555,6 +605,8 @@ _PRELUDE = "from pydantic import ValidationError\n"
         ),
         # Structured access is not Pydantic's rendering, nor is a type test.
         ("try:\n x()\nexcept ValidationError as e:\n m = f\"{e.errors()[0]['msg']}\"\n", []),
+        ("try:\n x()\nexcept ValidationError as e:\n m = str(e.errors()[0])\n", [3]),
+        ("try:\n x()\nexcept ValidationError as e:\n m = f\"{e.errors()[0]['input']}\"\n", [3]),
         ("try:\n x()\nexcept ValidationError as e:\n raise E(format_validation_error(e, label='x')) from e\n", []),
         ("try:\n x()\nexcept ValidationError as e:\n m = type(e).__name__\n", []),
         # A test decides a branch; it renders nothing.
@@ -778,3 +830,27 @@ def test_an_mcp_tool_reports_invalid_input_by_field(tmp_path: Path, tool) -> Non
     assert "- unexpected: Extra inputs are not permitted" in message
     for text in (*PYDANTIC_TEXT, CANARY):
         assert text not in message, message
+
+
+def test_an_internal_error_names_an_internal_model_not_the_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ValidationError at an internal-error boundary is a product defect, so
+    its text must not tell the user their input was invalid (#328)."""
+
+    from pydantic import TypeAdapter
+
+    from agents_shipgate.cli import skill
+
+    def fail(**_: object) -> None:
+        TypeAdapter(int).validate_python(CANARY)
+
+    monkeypatch.setattr(skill, "run_skill_review", fail)
+    result = CliRunner().invoke(
+        app, ["skill", "lint", str(tmp_path)], env={"AGENTS_SHIPGATE_AGENT_MODE": "1"}
+    )
+    assert result.exit_code == 4, result.output
+    assert "Internal error: an internal model failed validation:\n- <root>:" in result.stderr
+    assert "Invalid input" not in result.stderr
+    for text in (*PYDANTIC_TEXT, CANARY):
+        assert text not in result.stderr, result.stderr

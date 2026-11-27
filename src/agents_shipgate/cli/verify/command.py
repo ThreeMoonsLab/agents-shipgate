@@ -45,6 +45,7 @@ from agents_shipgate.core.disclaimers import (
     STATIC_VERDICT_DISCLAIMER,
 )
 from agents_shipgate.core.errors import (
+    INTERNAL_VALIDATION_LABEL,
     AgentsShipgateError,
     ConfigError,
     InputParseError,
@@ -503,7 +504,7 @@ def verify(
     except Exception as exc:  # noqa: BLE001 - CLI boundary.
         if verbose:
             logger.exception("unhandled exception")
-        detail = format_exception_text(exc, validation_label="Invalid input")
+        detail = format_exception_text(exc, validation_label=INTERNAL_VALIDATION_LABEL)
         typer.echo(f"Internal error: {detail}", err=True)
         emit_agent_mode_error(
             "internal_error",
@@ -534,7 +535,7 @@ def verify(
     except Exception as exc:  # noqa: BLE001 - CLI boundary.
         if verbose:
             logger.exception("control projection failed")
-        detail = format_exception_text(exc, validation_label="Invalid input")
+        detail = format_exception_text(exc, validation_label=INTERNAL_VALIDATION_LABEL)
         typer.echo(f"Internal error: {detail}", err=True)
         guidance = (
             "Re-run with --verbose for a stack trace, then file an issue. Until "

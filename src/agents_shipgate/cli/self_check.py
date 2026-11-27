@@ -18,6 +18,7 @@ from agents_shipgate import __version__
 from agents_shipgate.cli.agent_mode import mark_cli_routing_reported
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.errors import (
+    INTERNAL_VALIDATION_LABEL,
     AgentsShipgateError,
     ConfigError,
     InputParseError,
@@ -122,7 +123,7 @@ def _run_fixture(name: str) -> str:
     except (ConfigError, InputParseError, AgentsShipgateError) as exc:
         return f"error: {type(exc).__name__}: {exc}"
     except Exception as exc:  # noqa: BLE001 - reporting boundary
-        detail = format_exception_text(exc, validation_label="invalid input")
+        detail = format_exception_text(exc, validation_label=INTERNAL_VALIDATION_LABEL)
         return f"error: {type(exc).__name__}: {detail}"
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
