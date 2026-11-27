@@ -15,26 +15,35 @@ What it checks, and what it does not:
 * **Links** are inline links and images (``[text](target)``), reference
   definitions (``[label]: target``) and HTML ``href``/``src`` attributes.
   Fenced code blocks, inline code spans, HTML comments and YAML front matter
-  are not rendered as links, so they are skipped. A target with a URL scheme
-  (``https:``, ``mailto:``) or ``//`` is external and not fetched.
+  are not rendered as links, so they are skipped, and Markdown inside a raw
+  HTML block is text (its tags' attributes are read). A target with a URL
+  scheme (``https:``, ``mailto:``) or ``//`` is external and not fetched.
 * **Targets** resolve the way GitHub resolves them: relative to the linking
   file's directory, or to the repository root when they begin with ``/``. A
-  target must be a tracked file, or a directory holding one. A path that
-  exists on disk but is untracked or ignored is reported as broken: the link
-  is dead on GitHub and in every other clone, so ``git add`` it or drop it.
-  A target that leaves the repository is broken too.
-* **Anchors** in a ``.md`` target are checked against the ids GitHub gives
-  that file: each heading's slug (see :func:`github_heading_slug`) with
-  ``-1``, ``-2`` for repeats, and every explicit ``id=``/``name=`` attribute.
-  A fragment on any other file (a ``#L12`` line anchor on a ``.py`` file) is
-  not checked.
+  target must be a tracked file, or a directory holding one, spelled with
+  the tracked case. A path that exists on disk but is untracked or ignored
+  is reported as broken: the link is dead on GitHub and in every other
+  clone, so ``git add`` it or drop it. A target that leaves the repository
+  is broken too.
+* **Anchors** in a ``.md`` target are checked against the anchors this module
+  derives for that file the way GitHub does: each heading's slug (see
+  :func:`github_heading_slug`) with ``-1``, ``-2`` for repeats, and every
+  explicit ``id=``/``name=`` attribute. A fragment on any other file (a
+  ``#L12`` line anchor on a ``.py`` file) is not checked.
 
-The parser is a reading of GitHub's renderer, not a Markdown implementation,
-so it was checked against GitHub (``gh api markdown -f mode=markdown``) when
-it was written: for each of the 354 tracked Markdown files, the relative link
-destinations it extracts equal those GitHub renders, and the anchors it gives
-all 1,951 distinct headings equal GitHub's. The tests below pin the cases
-that check covered.
+The parser is a reading of GitHub's renderer, not a Markdown implementation.
+It was checked against GitHub (``gh api markdown -f mode=markdown``, with
+front matter blanked as the file view does) on 2026-11-27: for each of the 354
+tracked Markdown files, the relative link destinations it extracts and the
+ordered heading anchors it derives equal GitHub's. The tests below pin the
+cases that check and its review covered. Known shapes it reads differently,
+none of them in the repository then:
+
+* a link inside another link's text (``[a [b](c) d](e)``) also yields ``e``;
+* an indented (four-space) code block is read as prose;
+* a heading or code span inside a list item indented four or more columns,
+  a setext heading inside a container, and a table row that does not begin
+  with ``|`` follow the simpler rules above.
 """
 
 from __future__ import annotations
@@ -44,9 +53,10 @@ import posixpath
 import re
 import subprocess
 import unicodedata
+from bisect import bisect_right
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
-from functools import lru_cache
+from functools import cache, lru_cache
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -56,24 +66,49 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 MARKDOWN_SUFFIXES = (".md", ".markdown")
 
-_FENCE_OPEN = re.compile(r"^[ \t]*(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
+_FENCE_OPEN = re.compile(r"^(?P<indent>[ \t]*)(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
 _ATX_HEADING = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")
+# A blockquote marker or list item marker in front of a heading: `> ## A`, `- ## B`.
+_CONTAINER_MARKER = re.compile(r"^ {0,3}(?:>[ ]?|(?:[-+*]|\d{1,9}[.)])[ \t]+)")
 _SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
 _NOT_A_PARAGRAPH = re.compile(r"^ {0,3}(?:[#>|]|[-+*][ \t]|\d+[.)][ \t]|$)")
 _INLINE_CODE_OR_COMMENT = re.compile(r"\\[\\`<]|`+|<!--")
-_BLANK_LINE = re.compile(r"\n[ \t]*\n")
+# A line that starts a new block, so no code span reaches across it.
+_BLOCK_START = re.compile(
+    r"^(?: {0,3}#{1,6}[ \t]|[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]|[ \t]*\|)", re.MULTILINE
+)
+_HEADING_OR_TABLE_ROW = re.compile(r" {0,3}#{1,6}[ \t]|[ \t]*\|")
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+_HTML_BLOCK_RAW = re.compile(r"^[ \t]*<(script|pre|style|textarea)(?:[\s>]|$)", re.IGNORECASE)
+_HTML_BLOCK_COMMENT = re.compile(r"^[ \t]*<!--")
+_HTML_BLOCK_TAG = re.compile(
+    r"^[ \t]*</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col"
+    r"|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame"
+    r"|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav"
+    r"|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th"
+    r"|thead|title|tr|track|ul)(?:[\s/>]|$)",
+    re.IGNORECASE,
+)
+_HTML_BLOCK_LONE_TAG = re.compile(
+    r"^[ \t]*(?:<[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>|</[A-Za-z][A-Za-z0-9-]*\s*>)[ \t]*$"
+)
+_AUTOLINK = re.compile(r"<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*|[^\s<>@]+@[^\s<>@]+)>")
 _HTML_TAG = re.compile(r"<[A-Za-z][^<>]*>|</[A-Za-z][^<>]*>")
 _HTML_ANCHOR_ATTRIBUTE = re.compile(
     r"<[A-Za-z][^<>]*?\s(?:id|name)\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'>]+))",
+    re.IGNORECASE,
 )
 _HTML_LINK_ATTRIBUTE = re.compile(
     r"<[A-Za-z][^<>]*?\s(?:href|src)\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'>]+))",
+    re.IGNORECASE,
 )
-# Link text may hold one level of nested brackets: [`a[0]`](x), [![img](i)](x).
-_INLINE_LINK_OPEN = re.compile(r"!?\[(?:[^\[\]\\]|\\.|\[(?:[^\[\]\\]|\\.)*\])*\]\(")
 _REFERENCE_DEFINITION = re.compile(
-    r"^[ \t>]*\[(?!\^)(?:[^\[\]\\]|\\.)+\]:[ \t]*(<[^<>\n]*>|\S+)", re.MULTILINE
+    r"^[ \t>]*\[(?!\^)(?:[^\[\]\\]|\\.)+\]:[ \t]*(?:\n[ \t]*)?(<[^<>\n]*>|\S+)", re.MULTILINE
 )
+_LINK_TITLE_AND_CLOSE = re.compile(
+    r"[ \t]*\n?[ \t]*(?:\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|\((?:[^()\\]|\\.)*\))?[ \t]*\n?[ \t]*\)"
+)
+_ENTITY = re.compile(r"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")
 _URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 _BACKSLASH_ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
 # A paired `_x_` or `__x__` is emphasis; a lone or intraword `_` is literal.
@@ -116,32 +151,84 @@ def _front_matter_end(lines: list[str]) -> int:
     return 0
 
 
-def _code_fence_mask(lines: list[str]) -> list[bool]:
-    """``True`` for every line that front matter or a fenced code block holds.
+_ENDS_ON_ITS_OWN_LINE = "\0"
 
-    A fence closes on a line of the same character at least as long, as
-    CommonMark says; an unclosed fence runs to the end of the file. A fence
-    may be indented, since one inside a list item is.
+
+def _html_block(lines: list[str], index: int) -> str | None:
+    """What ends a raw HTML block that starts on ``lines[index]``, or ``None``.
+
+    CommonMark's kinds, as GitHub renders them: ``<script>``/``<pre>``/
+    ``<style>``/``<textarea>`` run to their closing tag, a comment to ``-->``,
+    a block-level tag (``<details>``, ``</div>``…) to the next blank line
+    (``""``), and any other tag alone on a line also to a blank line, but
+    only where it does not interrupt a paragraph.
     """
 
-    masked = [False] * len(lines)
+    line = lines[index]
+    if match := _HTML_BLOCK_RAW.match(line):
+        closing = f"</{match.group(1).lower()}>"
+        return _ENDS_ON_ITS_OWN_LINE if closing in line.lower() else closing
+    if _HTML_BLOCK_COMMENT.match(line):
+        opened = line.index("<!--") + 4
+        return _ENDS_ON_ITS_OWN_LINE if "-->" in line[opened:] else "-->"
+    if _HTML_BLOCK_TAG.match(line):
+        return ""
+    if _HTML_BLOCK_LONE_TAG.match(line) and (index == 0 or not lines[index - 1].strip()):
+        return ""
+    return None
+
+
+def _block_masks(lines: list[str]) -> tuple[list[bool], list[bool]]:
+    """Which lines are code, and which are raw HTML blocks.
+
+    Code is front matter and fenced code. A fence closes on a line of the
+    same character at least as long, as CommonMark says; an unclosed fence
+    runs to the end of the file. A fence may be indented, since one inside a
+    list item is, and a closing line indented four or more columns past the
+    opening one is content, not a close. Inside a raw HTML block a fence
+    opens nothing, Markdown is not rendered, and its tags' attributes are.
+    """
+
+    code = [False] * len(lines)
+    raw_html = [False] * len(lines)
     for index in range(_front_matter_end(lines)):
-        masked[index] = True
+        code[index] = True
     open_fence: str | None = None
+    open_indent = 0
+    html_until: str | None = None  # "" ends at a blank line
     for index, line in enumerate(lines):
-        if masked[index]:
+        if code[index]:
             continue
         if open_fence is not None:
-            masked[index] = True
+            code[index] = True
             stripped = line.strip()
-            if stripped and set(stripped) == {open_fence[0]} and len(stripped) >= len(open_fence):
+            indent = len(line) - len(line.lstrip(" \t"))
+            if (
+                stripped
+                and set(stripped) == {open_fence[0]}
+                and len(stripped) >= len(open_fence)
+                and indent < open_indent + 4
+            ):
                 open_fence = None
+            continue
+        if html_until is not None:
+            if html_until == "" and not line.strip():
+                html_until = None
+                continue
+            raw_html[index] = True
+            if html_until and html_until in line.lower():
+                html_until = None
             continue
         match = _FENCE_OPEN.match(line)
         if match and not (match.group("fence")[0] == "`" and "`" in match.group("info")):
             open_fence = match.group("fence")
-            masked[index] = True
-    return masked
+            open_indent = len(match.group("indent"))
+            code[index] = True
+            continue
+        if (ending := _html_block(lines, index)) is not None:
+            raw_html[index] = True
+            html_until = None if ending == _ENDS_ON_ITS_OWN_LINE else ending
+    return code, raw_html
 
 
 def _mask_code_spans_and_comments(text: str) -> str:
@@ -149,8 +236,11 @@ def _mask_code_spans_and_comments(text: str) -> str:
 
     Whichever starts first wins, so a ``<!--`` inside a code span opens no
     comment and a backtick inside a comment opens no span. A span closes on
-    the next backtick run of the same length in the same paragraph; without
-    one, its backticks are literal. A backslash-escaped backtick opens nothing.
+    the next backtick run of the same length in the same block; without one,
+    its backticks are literal. A block ends at a blank line, and at a line
+    that starts a heading, a list item or a table row; a span opened on a
+    heading or table row line ends with that line. A backslash-escaped
+    backtick opens nothing.
     """
 
     out = list(text)
@@ -159,6 +249,20 @@ def _mask_code_spans_and_comments(text: str) -> str:
         for position in range(start, end):
             if out[position] != "\n":
                 out[position] = " "
+
+    lines = text.split("\n")
+    starts = [0]
+    for line in lines[:-1]:
+        starts.append(starts[-1] + len(line) + 1)
+    # Where the block holding each line ends: the start of the next blank or
+    # block-starting line, or the end of the text.
+    block_end = [len(text)] * (len(lines) + 1)
+    for index in range(len(lines) - 1, -1, -1):
+        line = lines[index]
+        if not line.strip() or _BLOCK_START.match(line):
+            block_end[index] = starts[index]
+        else:
+            block_end[index] = block_end[index + 1]
 
     position = 0
     while match := _INLINE_CODE_OR_COMMENT.search(text, position):
@@ -174,9 +278,12 @@ def _mask_code_spans_and_comments(text: str) -> str:
                 blank(start, close + 3)
                 position = close + 3
         else:
-            paragraph_end = _BLANK_LINE.search(text, end)
-            limit = paragraph_end.start() if paragraph_end else len(text)
-            closer = re.compile(rf"(?<!`)`{{{len(token)}}}(?!`)").search(text, end, limit)
+            index = bisect_right(starts, start) - 1
+            if _HEADING_OR_TABLE_ROW.match(lines[index]):
+                limit = starts[index] + len(lines[index])
+            else:
+                limit = block_end[index + 1]
+            closer = _backtick_run(len(token)).search(text, end, limit)
             if closer is None:
                 position = end
             else:
@@ -185,17 +292,32 @@ def _mask_code_spans_and_comments(text: str) -> str:
     return "".join(out)
 
 
-def renderable_text(text: str) -> str:
-    """The Markdown with everything GitHub does not render as a link blanked.
+@cache
+def _backtick_run(width: int) -> re.Pattern[str]:
+    """A run of exactly ``width`` backticks."""
 
-    Front matter, fenced code, code spans and HTML comments become spaces, so
-    offsets and line numbers still point into the original file.
+    return re.compile(rf"(?<!`)`{{{width}}}(?!`)")
+
+
+def renderable_views(text: str) -> tuple[str, str]:
+    """``(markdown, html)``: the text GitHub reads as Markdown, and as HTML.
+
+    Both blank front matter, fenced code, code spans and HTML comments to
+    spaces, so offsets and line numbers still point into the original file.
+    The Markdown view also blanks raw HTML blocks, whose Markdown GitHub does
+    not render; the HTML view keeps them, since their tags' attributes are.
     """
 
     lines = text.split("\n")
-    fenced = _code_fence_mask(lines)
-    kept = "\n".join(_blank(line) if fenced[i] else line for i, line in enumerate(lines))
-    return _mask_code_spans_and_comments(kept)
+    code, raw_html = _block_masks(lines)
+    markdown = _mask_code_spans_and_comments(
+        "\n".join(_blank(line) if code[i] or raw_html[i] else line for i, line in enumerate(lines))
+    )
+    markdown_lines = markdown.split("\n")
+    html_text = "\n".join(
+        line if raw_html[i] else markdown_lines[i] for i, line in enumerate(lines)
+    )
+    return markdown, _HTML_COMMENT.sub(lambda match: _blank(match.group(0)), html_text)
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +358,8 @@ def _heading_prose(markdown: str) -> str:
     text = markdown.replace("\\_", _ESCAPED_UNDERSCORE)
     text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
     text = re.sub(r"\[([^\]]*)\](?:\([^)]*\)|\[[^\]]*\])", r"\1", text)
+    text = _HTML_COMMENT.sub("", text)
+    text = _AUTOLINK.sub(r"\1", text)  # <https://x.y> renders its URL as text
     text = _HTML_TAG.sub("", text)
     text = _UNDERSCORE_EMPHASIS.sub(r"\2", text)
     text = _BACKSLASH_ESCAPE.sub(r"\1", text)
@@ -256,27 +380,61 @@ def github_heading_slug(text: str) -> str:
     return "".join(kept).replace(" ", "-")
 
 
+def _atx_heading(line: str) -> re.Match[str] | None:
+    """An ATX heading, also one inside a blockquote or list item (``> ## A``)."""
+
+    while True:
+        match = _ATX_HEADING.match(line)
+        if match:
+            return match
+        marker = _CONTAINER_MARKER.match(line)
+        if marker is None or not marker.group(0):
+            return None
+        line = line[marker.end() :]
+
+
 def _headings(text: str) -> Iterator[str]:
-    """The rendered text of every ATX and setext heading outside code."""
+    """The rendered text of every ATX and setext heading outside code and raw HTML.
+
+    A setext heading's text is its whole paragraph; GitHub joins the lines
+    with a newline, which the slug then drops.
+    """
 
     lines = text.split("\n")
-    fenced = _code_fence_mask(lines)
+    code, raw_html = _block_masks(lines)
+    skipped = [is_code or is_html for is_code, is_html in zip(code, raw_html, strict=True)]
+
+    def paragraph_line(index: int) -> bool:
+        line = lines[index]
+        return (
+            bool(line.strip())
+            and not skipped[index]
+            and not _NOT_A_PARAGRAPH.match(line)
+            and _atx_heading(line) is None
+            and not _SETEXT_UNDERLINE.match(line)
+        )
+
     for index, line in enumerate(lines):
-        if fenced[index]:
+        if skipped[index]:
             continue
-        match = _ATX_HEADING.match(line)
+        match = _atx_heading(line)
         if match:
             yield heading_text(match.group(2) or "")
             continue
+        if index == 0 or not _SETEXT_UNDERLINE.match(line) or not paragraph_line(index - 1):
+            continue
+        first = index - 1
+        while first > 0 and paragraph_line(first - 1):
+            first -= 1
+        before = lines[first - 1] if first > 0 else ""
         if (
-            index > 0
-            and _SETEXT_UNDERLINE.match(line)
-            and not fenced[index - 1]
-            and not _NOT_A_PARAGRAPH.match(lines[index - 1])
-            and not _ATX_HEADING.match(lines[index - 1])
-            and (index < 2 or not lines[index - 2].strip() or fenced[index - 2])
+            first == 0
+            or not before.strip()
+            or skipped[first - 1]
+            or _atx_heading(before)
+            or _SETEXT_UNDERLINE.match(before)
         ):
-            yield heading_text(lines[index - 1].strip())
+            yield "\n".join(heading_text(lines[i].strip()) for i in range(first, index))
 
 
 def heading_anchors(text: str) -> list[str]:
@@ -304,7 +462,7 @@ def anchors_in(text: str) -> frozenset[str]:
 
     explicit = (
         next(group for group in match.groups() if group is not None)
-        for match in _HTML_ANCHOR_ATTRIBUTE.finditer(renderable_text(text))
+        for match in _HTML_ANCHOR_ATTRIBUTE.finditer(renderable_views(text)[1])
     )
     return frozenset(heading_anchors(text)).union(explicit)
 
@@ -352,31 +510,71 @@ def _inline_destination(text: str, start: int) -> str | None:
                 depth -= 1
             position += 1
         destination = text[begin:position]
-    rest = text[position:]
-    match = re.match(
-        r"[ \t]*\n?[ \t]*(?:\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|\((?:[^()\\]|\\.)*\))?[ \t]*\n?[ \t]*\)",
-        rest,
-    )
-    if match is None:
+    if _LINK_TITLE_AND_CLOSE.match(text, position) is None:
         return None
-    return _BACKSLASH_ESCAPE.sub(r"\1", destination)
+    return _decode_destination(destination)
+
+
+def _decode_destination(destination: str) -> str:
+    """Backslash escapes and entity references, which a destination honours."""
+
+    destination = _BACKSLASH_ESCAPE.sub(r"\1", destination)
+    return _ENTITY.sub(lambda match: html.unescape(match.group(0)), destination)
+
+
+def _escaped(text: str, position: int) -> bool:
+    """Whether an odd run of backslashes precedes ``text[position]``."""
+
+    backslashes = 0
+    while position - backslashes > 0 and text[position - backslashes - 1] == "\\":
+        backslashes += 1
+    return backslashes % 2 == 1
+
+
+def _link_text_start(text: str, close: int) -> int | None:
+    """The ``[`` that the ``]`` at ``close`` closes, within its block.
+
+    Brackets nest to any depth, and an escaped bracket does not count, so
+    ``[a [b [c]]](x)`` is a link and ``\\[x](y)`` is not. The search stops at a
+    blank line and at the start of a line that begins a block.
+    """
+
+    depth = 1
+    position = close - 1
+    while position >= 0:
+        ch = text[position]
+        if ch == "\n":
+            previous = text.rfind("\n", 0, position)
+            if not text[previous + 1 : position].strip() or _BLOCK_START.match(text, position + 1):
+                return None
+        elif ch in "[]" and not _escaped(text, position):
+            depth += 1 if ch == "]" else -1
+            if depth == 0:
+                return position
+        position -= 1
+    return None
 
 
 def links_in(text: str) -> Iterator[tuple[int, str]]:
     """``(line, destination)`` for every link GitHub would render in ``text``."""
 
-    rendered = renderable_text(text)
+    markdown, html_view = renderable_views(text)
 
     def line_of(offset: int) -> int:
-        return rendered.count("\n", 0, offset) + 1
+        return markdown.count("\n", 0, offset) + 1
 
-    for match in _INLINE_LINK_OPEN.finditer(rendered):
-        destination = _inline_destination(rendered, match.end())
+    for match in re.finditer(r"\]\(", markdown):
+        if _escaped(markdown, match.start()):
+            continue
+        start = _link_text_start(markdown, match.start())
+        if start is None:
+            continue
+        destination = _inline_destination(markdown, match.end())
         if destination is not None:
-            yield line_of(match.start()), destination
-    for match in _REFERENCE_DEFINITION.finditer(rendered):
-        yield line_of(match.start()), match.group(1).strip("<>")
-    for match in _HTML_LINK_ATTRIBUTE.finditer(rendered):
+            yield line_of(start), destination
+    for match in _REFERENCE_DEFINITION.finditer(markdown):
+        yield line_of(match.start()), _decode_destination(match.group(1).strip("<>"))
+    for match in _HTML_LINK_ATTRIBUTE.finditer(html_view):
         value = next(group for group in match.groups() if group is not None)
         yield line_of(match.start()), html.unescape(value)
 
@@ -396,6 +594,7 @@ class Repository:
     _anchors: dict[str, frozenset[str] | None] = field(
         default_factory=dict, compare=False, hash=False, repr=False
     )
+    _folded: dict[str, str] = field(default_factory=dict, compare=False, hash=False, repr=False)
 
     @classmethod
     def from_paths(cls, root: Path, files: Iterable[str]) -> Repository:
@@ -434,6 +633,14 @@ class Repository:
             self._anchors[path] = None if text is None else anchors_in(text)
         return self._anchors[path]
 
+    def tracked_spelling(self, path: str) -> str | None:
+        """The tracked path that differs from ``path`` only in case, if any."""
+
+        if not self._folded:
+            for tracked in sorted(self.files | self.directories):
+                self._folded.setdefault(tracked.casefold(), tracked)
+        return self._folded.get(path.casefold())
+
 
 def is_external(destination: str) -> bool:
     return destination.startswith("//") or bool(_URL_SCHEME.match(destination))
@@ -471,6 +678,9 @@ def resolve(repository: Repository, source: str, destination: str) -> str | None
         if target == ".." or target.startswith("../"):
             return "leaves the repository"
         if target not in repository.files and target not in repository.directories:
+            # GitHub matches case exactly; a case-insensitive disk does not.
+            if (spelling := repository.tracked_spelling(target)) is not None:
+                return f"{target} differs in case from tracked {spelling}"
             if (repository.root / target).exists():
                 return f"{target} exists but is not tracked by git"
             return f"{target} does not exist"
@@ -493,10 +703,12 @@ def resolve(repository: Repository, source: str, destination: str) -> str | None
     return f"#{fragment} is not a heading or anchor in {target}"
 
 
-def broken_links(repository: Repository) -> list[BrokenLink]:
+def broken_links(
+    repository: Repository, links: Iterable[tuple[str, int, str]] | None = None
+) -> list[BrokenLink]:
     return [
         BrokenLink(source, line, destination, reason)
-        for source, line, destination in relative_links(repository)
+        for source, line, destination in (relative_links(repository) if links is None else links)
         if (reason := resolve(repository, source, destination)) is not None
     ]
 
@@ -506,13 +718,18 @@ def _this_repository() -> Repository:
     return Repository.from_git(REPO_ROOT)
 
 
+@lru_cache(maxsize=1)
+def _this_repository_links() -> tuple[tuple[str, int, str], ...]:
+    return tuple(relative_links(_this_repository()))
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
 
 def test_every_relative_link_and_anchor_in_tracked_markdown_resolves() -> None:
-    broken = broken_links(_this_repository())
+    broken = broken_links(_this_repository(), _this_repository_links())
     assert not broken, (
         f"{len(broken)} broken relative link(s) or anchor(s) in tracked Markdown. "
         "Point each at a tracked file and at a heading or <a id> it has. A file "
@@ -525,10 +742,10 @@ def test_the_check_reads_the_repository_and_is_not_vacuous() -> None:
     """A parser that found no links would pass the test above with nothing read."""
 
     repository = _this_repository()
-    links = list(relative_links(repository))
+    links = _this_repository_links()
     sources = {source for source, _, _ in links}
     fragments = [destination for _, _, destination in links if "#" in destination]
-    # 354 files, 187 of them with 2,169 relative links, 429 with a fragment,
+    # 354 files, 187 of them with 2,169 relative links, 430 with a fragment,
     # when this was written.
     assert len(repository.markdown_files()) > 300
     assert len(sources) > 150
@@ -549,6 +766,8 @@ def test_a_planted_broken_link_and_anchor_are_reported(tmp_path: Path) -> None:
             "[explicit anchor](../README.md#pinned)\n"
             "[root-relative](/README.md#project)\n"
             "[directory](../samples/)\n"
+            "[directory README anchor](../pkg/#pkg)\n"
+            "[prefixed anchor](../README.md#user-content-project)\n"
             "[line anchor](../src/app.py#L10)\n"
             '[titled](../README.md "Project")\n'
             "[self](#guide)\n"
@@ -562,10 +781,13 @@ def test_a_planted_broken_link_and_anchor_are_reported(tmp_path: Path) -> None:
             "[untracked](notes.md)\n"
             "[outside](../../outside.md)\n"
             "[self, broken](#nowhere)\n"
+            "[no README](../samples/#x)\n"
+            "[wrong case](../readme.md)\n"
             '<a href="missing-html.md">html</a>\n\n'
             "[ref]: missing-ref.md\n"
         ),
         "docs/notes.md": "# Written, never added\n",
+        "pkg/README.md": "# Pkg\n",
         "samples/data.json": "{}\n",
         "src/app.py": "pass\n",
     }
@@ -583,6 +805,8 @@ def test_a_planted_broken_link_and_anchor_are_reported(tmp_path: Path) -> None:
         "notes.md": "docs/notes.md exists but is not tracked by git",
         "../../outside.md": "leaves the repository",
         "#nowhere": "#nowhere is not a heading or anchor in docs/guide.md",
+        "../samples/#x": "#x: directory samples has no README.md to hold it",
+        "../readme.md": "readme.md differs in case from tracked README.md",
         "missing-html.md": "docs/missing-html.md does not exist",
         "missing-ref.md": "docs/missing-ref.md does not exist",
     }
@@ -593,7 +817,12 @@ def test_a_planted_broken_link_and_anchor_are_reported(tmp_path: Path) -> None:
 
 
 def test_code_and_comments_hide_links_and_nothing_else() -> None:
-    """GitHub renders exactly these destinations from this text (2026-11-27)."""
+    """GitHub renders exactly these destinations from this text (2026-11-27).
+
+    An unmatched backtick must not hide what follows it beyond its own block:
+    across list items, table rows or a heading line, a stray backtick on each
+    side once read every link between them as code, so a broken one passed.
+    """
 
     text = (
         "Open `<!--` in code, then [after code](a.md).\n\n"
@@ -602,7 +831,13 @@ def test_code_and_comments_hide_links_and_nothing_else() -> None:
         "\\`not code [escaped tick](d.md)\\`\n\n"
         "``a ` b [in double ticks](e.md) ``\n\n"
         "An unclosed ` tick [still a link](f.md)\n\n"
-        "![image](g.png) and [ref][r]\n\n[r]: h.md\n"
+        "![image](g.png) and [ref][r]\n\n[r]: h.md\n\n"
+        "- Use the ` character\n- See [doc](cross-list.md) and ` here\n\n"
+        "| a ` | b |\n| --- | --- |\n| [t](cross-table.md) | ` c |\n\n"
+        "Para with ` tick\n## Heading [h](cross-heading.md) `\nmore\n\n"
+        "## Second ` [h2](heading-line.md)\nnext ` line\n\n"
+        "```\ncode\n    ```\n[in fence](after-indented-closer.md)\n```\n\n"
+        "\\[escaped](escaped-bracket.md)\n"
     )
     assert [destination for _, destination in links_in(text)] == [
         "a.md",
@@ -610,7 +845,49 @@ def test_code_and_comments_hide_links_and_nothing_else() -> None:
         "d.md",
         "f.md",
         "g.png",
+        "cross-list.md",
+        "cross-table.md",
+        "cross-heading.md",
+        "heading-line.md",
         "h.md",
+    ]
+
+
+def test_raw_html_blocks_render_attributes_and_no_markdown() -> None:
+    """GitHub's reading of raw HTML blocks (2026-11-27).
+
+    Inside one, a Markdown link is text and a fence opens nothing, so the
+    heading after it is a heading; ``examples/golden-prs`` has that shape.
+    """
+
+    text = (
+        "<details>\n<summary>Raw</summary>\n"
+        '[raw](raw-block.md) and <a href="html-href.md">a</a>\n</details>\n```\n\n'
+        "## After the raw block\n\n[after](after-raw.md)\n\n"
+        "<!--\n```\n-->\n[after comment block](after-comment-block.md)\n"
+    )
+    assert [destination for _, destination in links_in(text)] == [
+        "after-raw.md",
+        "after-comment-block.md",
+        "html-href.md",
+    ]
+    assert heading_anchors(text) == ["after-the-raw-block"]
+
+
+def test_link_syntax_github_reads_and_the_parser_must_too() -> None:
+    """GitHub renders each of these as a link to the file named (2026-11-27)."""
+
+    text = (
+        "[a [b [c]]](nested.md)\n\n"
+        '<A HREF="upper.md">x</A>\n\n'
+        "[x](a&amp;b.md)\n\n"
+        "Use [r] here.\n\n[r]:\n  next-line.md\n"
+    )
+    assert [destination for _, destination in links_in(text)] == [
+        "nested.md",
+        "a&b.md",
+        "next-line.md",
+        "upper.md",
     ]
 
 
@@ -661,6 +938,9 @@ def test_code_and_comments_hide_links_and_nothing_else() -> None:
         ("Café naïve Ünïcode", "café-naïve-ünïcode"),
         ("Two  spaces", "two--spaces"),
         ("Trailing hashes ##", "trailing-hashes"),
+        ("Title <!-- note -->", "title-"),
+        ("See <https://x.y>", "see-httpsxy"),
+        ("Heading [h](x.md) `", "heading-h-"),
     ],
 )
 def test_heading_anchor_matches_github(heading: str, anchor: str) -> None:
@@ -670,6 +950,23 @@ def test_heading_anchor_matches_github(heading: str, anchor: str) -> None:
 def test_repeated_headings_take_the_first_free_suffix() -> None:
     text = "## Same\n\n## Same\n\n## Same\n\n## Same-1\n\n```\n## Same\n```\n\nSame\n----\n"
     assert heading_anchors(text) == ["same", "same-1", "same-2", "same-1-1", "same-3"]
+
+
+def test_headings_in_containers_and_multi_line_setext_headings_get_anchors() -> None:
+    """GitHub's anchors for these headings (2026-11-27)."""
+
+    text = (
+        "> ## Quoted\n\n## Quoted\n\n"
+        "Line one\nLine two\n========\n\n"
+        "- ## In list\n\n1. ## In ordered list\n"
+    )
+    assert heading_anchors(text) == [
+        "quoted",
+        "quoted-1",
+        "line-oneline-two",
+        "in-list",
+        "in-ordered-list",
+    ]
 
 
 @pytest.mark.parametrize(

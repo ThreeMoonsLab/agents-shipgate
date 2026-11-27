@@ -861,12 +861,12 @@
   },
   {
    "source": "junit",
-   "measured_at": "c24483b5ae8e with issue #1039 repository link check",
-   "report_sha256": "7cb594185bff9751f160d43ebc84020eaf1f834d5a9c7c15c7cf354e48e9c1ea",
+   "measured_at": "c24483b5ae8e with issue #1039 repository link check (review cycle 1)",
+   "report_sha256": "2767a26edf2ebbcc61f18bc9f3839bfabb15ece843b4ca9c9670a57b6e3b7912",
    "files": {
     "tests/test_repository_links.py": 1.2
    },
-   "case_count": 35,
+   "case_count": 41,
    "command": "python -m pytest tests/test_repository_links.py --junitxml=repository-links.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
