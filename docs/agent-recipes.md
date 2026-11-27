@@ -512,9 +512,11 @@ existing workflow is reported in `cross_reference_path`.
   handles (`2` to `5`), usage errors included, emits one structured
   `next_action` JSON line on stderr. Surface that path to the user rather than
   scraping prose. Where the command knows no specific recovery, the action is
-  `review`: act on the prose message printed with it. `verify` reports its
+  `review`: act on the prose message printed with it. `verify` reports most
   failures in the `verifier.json` it prints instead; [`AGENTS.md` § Agent
   mode](../AGENTS.md#agent-mode) lists that and the other exceptions.
+  Agents Shipgate 1.3.0 and earlier print prose only on some paths; when no
+  JSON line appears, act on the message and the exit code.
 
 ## Pre-flight reminder
 

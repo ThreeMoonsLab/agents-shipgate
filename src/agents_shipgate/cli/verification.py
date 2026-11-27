@@ -48,7 +48,13 @@ from agents_shipgate.core.current_control import (
     publish_current_control,
     workspace_identity_from_plan,
 )
-from agents_shipgate.core.errors import ConfigError, InputParseError, format_validation_error
+from agents_shipgate.core.errors import (
+    ConfigError,
+    InputParseError,
+    format_error_message,
+    format_exception_text,
+    format_validation_error,
+)
 from agents_shipgate.core.static_inputs import (
     StaticInputSnapshot,
     activate_static_input_snapshot,
@@ -551,7 +557,9 @@ def _captured_inputs(
             snapshot.finish()
         except (OSError, ValueError) as exc:
             raise InputParseError(
-                f"Verification inputs changed while they were being read: {exc}"
+                format_error_message(
+                    exc, label="Verification inputs changed while they were being read"
+                )
             ) from exc
         # Blob paths are logical and relative to the input root, so a read
         # outside it cannot become one.
@@ -589,7 +597,9 @@ def worker(
         )
         _validate_git_subject(plan, workspace)
     except ValueError as exc:
-        raise InputParseError(str(exc)) from exc
+        raise InputParseError(
+            format_exception_text(exc, validation_label="Invalid verification plan inputs")
+        ) from exc
     unit = build_unit_result(
         plan=plan,
         normalized_ir={
@@ -630,7 +640,9 @@ def assemble(
             plugins_enabled=_plugins_enabled(plan),
         )
     except ValueError as exc:
-        raise InputParseError(str(exc)) from exc
+        raise InputParseError(
+            format_exception_text(exc, validation_label="Invalid verification plan engine")
+        ) from exc
     verifier_mirrors = {
         "request_id": plan.request_id,
         "subject_id": plan.subject.subject_id,

@@ -462,10 +462,11 @@ When agent mode is active, every error exit the CLI handles (`2` to `5`),
 usage errors included, emits one structured `next_action` line on stderr — set
 `AGENTS_SHIPGATE_AGENT_MODE=1`, or rely on auto-detection inside a coding agent
 harness (Claude Code exports `CLAUDECODE=1`, Cursor `CURSOR_TRACE_ID`).
-`AGENTS_SHIPGATE_AGENT_MODE=0` forces it off. `verify` reports its failures in
-the `verifier.json` it prints instead; see
+`AGENTS_SHIPGATE_AGENT_MODE=0` forces it off. `verify` reports most failures
+in the `verifier.json` it prints instead; see
 [`AGENTS.md` § Agent mode](AGENTS.md#agent-mode) for that and the other
-exceptions.
+exceptions. Agents Shipgate 1.3.0 and earlier print prose only on some paths;
+when no JSON line appears, act on the message and the exit code.
 
 ## Exit codes
 

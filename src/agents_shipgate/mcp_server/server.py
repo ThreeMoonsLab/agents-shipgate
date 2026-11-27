@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from agents_shipgate.checks.registry import check_catalog
 from agents_shipgate.cli.agent_result import agent_result_json_payload, build_agent_boundary_result
 from agents_shipgate.cli.capability import build_capability_lock_from_config
@@ -20,7 +22,7 @@ from agents_shipgate.core.capability_lock import (
     render_capability_lock_diff_json,
     render_capability_lock_json,
 )
-from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.errors import ConfigError, format_validation_error
 from agents_shipgate.core.preflight import build_preflight_result
 from agents_shipgate.schemas.agent_boundary import AGENT_BOUNDARY_RESULT_SCHEMA_VERSION
 from agents_shipgate.schemas.agent_handoff import AGENT_HANDOFF_SCHEMA_VERSION
@@ -111,11 +113,16 @@ def shipgate_preflight(
                 + "; put those inputs in the plan object or omit plan."
             )
 
-    request = (
-        CapabilityRequestV1.model_validate(capability_request)
-        if capability_request is not None
-        else None
-    )
+    try:
+        request = (
+            CapabilityRequestV1.model_validate(capability_request)
+            if capability_request is not None
+            else None
+        )
+    except ValidationError as exc:
+        raise ConfigError(
+            format_validation_error(exc, label="Invalid capability request")
+        ) from exc
     result = build_preflight_result(
         workspace=Path(workspace),
         config=Path(config),
@@ -199,11 +206,19 @@ def shipgate_handoff(
     verify_run = _load_optional_json_object(
         Path(verify_run_path) if verify_run_path else base_dir / "verify-run.json",
     )
-    return build_agent_handoff(
-        verifier=verifier,
-        report=report,
-        verify_run=verify_run,
-    ).model_dump(mode="json")
+    try:
+        handoff = build_agent_handoff(
+            verifier=verifier,
+            report=report,
+            verify_run=verify_run,
+        )
+    except ValidationError as exc:
+        # The SDK returns the exception's text to the client; Pydantic's own
+        # rendering would echo the artifacts' values (#1040).
+        raise ValueError(
+            format_validation_error(exc, label="The verifier artifacts failed validation")
+        ) from exc
+    return handoff.model_dump(mode="json")
 
 
 # The SDK range the ``[mcp]`` extra declares in ``pyproject.toml``. The server

@@ -29,7 +29,7 @@ A `/shipgate` slash command is registered at [`.claude/commands/shipgate.md`](.c
 
 ## Skills
 
-When invoking the CLI from a skill, set `AGENTS_SHIPGATE_AGENT_MODE=1` so every error exit the CLI handles (`2`, `3`, `4` or `5`), usage errors and supporting commands included, adds exactly one structured `next_action` JSON line on stderr. Where a command knows no specific recovery, that action is `review`: act on the prose message printed with it. `verify` reports its failures in the `verifier.json` it prints instead (route on its `control`), as `verification reproduce` and `self-check` do in their own output. Result exits (`0`, `6`, `20`) and an uncaught internal error (a traceback, exit `1`) add no line. [`AGENTS.md` § Agent mode](AGENTS.md#agent-mode) states the rule in full.
+When invoking the CLI from a skill, set `AGENTS_SHIPGATE_AGENT_MODE=1` so every error exit the CLI handles (`2`, `3`, `4` or `5`), usage errors and supporting commands included, adds exactly one structured `next_action` JSON line on stderr. Where a command knows no specific recovery, that action is `review`: act on the prose message printed with it. `verify` reports most failures in the `verifier.json` it prints instead (route on its `control`); a failure before it can write that file, such as a usage error, a missing workspace or an unwritable `--out`, adds the line. `verification reproduce` and `self-check` answer in their own output. Result exits (`0`, `6`, `20`) and an uncaught internal error (a traceback, exit `1`) add no line. Agents Shipgate 1.3.0 and earlier print prose only on some paths; when no JSON line appears, act on the message and the exit code. [`AGENTS.md` § Agent mode](AGENTS.md#agent-mode) states the rule in full.
 
 ## Surface discipline
 

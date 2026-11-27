@@ -460,11 +460,11 @@ def _sha256_or_none(value: Any) -> str | None:
 
 
 def _first_error(exc: ValueError) -> str:
-    errors = getattr(exc, "errors", None)
-    if callable(errors):
-        listed = errors()
-        if listed:
-            return str(listed[0].get("msg"))
+    from pydantic import ValidationError
+
+    if isinstance(exc, ValidationError):
+        listed = exc.errors(include_input=False, include_url=False, include_context=False)
+        return str(listed[0].get("msg")) if listed else "invalid payload"
     return str(exc)
 
 

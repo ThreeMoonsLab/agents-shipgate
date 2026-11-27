@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from pydantic import ValidationError
 
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error
 from agents_shipgate.cli.current_workspace import (
@@ -30,7 +31,11 @@ from agents_shipgate.core.current_control import (
     LiveWorkspaceCause,
     read_current_control,
 )
-from agents_shipgate.core.errors import InputParseError, format_error_message
+from agents_shipgate.core.errors import (
+    InputParseError,
+    format_error_message,
+    format_validation_error,
+)
 from agents_shipgate.invocation import join_argv, render_command, split_invocation
 from agents_shipgate.schemas.contract import DEFAULT_PATHS
 from agents_shipgate.schemas.current_control import (
@@ -113,7 +118,14 @@ def handoff(
             verify_run=verify_run_payload,
         )
     except (InputParseError, ValueError) as exc:
-        typer.echo(f"Input parsing error: {exc}", err=True)
+        message = (
+            format_validation_error(
+                exc, label="Input parsing error: the verifier artifacts failed validation"
+            )
+            if isinstance(exc, ValidationError)
+            else f"Input parsing error: {exc}"
+        )
+        typer.echo(message, err=True)
         raise typer.Exit(3) from exc
     except Exception as exc:  # noqa: BLE001 - CLI boundary.
         typer.echo(f"Agents Shipgate error: {exc}", err=True)

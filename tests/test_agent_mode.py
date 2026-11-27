@@ -542,12 +542,40 @@ _AGENT_FACING_ROOTS = (
 )
 
 
-def test_no_agent_facing_surface_cites_1040_as_an_open_gap() -> None:
+def _open_gap_citations(text: str) -> list[str]:
+    """Each #1040 citation that says a path still prints prose only."""
+
+    flat = " ".join(text.split())
+    found = []
+    for match in re.finditer(r"issues/1040\b|#1040\b", flat):
+        window = flat[max(0, match.start() - 160) : match.end() + 160].lower()
+        if "prose only" in window or "not every" in window:
+            found.append(window)
+    return found
+
+
+@pytest.mark.parametrize(
+    ("text", "gap"),
+    [
+        ("Not every path emits the line yet ([#1040](https://x/issues/1040)): usage errors "
+         "print prose only.", True),
+        ("Usage errors and some supporting commands print prose only\n   "
+         "([#1040](https://x/issues/1040)), and verify reports many failures.", True),
+        ("The root seam closed this in #1040.", False),
+        ("An older CLI prints prose only on some paths.", False),
+    ],
+)
+def test_the_open_gap_sweep_reads_the_phrasings_it_is_for(text: str, gap: bool) -> None:
+    assert bool(_open_gap_citations(text)) is gap
+
+
+def test_no_agent_facing_surface_still_calls_1040_an_open_gap() -> None:
     """The root seam emits the line on every handled error exit (#1040).
 
     Those surfaces said usage errors and supporting commands printed prose
     only, citing #1040 as the open gap. A surface still saying so tells an
-    agent to expect no line where one now arrives.
+    agent to expect no line where one now arrives. A citation of #1040 as
+    done is fine.
     """
 
     from agents_shipgate.cli.discovery.agent_instructions.renderers import (
@@ -560,7 +588,6 @@ def test_no_agent_facing_surface_cites_1040_as_an_open_gap() -> None:
     )
 
     repo = Path(__file__).resolve().parent.parent
-    citation = re.compile(r"issues/1040\b|#1040\b")
     texts = {
         f"render:{render.__name__}": render()
         for render in (
@@ -583,7 +610,7 @@ def test_no_agent_facing_surface_cites_1040_as_an_open_gap() -> None:
                 continue
             texts[relative] = path.read_text(encoding="utf-8")
     assert len(texts) > 100
-    assert sorted(name for name, text in texts.items() if citation.search(text)) == []
+    assert sorted(name for name, text in texts.items() if _open_gap_citations(text)) == []
 
 
 def test_config_error_catalog_covers_non_manifest_request_configuration() -> None:

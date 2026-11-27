@@ -31,6 +31,7 @@ from typing import Any
 
 import yaml
 
+from agents_shipgate.core.errors import format_error_message
 from agents_shipgate.schemas.checks import CheckMetadata
 
 # Stable base for per-check docs URLs. The H3 anchor convention
@@ -183,8 +184,10 @@ def load_check_metadata() -> list[CheckMetadata]:
                 out.append(CheckMetadata(**merged))
             except Exception as exc:
                 raise ValueError(
-                    f"{path.name}: failed to construct CheckMetadata "
-                    f"for {check_id!r}: {exc}"
+                    format_error_message(
+                        exc,
+                        label=f"{path.name}: failed to construct CheckMetadata for {check_id!r}",
+                    )
                 ) from exc
 
     out.sort(key=lambda check: check.id)

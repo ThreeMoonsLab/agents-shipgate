@@ -29,7 +29,12 @@ from agents_shipgate.cli.verify.git import path_committed_at_head
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_controls import git_root_for
 from agents_shipgate.core.current_control import CurrentControlPublishError
-from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
+from agents_shipgate.core.errors import (
+    AgentsShipgateError,
+    ConfigError,
+    InputParseError,
+    format_exception_text,
+)
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.core.manifest_provenance import manifest_provenance
 from agents_shipgate.core.trust_roots import inspect_lexical_path_identity
@@ -612,14 +617,15 @@ def register(app: typer.Typer) -> None:
         except Exception as exc:  # noqa: BLE001 - CLI boundary.
             if verbose:
                 logger.exception("unhandled exception")
-            typer.echo(f"Internal error: {exc}", err=True)
+            detail = format_exception_text(exc, validation_label="Invalid input")
+            typer.echo(f"Internal error: {detail}", err=True)
             guidance = (
                 "Re-run with --verbose for a stack trace; this is a bug — please "
                 "file an issue."
             )
             _emit_agent_mode_error(
                 "internal_error",
-                message=str(exc),
+                message=detail,
                 next_action=guidance,
                 next_actions=[
                     NextAction(kind="review", why=guidance).model_dump(mode="json")

@@ -50,7 +50,7 @@ Required behavior (do not skip):
    command handles, usage errors (an unknown option, a rejected option value)
    included, emits one `next_action` JSON line on stderr. Where the command
    knows no specific recovery, that action is `review`: act on the prose
-   message printed with it. `verify` reports its failures in the
+   message printed with it. `verify` reports most failures in the
    `verifier.json` it prints instead. An older CLI prints prose only on some
    paths; when no JSON line appears, act on the message and the exit code.
 2. Run `agents-shipgate contract --json` when available and use it to verify the installed CLI's schema versions and gating signal.

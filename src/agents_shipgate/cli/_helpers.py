@@ -23,7 +23,12 @@ from agents_shipgate.core.disclaimers import (
     DETERMINISM_BOUNDARY_REFERENCE,
     STATIC_VERDICT_DISCLAIMER,
 )
-from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
+from agents_shipgate.core.errors import (
+    AgentsShipgateError,
+    ConfigError,
+    InputParseError,
+    format_exception_text,
+)
 from agents_shipgate.core.findings.subject_rollup import (
     roll_up_findings,
     top_findings_block,
@@ -411,7 +416,8 @@ def _run_multi_scan(
             scan_exit_code = 4
             if verbose:
                 logger.exception("unhandled exception while scanning %s", config_path)
-            typer.echo(f"{config_path}: internal_error - {exc}", err=True)
+            detail = format_exception_text(exc, validation_label="Invalid input")
+            typer.echo(f"{config_path}: internal_error - {detail}", err=True)
         else:
             # Apply --strict-plugins after the scan but before printing
             # the per-config summary so the operator sees the elevated

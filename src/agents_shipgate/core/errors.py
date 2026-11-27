@@ -79,3 +79,18 @@ def format_error_message(exc: BaseException, *, label: str) -> str:
     if isinstance(exc, ValidationError):
         return format_validation_error(exc, label=label)
     return f"{label}: {exc}"
+
+
+def format_exception_text(exc: BaseException, *, validation_label: str) -> str:
+    """``str(exc)``, with a ``ValidationError`` described under
+    ``validation_label`` the way :func:`format_validation_error` does.
+
+    For a handler that shows the bare exception text, such as an internal-error
+    boundary around code that can raise a ``ValidationError`` from deep inside.
+    """
+
+    from pydantic import ValidationError
+
+    if isinstance(exc, ValidationError):
+        return format_validation_error(exc, label=validation_label)
+    return str(exc)

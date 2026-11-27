@@ -73,7 +73,7 @@ from agents_shipgate.core.control_packs import (
     CONTROL_PACK_IDS,
     DEFAULT_CONTROL_PACK_ID,
 )
-from agents_shipgate.core.errors import ConfigError, DiscoveryError
+from agents_shipgate.core.errors import ConfigError, DiscoveryError, format_error_message
 from agents_shipgate.core.manifest_provenance import LOCAL_REVIEW_MANIFEST_NAME
 from agents_shipgate.invocation import render_command
 from agents_shipgate.schemas.agent_control import AgentActionKind
@@ -1643,7 +1643,9 @@ def register(app: typer.Typer) -> None:
                 scaffold_summary = rendered.scaffold_summary
                 _validate_manifest_text(template)
             except Exception as exc:  # noqa: BLE001 - generation boundary
-                message = f"Agents Shipgate defect: manifest generation failed: {exc}"
+                message = format_error_message(
+                    exc, label="Agents Shipgate defect: manifest generation failed"
+                )
                 typer.echo(message, err=True)
                 report_action = NextAction(
                     kind="review",
