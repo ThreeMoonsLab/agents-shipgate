@@ -141,6 +141,10 @@ VERSION_LITERAL_TARGETS = (
         "ROADMAP.md",
         re.compile(rf"Latest release:\s*`v({VERSION_RE})`"),
     ),
+    (
+        "SECURITY.md",
+        re.compile(rf"Latest published release:\s*`v({VERSION_RE})`"),
+    ),
 )
 # Forbidden public/display forms. Case-sensitive on purpose: `Agents
 # Shipgate` (canonical) must never match. The four banned variants
@@ -1211,8 +1215,8 @@ def test_shipgate_version_inputs_match_latest_published_version(relpath):
 def test_version_literals_match_latest_published_version(relpath, pattern):
     """Plain release-version literals on these public surfaces (the
     bug-report placeholder, distribution.md's release-tag list,
-    faq.md's 'latest released version' line, ROADMAP.md's latest-release
-    line) must move with the latest published tag. The
+    faq.md's 'latest released version' line, ROADMAP.md's and SECURITY.md's
+    latest-release lines) must move with the latest published tag. The
     Action / pip / shipgate_version pin tests don't catch these
     because the literals aren't pins."""
     expected = LATEST_PUBLISHED_VERSION
@@ -1230,6 +1234,26 @@ def test_version_literals_match_latest_published_version(relpath, pattern):
         "literal only after that tag exists.\n  match: "
         f"{match.group(0)!r}"
     )
+
+
+def test_security_policy_names_the_supported_minor_and_both_private_routes():
+    """SECURITY.md states the accepted 1.x support policy as the one in force
+    (#1156): the supported row is the latest published minor, nothing calls the
+    product pre-1.0, and the private reporting form sits beside the mailbox.
+    The literal `Latest published release` line moves with the tag through
+    VERSION_LITERAL_TARGETS; this keeps the table's supported row on the same
+    minor, so a minor release cannot leave the table naming the old one."""
+    text = _read("SECURITY.md")
+    major, minor = LATEST_PUBLISHED_VERSION.split(".")[:2]
+    supported_row = f"| {major}.{minor}.x, the latest {major}.x minor | Supported."
+    assert supported_row in text, (
+        f"SECURITY.md's supported-versions table must start the supported row with "
+        f"{supported_row!r}: v{LATEST_PUBLISHED_VERSION} is the latest published release. "
+        "Update the older-minor row in the same edit."
+    )
+    assert "pre-1.0" not in text.lower(), "SECURITY.md still describes a pre-1.0 support line."
+    assert "https://github.com/ThreeMoonsLab/agents-shipgate/security/advisories/new" in text
+    assert "`security@threemoonslab.com`" in text
 
 
 @pytest.mark.parametrize("relpath", PUBLIC_SURFACES)
