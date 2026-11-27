@@ -86,7 +86,7 @@ def test_verification_snapshot_allows_only_selected_contained_policy_file_chains
         archive_tree(root, "HEAD", tmp_path / "generic")
 
 
-@pytest.mark.parametrize("target", ["../outside", "/etc/passwd", "missing", "directory", "link"])
+@pytest.mark.parametrize("target", ["../outside", "/etc/passwd", "missing", "link"])
 def test_verification_snapshot_refuses_unresolved_selected_links(tmp_path, target):
     import json
 
@@ -104,22 +104,22 @@ def test_verification_snapshot_refuses_unresolved_selected_links(tmp_path, targe
         archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
 
 
-def test_worktree_selection_cannot_authorize_an_unselected_committed_link(tmp_path):
-    import json
-
+def test_worktree_cannot_authorize_a_committed_link(tmp_path):
+    # Admission reads the committed link, never the worktree's: a link the
+    # worktree has since retargeted inside the tree, and selected, is still
+    # the escaping link the commit holds.
     root = _repo(tmp_path)
-    registration = root / ".shipgate/openshell.json"
-    registration.parent.mkdir()
-    def selected(path):
-        return json.dumps({"version": 1, "runtime_version": "0.1.2",
-            "policies": [{"path": path, "role": "authored"}]})
-    registration.write_text(selected("policy"))
+    _select_policy(root, "policy")
     (root / "policy").write_text("version: 1")
-    (root / "link").symlink_to("policy")
+    (root / "link").symlink_to("../outside")
     _git(root, "add", ".")
-    _git(root, "commit", "-m", "unselected link")
-    registration.write_text(selected("link"))
-    with pytest.raises(ConfigError, match="unsupported external binding"):
+    _git(root, "commit", "-m", "escaping link")
+    (root / "link").unlink()
+    (root / "link").symlink_to("policy")
+    (root / ".shipgate/openshell.json").unlink()
+    (root / ".shipgate").rmdir()
+    _select_policy(root, "link")
+    with pytest.raises(ConfigError, match="unsupported external binding at link "):
         archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
 
 
@@ -225,7 +225,9 @@ def test_verification_snapshot_refuses_an_unrepresentable_unrelated_link(tmp_pat
                           input=target, check=True, capture_output=True).stdout.decode().strip()
     _git(root, "update-index", "--add", "--cacheinfo", f"120000,{blob},unrelated")
     _git(root, "commit", "-m", "unrelated link no checkout can represent")
-    with pytest.raises(ConfigError, match="unsupported external binding at link "):
+    # The refusal names the link it cannot represent; the selected link beside
+    # it opens inside the tree and is not the reason.
+    with pytest.raises(ConfigError, match="unsupported external binding at unrelated "):
         archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
 
 
@@ -244,8 +246,108 @@ def test_verification_snapshot_refuses_selected_links_where_links_cannot_be_crea
         raise OSError("A required privilege is not held by the client")
 
     monkeypatch.setattr(os, "symlink", unavailable)
-    with pytest.raises(ConfigError, match="unsupported external binding at link "):
+    with pytest.raises(
+        ConfigError, match="unsupported external binding at link .*could not create the link"
+    ):
         archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+
+
+_SKILL = "---\nname: demo\n---\n"
+
+
+def _commit_links(root: Path, links: dict[str, str]) -> None:
+    (root / "AGENTS.md").write_text("# Agents\n")
+    (root / "afile").write_text("not a directory")
+    (root / ".agents/skills/demo").mkdir(parents=True)
+    (root / ".agents/skills/demo/SKILL.md").write_text(_SKILL)
+    for link, target in links.items():
+        (root / link).parent.mkdir(parents=True, exist_ok=True)
+        (root / link).symlink_to(target)
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "committed links")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+@pytest.mark.parametrize(
+    ("links", "reads"),
+    [
+        ({"CLAUDE.md": "AGENTS.md"}, {"CLAUDE.md": "# Agents\n"}),
+        ({".claude/skills": "../.agents/skills"}, {".claude/skills/demo/SKILL.md": _SKILL}),
+        ({".claude/skills": "../.agents/skills/"}, {".claude/skills/demo/SKILL.md": _SKILL}),
+        (
+            {"pkg/CLAUDE.md": "../CLAUDE.md", "CLAUDE.md": "./AGENTS.md"},
+            {"pkg/CLAUDE.md": "# Agents\n"},
+        ),
+        (
+            {
+                "docs/demo.md": "../.claude/skills/demo/SKILL.md",
+                ".claude/skills": "../.agents/skills",
+            },
+            {"docs/demo.md": _SKILL},
+        ),
+        ({"pkg/root": ".."}, {"pkg/root/AGENTS.md": "# Agents\n"}),
+    ],
+)
+def test_verification_snapshot_recreates_links_that_open_inside_the_tree(tmp_path, links, reads):
+    # A checkout of the commit holds these links, so the snapshot holds them
+    # too, as links, with no policy selection: `CLAUDE.md -> AGENTS.md` is the
+    # common case, then a linked skills directory, a chain, a path through a
+    # linked directory and a link to the repository root.
+    root = _repo(tmp_path)
+    _commit_links(root, links)
+    out = tmp_path / "snapshot"
+    archive_verification_tree(root, "HEAD", out)
+    assert {link: os.readlink(out / link) for link in links} == links
+    assert {path: (out / path).read_text() for path in reads} == reads
+    # A generic archive still refuses every link.
+    with pytest.raises(ConfigError, match="unsupported external binding"):
+        archive_tree(root, "HEAD", tmp_path / "generic")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+@pytest.mark.parametrize(
+    "target",
+    [
+        "../outside",
+        "sub/../../outside",
+        "/etc/hosts",
+        "missing.md",
+        ".git/config",
+        "link",
+        "AGENTS.md/",
+        "missing/../AGENTS.md",
+        "afile/../AGENTS.md",
+    ],
+)
+def test_verification_snapshot_refuses_links_that_do_not_open_inside_the_tree(tmp_path, target):
+    # Escaping, absolute, dangling and looping links, and text the filesystem
+    # would not open although it normalizes to a file, keep the refusal. It
+    # names the link and the rule, and says nothing about the manifest.
+    root = _repo(tmp_path)
+    (root / "sub").mkdir()
+    (root / "sub/keep").write_text("")
+    _commit_links(root, {"link": target})
+    with pytest.raises(ConfigError) as refused:
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+    assert str(refused.value) == (
+        "Git tree contains unsupported external binding at link (mode 120000, type blob): "
+        "only a link that opens a file or directory inside the repository is recreated."
+    )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+@pytest.mark.parametrize("hops", [8, 9])
+def test_verification_snapshot_bounds_a_link_chain(tmp_path, hops):
+    root = _repo(tmp_path)
+    links = {f"link-{index}": f"link-{index + 1}" for index in range(hops - 1)}
+    links[f"link-{hops - 1}"] = "AGENTS.md"
+    _commit_links(root, links)
+    if hops <= 8:
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+        assert (tmp_path / "snapshot/link-0").read_text() == "# Agents\n"
+    else:
+        with pytest.raises(ConfigError, match="unsupported external binding at link-0 "):
+            archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
 
 
 def test_exact_snapshot_rejects_portable_filesystem_path_collisions(tmp_path: Path) -> None:

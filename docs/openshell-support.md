@@ -224,17 +224,16 @@ Its acceptance matrix names the conformance, routing and currency tests.
 It validates a source checkout; it does not claim an installed release or a
 running sandbox.
 
-Configured committed verification supports selected, contained file-link
-chains using selection read from the same verified Git object store as the
-application snapshot. A changed reference retains review independently of
-any supported policy expansion, including an expansion on the linked document.
-Unrelated links and submodules retain the application snapshot's refusal.
-Selected links that escape, cycle, exceed eight hops or resolve to directories
-are not admitted by that snapshot, nor are links that would not open as
-written: each hop is followed component by component, as the filesystem
-follows it, so a link through a missing name or a regular file, or with an
-empty component such as a trailing slash, is refused even when its text
-normalizes to a policy file. Its manifest, baseline and policy-pack link
+Configured committed verification supports contained link chains, selected
+policy links among them, read from the same verified Git object store as the
+application snapshot; the worktree cannot authorize one. A changed reference
+retains review independently of any supported policy expansion, including an
+expansion on the linked document. Submodules retain the snapshot's refusal,
+and so do links that escape, are absolute, dangle, cycle or exceed eight hops,
+and links that would not open as written: each hop is followed component by
+component, as the filesystem follows it, so a link through a missing name or
+a regular file, or with a trailing slash on a file, is refused even when its
+text normalizes to a policy file. Its manifest, baseline and policy-pack link
 guards are unchanged.
 
 The pre-commit hook recognizes OpenShell selection files. Its static filename

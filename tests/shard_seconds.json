@@ -460,7 +460,8 @@
   "tests/test_unchanged_link_limits.py": 77.2,
   "tests/test_capability_lock_redaction.py": 0.1,
   "tests/test_control_evidence.py": 0.2,
-  "tests/test_audit_dependency_locks.py": 0.5
+  "tests/test_audit_dependency_locks.py": 0.5,
+  "tests/test_verify_committed_links.py": 23.8
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -856,6 +857,17 @@
    },
    "case_count": 7,
    "command": "python -m pytest tests/test_audit_dependency_locks.py --junitxml=audit-tests.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "c24483b5ae with the committed-link verification increment",
+   "report_sha256": "dcb72f291032e25551bc06fd98a5bb8531a5cae4eed026b28216478fe5196a32",
+   "files": {
+    "tests/test_verify_committed_links.py": 23.8
+   },
+   "case_count": 5,
+   "command": "python -m pytest tests/test_verify_committed_links.py --junitxml=committed-links.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

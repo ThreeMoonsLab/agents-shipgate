@@ -265,4 +265,7 @@ def test_unrepresentable_unrelated_link_keeps_the_configured_snapshot_refusal(tm
     result = CliRunner().invoke(app, [*args, "--base", "main", "--head", "HEAD",
                                       "--workspace", str(root)])
     assert result.exit_code == 2, result.output
-    assert "unsupported external binding at policy-link" in result.output
+    # The refusal names the link no checkout can represent, not the selected
+    # policy link beside it, which opens inside the tree.
+    assert "unsupported external binding at unrelated" in result.output
+    assert "unsupported external binding at policy-link" not in result.output
