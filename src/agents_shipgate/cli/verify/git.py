@@ -3405,8 +3405,8 @@ def _materialize_isolated_tree(
         else {}
     )
     #: Unscoped and admitting links, every directory a tree entry sits in,
-    #: by its portable key: a blob or link whose name a case- or
-    #: normalization-insensitive filesystem would merge with one is refused.
+    #: by its portable key, so a link can be held apart from any name a case-
+    #: or normalization-insensitive filesystem would merge with it.
     directory_keys: dict[str, str] = {}
     seen_directories: set[str] = set()
     with _perf.phase("archive.tree.scope_through_links"):
@@ -3501,16 +3501,28 @@ def _materialize_isolated_tree(
                 links.append((oid, path_text))
                 continue
             entries.append((mode, oid, path_text))
-        # Two directories that differ only in case or normalization merge into
-        # one, at one depth, as on a checkout. A file or link that merges with a
-        # directory is refused before anything is written.
-        for portable_key, path_text in portable_paths.items():
-            directory = directory_keys.get(portable_key)
-            if directory is not None and directory != path_text:
-                raise ConfigError(
-                    "Git tree contains filesystem-colliding paths: "
-                    f"{directory!r} and {path_text!r}"
-                )
+        # A committed link must not share a name, on a case- or
+        # normalization-insensitive filesystem, with a directory of the tree,
+        # nor sit in a directory that shares one with a file. Refused before
+        # anything is written. Without a link, names that merge keep the
+        # archive's behaviour for any tree: two directories merge into one at
+        # one depth, as on a checkout, and a file that cannot be written beside
+        # a directory is refused when it is written.
+        if admitted_links:
+            link_directory_keys = {
+                _portable_tree_path_key("/".join(parts[:index]))
+                for parts in (path.split("/") for path in admitted_links)
+                for index in range(1, len(parts))
+            }
+            for portable_key, path_text in portable_paths.items():
+                directory = directory_keys.get(portable_key)
+                if directory is None or directory == path_text:
+                    continue
+                if path_text in admitted_links or portable_key in link_directory_keys:
+                    raise ConfigError(
+                        "Git tree contains filesystem-colliding paths: "
+                        f"{directory!r} and {path_text!r}"
+                    )
 
     object_format = _run_git_dir(git_dir, ["rev-parse", "--show-object-format"]).stdout.strip()
     expected_digests: dict[str, str] = {}
@@ -3520,10 +3532,19 @@ def _materialize_isolated_tree(
             target = (root / path_text).resolve()
             if target == root or root not in target.parents:
                 raise ConfigError(f"Git tree path escapes destination: {path_text}")
-            target.parent.mkdir(parents=True, exist_ok=True)
             if _git_object_id("blob", blob, algorithm=object_format) != oid:
                 raise ConfigError(f"Git blob failed object-ID validation: {path_text}")
-            target.write_bytes(blob)
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(blob)
+            except (FileExistsError, NotADirectoryError, IsADirectoryError) as exc:
+                # In a fresh destination, only two tree names this filesystem
+                # merges can put a file where a directory goes, or the reverse.
+                if scope is not None or not admit_contained_links:
+                    raise
+                raise ConfigError(
+                    f"Git tree path {path_text} collides with another path on this filesystem."
+                ) from exc
             expected_digests[path_text] = hashlib.sha256(blob).hexdigest()
             if mode == "100755":
                 os.chmod(target, 0o755)

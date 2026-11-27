@@ -463,7 +463,7 @@
   "tests/test_audit_dependency_locks.py": 0.5,
   "tests/test_git_fixture_isolation.py": 9.7,
   "tests/test_repository_links.py": 1.2,
-  "tests/test_verify_committed_links.py": 45.1
+  "tests/test_verify_committed_links.py": 41.4
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -886,11 +886,11 @@
   {
    "source": "junit",
    "measured_at": "c24483b5ae with the committed-link verification increment",
-   "report_sha256": "a26f9658b23232c0ed943efe5cae9ccec85e7beff56de8411722bda4ba885853",
+   "report_sha256": "9913729bf8c3449c4d3473b2210e08ee07fbb64b94fde34fc244252ef2a312f8",
    "files": {
-    "tests/test_verify_committed_links.py": 45.1
+    "tests/test_verify_committed_links.py": 41.4
    },
-   "case_count": 7,
+   "case_count": 8,
    "command": "python -m pytest tests/test_verify_committed_links.py --junitxml=committed-links.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }

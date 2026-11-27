@@ -460,6 +460,84 @@ def test_verification_snapshot_refuses_a_name_that_collides_with_a_directory(
     )
 
 
+@pytest.mark.parametrize(
+    ("entries", "pair"),
+    [
+        ({"\u2460": ("120000", b"AGENTS.md"), "1/x": _AGENTS, "AGENTS.md": _AGENTS}, ("1", "\u2460")),
+        ({"\u2460": _AGENTS, "1/x": ("120000", b"../AGENTS.md"), "AGENTS.md": _AGENTS}, ("1", "\u2460")),
+    ],
+    ids=["link-named-like-a-directory", "link-in-a-directory-named-like-a-file"],
+)
+def test_verification_snapshot_holds_a_link_apart_from_names_that_fold_together(
+    tmp_path, entries, pair
+):
+    # Names whose portable spellings fold together are refused on every
+    # filesystem once a link is one of them, or sits in the directory.
+    root = _repo(tmp_path)
+    _commit_tree(root, entries)
+    with pytest.raises(ConfigError) as refused:
+        archive_verification_tree(root, "HEAD", tmp_path / "snapshot")
+    assert str(refused.value) == (
+        f"Git tree contains filesystem-colliding paths: {pair[0]!r} and {pair[1]!r}"
+    )
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+@pytest.mark.parametrize("unrelated_link", [False, True], ids=["no-link", "unrelated-link"])
+def test_verification_snapshot_archives_folding_names_when_no_link_is_involved(
+    tmp_path, unrelated_link
+):
+    # When neither name is a link nor holds one, a file and a directory whose
+    # portable spellings fold together are written as they are, wherever the
+    # filesystem keeps them apart (as it keeps these two on every filesystem
+    # in use), even beside a link elsewhere in the tree.
+    root = _repo(tmp_path)
+    entries = {"\u2460": ("100644", b"one\n"), "1/x": ("100644", b"x\n")}
+    if unrelated_link:
+        entries.update({"AGENTS.md": _AGENTS, "CLAUDE.md": ("120000", b"AGENTS.md")})
+    _commit_tree(root, entries)
+    out = tmp_path / "snapshot"
+    archive_verification_tree(root, "HEAD", out)
+    assert (out / "\u2460").read_text() == "one\n"
+    assert (out / "1/x").read_text() == "x\n"
+
+
+@pytest.mark.parametrize(
+    ("entries", "written", "looked_up", "failing"),
+    [
+        ({"BUILD": ("100644", b"b\n"), "build/x": ("100644", b"x\n")}, "BUILD", "build", "build/x"),
+        (
+            {"caf\u00e9": ("100644", b"b\n"), "cafe\u0301/x": ("100644", b"x\n")},
+            "caf\u00e9",
+            "cafe\u0301",
+            "caf\u00e9",
+        ),
+    ],
+    ids=["case", "normalization"],
+)
+def test_verification_snapshot_writes_a_file_beside_a_folding_directory_or_types_why_not(
+    tmp_path, entries, written, looked_up, failing
+):
+    # A link-free tree keeps the archive's behaviour: where the filesystem
+    # keeps the names apart it is written; where it merges them, writing one
+    # fails, and that is a typed refusal naming the tree path, never an
+    # internal error naming a temporary one.
+    root = _repo(tmp_path)
+    _commit_tree(root, entries)
+    out = tmp_path / "snapshot"
+    if _merges_on_this_filesystem(tmp_path, written, looked_up):
+        with pytest.raises(ConfigError) as refused:
+            archive_verification_tree(root, "HEAD", out)
+        assert str(refused.value) == (
+            f"Git tree path {failing} collides with another path on this filesystem."
+        )
+    else:
+        archive_verification_tree(root, "HEAD", out)
+        assert {path: (out / path).read_bytes() for path in entries} == {
+            path: data for path, (_mode, data) in entries.items()
+        }
+
+
 def _links_not_within(root: Path) -> list[str]:
     resolved = os.path.realpath(root)
     return [
