@@ -112,13 +112,56 @@ What a finding states, and from where:
   can rebind any of its names (a wildcard import, `globals()`/`vars()`/
   `__dict__` writes, exec- or setattr-style calls, an unread module
   star-imported there) or an unread module the tool's own name is imported
-  from, a name bound by name only, a handoff or sub-agent target bound more
-  than once), when what a tool object is was read only in part (an MCP
-  server's URL, command or arguments the read cannot name) and its agent is
-  already uncertain, when the agent's settings were not read or conflict, and
+  from, code in a module of the agent's caller census that writes into the
+  agent module's namespace, a name bound by name only, a handoff or sub-agent
+  target bound more than once), when what a tool object is was read only in
+  part (an MCP server's URL, command or arguments the read cannot name) and
+  its agent is already uncertain, when the agent's settings were not read or conflict, and
   for any doubt no reader classified. A named import from an unread module
   that binds another name (`from ..config import config`) doubts only the
-  constructor, so it stays with the agent. An object read in part on an
+  constructor, so it stays with the agent. In a census of the agent module,
+  a caller's write is decided from its syntax:
+  - any attribute stored on or deleted from the module, which doubts every
+    tool of the agent (`a.TOOLS = [f]`, or `a.search = f` after
+    `search = lookup`, changes a tool its name does not show),
+    `setattr`/`delattr` on it, or its `__setattr__`/`__getattribute__`;
+  - `vars(m)`, `m.__dict__` or `getattr(m, '__dict__')` used any way but
+    indexed, iterated, tested for membership or read with a reading method.
+    This is broad on purpose: `print(vars(m))` or `{**vars(m)}` counts too;
+  - any of these through a plain name the module is bound to (`b = m`);
+  - the module passed on as a value in a file that also holds the builtin
+    `setattr`, `delattr` or `vars` as a value (`s = setattr`,
+    `functools.partial(setattr, m)`), or `getattr` of one from what may be
+    a module. A parameter or local named `vars` is not the builtin;
+  - through `sys.modules[...]`, what `sys.modules.pop(...)` or `.popitem()`
+    hands back, `importlib.import_module(...)`, `__import__(...)` (the
+    top-level package, without a `fromlist`), `importlib.reload(...)` or a
+    `globals()` entry that may reach it
+    (`setattr(sys.modules['app.agent'], k, v)`);
+  - an entry of `sys.modules` stored under a key that may name it or a
+    package above it, or holding the agent module itself.
+
+  A string key names the agent module by its last dotted part: its own name,
+  or a directory above it (a package whose attributes are followed). A later
+  read of a key the file stored a module at (`sys.modules['alias'] = m`) may
+  be either. Not a write, and so a doubt about the agent: reading the module,
+  passing it on with no such writer in the file (`return m`, `register(m)`),
+  an entry stored for another module (`sys.modules['torch'] = MagicMock()`),
+  and moving where an import search looks (a package's `__path__`,
+  `sys.path`, `del sys.modules[k]`, removing an entry with `.pop`). Those
+  count as import-search changes, but no `import_search` doubt is added for
+  them: the binding keeps its agent's statement (`construction`). Missed,
+  though each is a write: one made through a container, a loop, a class
+  attribute, an `if` or `or` expression, a walrus, a helper or lambda the
+  module is passed to, a holder such as `SimpleNamespace`, or a method's
+  `self`; a function's `__globals__`; `inspect.getmodule`;
+  `mock.patch.object` and `mock.patch('app.agent.lookup', ...)`; code in a
+  string (`exec("a.lookup = f")`); `type(a).__getattribute__ = ...`; a module
+  that writes `sys.modules['app.agent'].lookup = f` without importing the
+  agent module or using machinery the census notices; a tool object or list
+  changed in place (`a.lookup.__code__ = ...`, `a.TOOLS.append(f)`); and a
+  write into the module a tool is read from (`tools.lookup = f`). An object
+  read in part on an
   otherwise proved agent is an agent limit and no row, as before. A handoff
   or sub-agent target whose name is bound more than once, and an MCP endpoint
   the read cannot name, make the comparison `partial`, where it could be

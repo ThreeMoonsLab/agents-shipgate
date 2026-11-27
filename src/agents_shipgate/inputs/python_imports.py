@@ -2874,6 +2874,12 @@ def reflective_access(tree: ast.Module, *, excluded: frozenset[int] = frozenset(
     use of ``TOOLS`` shows (#879 review).
     """
 
+    return next(reflective_sites(tree, excluded=excluded), None)
+
+
+def reflective_sites(tree: ast.Module, *, excluded: frozenset[int] = frozenset()) -> Iterator[ast.AST]:
+    """Every node :func:`reflective_access` looks for, in its order (#1146 follow-up)."""
+
     sys_names = {"sys"}
     modules_names: set[str] = set()
     for node in ast.walk(tree):
@@ -2896,7 +2902,7 @@ def reflective_access(tree: ast.Module, *, excluded: frozenset[int] = frozenset(
                 and node.func.id in {"globals", "vars", "locals"}
                 and not node.args
             ):
-                return node
+                yield node
             if (
                 reference_spelling(node.func)
                 in {"importlib.import_module", "import_module", "__import__"}
@@ -2904,17 +2910,16 @@ def reflective_access(tree: ast.Module, *, excluded: frozenset[int] = frozenset(
                 and isinstance(node.args[0], ast.Name)
                 and node.args[0].id == "__name__"
             ):
-                return node
+                yield node
         elif (
             isinstance(node, ast.Attribute)
             and node.attr == "modules"
             and isinstance(node.value, ast.Name)
             and node.value.id in sys_names
         ):
-            return node
+            yield node
         elif isinstance(node, ast.Name) and node.id in modules_names:
-            return node
-    return None
+            yield node
 
 
 def reference_spelling(node: ast.AST) -> str | None:
@@ -5753,4 +5758,5 @@ __all__ = [
     "local_binding_detail",
     "reference_spelling",
     "reflective_access",
+    "reflective_sites",
 ]
