@@ -544,17 +544,18 @@ def _edit_verdict(reports: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("sample", "edit", "reason"),
+    ("sample", "edit", "reason", "public_reason"),
     [
-        pytest.param(PASSED, _drop_receipt, "verification-receipt.json is missing",
+        pytest.param(PASSED, _drop_receipt, "verification-receipt.json is missing", None,
                      id="missing-receipt"),
-        pytest.param(PASSED, _rewrite_receipt_id, "receipt_id must hash", id="tampered-receipt"),
-        pytest.param(BLOCKED, _edit_verdict, "hash does not match", id="edited-verdict"),
+        pytest.param(PASSED, _rewrite_receipt_id, "receipt_id must hash",
+                     "verification evidence failed schema validation", id="tampered-receipt"),
+        pytest.param(BLOCKED, _edit_verdict, "hash does not match", None, id="edited-verdict"),
     ],
 )
 @pytest.mark.parametrize("cli", ["early-failure", "completed"])
 def test_an_artifact_set_the_outputs_step_refuses_never_passes_the_check(
-    completed, tmp_path: Path, sample: str, edit, reason: str, cli: str,
+    completed, tmp_path: Path, sample: str, edit, reason: str, public_reason: str | None, cli: str,
 ) -> None:
     run = completed(sample).copy_to(tmp_path)
     if cli == "early-failure":
@@ -564,7 +565,7 @@ def test_an_artifact_set_the_outputs_step_refuses_never_passes_the_check(
 
     # After a run that did not complete the check quotes nothing the directory
     # holds, so it gives the fixed reason; the outputs step's log names the cause.
-    check_reason = "agents-shipgate exited 2, so" if cli == "early-failure" else reason
+    check_reason = "agents-shipgate exited 2, so" if cli == "early-failure" else public_reason or reason
     _assert_no_verdict_under_each_policy(run, tmp_path / "scratch", reason=check_reason)
     assert run.outcomes["report_outputs"] == "failure"
     assert reason in run.logs[EXTRACT]

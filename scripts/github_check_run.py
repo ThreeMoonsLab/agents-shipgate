@@ -49,6 +49,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
+from pydantic import ValidationError
+
 from agents_shipgate.report.pr_projection import (
     item_to_check_run_annotation,
     select_pr_items,
@@ -363,8 +365,15 @@ def check_run_payload_from_evidence(
     try:
         evidence = validate_evidence(output_dir, invocation=invocation)
     except Exception as exc:  # noqa: BLE001 - whatever stops validation refuses the directory.
+        # A schema error can include the raw artifact values. The outputs step
+        # keeps the validation details in the job log for this failure.
+        reason = (
+            "verification evidence failed schema validation"
+            if isinstance(exc, ValidationError)
+            else f"{type(exc).__name__}: {exc}"
+        )
         return refused_check_run_payload(
-            reason=f"{type(exc).__name__}: {exc}", name=name, check_run_policy=policy
+            reason=reason, name=name, check_run_policy=policy
         )
     verifier = dict(evidence.verifier) if evidence.verifier else None
     if verifier is not None:
