@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from agents_shipgate.core.contained_write import write_contained
 from agents_shipgate.core.disclaimers import HITL_RUNTIME_CONTROL_DISCLAIMER
+from agents_shipgate.core.errors import format_validation_error
 from agents_shipgate.core.privacy import sanitize_packet_payload
 from agents_shipgate.packet.evidence_matrix import unavailable_evidence_matrix
 from agents_shipgate.schemas.packet import EvidencePacket
@@ -195,7 +196,9 @@ def load_packet_json(payload: dict[str, Any] | str | bytes) -> EvidencePacket:
     try:
         return EvidencePacket.model_validate(payload_dict)
     except ValidationError as exc:
-        raise PacketSchemaError(f"packet.json failed validation: {exc}") from exc
+        raise PacketSchemaError(
+            format_validation_error(exc, label="packet.json failed validation")
+        ) from exc
 
 
 #: Packet versions whose ``passed`` verdict cannot prove the evidence-backed

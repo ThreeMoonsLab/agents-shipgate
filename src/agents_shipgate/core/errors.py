@@ -61,3 +61,21 @@ def format_validation_error(
         safe_message = single_line_text(redact_text(message) or "")
         lines.append(f"- {safe_location}: {safe_message}")
     return "\n".join(lines)
+
+
+def format_error_message(exc: BaseException, *, label: str) -> str:
+    """``label: exc``, with a ``ValidationError`` described the way
+    :func:`format_validation_error` does.
+
+    For a handler that catches a ``ValidationError`` beside other exceptions,
+    or through ``ValueError`` or ``Exception``. Pydantic's own text carries
+    type codes, the invalid input values and documentation URLs; it is not a
+    message (#1040), and ``tests/test_validation_error_messages.py`` keeps it
+    out of every handler that interpolates the exception.
+    """
+
+    from pydantic import ValidationError
+
+    if isinstance(exc, ValidationError):
+        return format_validation_error(exc, label=label)
+    return f"{label}: {exc}"

@@ -44,7 +44,12 @@ from agents_shipgate.core.disclaimers import (
     DETERMINISM_BOUNDARY_REFERENCE,
     STATIC_VERDICT_DISCLAIMER,
 )
-from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
+from agents_shipgate.core.errors import (
+    AgentsShipgateError,
+    ConfigError,
+    InputParseError,
+    format_error_message,
+)
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.report.summary_text import primary_evidence_remediation_text
 from agents_shipgate.schemas.agent_control_envelope import (
@@ -838,7 +843,9 @@ def _verify_envelope(
     try:
         current = VerifierArtifact.model_validate_json(captured)
     except ValueError as exc:
-        return denied(f"The bound verifier artifact could not be read: {exc}")
+        return denied(
+            format_error_message(exc, label="The bound verifier artifact could not be read")
+        )
     if (
         (current.request_id, current.decision_id) != (verifier.request_id, verifier.decision_id)
         or current.host_comparison != verifier.host_comparison

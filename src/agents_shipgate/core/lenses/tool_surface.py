@@ -14,7 +14,7 @@ from agents_shipgate.core.artifact_models import (
 )
 from agents_shipgate.core.binding_comparison import binding_comparison_limits
 from agents_shipgate.core.domain import AgentRemoteBinding, Tool, ToolkitScopeBound
-from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.errors import InputParseError, format_validation_error
 from agents_shipgate.core.findings.identity import _canonicalize_for_fingerprint
 from agents_shipgate.core.guard_dependencies import compare_guard_dependencies
 from agents_shipgate.core.heuristics import is_broad_scope
@@ -998,7 +998,9 @@ def _reference_from_report_payload(
     try:
         report = ReadinessReport.model_validate(payload)
     except ValidationError as exc:
-        raise InputParseError(f"Invalid diff report {display_path}: {exc}") from exc
+        raise InputParseError(
+            format_validation_error(exc, label=f"Invalid diff report {display_path}")
+        ) from exc
     facts = report.tool_surface_facts if "tool_surface_facts" in payload else None
     action_facts = report.action_surface_facts if "action_surface_facts" in payload else None
     declaration_facts = (
@@ -1052,7 +1054,9 @@ def _reference_from_baseline_payload(
     try:
         baseline = BaselineFile.model_validate(payload)
     except ValidationError as exc:
-        raise InputParseError(f"Invalid diff baseline {display_path}: {exc}") from exc
+        raise InputParseError(
+            format_validation_error(exc, label=f"Invalid diff baseline {display_path}")
+        ) from exc
     return _reference_from_baseline(baseline, display_path)
 
 

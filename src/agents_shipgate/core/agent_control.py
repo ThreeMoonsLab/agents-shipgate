@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from agents_shipgate.core.errors import format_error_message
 from agents_shipgate.schemas.agent_control import (
     COMMANDLESS_CODING_AGENT_ACTIONS,
     AgentActionRequiredControl,
@@ -191,7 +192,9 @@ def _validate_action(
             return HumanControlAction.model_validate(value)
         return CodingAgentCommandAction.model_validate(value)
     except (ValidationError, AttributeError) as exc:
-        raise AgentControlConsistencyError(f"invalid next action: {exc}") from exc
+        raise AgentControlConsistencyError(
+            format_error_message(exc, label="invalid next action")
+        ) from exc
 
 
 __all__ = [

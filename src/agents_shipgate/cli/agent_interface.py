@@ -30,7 +30,7 @@ from agents_shipgate.core.current_control import (
     LiveWorkspaceCause,
     read_current_control,
 )
-from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.errors import InputParseError, format_error_message
 from agents_shipgate.invocation import join_argv, render_command, split_invocation
 from agents_shipgate.schemas.contract import DEFAULT_PATHS
 from agents_shipgate.schemas.current_control import (
@@ -733,8 +733,13 @@ def _bound_verifier(result: CurrentControlRead) -> VerifierArtifact | None:
         # under a terminal *verify* pointer exited 0 and kept update-PR
         # authority.
         raise AgentControlRouteUnavailable(
-            f"The verifier artifact bound by the current control pointer is "
-            f"malformed, so this generation is inconsistent: {exc}"
+            format_error_message(
+                exc,
+                label=(
+                    "The verifier artifact bound by the current control pointer is "
+                    "malformed, so this generation is inconsistent"
+                ),
+            )
         ) from exc
     # The state tag alone is not identity. A verifier that closes a different
     # request than the pointer decided cannot supply this pointer's route, and
