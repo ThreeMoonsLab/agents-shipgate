@@ -27,6 +27,10 @@ PRIOR_RENDER_SHA256: tuple[str, ...] = (
     # 1.0.0 through 1.2.0: told check runs to parse `agent_boundary_result/v1`
     # and promised a `next_action` line on every agent-mode error (#1039, #1040).
     "107e60198df59f7622bd8e416f1997cfbbb2e0a5206762944322b6ba36ce1b03",
+    # 1.3.0: said usage errors and some supporting commands print prose only,
+    # before the root error seam made every handled error exit emit the line
+    # (#1040).
+    "e009fcc33eefd62a1739a0e4848ae47ad8280e1d4702f6fbc7c84141af395c72",
 )
 
 

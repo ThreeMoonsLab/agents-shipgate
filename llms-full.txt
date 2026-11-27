@@ -425,7 +425,7 @@ agents-shipgate self-check --json
 agents-shipgate fixture list --json
 ```
 
-When agent mode is active, a failure a command handles itself adds one JSON line to stderr, carrying a structured `next_action` (single string, back-compat) and `next_actions` (ranked list) wherever the CLI knows a recovery. `check`, `scan`, `init`, `doctor`, `detect`, `diff`, `audit --host`, `explain`, `explain-finding` and `apply-patches` do this; `verify` reports many of its failures in the `verifier.json` it prints instead, so route on that object's `control`. Not every error path emits the line yet ([#1040](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1040)): Click/Typer usage errors — an unknown option, or an option value the parser rejects, such as a `diff --base` ref that is not available locally — and the failures of several supporting commands (`agent handoff`, `trigger`, `capability` and `baseline` among them) print prose only. When no JSON line appears, act on the prose message and the exit code; do not invent a `next_action`. Agent mode auto-enables inside a known coding-agent harness (Claude Code exports `CLAUDECODE=1`, Cursor `CURSOR_TRACE_ID`); set `AGENTS_SHIPGATE_AGENT_MODE=1` to force it on elsewhere, or `=0` to force it off:
+When agent mode is active, every error exit the CLI handles — exit `2`, `3`, `4` or `5` — adds exactly one JSON line to stderr, carrying the `error` kind, a structured `next_action` (single string, back-compat) and `next_actions` (ranked list). That includes usage errors — an unknown option, or an option value the parser rejects, such as a `diff --base` ref that is not available locally — and the supporting commands (`agent handoff`, `trigger`, `capability`, `baseline`, `org`, `feedback`, `skill`, `fixture`, `install-hooks`, `mcp audit` and the rest). `check`, `scan`, `init`, `doctor`, `detect`, `diff`, `audit --host`, `explain`, `explain-finding` and `apply-patches` name the recovery they know; where a command knows none, the line's one action is `kind: "review"` — read the prose message printed with it, correct the input or option it names, and re-run. Three commands answer on stdout instead and add no line: `verify` reports its failures in the `verifier.json` it prints, so route on that object's `control`; `verification reproduce` prints `valid: false` with the mismatch, and `self-check` reports that it is not ready. Result and policy exits — `0`, `6` and `20` — add no line, because the result carries its own evidence, and neither does an uncaught internal error (a traceback and exit `1`), which is a bug to report. Agents Shipgate 1.3.0 and earlier print prose only on some of these paths; when no JSON line appears, act on the prose message and the exit code, and do not invent a `next_action`. Agent mode auto-enables inside a known coding-agent harness (Claude Code exports `CLAUDECODE=1`, Cursor `CURSOR_TRACE_ID`); set `AGENTS_SHIPGATE_AGENT_MODE=1` to force it on elsewhere, or `=0` to force it off:
 
 ```bash
 $ AGENTS_SHIPGATE_AGENT_MODE=1 agents-shipgate scan -c missing.yaml
@@ -1545,14 +1545,13 @@ existing workflow is reported in `cross_reference_path`.
   human-readable stdout is unstable; the JSON shape is the contract.
 - `scan` does not have `--json`; instead pass `--format json` and read
   `agents-shipgate-reports/report.json`.
-- When `AGENTS_SHIPGATE_AGENT_MODE=1` is set, the errors a command handles
-  itself emit a structured `next_action` JSON line on stderr. Surface that
-  path to the user rather than scraping prose. Not every path emits the line
-  yet ([#1040](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1040)): usage
-  errors and some supporting commands print prose only, and `verify` reports
-  many failures in the `verifier.json` it prints. When no JSON line appears,
-  act on the message and the exit code; [`AGENTS.md` § Agent
-  mode](../AGENTS.md#agent-mode) lists which commands emit it.
+- When `AGENTS_SHIPGATE_AGENT_MODE=1` is set, every error exit a command
+  handles (`2` to `5`), usage errors included, emits one structured
+  `next_action` JSON line on stderr. Surface that path to the user rather than
+  scraping prose. Where the command knows no specific recovery, the action is
+  `review`: act on the prose message printed with it. `verify` reports its
+  failures in the `verifier.json` it prints instead; [`AGENTS.md` § Agent
+  mode](../AGENTS.md#agent-mode) lists that and the other exceptions.
 
 ## Pre-flight reminder
 

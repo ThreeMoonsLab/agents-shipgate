@@ -80,11 +80,12 @@ expanding baselines or waivers, removing Shipgate CI, or weakening agent
 instructions. Verify-mode `SHIP-VERIFY-*` checks make those trust-root edits
 release-visible.
 
-Set `AGENTS_SHIPGATE_AGENT_MODE=1` so the errors a command handles itself emit
-a `next_action` JSON line on stderr. Usage errors and some supporting commands
-print prose only ([#1040](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1040)),
-and `verify` reports many failures in the `verifier.json` it prints; when no
-JSON line appears, act on the message and the exit code.
+Set `AGENTS_SHIPGATE_AGENT_MODE=1` so every error a command handles, usage
+errors included, emits one `next_action` JSON line on stderr. Where the command
+knows no specific recovery, that action is `review`: act on the prose message
+printed with it. `verify` reports its failures in the `verifier.json` it prints
+instead. An older CLI prints prose only on some paths; when no JSON line
+appears, act on the message and the exit code.
 
 ### CI
 

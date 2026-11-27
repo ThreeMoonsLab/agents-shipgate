@@ -46,7 +46,7 @@ Pick the matching task and follow the linked recipe verbatim. Recipes are bundle
 
 Always:
 
-1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` so the errors a command handles itself emit a `next_action` JSON line on stderr (auto-enabled inside Claude Code via the harness's `CLAUDECODE=1` env var, and Cursor via `CURSOR_TRACE_ID`). Usage errors and some supporting commands still print prose only; see "If something errors out" below.
+1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` so every error a command handles, usage errors included, emits one `next_action` JSON line on stderr (auto-enabled inside Claude Code via the harness's `CLAUDECODE=1` env var, and Cursor via `CURSOR_TRACE_ID`); see "If something errors out" below.
 2. For local agent control, run `shipgate check --agent claude-code --workspace . --format agent-boundary-json` and read the stdout `shipgate.agent_boundary_result/v3` object. Switch on `control.state`; follow only `control.next_action`, `control.allowed_next_commands`, and `control.human_review`. When `pending_review[]` is non-empty the turn may finish, but name every carried review item in your summary — PR-time verify still routes them to a human. Treat `decision` as diagnostic context only.
 3. For verifier runs, validate `agents-shipgate-reports/verification-receipt.json` first, then parse `agent-handoff.json`, `verifier.json`, and `verify-run.json`:
    `control.state`, `merge_verdict`, `can_merge_without_human`, `control.next_action`,
@@ -109,7 +109,7 @@ For non-GitHub CI (GitLab, CircleCI, Jenkins, Azure Pipelines, Buildkite, Bitbuc
 
 ## If something errors out
 
-Set `AGENTS_SHIPGATE_AGENT_MODE=1` and re-run. For a failure the command handles itself, the CLI appends a JSON line to stderr with `{error, message, next_action}`; follow the `next_action`. `check`, `scan`, `init`, `doctor`, `detect`, `diff`, `audit --host`, `explain`, `explain-finding` and `apply-patches` do this, and `verify` reports many of its failures in the `verifier.json` it prints instead. Not every path emits the line yet ([#1040](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1040)): usage errors — an unknown option, or an option value the parser rejects — and several supporting commands print prose only. When no JSON line appears, act on the message and the exit code; do not invent a `next_action`. The error kinds emitted by the current CLI:
+Set `AGENTS_SHIPGATE_AGENT_MODE=1` and re-run. Every error exit the CLI handles (`2`, `3`, `4` or `5`), usage errors — an unknown option, or an option value the parser rejects — included, appends exactly one JSON line to stderr with `{error, message, next_action}`; follow the `next_action`. `check`, `scan`, `init`, `doctor`, `detect`, `diff`, `audit --host`, `explain`, `explain-finding` and `apply-patches` name the recovery they know; where a command knows none, the action is `review`: correct the input or option the prose message printed with it names, then re-run. `verify` reports its failures in the `verifier.json` it prints instead, with no stderr line; route on that object's `control`. Result exits (`0`, `6`, `20`) and an uncaught internal error (a traceback, exit `1`) add no line. An older CLI prints prose only on some of these paths; when no JSON line appears, act on the message and the exit code, and do not invent a `next_action`. The error kinds emitted by the current CLI:
 
 | Error kind | Fix |
 |---|---|

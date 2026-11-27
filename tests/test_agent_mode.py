@@ -13,6 +13,7 @@ variables, so each test sets exactly the environment it asserts on.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -468,6 +469,121 @@ def test_already_structured_authorization_error_is_not_duplicated(tmp_path: Path
     payload = json.loads(line)
     _assert_documented_envelope(payload)
     assert "fresh valid receipt" in payload["next_actions"][0]["expects"]
+
+
+_ERROR_CATALOG = json.loads(
+    (Path(__file__).resolve().parent.parent / "docs" / "errors.json").read_text(encoding="utf-8")
+)
+#: The documented exits an agent-mode error line can report. `0`, `6` and `20`
+#: are results, which carry their own evidence and add no line.
+_DOCUMENTED_ERROR_EXITS = {
+    int(code) for code in _ERROR_CATALOG["exit_codes"] if code not in {"0", "6", "20"}
+}
+
+
+#: The supporting commands #1040 found printing prose only on a missing or
+#: rejected input. Each must now end in one line an agent can route on.
+_SUPPORTING_COMMAND_FAILURES = {
+    "agent handoff": lambda tmp: ["agent", "handoff", "--from", str(tmp / "missing.json"), "--json"],
+    "trigger": lambda tmp: ["trigger", "--changed-files", str(tmp / "missing.txt"), "--json"],
+    "capability export": lambda tmp: [
+        "capability", "export", "--config", str(tmp / "missing.yaml"), "--out", str(tmp / "x.json"),
+    ],
+    "baseline save": lambda tmp: ["baseline", "save", "-c", str(tmp / "missing.yaml")],
+    "org bundle": lambda tmp: ["org", "bundle", "--from", str(tmp / "missing")],
+    "feedback export": lambda tmp: ["feedback", "export", "--from", str(tmp / "missing")],
+    "skill lint": lambda tmp: ["skill", "lint", str(tmp / "missing")],
+    "fixture run": lambda tmp: ["fixture", "run", "no-such-fixture"],
+    "install-hooks": lambda tmp: ["install-hooks", "--target", "cursor"],
+    "mcp audit": lambda tmp: ["mcp", "audit", "--diff", str(tmp / "missing.diff")],
+    "attest": lambda tmp: ["attest", "--from", str(tmp / "missing.json")],
+    "evidence-packet": lambda tmp: ["evidence-packet", "--from", str(tmp / "missing.json")],
+}
+
+
+@pytest.mark.parametrize("command", sorted(_SUPPORTING_COMMAND_FAILURES))
+def test_a_supporting_command_failure_emits_one_recovery_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    # Nothing in the working directory may stand in for the missing input.
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(
+        app, _SUPPORTING_COMMAND_FAILURES[command](tmp_path),
+        env={"AGENTS_SHIPGATE_AGENT_MODE": "1"},
+    )
+
+    assert result.exit_code in _DOCUMENTED_ERROR_EXITS, (result.exit_code, result.output)
+    [line] = [line for line in result.stderr.splitlines() if line.startswith("{")]
+    payload = json.loads(line)
+    _assert_documented_envelope(payload)
+    assert payload["exit_code"] == result.exit_code
+    entry = next(item for item in _ERROR_CATALOG["errors"] if item["id"] == payload["error"])
+    assert entry["exit_code"] == result.exit_code
+    # The prose diagnostic the review action points at is still printed.
+    assert [text for text in result.stderr.splitlines() if not text.startswith("{")]
+
+
+#: Every surface a coding agent reads to learn the agent-mode error contract,
+#: as committed and as `init --agent-instructions` renders it.
+_AGENT_FACING_ROOTS = (
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "llms.txt",
+    "llms-full.txt",
+    "docs",
+    "skills",
+    "plugins",
+    "prompts",
+    "adoption-kits",
+    ".agents",
+    ".claude/commands",
+    ".cursor",
+)
+
+
+def test_no_agent_facing_surface_cites_1040_as_an_open_gap() -> None:
+    """The root seam emits the line on every handled error exit (#1040).
+
+    Those surfaces said usage errors and supporting commands printed prose
+    only, citing #1040 as the open gap. A surface still saying so tells an
+    agent to expect no line where one now arrives.
+    """
+
+    from agents_shipgate.cli.discovery.agent_instructions.renderers import (
+        render_agents_md,
+        render_claude_code_skill_bundle_text,
+        render_claude_command_file,
+        render_claude_md,
+        render_codex_skill_bundle_text,
+        render_cursor_file,
+    )
+
+    repo = Path(__file__).resolve().parent.parent
+    citation = re.compile(r"issues/1040\b|#1040\b")
+    texts = {
+        f"render:{render.__name__}": render()
+        for render in (
+            render_agents_md,
+            render_claude_code_skill_bundle_text,
+            render_claude_command_file,
+            render_claude_md,
+            render_codex_skill_bundle_text,
+            render_cursor_file,
+        )
+    }
+    for root in _AGENT_FACING_ROOTS:
+        base = repo / root
+        paths = [base] if base.is_file() else sorted(base.rglob("*"))
+        for path in paths:
+            relative = path.relative_to(repo).as_posix()
+            if relative.startswith("docs/changelog/") or path.suffix not in {
+                ".md", ".mdc", ".txt",
+            }:
+                continue
+            texts[relative] = path.read_text(encoding="utf-8")
+    assert len(texts) > 100
+    assert sorted(name for name, text in texts.items() if citation.search(text)) == []
 
 
 def test_config_error_catalog_covers_non_manifest_request_configuration() -> None:
