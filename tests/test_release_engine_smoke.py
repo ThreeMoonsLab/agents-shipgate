@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from scripts import release_engine_smoke
+from scripts.install_action_engine import environment_root
 from scripts.release_engine_smoke import _commit, compare, prepare
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -224,6 +225,54 @@ def test_smoke_workflow_declares_its_checkout_disposable() -> None:
         step for step in steps if "release_engine_smoke.py prepare" in step.get("run", "")
     )
     assert "--disposable-checkout" in prepare_step["run"]
+
+
+def test_the_smoke_installs_its_local_half_where_the_action_installs(tmp_path: Path) -> None:
+    """Both halves run in RUNNER_TEMP/.agents-shipgate-action/venv, so `compare` can hold
+    their engine identities equal (#1032).
+
+    A dependency's RECORD hashes its console scripts, whose first line names
+    the environment's interpreter; a local half in the runner's own Python,
+    and an Action half in its environment, disagreed on `dependency_set_sha256`.
+    """
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/release-engine-smoke.yml").read_text())
+    steps = workflow["jobs"]["downstream"]["steps"]
+    names = [step.get("name") or step.get("uses") for step in steps]
+    local = next(step for step in steps if step.get("id") == "local")
+    action_install = next(
+        step for step in yaml.safe_load((ROOT / "action.yml").read_text())["runs"]["steps"]
+        if step["name"] == "Install Agents Shipgate"
+    )
+    # The same installer, the same parent, so the same fixed environment path.
+    assert local["run"] == 'python scripts/install_action_engine.py --venv-parent "${RUNNER_TEMP}"'
+    assert action_install["run"].rstrip().endswith(
+        'scripts/install_action_engine.py" --venv-parent "${RUNNER_TEMP}"'
+    )
+    assert environment_root(str(tmp_path)) == tmp_path / ".agents-shipgate-action"
+    # The local half installs nothing into the runner's own Python: everything
+    # it runs comes from the shared environment.
+    installs = [
+        step for step in steps
+        if "pip install" in step.get("run", "") or "install_action" in step.get("run", "")
+    ]
+    assert installs == [local]
+    # Both halves of the comparison run under that environment's interpreter.
+    for operation in ("prepare", "compare"):
+        step = next(s for s in steps if f"release_engine_smoke.py {operation}" in s.get("run", ""))
+        assert step["env"]["LOCAL_PYTHON"] == "${{ steps.local.outputs.python }}"
+        assert step["run"].lstrip().startswith(
+            f'"${{LOCAL_PYTHON}}" scripts/release_engine_smoke.py {operation}'
+        )
+    # Sequential: the local half's identity is computed before the Action
+    # recreates the environment, and `compare` reads both afterwards.
+    order = [
+        names.index("Install the exact wheel for the local half"),
+        names.index("Exercise the installed CLI in a disposable adoption and PR workflow"),
+        next(index for index, step in enumerate(steps) if step.get("uses") == "./"),
+        names.index("Require local and Action capability results to agree"),
+    ]
+    assert order == sorted(order)
 
 
 def test_smoke_does_not_persist_a_commit_identity_into_the_checkout(tmp_path: Path) -> None:

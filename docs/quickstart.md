@@ -549,7 +549,7 @@ filter and fetches none of them.
 One fetch, no install, stdlib only:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py \
+curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/v1.3.0/tools/shipgate-detect.py \
   | python3 - --workspace . --json
 ```
 

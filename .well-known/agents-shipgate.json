@@ -560,7 +560,7 @@
   "errors_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/errors.json",
   "llms_full_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/llms-full.txt",
   "ai_search_summary_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/ai-search-summary.md",
-  "zero_install_detector_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py",
+  "zero_install_detector_url": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/v1.3.0/tools/shipgate-detect.py",
   "agent_onramps": {
     "index": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/README.md",
     "protocol": "https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/docs/agents/protocol.md",

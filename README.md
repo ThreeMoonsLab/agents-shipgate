@@ -372,7 +372,7 @@ Not sure it applies at all? The stdlib-only detector answers in one fetch, with
 no install:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py \
+curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/v1.3.0/tools/shipgate-detect.py \
   | python3 - --workspace . --json
 ```
 

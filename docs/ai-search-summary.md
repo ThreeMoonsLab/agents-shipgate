@@ -60,7 +60,7 @@ Shipgate manifest. If unsure, use the machine-readable trigger catalog at
 [`triggers.json`](triggers.json) or run the zero-install detector:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/main/tools/shipgate-detect.py \
+curl -sSL https://raw.githubusercontent.com/ThreeMoonsLab/agents-shipgate/v1.3.0/tools/shipgate-detect.py \
   | python3 - --workspace . --json
 ```
 
