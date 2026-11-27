@@ -143,6 +143,7 @@ from agents_shipgate.core.trust_roots import (
     IdentityBoundReadSession,
     IdentityReadBudget,
     IdentityReadBudgetExceeded,
+    IdentityValidationFailure,
     inspect_lexical_path_identity,
 )
 from agents_shipgate.schemas.host_grants import (
@@ -361,6 +362,19 @@ class HostStaticParseCache:
                     source=key, limits=self.configured_limits,
                 )
                 self._resource_bound_error = self.terminal_failure.summary()
+                raise
+            except IdentityValidationFailure as exc:
+                # The reader's typed facts (#588): the entry it names, as the
+                # spelling it held, and what it observed there. Anything else,
+                # including a refusal from another phase, names only the root.
+                final = exc.phase == "final_validation"
+                entry = key if exc.entry is None else os.path.join(key, *exc.entry.split("/"))
+                self.terminal_failure = HostInputFailure(
+                    reason="snapshot_validation_failed", phase="snapshot_validation",
+                    source=key,
+                    entry=entry if final else None,
+                    observation=exc.observation if final else None,
+                )
                 raise
             except (OSError, NotImplementedError, ValueError):
                 self.terminal_failure = HostInputFailure(
@@ -6826,15 +6840,21 @@ def build_host_boundary_snapshot(
         # or complete inventory cannot bind it to the entries that were opened.
         artifacts.clear()
         grants.clear()
-        for failure in dict.fromkeys(inventory_failures):
+        def lexical(path: str) -> str:
             # Use lexical spelling: a second resolve/read would inspect a
             # different generation and could misattribute the original failure.
-            if Path(failure.source).is_absolute():
-                try:
-                    source = Path(failure.source).relative_to(root).as_posix()
-                except ValueError:
-                    source = failure.source
-                failure = replace(failure, source=source)
+            if not Path(path).is_absolute():
+                return path
+            try:
+                return Path(path).relative_to(root).as_posix()
+            except ValueError:
+                return path
+
+        for failure in dict.fromkeys(inventory_failures):
+            failure = replace(
+                failure, source=lexical(failure.source),
+                entry=None if failure.entry is None else lexical(failure.entry),
+            )
             for host in ("codex", "claude-code", "cursor", "vscode", "github", "openshell"):
                 issue = _inventory_issue(
                     kind="unreadable", host=host, source=failure.source,

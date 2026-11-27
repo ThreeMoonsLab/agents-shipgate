@@ -20,6 +20,22 @@ def safe_failure_text(value: str) -> str:
     return text if len(text) <= MAX_FAILURE_TEXT else text[:MAX_FAILURE_TEXT - 1] + "…"
 
 
+#: What final snapshot validation observed at one entry, as the identity
+#: reader typed it (#588). ``inspection_unavailable`` claims no change.
+SnapshotObservation = Literal[
+    "identity_mismatch", "entries_changed", "kind_changed", "root_changed",
+    "inspection_unavailable",
+]
+
+_OBSERVED: dict[str, str] = {
+    "identity_mismatch": "{entry} no longer had the identity it was read with",
+    "entries_changed": "the entries of {entry} were no longer the ones read",
+    "kind_changed": "{entry} was no longer the kind of entry it was listed as",
+    "root_changed": "the read root no longer had the identity it was read with",
+    "inspection_unavailable": "{entry} could not be inspected, and no change was established",
+}
+
+
 @dataclass(frozen=True)
 class HostInputFailure:
     reason: Literal[
@@ -32,6 +48,12 @@ class HostInputFailure:
     source: str
     # Known configured limits, not an inferred exceeded counter.
     limits: tuple[tuple[str, int], ...] = ()
+    # The one entry a failed final validation names, and what it observed
+    # there, both from the reader's typed failure (#588), never parsed from a
+    # message. ``source`` stays the read root: the failure discards every read
+    # under it, so the entry locates the failure without narrowing its scope.
+    entry: str | None = None
+    observation: SnapshotObservation | None = None
 
     def evidence(self) -> dict[str, Any]:
         return {
@@ -39,7 +61,21 @@ class HostInputFailure:
             "phase": self.phase,
             "source": safe_failure_text(self.source),
             **({"configured_limits": dict(self.limits)} if self.limits else {}),
+            **({"entry": self._entry_text()} if self.entry is not None else {}),
+            **({"observation": self.observation} if self.observation is not None else {}),
         }
+
+    def _entry_text(self) -> str:
+        """The bounded, redacted label of the entry, from the spelling already held."""
+        from agents_shipgate.core.host_grants import _issue_source_label
+
+        return _issue_source_label(self.entry or ".")
+
+    def _entry_label(self) -> str:
+        return (
+            "repository root (.)" if self.entry in {None, ".", "<repository>"}
+            else self._entry_text()
+        )
 
     def summary(self) -> str:
         phase = {
@@ -55,8 +91,12 @@ class HostInputFailure:
             "snapshot_validation_failed": "could not confirm a coherent read",
         }[self.reason]
         limits = "; ".join(f"{name}={value}" for name, value in self.limits)
+        observed = (
+            ": " + _OBSERVED[self.observation].format(entry=self._entry_label())
+            if self.observation is not None else ""
+        )
         return safe_failure_text(
-            f"{phase.capitalize()} {failure} at {self._source_label()}."
+            f"{phase.capitalize()} {failure} at {self._source_label()}{observed}."
             + (f" Configured limits: {limits}." if limits else "")
         )
 
@@ -78,6 +118,19 @@ class HostInputFailure:
                 "do not omit required host inputs to clear this stop."
             )
         if self.reason == "snapshot_validation_failed":
+            if self.observation == "inspection_unavailable":
+                return (
+                    f"Make {self._entry_label()} accessible to this reader, then rerun "
+                    f"for a new coherent read of {source}. Final validation could not "
+                    "inspect it; the reader did not establish that it changed."
+                )
+            if self.observation is not None:
+                return (
+                    f"Keep the inputs under {source} unchanged while they are read, "
+                    "then rerun for a new coherent read. Final validation observed "
+                    f"that {self._entry_label()} differed from what was read, so "
+                    f"nothing read under {source} is used."
+                )
             return (
                 f"Ensure the inputs under {source} are accessible and stable, then "
                 "rerun for a new coherent read. Final validation failed; the reader "
