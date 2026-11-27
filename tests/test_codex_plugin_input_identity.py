@@ -17,7 +17,6 @@ from typer.testing import CliRunner
 from agents_shipgate.cli.main import app
 from agents_shipgate.config.loader import load_manifest
 from agents_shipgate.core.current_control import CurrentControlUnavailable, read_current_control
-from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.static_inputs import (
     StaticInputSnapshot,
     activate_static_input_snapshot,
@@ -92,45 +91,30 @@ def test_caught_component_lookup_never_publishes_current_authority(repo, committ
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "Synthetic aliased component")
     reports = repo / "agents-shipgate-reports"
-    plan = None
-    if committed and fault == "alias":
-        # Committed archives already reject tracked symlinks before adapters
-        # run. Preserve that stronger boundary: its current failure record
-        # carries no permissions, rather than a successful component capture.
-        with pytest.raises(ConfigError, match="unsupported external binding"):
-            _verify(repo, archive_head=True)
-    else:
-        _verify(repo, archive_head=committed)
-        plan = plan_at(reports)
-        assert plan.inputs.options["dependency_inputs"]["unconfirmable_paths"] == [
-            "plugins/reviewer/skills-alias"
-        ]
-    if plan is None:
-        refused = read_current_control(reports, live=lambda: _live(repo)).pointer
-        assert refused.control.state == "human_review_required"
-        assert not any(refused.control.permissions.model_dump().values())
-    else:
-        with pytest.raises(CurrentControlUnavailable):
-            read_current_control(reports, live=lambda: _live(repo))
+    # A committed archive holds the in-tree alias a checkout holds, so the
+    # committed run captures the same refusal the worktree run does, rather
+    # than refusing the whole tree before adapters run.
+    _verify(repo, archive_head=committed)
+    plan = plan_at(reports)
+    assert plan.inputs.options["dependency_inputs"]["unconfirmable_paths"] == [
+        "plugins/reviewer/skills-alias"
+    ]
+    with pytest.raises(CurrentControlUnavailable):
+        read_current_control(reports, live=lambda: _live(repo))
     result = CliRunner().invoke(app, [
         "agent", "control", "--workspace", str(repo), "--reports-dir", str(reports),
     ], env={"AGENTS_SHIPGATE_AGENT_MODE": "1"})
-    if plan is None:
-        assert result.exit_code == 0, result.output
-        assert not any(json.loads(result.stdout)["permissions"].values())
-    else:
-        assert result.exit_code == 4, result.output
-        assert result.stdout == ""
-        assert "verify" in json.loads(result.stderr.splitlines()[-1])["next_action"]
+    assert result.exit_code == 4, result.output
+    assert result.stdout == ""
+    assert "verify" in json.loads(result.stderr.splitlines()[-1])["next_action"]
 
     # Isolate the captured refusal from Git's independent drift check: even a
     # now ordinary directory cannot reconfirm an old refused/empty capture.
     if fault == "alias":
         alias.unlink()
     shutil.copytree(target, alias)
-    if plan is not None:
-        with pytest.raises(ValueError, match="dependency.*could not be captured"):
-            validate_current_plan_inputs(plan, root=repo, artifacts_root=reports)
+    with pytest.raises(ValueError, match="dependency.*could not be captured"):
+        validate_current_plan_inputs(plan, root=repo, artifacts_root=reports)
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "Synthetic component repair")
     _verify(repo, archive_head=committed)
