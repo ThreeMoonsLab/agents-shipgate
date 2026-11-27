@@ -129,9 +129,12 @@ is a captured refusal even when the plugin source is optional. Skills retain
 their directory and direct `SKILL.md` forms. A selected path named `SKILL.md`
 is always the direct-file form; a directory at that name is a captured refusal,
 including when `.` selects a plugin root with that name.
-Committed archives already reject tracked symlinks before component loading;
-their failure record grants no permissions. Standalone loading retains its
-existing in-root resolution behavior.
+A committed archive holds a tracked link that opens inside the repository as
+the link a checkout holds, so a committed component alias is captured as the
+same refusal a worktree run captures; one that leaves the repository still
+refuses the archive before component loading, and that failure record grants
+no permissions. Standalone loading retains its existing in-root resolution
+behavior.
 
 Implicit Codex plugin defaults (`skills`, `.app.json`, `.mcp.json`) bind named
 absence or presence before selection (#635). A missing exact directory entry

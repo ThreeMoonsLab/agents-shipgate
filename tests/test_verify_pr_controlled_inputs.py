@@ -312,11 +312,9 @@ def test_a_reference_the_base_cannot_supply_is_replaced_by_a_base_scan(
 
     assert result.exit_code == 0, result.output
     # Compared with a scan of the base, as though --diff-from were absent. A
-    # base tree holding a link cannot be scanned either, and that comparison
-    # fails closed exactly as it does without --diff-from.
-    assert payload["base_status"] == (
-        "succeeded" if held_as == "absent" else "archive_failed"
-    )
+    # base tree holding the reference as an in-tree link is scanned with that
+    # link, as a checkout of it would be; the link is still not a report.
+    assert payload["base_status"] == "succeeded"
     reason = (
         "'main' does not contain it"
         if held_as == "absent"
