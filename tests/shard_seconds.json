@@ -460,7 +460,8 @@
   "tests/test_unchanged_link_limits.py": 77.2,
   "tests/test_capability_lock_redaction.py": 0.1,
   "tests/test_control_evidence.py": 0.2,
-  "tests/test_audit_dependency_locks.py": 0.5
+  "tests/test_audit_dependency_locks.py": 0.5,
+  "tests/test_stability_contract_fields.py": 0.6
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -856,6 +857,17 @@
    },
    "case_count": 7,
    "command": "python -m pytest tests/test_audit_dependency_locks.py --junitxml=audit-tests.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "c24483b5ae8e with issue #1054 STABILITY contract field list increment",
+   "report_sha256": "95d4b8d65cc93b8c5fa1b843b90cc0353bb93bd20294181c0f0930f441cca2f8",
+   "files": {
+    "tests/test_stability_contract_fields.py": 0.6
+   },
+   "case_count": 5,
+   "command": "python -m pytest tests/test_stability_contract_fields.py -o junit_duration_report=total --junitxml=shard-weight.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

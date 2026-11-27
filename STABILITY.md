@@ -6209,12 +6209,17 @@ file, and follows the deprecation cycle above.
 
 ### Provisional CLI command surface
 
-The org/fleet governance commands are preview surfaces in the current
-`0.14.x` line. They are documented, deterministic, local-only, and included in
-`agents-shipgate contract --json` / `.well-known/agents-shipgate.json` for
-design-partner discovery, but their flags and schemas are not stable
-command-contract commitments yet. They remain consumers of `verify` artifacts;
-`report.json.release_decision.decision` is still the only release gate.
+The org/fleet governance commands below are provisional in the `1.x` line:
+Ring-2 surfaces outside the `1.0` merge-gate promise (see
+[the report 1.0 contract](docs/report-1-0-contract.md#cli-exit-codes-and-control)).
+They are documented, deterministic, and local-only, and
+`agents-shipgate contract --json` / `.well-known/agents-shipgate.json` name
+their schema versions so a consumer can discover them, but their flags and
+payload schemas are not stable command-contract commitments: either may change
+within `1.x`. A schema file a release has published still keeps its bytes, so a
+changed payload ships under a new schema version. They remain consumers of
+`verify` artifacts; `report.json.release_decision.decision` is still the only
+release gate.
 
 | Command | Preview flags |
 |---|---|
@@ -6287,14 +6292,51 @@ Stable JSON fields:
   emitted by `agents-shipgate capability export`.
 - `capability_lock_diff_schema_version` — current stable semantic diff schema
   emitted by `agents-shipgate capability diff`.
+- `capability_payload_schema_version` / `capability_payload_schema_path` —
+  version and checked-in JSON Schema path of the frozen
+  `shipgate.capability_payload/v1`, the payload whose `delta` view the `v1`
+  capability delta attestation carries as `predicate.delta`.
+- `capability_delta_attestation_schema_version` /
+  `capability_delta_attestation_schema_path` /
+  `capability_delta_predicate_type` / `capability_delta_attestation_artifact` —
+  predicate body version, checked-in JSON Schema path, in-toto `predicateType`,
+  and default artifact path of the capability delta attestation `verify`
+  writes for a committed-tree subject. It gates nothing; see
+  [the attestation specification](docs/capability-delta-attestation.md).
+- `capability_payload_v2_schema_version` / `capability_payload_v2_schema_path` /
+  `capability_delta_attestation_v2_schema_version` /
+  `capability_delta_attestation_v2_schema_path` /
+  `capability_delta_predicate_type_v2` / `capability_delta_attestation_v2_artifact`
+  — the same six facts for `v2`, whose payload records also publish each tool's
+  definition digests. `verify` writes the `v2` attestation beside the unchanged
+  `v1` file.
 - `preflight_schema_version` — current proactive preflight routing schema.
 - `capability_standard_version` — current capability standard version.
 - `governance_benchmark_catalog_schema_version` — current benchmark catalog
   schema version.
 - `governance_benchmark_result_schema_version` — current benchmark result
   schema version.
-- `external_integration_surfaces[]` — stable non-gating integration and
-  research surfaces exposed by the contract.
+- `attestation_schema_version` — schema version of the attestation
+  `agents-shipgate attest` derives from `verifier.json`. The key is stable; the
+  `attest` payload it names is
+  [provisional](#provisional-cli-command-surface).
+- `registry_schema_version` — schema version of the rows in the local registry
+  (`.agents-shipgate/registry.jsonl`) that `registry ingest` writes, and of the
+  `registry` command results that read them. The key is stable; the payloads it
+  names are [provisional](#provisional-cli-command-surface).
+- `org_evidence_bundle_schema_version` — schema version of the org evidence
+  bundle `agents-shipgate org bundle` writes. The key is stable; the bundle it
+  names is [provisional](#provisional-cli-command-surface).
+- `host_grants_inventory_schema_version`, `host_grants_baseline_schema_version`,
+  and `host_grants_drift_schema_version` — schema versions of the
+  `shipgate audit --host` inventory, of the acknowledged baseline that
+  `--save-baseline` writes (default `.agents-shipgate/host-grants.json`), and of
+  the `--drift` comparison. The keys are stable; `audit --host` is listed under
+  [Provisional CLI command surface](#provisional-cli-command-surface).
+- `external_integration_surfaces[]` — non-gating integration and research
+  surfaces exposed by the contract. The list is stable; each surface it names
+  keeps its own stability; for example, the org/fleet and host-audit ones are
+  [provisional](#provisional-cli-command-surface).
 - `gating_signal` — always `release_decision.decision` in this contract.
 - `agent_result_schema_version` — legacy local-agent protocol schema retained
   for compatibility with existing in-repo protocol and MCP surfaces. It is not
@@ -6313,6 +6355,15 @@ Stable JSON fields:
   evaluator emits.
 - `verify_run_schema_version` — schema version for
   `agents-shipgate-reports/verify-run.json`.
+- `verification_plan_schema_version`, `verification_unit_result_schema_version`,
+  `verification_artifact_manifest_schema_version`, and
+  `verification_receipt_schema_version` — schema versions of the
+  content-addressed verification artifacts `verify` writes:
+  `verification-plan.json` (the request), `verification-unit-result.json`
+  (decision-free worker output), `verification-artifacts.json` (the manifest of
+  emitted artifacts), and
+  `verification-receipt.json` (the terminal receipt, written last). See
+  [verification identity](docs/verification-reproducibility.md).
 - `human_authorization_request_schema_version`,
   `human_authorization_schema_version`,
   `human_authorization_evaluation_schema_version`, and
@@ -6324,13 +6375,35 @@ Stable JSON fields:
   redirect it.
 - `human_authorization_schema_path` — checked-in schema family path for those
   four authorization objects.
+- `human_review_request_schema_version` / `human_review_request_schema_path` /
+  `human_review_request_artifact` — schema version, checked-in JSON Schema path,
+  and default artifact path for
+  `agents-shipgate-reports/human-review-request.json`, the optional unsigned
+  review question `verify` can publish. It grants no permission; see
+  [the request contract](docs/human-review-request.md).
+- `human_review_decision_schema_version`,
+  `human_review_evaluation_schema_version`, and
+  `human_review_decision_schema_path` — schema versions for an externally signed
+  review decision and its read-only applicability evaluation, and the
+  checked-in schema family path for both. They are integration surfaces, not
+  CLI outputs; see [the decision contract](docs/human-review-decision.md).
 - `agent_handoff_schema_version` — schema version for
   `agents-shipgate-reports/agent-handoff.json`.
 - `agent_handoff_schema_path` — checked-in JSON Schema path for the handoff
   artifact.
 - `agent_handoff_artifact` — default emitted handoff artifact path.
 - `codex_boundary_result_schema_version` — schema version emitted by
-  `shipgate check --format codex-boundary-json`.
+  `shipgate check --format codex-boundary-json`, a deprecated format (see
+  `deprecated_surfaces{}`).
+- `agent_boundary_result_schema_version` / `agent_boundary_result_schema_path`
+  — schema version and checked-in JSON Schema path for `shipgate check --format
+  agent-boundary-json`, the local-boundary result for Codex, Claude Code, and
+  Cursor.
+- `deprecated_surfaces{}` — maps each deprecated surface that is still emitted
+  to a one-line deprecation note. Currently one entry: `codex-boundary-json`,
+  a compatibility projection kept through `1.x`; use `agent-boundary-json`. A
+  listed surface still works, but it is deprecated, not informational: do not
+  build a new consumer on it.
 - `current_control_schema_version` / `current_control_schema_path` /
   `current_control_artifact` — schema version, checked-in JSON Schema path, and
   default artifact path for `agents-shipgate-reports/current-control.json`, the

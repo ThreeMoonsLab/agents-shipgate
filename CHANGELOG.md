@@ -100,6 +100,10 @@
 - VS Code MCP configuration accepts a leading UTF-8 BOM and comments between a trailing comma and its closing delimiter. JSONL trace and validation readers preserve Unicode separators inside strings. Codex MCP declarations report invalid server arguments as an input error, and manifests that cannot be decoded as UTF-8 report a config error. (Refs #1043)
 - The shared YAML reader checks node expansion and nesting before construction. JSON source nesting and YAML path indexing also have limits. (Refs #1043)
 
+### Documentation
+
+- **STABILITY.md lists every key `agents-shipgate contract --json` emits.** Its *Runtime contract JSON* list named 53 of the 84 keys. It now documents the other 31 as well, among them `deprecated_surfaces{}`, `agent_boundary_result_schema_version`, the four `verification_*` versions, the `human_review_*` and `host_grants_*` versions, and the capability payload and delta attestation keys. A key whose payload belongs to a provisional command (`attest`, `registry`, `org bundle`, `audit --host`) says so, and `external_integration_surfaces[]` no longer calls every surface it names stable. `tests/test_stability_contract_fields.py` holds the list equal to the emitted keys in both directions and checks the `[]`/`{}` suffix against the JSON type. The *Provisional CLI command surface* paragraph states the `1.x` position instead of the `0.14.x` line's. No key, value or command changes. (Refs #1054)
+
 ## 1.3.0 - 2026-11-08
 
 An advisory-channel minor release. It closes several ways a change could pass
