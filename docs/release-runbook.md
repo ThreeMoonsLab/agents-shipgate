@@ -553,6 +553,11 @@ The shape that holds:
    `docs/changelog/<version>.md`, and leave a one-line-per-change section
    behind. This is the release body; verification refuses a tag with no
    matching section, and refuses one over 125,000 characters.
+   The prose was written for the repository root and the record sits two
+   directories down, so rewrite each repository-relative link target as it
+   moves (`STABILITY.md#…` becomes `../../STABILITY.md#…`) and leave the
+   prose as reviewed. `tests/test_repository_links.py` fails on any link or
+   anchor in tracked Markdown that does not resolve, the record included.
    That record also states the application review count: run
    [`benchmark/application-q2`](../benchmark/application-q2/README.md#every-release)
    on both corpora with the release build, hand-score the rows that changed

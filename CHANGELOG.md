@@ -104,6 +104,10 @@
 - VS Code MCP configuration accepts a leading UTF-8 BOM and comments between a trailing comma and its closing delimiter. JSONL trace and validation readers preserve Unicode separators inside strings. Codex MCP declarations report invalid server arguments as an input error, and manifests that cannot be decoded as UTF-8 report a config error. (Refs #1043)
 - The shared YAML reader checks node expansion and nesting before construction. JSON source nesting and YAML path indexing also have limits. (Refs #1043)
 
+### Documentation
+
+- **Every relative link and anchor in the repository's tracked Markdown is checked.** `tests/test_repository_links.py` resolves each inline link, image, reference definition and HTML `href`/`src` in the files `git ls-files` lists against the tracked tree, and each `#fragment` against the heading anchors GitHub gives the target and its explicit `id`s; code and comments are skipped, and a target that exists but is untracked or ignored counts as broken. It found 28 broken links: 25 in the `docs/changelog/` release records, whose prose was moved from `CHANGELOG.md` with root-relative targets and whose targets now start `../../` (the prose is unchanged), the 0.7.0 entry's `STABILITY.md#stability-contract`, which the title's version stamp had renamed and which now points at the `report_schema_version` rule it cites, `samples/README.md`'s link to the cold-start regeneration section, and `docs/upstream-integrations.md`'s link to a `docs/api-trace-evidence.md` that never existed, which now points at the trace-sample shape in `docs/manifest-v0.1.md`. The release runbook says to rewrite those targets when the prose moves. (#1039)
+
 ## 1.3.0 - 2026-11-08
 
 An advisory-channel minor release. It closes several ways a change could pass
@@ -1935,7 +1939,7 @@ metadata so agents can route findings without re-walking the catalog.
   - `docs_url` always sourced from CheckMetadata (patches don't carry
     per-instance documentation URLs).
 - Report schema bumped to `v0.7` per
-  [STABILITY.md](STABILITY.md#stability-contract) ("`report_schema_version`
+  [STABILITY.md](STABILITY.md#json-report-fields-stable) ("`report_schema_version`
   bumps minor on additive changes"). `docs/report-schema.v0.7.json`
   added; `v0.6.json` retained as a frozen reference.
 - `_run_id` excludes the four new derived fields plus `patches` so
