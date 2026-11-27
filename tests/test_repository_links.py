@@ -14,10 +14,11 @@ What it checks, and what it does not:
   scratch note never fails the suite for a reason nobody else can reproduce.
 * **Links** are inline links and images (``[text](target)``), reference
   definitions (``[label]: target``) and HTML ``href``/``src`` attributes.
-  Fenced code blocks, inline code spans, HTML comments and YAML front matter
-  are not rendered as links, so they are skipped, and Markdown inside a raw
-  HTML block is text (its tags' attributes are read). A target with a URL
-  scheme (``https:``, ``mailto:``) or ``//`` is external and not fetched.
+  Fenced and indented code blocks, inline code spans, HTML comments and YAML
+  front matter are not rendered as links, so they are skipped, and Markdown
+  inside a raw HTML block is text (its tags' attributes are read). A target
+  with a URL scheme (``https:``, ``mailto:``) or ``//`` is external and not
+  fetched.
 * **Targets** resolve the way GitHub resolves them: relative to the linking
   file's directory, or to the repository root when they begin with ``/``. A
   target must be a tracked file, or a directory holding one, spelled with
@@ -36,14 +37,18 @@ It was checked against GitHub (``gh api markdown -f mode=markdown``, with
 front matter blanked as the file view does) on 2026-11-27: for each of the 354
 tracked Markdown files, the relative link destinations it extracts and the
 ordered heading anchors it derives equal GitHub's. The tests below pin the
-cases that check and its review covered. Known shapes it reads differently,
-none of them in the repository then:
+cases that check and its two reviews covered. Known shapes it reads
+differently, none of them in the repository then:
 
 * a link inside another link's text (``[a [b](c) d](e)``) also yields ``e``;
-* an indented (four-space) code block is read as prose;
+* blockquotes are not tracked as containers, so indented code or a raw HTML
+  block inside ``>`` is read as prose (``> <div>`` does not open a block);
 * a heading or code span inside a list item indented four or more columns,
-  a setext heading inside a container, and a table row that does not begin
-  with ``|`` follow the simpler rules above.
+  a setext heading inside a container, a ``- - -`` thematic break (read as a
+  list item) and a table row that does not begin with ``|`` follow the
+  simpler rules here;
+* the ``href``/``src`` of a tag GitHub's sanitizer drops (``<source src>``
+  outside ``<picture>``) is still checked.
 """
 
 from __future__ import annotations
@@ -78,20 +83,25 @@ _BLOCK_START = re.compile(
     r"^(?: {0,3}#{1,6}[ \t]|[ \t]*(?:[-+*]|\d{1,9}[.)])[ \t]|[ \t]*\|)", re.MULTILINE
 )
 _HEADING_OR_TABLE_ROW = re.compile(r" {0,3}#{1,6}[ \t]|[ \t]*\|")
-_HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
-_HTML_BLOCK_RAW = re.compile(r"^[ \t]*<(script|pre|style|textarea)(?:[\s>]|$)", re.IGNORECASE)
-_HTML_BLOCK_COMMENT = re.compile(r"^[ \t]*<!--")
+_HTML_COMMENT = re.compile(r"<!--(?:>|->|.*?-->)", re.DOTALL)  # <!--> and <!---> are whole
+# Raw HTML block starts (CommonMark 0.29, which GitHub's cmark-gfm follows),
+# matched after the line's indentation, which must be under four columns.
+_HTML_BLOCK_RAW = re.compile(r"<(script|pre|style)(?:[\s>]|$)", re.IGNORECASE)
 _HTML_BLOCK_TAG = re.compile(
-    r"^[ \t]*</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col"
+    r"</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col"
     r"|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame"
     r"|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav"
-    r"|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th"
+    r"|noframes|ol|optgroup|option|p|param|section|source|summary|table|tbody|td|tfoot|th"
     r"|thead|title|tr|track|ul)(?:[\s/>]|$)",
     re.IGNORECASE,
 )
-_HTML_BLOCK_LONE_TAG = re.compile(
-    r"^[ \t]*(?:<[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>|</[A-Za-z][A-Za-z0-9-]*\s*>)[ \t]*$"
+_HTML_ATTRIBUTE = (
+    r"(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)"
 )
+_HTML_BLOCK_LONE_TAG = re.compile(
+    rf"(?:<[A-Za-z][A-Za-z0-9-]*{_HTML_ATTRIBUTE}*\s*/?>|</[A-Za-z][A-Za-z0-9-]*\s*>)[ \t]*$"
+)
+_LIST_ITEM = re.compile(r"([-+*]|\d{1,9}[.)])([ \t]+|$)")
 _AUTOLINK = re.compile(r"<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*|[^\s<>@]+@[^\s<>@]+)>")
 _HTML_TAG = re.compile(r"<[A-Za-z][^<>]*>|</[A-Za-z][^<>]*>")
 _HTML_ANCHOR_ATTRIBUTE = re.compile(
@@ -154,26 +164,42 @@ def _front_matter_end(lines: list[str]) -> int:
 _ENDS_ON_ITS_OWN_LINE = "\0"
 
 
-def _html_block(lines: list[str], index: int) -> str | None:
-    """What ends a raw HTML block that starts on ``lines[index]``, or ``None``.
+def _columns(indentation: str) -> int:
+    """The width of leading whitespace, with a tab advancing to the next multiple of 4."""
 
-    CommonMark's kinds, as GitHub renders them: ``<script>``/``<pre>``/
-    ``<style>``/``<textarea>`` run to their closing tag, a comment to ``-->``,
-    a block-level tag (``<details>``, ``</div>``…) to the next blank line
-    (``""``), and any other tag alone on a line also to a blank line, but
-    only where it does not interrupt a paragraph.
+    width = 0
+    for ch in indentation:
+        width = width + 4 - width % 4 if ch == "\t" else width + 1
+    return width
+
+
+# How a raw HTML block that starts with each opener ends (CommonMark types 2-5).
+_HTML_BLOCK_OPENERS = (("<!--", 2, "-->"), ("<?", 2, "?>"), ("<![CDATA[", 9, "]]>"))
+
+
+def _html_block(content: str, after_paragraph: bool) -> str | None:
+    """What ends a raw HTML block that starts this line, or ``None``.
+
+    ``content`` is the line without its indentation. CommonMark 0.29's kinds,
+    as GitHub's cmark-gfm renders them: ``<script>``/``<pre>``/``<style>``
+    run to their closing tag; a comment to ``-->`` (``<!-->`` is a whole
+    one), ``<?`` to ``?>``, ``<![CDATA[`` to ``]]>`` and ``<!X`` to ``>``; a
+    block-level tag (``<details>``, ``</div>``…) to the next blank line
+    (``""``); and any other complete tag alone on a line also to a blank line,
+    but only where it does not continue a paragraph.
     """
 
-    line = lines[index]
-    if match := _HTML_BLOCK_RAW.match(line):
+    if match := _HTML_BLOCK_RAW.match(content):
         closing = f"</{match.group(1).lower()}>"
-        return _ENDS_ON_ITS_OWN_LINE if closing in line.lower() else closing
-    if _HTML_BLOCK_COMMENT.match(line):
-        opened = line.index("<!--") + 4
-        return _ENDS_ON_ITS_OWN_LINE if "-->" in line[opened:] else "-->"
-    if _HTML_BLOCK_TAG.match(line):
+        return _ENDS_ON_ITS_OWN_LINE if closing in content.lower() else closing
+    for opener, searched_from, closing in _HTML_BLOCK_OPENERS:
+        if content.startswith(opener):
+            return _ENDS_ON_ITS_OWN_LINE if closing in content[searched_from:] else closing
+    if re.match(r"<![A-Za-z]", content):
+        return _ENDS_ON_ITS_OWN_LINE if ">" in content[2:] else ">"
+    if _HTML_BLOCK_TAG.match(content):
         return ""
-    if _HTML_BLOCK_LONE_TAG.match(line) and (index == 0 or not lines[index - 1].strip()):
+    if _HTML_BLOCK_LONE_TAG.match(content) and not after_paragraph:
         return ""
     return None
 
@@ -181,12 +207,15 @@ def _html_block(lines: list[str], index: int) -> str | None:
 def _block_masks(lines: list[str]) -> tuple[list[bool], list[bool]]:
     """Which lines are code, and which are raw HTML blocks.
 
-    Code is front matter and fenced code. A fence closes on a line of the
-    same character at least as long, as CommonMark says; an unclosed fence
-    runs to the end of the file. A fence may be indented, since one inside a
-    list item is, and a closing line indented four or more columns past the
-    opening one is content, not a close. Inside a raw HTML block a fence
-    opens nothing, Markdown is not rendered, and its tags' attributes are.
+    Code is front matter, fenced code and indented code. A fence closes on a
+    line of the same character at least as long, as CommonMark says; an
+    unclosed fence runs to the end of the file, and a closing line indented
+    four or more columns past the opening one is content. Indentation is
+    measured from the content column of the list item a line belongs to, so
+    a fence inside a list item is a fence, and a line four or more columns
+    past it is indented code unless it continues a paragraph. Inside a raw
+    HTML block a fence opens nothing, Markdown is not rendered, and its tags'
+    attributes are.
     """
 
     code = [False] * len(lines)
@@ -196,13 +225,16 @@ def _block_masks(lines: list[str]) -> tuple[list[bool], list[bool]]:
     open_fence: str | None = None
     open_indent = 0
     html_until: str | None = None  # "" ends at a blank line
+    list_items: list[int] = []  # the content column of each open list item
+    previous = "blank"  # what the last line was: blank, paragraph, code or other
     for index, line in enumerate(lines):
         if code[index]:
             continue
+        stripped = line.strip()
+        content = line.lstrip(" \t")
+        indent = _columns(line[: len(line) - len(content)])
         if open_fence is not None:
             code[index] = True
-            stripped = line.strip()
-            indent = len(line) - len(line.lstrip(" \t"))
             if (
                 stripped
                 and set(stripped) == {open_fence[0]}
@@ -210,24 +242,62 @@ def _block_masks(lines: list[str]) -> tuple[list[bool], list[bool]]:
                 and indent < open_indent + 4
             ):
                 open_fence = None
+                previous = "other"
             continue
         if html_until is not None:
-            if html_until == "" and not line.strip():
+            if html_until == "" and not stripped:
                 html_until = None
+                previous = "blank"
                 continue
             raw_html[index] = True
             if html_until and html_until in line.lower():
                 html_until = None
+                previous = "other"
             continue
-        match = _FENCE_OPEN.match(line)
-        if match and not (match.group("fence")[0] == "`" and "`" in match.group("info")):
-            open_fence = match.group("fence")
-            open_indent = len(match.group("indent"))
+        if not stripped:
+            previous = "blank"
+            continue
+        item = _LIST_ITEM.match(content)
+        lazy = (
+            previous == "paragraph"
+            and not item
+            and _ATX_HEADING.match(content) is None
+            and not _FENCE_OPEN.match(content)
+            and _html_block(content, True) is None
+        )
+        if not lazy:
+            # Not a lazy paragraph continuation, so it closes the list items it is left of.
+            while list_items and indent < list_items[-1]:
+                list_items.pop()
+        relative = indent - (list_items[-1] if list_items else 0)
+        if relative >= 4:
+            if previous == "paragraph":
+                continue  # an indented continuation line of the paragraph
+            code[index] = True
+            previous = "code"
+            continue
+        fence = _FENCE_OPEN.match(line)
+        if fence and not (fence.group("fence")[0] == "`" and "`" in fence.group("info")):
+            open_fence = fence.group("fence")
+            open_indent = indent
             code[index] = True
             continue
-        if (ending := _html_block(lines, index)) is not None:
+        if (ending := _html_block(content, previous == "paragraph")) is not None:
             raw_html[index] = True
-            html_until = None if ending == _ENDS_ON_ITS_OWN_LINE else ending
+            if ending == _ENDS_ON_ITS_OWN_LINE:
+                previous = "other"
+            else:
+                html_until = ending
+            continue
+        if item:
+            spaces = _columns(item.group(2)) if item.group(2) else 1
+            list_items.append(indent + len(item.group(1)) + (spaces if spaces <= 4 else 1))
+            rest = content[item.end() :]
+            previous = "paragraph" if rest.strip() and not _atx_heading(rest) else "other"
+        elif _atx_heading(line) or _SETEXT_UNDERLINE.match(line):
+            previous = "other"
+        else:
+            previous = "paragraph"
     return code, raw_html
 
 
@@ -271,7 +341,7 @@ def _mask_code_spans_and_comments(text: str) -> str:
         if token.startswith("\\"):
             position = end
         elif token == "<!--":
-            close = text.find("-->", end)
+            close = text.find("-->", start + 2)  # <!--> and <!---> close themselves
             if close == -1:
                 position = end
             else:
@@ -872,6 +942,98 @@ def test_raw_html_blocks_render_attributes_and_no_markdown() -> None:
         "html-href.md",
     ]
     assert heading_anchors(text) == ["after-the-raw-block"]
+
+
+def test_html_block_starts_and_indented_code_match_github() -> None:
+    """Which lines open a raw HTML block or indented code, as GitHub reads them (2026-11-27).
+
+    A start indented four columns is code, not HTML; ``<!-->`` is a whole
+    comment; ``<source>`` is a block-level tag and ``<search>`` is not; a lone
+    tag opens a block after a heading or fence but not inside a paragraph,
+    and only if its attributes are well formed. Each wrong reading hid every
+    link after it, up to the end of the file or the next blank line.
+    """
+
+    text = (
+        "# Doc\n\nThe marker looks like this:\n\n    <!-- agents-shipgate:begin\n\n"
+        "## Later section\n\n[later](later.md)\n\n"
+        "<!-->\n[after empty comment](after-empty-comment.md)\n\n"
+        "<!--->\n[after dash comment](after-dash-comment.md)\n\n"
+        "Inline <!--> then [inline after](inline-after.md)\n\n"
+        "<search> [search](search-link.md)\n\n"
+        '<source media="print"> [source](source-link.md)\n\n'
+        "Para\n<span>\n[after para span](after-para-span.md)\n\n"
+        "## Heading\n<span>\n[after heading span](after-heading-span.md)\n\n"
+        "```\nx\n```\n<span>\n[after fence span](after-fence-span.md)\n\n"
+        '<x "y">\n[after bad attr](after-bad-attr.md)\n\n'
+        "<foo bar=>\n[after bad attr 2](after-bad-attr-2.md)\n\n"
+        "<?php echo 1; ?>\n[after php](after-php.md)\n\n"
+        "Para two\n    <div>\n[after indented div](after-indented-div.md)\n\n"
+        "\t<span>\n[after tab span](after-tab-span.md)\n\n"
+        "- item\n\n      ```\n      [indented code in list](in-list-code.md)\n      ```\n\n"
+        "[end](end.md)\n"
+    )
+    assert [destination for _, destination in links_in(text)] == [
+        "later.md",
+        "after-empty-comment.md",
+        "after-dash-comment.md",
+        "inline-after.md",
+        "search-link.md",
+        "after-para-span.md",
+        "after-bad-attr.md",
+        "after-bad-attr-2.md",
+        "after-php.md",
+        "after-indented-div.md",
+        "after-tab-span.md",
+        "end.md",
+    ]
+    assert heading_anchors(text) == ["doc", "later-section", "heading"]
+
+
+def test_list_items_comments_and_processing_blocks_match_github() -> None:
+    """More of GitHub's reading (2026-11-27): a ``<?`` block runs to ``?>``,
+    ``<!-->`` closes itself inline and inside raw HTML, and a line indented
+    four columns inside a list item, even after a lazy continuation line, is
+    the item's text rather than code.
+    """
+
+    text = (
+        "<?php\n[in php](in-php.md)\n?>\n[after php block](after-php-block.md)\n\n"
+        "Inline <!--> then [inline after](inline-after.md) and --> end\n\n"
+        '<div>\n<!--> <a href="kept.md">k</a> -->\n</div>\n\n'
+        "- item\nlazy continuation\n\n    [in item](in-item.md)\n\n"
+        "- other item\n\n    [in other item](in-other-item.md)\n"
+    )
+    assert [destination for _, destination in links_in(text)] == [
+        "after-php-block.md",
+        "inline-after.md",
+        "in-item.md",
+        "in-other-item.md",
+        "kept.md",
+    ]
+
+
+def test_a_start_in_indented_code_hides_no_later_link_or_heading(tmp_path: Path) -> None:
+    """The review's repro: an unclosed ``<!--`` in an indented code block."""
+
+    files = {
+        "a.md": (
+            "# Doc\n\nThe marker looks like this:\n\n    <!-- agents-shipgate:begin\n\n"
+            "## Later section\n\n[broken](missing-1.md)\n\n[also broken](#nowhere)\n\n"
+            "More prose [x](missing-2.md).\n"
+        ),
+        "b.md": "[later](a.md#later-section)\n",
+    }
+    for relative, content in files.items():
+        (tmp_path / relative).write_text(content, encoding="utf-8")
+
+    broken = broken_links(Repository.from_paths(tmp_path, files))
+
+    assert [(link.source, link.target) for link in broken] == [
+        ("a.md", "missing-1.md"),
+        ("a.md", "#nowhere"),
+        ("a.md", "missing-2.md"),
+    ]
 
 
 def test_link_syntax_github_reads_and_the_parser_must_too() -> None:

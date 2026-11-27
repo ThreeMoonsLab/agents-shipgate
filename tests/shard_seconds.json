@@ -461,7 +461,7 @@
   "tests/test_capability_lock_redaction.py": 0.1,
   "tests/test_control_evidence.py": 0.2,
   "tests/test_audit_dependency_locks.py": 0.5,
-  "tests/test_repository_links.py": 1.2
+  "tests/test_repository_links.py": 1.0
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -861,12 +861,12 @@
   },
   {
    "source": "junit",
-   "measured_at": "c24483b5ae8e with issue #1039 repository link check (review cycle 1)",
-   "report_sha256": "2767a26edf2ebbcc61f18bc9f3839bfabb15ece843b4ca9c9670a57b6e3b7912",
+   "measured_at": "c24483b5ae8e with issue #1039 repository link check (review cycle 2)",
+   "report_sha256": "4666d0b7969f7fa9d26f56cf86bf6ed147147579cb93760fe7d7152e94459966",
    "files": {
-    "tests/test_repository_links.py": 1.2
+    "tests/test_repository_links.py": 1.0
    },
-   "case_count": 41,
+   "case_count": 44,
    "command": "python -m pytest tests/test_repository_links.py --junitxml=repository-links.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
