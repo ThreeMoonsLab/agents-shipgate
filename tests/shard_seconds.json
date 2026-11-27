@@ -460,7 +460,8 @@
   "tests/test_unchanged_link_limits.py": 77.2,
   "tests/test_capability_lock_redaction.py": 0.1,
   "tests/test_control_evidence.py": 0.2,
-  "tests/test_audit_dependency_locks.py": 0.5
+  "tests/test_audit_dependency_locks.py": 0.5,
+  "tests/test_validation_error_messages.py": 3.2
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -857,6 +858,17 @@
    "case_count": 7,
    "command": "python -m pytest tests/test_audit_dependency_locks.py --junitxml=audit-tests.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "86216b0b54fe with issue #1040 validation-message sweep",
+   "report_sha256": "386256f1453b7725fc2c77ef974cfac3904f8eaa8d4cc5d4eee295ed47ded83e",
+   "files": {
+    "tests/test_validation_error_messages.py": 3.2
+   },
+   "case_count": 125,
+   "command": "python -m pytest -m \"not perf and not slow\" tests/test_validation_error_messages.py tests/test_agent_mode.py --junitxml=i1040-weights.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained. The same run put the 13 cases #1040 added to tests/test_agent_mode.py at 0.1 s, so that file keeps its full-suite weight"
   }
  ]
 }
