@@ -102,7 +102,7 @@ def render_sarif_report(
                         "informationUri": "https://github.com/ThreeMoonsLab/agents-shipgate",
                         "rules": [
                             *_rules(active_findings, metadata_by_id),
-                            *_semantic_gap_rules(semantic_gaps),
+                            *_semantic_gap_rules(semantic_gaps, metadata_by_id),
                         ],
                     }
                 },
@@ -140,10 +140,13 @@ def _semantic_gap_rule_id(kind: str) -> str:
     return f"{SEMANTIC_GAP_RULE_PREFIX}{kind.replace('_', '-').upper()}"
 
 
-def _semantic_gap_rules(gaps: list[EvidenceGap]) -> list[dict[str, Any]]:
+def _semantic_gap_rules(
+    gaps: list[EvidenceGap], metadata_by_id: dict[str, CheckMetadata]
+) -> list[dict[str, Any]]:
     kinds = sorted({gap.kind for gap in gaps})
-    return [
-        {
+    rules = []
+    for kind in kinds:
+        rule: dict[str, Any] = {
             "id": _semantic_gap_rule_id(kind),
             "name": _semantic_gap_rule_id(kind),
             "shortDescription": {
@@ -162,8 +165,13 @@ def _semantic_gap_rules(gaps: list[EvidenceGap]) -> list[dict[str, Any]]:
                 "tags": ["insufficient_evidence", "semantic_evidence"],
             },
         }
-        for kind in kinds
-    ]
+        # Each semantic rule id is a catalogued projection id (#1047), so code
+        # scanning links it to its docs/checks.md section like a check rule.
+        metadata = metadata_by_id.get(rule["id"])
+        if metadata is not None and metadata.docs_url:
+            rule["helpUri"] = metadata.docs_url
+        rules.append(rule)
+    return rules
 
 
 def _semantic_gap_result(

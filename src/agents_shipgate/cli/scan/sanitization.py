@@ -798,11 +798,21 @@ def _append_baseline_integrity_findings(
                 path="source_warnings[]",
             )
         )
-    stale_issues = baseline_resolved_fingerprints(
-        public_findings,
-        baseline_file,
-        legacy_fingerprints=decision.legacy_fingerprints,
-    )
+    # An entry naming a retired check id never matches a finding again, so it
+    # is also "resolved". One stale finding per entry: the deprecated-id issue
+    # already says why it no longer fires and what to do with it (#1047).
+    deprecated_fingerprints = {
+        issue.fingerprint for issue in static_issues if issue.kind == "deprecated_check_id"
+    }
+    stale_issues = [
+        issue
+        for issue in baseline_resolved_fingerprints(
+            public_findings,
+            baseline_file,
+            legacy_fingerprints=decision.legacy_fingerprints,
+        )
+        if issue.fingerprint not in deprecated_fingerprints
+    ]
     baseline_privacy_hint = None
     if stale_issues and privacy_stats.occurrence_count:
         baseline_privacy_hint = (

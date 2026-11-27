@@ -51,8 +51,7 @@ differently, none of them in the repository then:
   simpler rules here;
 * a four-column indented line after ``***``, after a table, or after a list
   item that interrupts a paragraph (``Para\\n2. two``, a blank line, then
-  the indented line) is read as prose where GitHub reads code, and a closing
-  fence outdented past its list item's content column still closes it;
+  the indented line) is read as prose where GitHub reads code;
 * the ``href``/``src`` of a tag GitHub's sanitizer drops (``<source src>``
   outside ``<picture>``) is still checked.
 """
@@ -273,7 +272,7 @@ def _block_masks(lines: list[str]) -> tuple[list[bool], list[bool]]:
 
     Code is front matter, fenced code and indented code. A fence closes on a
     line of the same character at least as long, as CommonMark says; an
-    unclosed fence runs to the end of its blockquote or the file, and a
+    unclosed fence runs to the end of its list item, blockquote or file. A
     closing line indented four or more columns past the opening one is
     content. Indentation is measured from the content column of the list item
     a line belongs to, so a fence inside a list item is a fence, and a line
@@ -291,6 +290,8 @@ def _block_masks(lines: list[str]) -> tuple[list[bool], list[bool]]:
     open_fence: str | None = None
     open_indent = 0
     open_quote_depth = 0
+    open_item_column = 0
+    open_quoted_item_column = 0
     html_until: str | None = None  # "" ends at a blank line
     list_items: list[int] = []  # the content column of each open list item
     previous = "blank"  # what the last line was: blank, paragraph, code or other
@@ -302,12 +303,23 @@ def _block_masks(lines: list[str]) -> tuple[list[bool], list[bool]]:
         indent = _columns(line[: len(line) - len(content)])
         # A fence inside a blockquote is read without its markers, and ends with it.
         fence_line = line
+        quote_body = line
         quote_depth = 0
         while quote := _QUOTE_PREFIX.match(fence_line):
             fence_line = fence_line[quote.end() :]
             quote_depth += 1
-        if open_fence is not None and quote_depth < open_quote_depth:
-            open_fence = None
+            if quote_depth == open_quote_depth:
+                quote_body = fence_line
+        if open_fence is not None:
+            unquoted = quote_body.lstrip(" \t")
+            quote_indent = _columns(quote_body[: len(quote_body) - len(unquoted)])
+            if (
+                quote_depth < open_quote_depth
+                or (stripped and indent < open_item_column)
+                or (unquoted and quote_indent < open_quoted_item_column)
+            ):
+                open_fence = None
+                previous = "other"
         if open_fence is not None:
             code[index] = True
             # A deeper quote marker is content within the open fence.
@@ -378,6 +390,8 @@ def _block_masks(lines: list[str]) -> tuple[list[bool], list[bool]]:
             open_fence = fence.group("fence")
             open_indent = inner_column + inner_indent - base
             open_quote_depth = quotes
+            open_item_column = list_items[-1] if list_items else 0
+            open_quoted_item_column = inner_column - base if quotes else 0
             code[index] = True
             continue
         if (ending := _html_block(content, previous == "paragraph")) is not None:
@@ -1149,6 +1163,15 @@ def test_fences_and_code_after_list_and_quote_markers_match_github() -> None:
         "end.md",
     ]
     assert heading_anchors(text) == ["usage", "end"]
+
+    # An unclosed fence ends with its list item, even inside a quote.
+    for sample in (
+        "- ~~~\n  [example](in-fence.md)\n\n## After\n[link](after.md)\n",
+        "> - ~~~\n>   > [example](in-fence.md)\n>\n> ## After\n> [link](after.md)\n",
+        "- > ~~~\n  > [example](in-fence.md)\n> ## After\n> [link](after.md)\n",
+    ):
+        assert [destination for _, destination in links_in(sample)] == ["after.md"]
+        assert heading_anchors(sample) == ["after"]
 
 
 def test_nested_list_items_indented_four_columns_keep_their_paragraphs() -> None:
