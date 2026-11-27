@@ -31,6 +31,19 @@ os.environ["PYTHONPATH"] = os.pathsep.join(parts)
 for _runner_file_var in ("GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT"):
     os.environ.pop(_runner_file_var, None)
 
+# Git hands every program it starts (a shell alias, a hook, `git rebase
+# --exec`) GIT_DIR and its kind; from a linked worktree GIT_DIR points into the
+# shared repository and outranks `-C`. A suite started that way ran each
+# fixture's `git init` and `git config` against the developer's repository:
+# `core.bare = true` and a `Test` identity in its shared config. Every
+# inherited GIT_* variable is dropped here, before any fixture of any scope
+# runs, as `agents_shipgate.core.git_env` drops them for Shipgate's own Git;
+# `_isolate_git_configuration` below sets the ones the suite runs with, and a
+# test that needs another sets it with `monkeypatch`
+# (tests/test_git_fixture_isolation.py).
+for _git_var in [name for name in os.environ if name.startswith("GIT_")]:
+    del os.environ[_git_var]
+
 import pytest  # noqa: E402
 
 from ci_sharding import load_seconds, shard_assignment  # noqa: E402
