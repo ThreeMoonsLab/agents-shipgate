@@ -83,7 +83,7 @@ edit — as a byte-compared golden. They render the two halves of that file:
   order the questions are asked in. Read the diff before regenerating it: a
   change in block *order* is a change in which question this tool asks a human
   first. Its own [README](google_adk_cold_start_agent/README.md) documents the
-  [cold-report regeneration procedure](google_adk_cold_start_agent/README.md#regenerating-the-cold-report).
+  [cold-report regeneration procedure](google_adk_cold_start_agent/README.md#regenerating-the-goldens).
 - [`declaration_repair_agent`](declaration_repair_agent/expected/suggested-declarations.yaml)
   is the step after, and adds the one shape the cold start has no example of: a
   declaration challenged in the **effect** dimension, whose repair is a
