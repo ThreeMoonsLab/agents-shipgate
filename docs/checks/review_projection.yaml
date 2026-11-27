@@ -1,0 +1,54 @@
+# Check catalog · category: review_projection
+#
+# Projection IDs (#1047). PR annotations and the GitHub check run print these
+# IDs on rows that are not findings: they project a declaration review row or
+# a verifier capability change. Each entry is lifecycle: projection, so
+# `agents-shipgate explain` answers for it while checks.ignore and
+# checks.severity_overrides cannot name it. The emitting constants are
+# agents_shipgate.report.pr_projection.PROJECTION_CHECK_IDS.
+#
+# After editing this file, regenerate docs/checks.json with:
+#   python scripts/generate_schemas.py
+# docs/checks.md is human-maintained — update it by hand.
+checks:
+- id: SHIP-ACTION-DECLARATION-UNVERIFIED
+  default_severity: medium
+  mvp_tier: evidence
+  lifecycle: projection
+  description: An action declaration this change added, changed or removed that
+    the head's evidence does not corroborate.
+  rationale: A declaration is the reviewed answer the gate trusts, so a changed
+    declaration nothing corroborates is shown to the reviewer even when it
+    raises no finding.
+  fires_when: The report's declaration review compares a base and has a row in
+    the unverified bucket; every removed declaration is in it.
+  recommendation: Review the declaration at the named shipgate.yaml path and
+    confirm it describes what the action does.
+- id: SHIP-ACTION-EFFECT-OVERRIDE-ACKNOWLEDGED
+  default_severity: medium
+  mvp_tier: evidence
+  lifecycle: projection
+  description: An action declares an effect weaker than the effect inferred for
+    it, and action_surface.actions[].override records the reviewed exception.
+  rationale: An acknowledged override keeps the action pass-eligible, so each
+    one stays visible on the pull request with both readings and the
+    reviewer's evidence and reason.
+  fires_when: The report lists an acknowledged override, or its declaration
+    review has a row in the acknowledged_override bucket.
+  recommendation: Confirm the recorded evidence and reason, or set the declared
+    effect to the inferred one.
+- id: SHIP-CAPABILITY-CHANGE
+  default_severity: low
+  mvp_tier: core
+  lifecycle: projection
+  description: A capability this change adds, removes, broadens or narrows,
+    from the verifier's capability review.
+  rationale: The capability diff is what a reviewer is asked to approve, so a
+    source-backed change is annotated where it happens.
+  fires_when: verifier.json capability_review.top_changes has a change with a
+    source path that no annotation for one of its related findings already
+    covers. Severity follows the change's impact (blocks_release critical;
+    insufficient_evidence and review_required high; informational low; none
+    info).
+  recommendation: Review the change at the annotated source and confirm the
+    team intends it.

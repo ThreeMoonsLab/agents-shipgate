@@ -92,8 +92,8 @@ _KIND_TO_RECOMMENDATION: dict[str, str] = {
     ),
     "deprecated_check_id": (
         "Update the baseline entry to use one of the listed "
-        "replacement check IDs; re-running `baseline save` does not "
-        "rewrite check IDs."
+        "replacement check IDs, or remove it when none is listed; "
+        "re-running `baseline save` does not rewrite check IDs."
     ),
     "resolved_not_pruned": (
         "Re-run `agents-shipgate baseline save` to drop the resolved "

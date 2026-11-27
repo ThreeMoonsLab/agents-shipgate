@@ -464,6 +464,7 @@
   "tests/test_git_fixture_isolation.py": 9.7,
   "tests/test_repository_links.py": 1.2,
   "tests/test_verify_committed_links.py": 45.1,
+  "tests/test_catalog_lifecycle.py": 16.0,
   "tests/test_workflow_hardening.py": 1.1
  },
  "measured_at": "cbff1ef0b101",
@@ -893,6 +894,17 @@
    },
    "case_count": 7,
    "command": "python -m pytest tests/test_verify_committed_links.py --junitxml=committed-links.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "c24483b5ae with issue #1047 catalog lifecycle increment",
+   "report_sha256": "d65be28e00df2afc01723b9f725713381bd6a367a0e0c95ca0fc3f5c769f0cea",
+   "files": {
+    "tests/test_catalog_lifecycle.py": 16.0
+   },
+   "case_count": 66,
+   "command": "python -m pytest tests/test_catalog_lifecycle.py --junitxml=catalog-lifecycle.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {

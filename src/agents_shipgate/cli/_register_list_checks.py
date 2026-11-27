@@ -23,7 +23,9 @@ def register(app: typer.Typer) -> None:
             typer.echo(json.dumps([check.model_dump() for check in checks], indent=2))
             return
         for check in checks:
+            # Lifecycle is appended last so the first five columns keep their
+            # positions for anyone splitting this output on tabs (#1047).
             typer.echo(
                 f"{check.id}\t{check.default_severity}\t{check.mvp_tier}\t"
-                f"{check.category}\t{check.description}"
+                f"{check.category}\t{check.description}\t{check.lifecycle}"
             )

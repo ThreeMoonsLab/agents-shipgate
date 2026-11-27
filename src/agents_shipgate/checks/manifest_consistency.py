@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from agents_shipgate.checks.base import agent_finding, tool_finding
+from agents_shipgate.core.check_ids import projection_check_ids
 from agents_shipgate.core.context import ScanContext
 from agents_shipgate.core.findings.remediation import BINDING_NOT_ESTABLISHED
 from agents_shipgate.core.heuristics import is_broad_scope
@@ -156,15 +157,28 @@ def _stale_suppressions(
         if not issues:
             continue
         unbound_only = issues == [BINDING_NOT_ESTABLISHED]
+        # A projection id is in the catalog but is never a finding, so it is
+        # as unsuppressible as an unknown id; say which one it is (#1047).
+        projection = (
+            "unknown_check_id" in issues
+            and suppression.check_id in projection_check_ids()
+        )
+        if unbound_only:
+            title = (
+                f"Suppression for {suppression.check_id} names {tool_label}, "
+                "whose binding to the agent is not established"
+            )
+        elif projection:
+            title = (
+                f"Suppression for {suppression.check_id} names a projection ID, "
+                "which labels a PR annotation or SARIF row and is never a finding"
+            )
+        else:
+            title = f"Suppression for {suppression.check_id} no longer matches the manifest"
         findings.append(
             agent_finding(
                 check_id="SHIP-MANIFEST-STALE-SUPPRESSION",
-                title=(
-                    f"Suppression for {suppression.check_id} names {tool_label}, "
-                    "whose binding to the agent is not established"
-                    if unbound_only
-                    else f"Suppression for {suppression.check_id} no longer matches the manifest"
-                ),
+                title=title,
                 severity="medium",
                 category="manifest",
                 evidence={

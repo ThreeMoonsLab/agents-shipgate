@@ -7,6 +7,7 @@ import typer
 
 from agents_shipgate.checks.registry import check_catalog
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error as _emit_agent_mode_error
+from agents_shipgate.schemas.checks import CheckMetadata
 from agents_shipgate.schemas.diagnostics import NextAction
 
 
@@ -52,6 +53,7 @@ def register(app: typer.Typer) -> None:
         typer.echo(check.id)
         typer.echo(f"Category: {check.category}")
         typer.echo(f"Default severity: {check.default_severity}")
+        typer.echo(f"Lifecycle: {_lifecycle_line(check)}")
         typer.echo("")
         typer.echo(check.description)
         if check.rationale:
@@ -65,3 +67,20 @@ def register(app: typer.Typer) -> None:
             typer.echo(f"Recommendation: {check.recommendation}")
         if check.docs_url:
             typer.echo(f"Docs: {check.docs_url}")
+
+
+def _lifecycle_line(check: CheckMetadata) -> str:
+    if check.lifecycle == "deprecated":
+        since = f" in {check.deprecated_in}" if check.deprecated_in else ""
+        replaced = (
+            f"; replaced by {', '.join(check.replaced_by)}"
+            if check.replaced_by
+            else "; nothing replaces it"
+        )
+        return f"deprecated{since}{replaced}. New runs emit no findings for this ID."
+    if check.lifecycle == "projection":
+        return (
+            "projection. It labels a PR annotation or SARIF row and is never a "
+            "finding, so checks.ignore and checks.severity_overrides cannot name it."
+        )
+    return check.lifecycle
