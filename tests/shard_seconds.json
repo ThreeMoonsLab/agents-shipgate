@@ -461,6 +461,8 @@
   "tests/test_capability_lock_redaction.py": 0.1,
   "tests/test_control_evidence.py": 0.2,
   "tests/test_audit_dependency_locks.py": 0.5,
+  "tests/test_git_fixture_isolation.py": 9.7,
+  "tests/test_repository_links.py": 1.2,
   "tests/test_verify_committed_links.py": 45.1
  },
  "measured_at": "cbff1ef0b101",
@@ -857,6 +859,28 @@
    },
    "case_count": 7,
    "command": "python -m pytest tests/test_audit_dependency_locks.py --junitxml=audit-tests.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "406f3b8cf624 with linked-worktree Git isolation guard",
+   "report_sha256": "3cc6d49705014d96a664f965472b54f1f019b60cf60fab3f94caa02998175fc7",
+   "files": {
+    "tests/test_git_fixture_isolation.py": 9.7
+   },
+   "case_count": 2,
+   "command": "python -m pytest tests/test_git_fixture_isolation.py --junitxml=git-fixture-isolation.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "c24483b5ae8e with issue #1039 repository link check (review cycle 1)",
+   "report_sha256": "2767a26edf2ebbcc61f18bc9f3839bfabb15ece843b4ca9c9670a57b6e3b7912",
+   "files": {
+    "tests/test_repository_links.py": 1.2
+   },
+   "case_count": 41,
+   "command": "python -m pytest tests/test_repository_links.py --junitxml=repository-links.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   },
   {
