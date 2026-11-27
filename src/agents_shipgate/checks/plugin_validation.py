@@ -162,6 +162,16 @@ def validate_entry_point(
 
     info["check_id"] = metadata.id
 
+    # Registered plugins run and can emit findings. The built-in catalog owns
+    # retired IDs and IDs used only to label PR annotations or SARIF rows.
+    if metadata.lifecycle != "active":
+        return _fail(
+            info,
+            BAD_METADATA,
+            f"Plugin metadata declared lifecycle={metadata.lifecycle!r}. "
+            "Registered plugin checks must use lifecycle='active'.",
+        )
+
     # Gate 5: ID collision
     if metadata.id in builtin_ids:
         return _fail(

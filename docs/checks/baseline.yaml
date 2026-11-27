@@ -38,7 +38,7 @@ checks:
   rationale: |-
     Stale baseline entries hide intent — reviewers cannot tell whether the accepted debt was resolved or whether the check was renamed. Pruning keeps the baseline aligned with reality.
   fires_when: |-
-    A baseline entry references a deprecated check ID (an alias in LEGACY_CHECK_ID_ALIASES) or did not match any active scan finding (resolved_count contribution).
+    A baseline entry references a deprecated check ID (an alias in LEGACY_CHECK_ID_ALIASES or a catalog entry with lifecycle deprecated) or did not match any active scan finding (resolved_count contribution).
   evidence_fields:
   - fingerprint
   - check_id
@@ -46,7 +46,7 @@ checks:
   - kind
   - replacement_check_ids
   recommendation: |-
-    Remove resolved entries via `agents-shipgate baseline save`, or update deprecated check IDs to their canonical replacements.
+    Remove resolved entries via `agents-shipgate baseline save`, or update deprecated check IDs to their canonical replacements (remove the entry when the deprecated ID has none).
 - id: SHIP-BASELINE-INTEGRITY-MISMATCH
   default_severity: critical
   mvp_tier: lifecycle

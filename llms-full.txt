@@ -4659,9 +4659,10 @@ and either remove it, fix the underlying finding, or extend
 A baseline entry no longer corresponds to an active finding or check ID.
 Two sub-kinds, both `low` severity:
 
-- `deprecated_check_id` — entry references an alias in `LEGACY_CHECK_ID_ALIASES`.
-  Update the entry to the canonical replacement check IDs (re-running
-  `baseline save` does not rewrite check IDs).
+- `deprecated_check_id` — entry references an alias in `LEGACY_CHECK_ID_ALIASES`
+  or a catalog entry with `lifecycle: deprecated`. Update the entry to the
+  canonical replacement check IDs, or remove it when the deprecated ID has none
+  (re-running `baseline save` does not rewrite check IDs).
 - `resolved_not_pruned` — entry matched no active scan finding. Re-run
   `agents-shipgate baseline save` to drop the entry from the baseline.
 
@@ -4958,6 +4959,153 @@ Common tags:
 
 Manual `risk_overrides` in `shipgate.yaml` are treated as high-confidence evidence. Use `remove_tags` to subtract heuristic tags that are known to be wrong for a specific tool.
 
+## Projection IDs
+
+Some IDs that review surfaces print are not findings. They label a row a
+projection prints: a PR annotation or check-run annotation for a declaration
+review row or a verifier capability change, or a SARIF result for a semantic
+evidence gap. Each is in the catalog with `lifecycle: projection` so
+`agents-shipgate explain` answers for every ID the tool prints, and each is
+excluded wherever a catalog ID is treated as a check: a
+`checks.severity_overrides` entry naming one is a configuration error (exit
+`2`), a `checks.ignore` entry naming one is reported by
+`SHIP-MANIFEST-STALE-SUPPRESSION` like an unknown ID, and a plugin may not
+declare the lifecycle.
+
+### SHIP-ACTION-DECLARATION-UNVERIFIED
+
+PR annotation for an action declaration this change added, changed or removed
+that the head's evidence does not corroborate: a row in the declaration
+review's `unverified` bucket, which holds every removed declaration. Review the
+declaration at the annotated `shipgate.yaml` path.
+
+### SHIP-ACTION-EFFECT-OVERRIDE-ACKNOWLEDGED
+
+PR annotation for a reviewed exception: an action declares an effect weaker
+than the one inferred for it, and `action_surface.actions[].override` records
+the evidence and reason. One annotation per override keeps each exception
+visible. Confirm the recorded evidence and reason, or raise the declared effect.
+
+### SHIP-CAPABILITY-CHANGE
+
+PR annotation for a source-backed change in `verifier.json`
+`capability_review.top_changes` that no annotation for one of its related
+findings already covers. Its severity follows the change's impact:
+`blocks_release` is `critical`, `insufficient_evidence` and `review_required`
+are `high`, `informational` is `low`, and `none` is `info`.
+
+### Semantic evidence gaps
+
+The SARIF report prints one `error` rule, `SHIP-SEMANTIC-<KIND>`, for each
+semantic gap kind in `release_decision.evidence_coverage.evidence_gaps[]`. A gap
+is not a finding: it holds the decision at `insufficient_evidence` until the
+static evidence is complete and conflict-free, and only the input or
+declaration its `next_action` names closes it.
+
+### SHIP-SEMANTIC-AMBIGUOUS-LEGACY-TOOL-IDENTITY
+
+Gap kind `ambiguous_legacy_tool_identity`: a legacy tool identity is ambiguous.
+
+### SHIP-SEMANTIC-AMBIGUOUS-ROOT-AGENT
+
+Gap kind `ambiguous_root_agent`: the root agent is ambiguous.
+
+### SHIP-SEMANTIC-AMBIGUOUS-TOOL-SELECTOR
+
+Gap kind `ambiguous_tool_selector`: a manifest tool selector resolves to several tools.
+
+### SHIP-SEMANTIC-CONFLICTING-AUTHORITY-EVIDENCE
+
+Gap kind `conflicting_authority_evidence`: an action carries conflicting authority evidence.
+
+### SHIP-SEMANTIC-CONFLICTING-BINDING-EVIDENCE
+
+Gap kind `conflicting_binding_evidence`: declared and structural binding evidence disagree.
+
+### SHIP-SEMANTIC-CONFLICTING-EFFECT-EVIDENCE
+
+Gap kind `conflicting_effect_evidence`: an action carries conflicting effect evidence.
+
+### SHIP-SEMANTIC-CONFLICTING-TOOL-IDENTITY
+
+Gap kind `conflicting_tool_identity`: tools joined as one capability disagree about it.
+
+### SHIP-SEMANTIC-DECLARATION-BELOW-INFERRED-EVIDENCE
+
+Gap kind `declaration_below_inferred_evidence`: a declared effect does not account for the evidence inferred for it.
+
+### SHIP-SEMANTIC-DECLARATION-DRIFT
+
+Gap kind `declaration_drift`: a confirmed declaration no longer matches the evidence behind it.
+
+### SHIP-SEMANTIC-INCOMPLETE-HANDOFF-GRAPH
+
+Gap kind `incomplete_handoff_graph`: the agent handoff graph is incomplete.
+
+### SHIP-SEMANTIC-INCOMPLETE-SURFACE
+
+Gap kind `incomplete_surface`: the tool surface could not be fully enumerated.
+
+### SHIP-SEMANTIC-INCOMPLETE-TOOL-IDENTITY
+
+Gap kind `incomplete_tool_identity`: a tool identity is incomplete.
+
+### SHIP-SEMANTIC-INFERRED-EFFECT-ONLY
+
+Gap kind `inferred_effect_only`: an action's effect is inferred, not declared.
+
+### SHIP-SEMANTIC-INVALID-BINDING-ANNOTATION
+
+Gap kind `invalid_binding_annotation`: a binding annotation is invalid.
+
+### SHIP-SEMANTIC-INVALID-EVIDENCE-PROVENANCE
+
+Gap kind `invalid_evidence_provenance`: an evidence provenance claim is invalid.
+
+### SHIP-SEMANTIC-INVALID-SEMANTIC-ANNOTATION
+
+Gap kind `invalid_semantic_annotation`: a semantic annotation is invalid.
+
+### SHIP-SEMANTIC-INVALID-TOOL-BINDING
+
+Gap kind `invalid_tool_binding`: a tool_identity binding does not apply.
+
+### SHIP-SEMANTIC-MISSING-AUTHORITY-EVIDENCE
+
+Gap kind `missing_authority_evidence`: an action has no declared authority.
+
+### SHIP-SEMANTIC-MISSING-BINDING-EVIDENCE
+
+Gap kind `missing_binding_evidence`: the agent's tool bindings are unproven.
+
+### SHIP-SEMANTIC-MISSING-EFFECT-EVIDENCE
+
+Gap kind `missing_effect_evidence`: an action has no declared effect.
+
+### SHIP-SEMANTIC-PARTIAL-AUTHORITY-EVIDENCE
+
+Gap kind `partial_authority_evidence`: an action's authority is only partly declared.
+
+### SHIP-SEMANTIC-PARTIAL-BINDING-EVIDENCE
+
+Gap kind `partial_binding_evidence`: some tools cannot be traced to an agent that can call them.
+
+### SHIP-SEMANTIC-UNATTESTED-SURFACE
+
+Gap kind `unattested_surface`: no reviewed tool inventory attests this surface.
+
+### SHIP-SEMANTIC-UNRESOLVED-AGENT-BINDING
+
+Gap kind `unresolved_agent_binding`: an agent binding target does not resolve.
+
+### SHIP-SEMANTIC-UNRESOLVED-BOUND-TOOL
+
+Gap kind `unresolved_bound_tool`: a bound tool does not resolve.
+
+### SHIP-SEMANTIC-UNRESOLVED-TOOL-SELECTOR
+
+Gap kind `unresolved_tool_selector`: a manifest tool selector resolves to nothing.
+
 ## Listing Checks
 
 Use the CLI to inspect the built-in catalog:
@@ -4980,6 +5128,16 @@ The JSON catalog includes `mvp_tier` for display and triage:
 
 `mvp_tier` never changes check execution, severity, fingerprints, baselines,
 `release_decision`, or CI exit behavior.
+
+Each entry also carries `lifecycle`, so a tool generating configuration or a
+coverage dashboard from the catalog can tell which IDs can fire. `list-checks`
+prints it as the last column and `explain` as a `Lifecycle:` line:
+
+| `lifecycle` | Meaning |
+|---|---|
+| `active` | The check emits findings. |
+| `deprecated` | Still published and accepted in configuration, but new runs emit no findings for the ID. `deprecated_in` names the release whose notes deprecated it, and `replaced_by` lists the checks that now carry its meaning (empty when none does). A baseline entry naming one is reported by `SHIP-BASELINE-ENTRY-STALE`. |
+| `projection` | Never a finding: the ID labels a projection row. See [Projection IDs](#projection-ids). |
 
 Third-party packages can register checks through the `agents_shipgate.checks` Python entry-point group. Plugins are disabled by default because loading them imports third-party Python modules. Set `AGENTS_SHIPGATE_ENABLE_PLUGINS=1` to opt in, or pass `--no-plugins` to force them off for a scan or catalog command. Reports include `loaded_plugins` provenance for every third-party check entry point Shipgate discovered — including ones that failed validation. A plugin check should expose a callable with the same `ScanContext -> list[Finding]` shape as built-ins and attach `AGENTS_SHIPGATE_METADATA` as either a `CheckMetadata` instance or a compatible dictionary. Adapter artifacts are available through `context.framework_artifacts` or `context.artifact("openai_api", OpenAIApiArtifacts)`. Legacy `context.*_artifacts` read-only properties remain available for v0.11 plugin compatibility, raise `TypeError` on artifact type mismatch, and are scheduled for removal in v0.12.
 

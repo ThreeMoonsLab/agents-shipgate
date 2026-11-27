@@ -20,7 +20,7 @@ from agents_shipgate.core.baseline_audit import (
     recorded_baseline_name,
     utc_now_isoformat,
 )
-from agents_shipgate.core.check_ids import LEGACY_CHECK_ID_ALIASES
+from agents_shipgate.core.check_ids import retired_check_ids
 from agents_shipgate.core.errors import InputParseError, format_error_message
 from agents_shipgate.core.evaluation_clock import trust_expiry_date
 from agents_shipgate.core.findings.identity import (
@@ -877,25 +877,32 @@ def _verify_entry_expiry(baseline: BaselineFile, today: date) -> list[BaselineIn
 def _verify_deprecated_check_ids(
     baseline: BaselineFile,
 ) -> list[BaselineIntegrityIssue]:
-    """Entries whose ``check_id`` is a deprecated alias.
+    """Entries whose ``check_id`` is a retired check.
 
-    Aliases live in :data:`LEGACY_CHECK_ID_ALIASES`. They still match
-    findings at scan time (via :func:`expands_to_check_id`), but new
-    baselines should refer to the canonical IDs so reviewers see the
-    real check.
+    A legacy alias in :data:`LEGACY_CHECK_ID_ALIASES` still matches findings
+    at scan time (via :func:`expands_to_check_id`), and a catalog entry marked
+    ``lifecycle: deprecated`` emits no new findings (#1047). Either way new
+    baselines should refer to the canonical IDs so reviewers see the real
+    check, or drop the entry when nothing replaces it.
     """
     issues: list[BaselineIntegrityIssue] = []
+    retired = retired_check_ids()
     for entry in baseline.findings:
-        if entry.check_id not in LEGACY_CHECK_ID_ALIASES:
+        if entry.check_id not in retired:
             continue
-        replacements = sorted(LEGACY_CHECK_ID_ALIASES[entry.check_id])
+        replacements = sorted(retired[entry.check_id])
+        advice = (
+            f"use one of {replacements!r}"
+            if replacements
+            else "nothing replaces it and it emits no findings, so remove the entry"
+        )
         issues.append(
             BaselineIntegrityIssue(
                 kind="deprecated_check_id",
                 default_severity="low",
                 title=(
                     f"Baseline entry uses deprecated check_id "
-                    f"{entry.check_id!r}; use one of {replacements!r}."
+                    f"{entry.check_id!r}; {advice}."
                 ),
                 evidence={
                     "fingerprint": entry.fingerprint,
