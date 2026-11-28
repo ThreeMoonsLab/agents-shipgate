@@ -464,7 +464,8 @@
   "tests/test_git_fixture_isolation.py": 9.7,
   "tests/test_repository_links.py": 1.2,
   "tests/test_verify_committed_links.py": 45.1,
-  "tests/test_catalog_lifecycle.py": 16.0
+  "tests/test_catalog_lifecycle.py": 16.0,
+  "tests/test_import_layers.py": 2.6
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -904,6 +905,17 @@
    },
    "case_count": 66,
    "command": "python -m pytest tests/test_catalog_lifecycle.py --junitxml=catalog-lifecycle.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "66346efd95 with issue #1053 import-layer increment (load average ~145, -n 0)",
+   "report_sha256": "39b9070b684efc45935815bd097436b46884202c7a1dd8dbe70b77bac01c6cc4",
+   "files": {
+    "tests/test_import_layers.py": 2.6
+   },
+   "case_count": 40,
+   "command": "python -m pytest tests/test_import_layers.py -n 0 --junitxml=import-layers.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]
