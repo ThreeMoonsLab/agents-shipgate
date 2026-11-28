@@ -53,7 +53,13 @@ from agents_shipgate.schemas.human_authorization import (
 from agents_shipgate.schemas.verification_identity import VerificationPlan
 from agents_shipgate.schemas.verifier import VerifierArtifact
 
-authorization_app = typer.Typer(no_args_is_help=True)
+authorization_app = typer.Typer(
+    help=(
+        "Build an unsigned human-authorization request, or execute an "
+        "externally signed one. Never signs or approves anything."
+    ),
+    no_args_is_help=True,
+)
 
 #: The artifact names a terminal receipt may bind and still be executable under
 #: a signed authorization. Deny-by-default on purpose: a receipt naming

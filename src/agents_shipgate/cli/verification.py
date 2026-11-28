@@ -90,7 +90,13 @@ from agents_shipgate.schemas.verify_run import (
     build_verify_run_artifact,
 )
 
-verification_app = typer.Typer(no_args_is_help=True)
+verification_app = typer.Typer(
+    help=(
+        "Prepare a portable verification plan, emit decision-free worker "
+        "results, and assemble or reproduce its receipt."
+    ),
+    no_args_is_help=True,
+)
 
 #: Matches the verifier's worktree changed-file ceiling.
 _MAX_CHANGED_FILE_BYTES = 64 * 1024 * 1024
