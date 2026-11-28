@@ -125,7 +125,14 @@ jobs:
     # Splitting the suite split its coverage with it, and each shard's partial
     # measurement fails an 85% threshold that the whole run passes. This job is
     # where the number is a number about the suite again.
-    needs: [suite]
+    #
+    # It is also how `mcp-extra` blocks a merge (#1033). The ruleset requires
+    # this job and not `mcp extra (floor)` or `mcp extra (newest)`, so a red
+    # mcp-extra job left the pull request mergeable while the `[mcp]` extra
+    # could not start its server. Waiting for it here, and failing unless it
+    # succeeded, makes its result part of a required check without a ruleset
+    # change.
+    needs: [suite, mcp-extra]
     # Starts even when a shard failed, so that it can fail by name. `needs`
     # alone would skip this job, and a skipped required check counts as passing:
     # the ruleset requires `suite (1)` to `suite (3)` and not the shards after
@@ -146,6 +153,19 @@ jobs:
             exit 1
           fi
           echo "OK: every suite shard passed."
+
+      - name: Require both mcp-extra jobs to have passed
+        # `success` only: a failed, cancelled (a timeout included) or skipped
+        # mcp-extra job fails this required check.
+        env:
+          MCP_EXTRA_RESULT: ${{ needs.mcp-extra.result }}
+        run: |
+          set -euo pipefail
+          if [ "${MCP_EXTRA_RESULT}" != "success" ]; then
+            echo "::error::The mcp-extra job did not pass at both the SDK floor and the newest SDK (result: ${MCP_EXTRA_RESULT}); the [mcp] extra is not known to start its server."
+            exit 1
+          fi
+          echo "OK: the [mcp] extra builds and serves at both ends of its SDK range."
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -404,6 +424,10 @@ jobs:
     # The SDK comes from the index, not a hash lock: it is an optional extra
     # nothing else depends on, and the newest admitted release is the point.
     # The locked closure underneath it stays hashed.
+    #
+    # Neither leg is a required check by name; `coverage` waits for both and
+    # fails unless both succeeded, which is what makes a failure here block a
+    # merge (#1033).
     name: mcp extra (${{ matrix.sdk }})
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -98,6 +98,8 @@ def compile_command(target: LockTarget, *, uv: str = "uv") -> list[str]:
     ]
     for extra in target.extras:
         command += ["--extra", extra]
+    for constraint in target.constraints:
+        command += ["--constraint", constraint]
     command.append(target.source)
     return command
 

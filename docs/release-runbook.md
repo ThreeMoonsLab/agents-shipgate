@@ -287,6 +287,7 @@ present. That is why the backend has a lock of its own.
 | [`constraints/release-seal.txt`](../constraints/release-seal.txt) | `verify` → `artifact` | `build`, `hatchling`, `sigstore` |
 | [`constraints/release-publish.txt`](../constraints/release-publish.txt) | `stage`, `publish`, `finalize` | `uv`, `sigstore` |
 | [`constraints/release-build.txt`](../constraints/release-build.txt) | — | Not a lock: the one hand-maintained backend pin the closure above resolves |
+| [`constraints/harness.txt`](../constraints/harness.txt) | `adoption-harness.yml` → `run`, `smoke` | The adoption harness's own dependencies, compiled against `dev.txt` and `build-backend.txt`; not part of a release |
 
 Locks installed into the same environment must pin every shared distribution to
 the same version, or the second `pip install` moves part of the first one's
