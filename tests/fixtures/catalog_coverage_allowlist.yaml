@@ -1,0 +1,30 @@
+# Active catalog check IDs that no test yet pins at an assertion site (#1048).
+#
+# tests/test_catalog_coverage.py reads this file. It is shrink-only: the test
+# fails when a listed ID gains an assertion site, so the change that adds the
+# firing test also removes the entry. A new catalog ID never belongs here; give
+# it a test that makes it fire.
+
+# No test asserts that these fire yet. A critical or high ID may not be listed
+# here: write its firing test instead.
+uncovered:
+  SHIP-ADK-FUNCTION-TOOL-METADATA-MISSING: No test asserts it fires; one test only renders a hand-built finding.
+  SHIP-API-RETRY-POLICY-MISSING: No test asserts it fires; only its catalog explain text is asserted.
+  SHIP-API-TEST-CASES-MISSING: No test asserts it fires; one test asserts it stays off an Anthropic tool.
+  SHIP-API-TRACE-CONFIRMATION-MISSING: No test asserts it fires; only its remediation metadata is asserted.
+  SHIP-CREWAI-FUNCTION-TOOL-METADATA-MISSING: No test asserts it fires; one test asserts it stays absent.
+  SHIP-LANGCHAIN-FUNCTION-TOOL-METADATA-MISSING: No test asserts it fires.
+  SHIP-N8N-AI-TOOL-METADATA-MISSING: No test asserts it fires.
+  SHIP-VERIFY-OPENSHELL-PROOF-UNAVAILABLE: No test asserts it fires.
+
+# No code path can emit these today, so no test can make them fire. Each needs
+# an owner decision: make the ID reachable again, or deprecate it
+# (STABILITY.md, Check IDs). Any severity may be listed, with the reason and a
+# guard_test: the test that fails, naming the ID, once a code path can emit it.
+unreachable:
+  SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED:
+    reason: >-
+      Emitted only for a change to a surface whose boundary adapter is marked
+      experimental. No adapter in core/boundary_registry.py BOUNDARY_ADAPTERS has
+      been experimental since .vscode/mcp.json became a first-class surface (#738).
+    guard_test: tests/test_catalog_coverage.py::test_no_boundary_adapter_is_experimental
