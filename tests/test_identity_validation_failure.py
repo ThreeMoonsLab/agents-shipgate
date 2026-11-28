@@ -135,6 +135,33 @@ def test_a_changed_root_has_no_entry(tmp_path: Path) -> None:
     assert _facts(raised.value) == ("final_validation", "root_changed", None)
 
 
+@pytest.mark.parametrize(("target", "error", "observation", "entry"), [
+    ("root", FileNotFoundError, "root_changed", None),
+    ("root", PermissionError, "inspection_unavailable", None),
+    ("member", FileNotFoundError, "identity_mismatch", "pkg/settings.json"),
+    ("member", PermissionError, "inspection_unavailable", "pkg/settings.json"),
+])
+def test_final_root_and_kind_lookups_preserve_refusal_facts(
+    read_one, monkeypatch: pytest.MonkeyPatch, target, error, observation, entry,
+) -> None:
+    session, source = read_one
+    assert session.directory_entry_kind(Path("pkg/settings.json")) == "file"
+    unavailable = session.root if target == "root" else source
+    original = Path.lstat
+
+    def lstat(self):
+        if self == unavailable:
+            raise error("private filesystem detail")
+        return original(self)
+
+    monkeypatch.setattr(Path, "lstat", lstat)
+    with pytest.raises(IdentityValidationFailure) as raised:
+        session.finish()
+    assert _facts(raised.value) == ("final_validation", observation, entry)
+    assert isinstance(raised.value.__cause__, error)
+    assert "private filesystem detail" not in str(raised.value)
+
+
 def test_changed_names_and_kinds_name_their_entry(
     read_one, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -173,25 +200,24 @@ def standalone_read(request, monkeypatch: pytest.MonkeyPatch):
 
 
 def test_standalone_read_names_no_change_when_it_cannot_look_after_reading(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, standalone_read,
 ) -> None:
-    # The descriptor-relative path's post-read inspection; the portable path
-    # lets the same OSError propagate unchanged, making no claim either.
-    if os.open not in os.supports_dir_fd:
-        pytest.skip("descriptor-relative open unavailable")
-    standalone_read = trust_roots.read_identity_bound_bytes
     (tmp_path / "f.txt").write_text("x")
-    original = Path.lstat
+    inspect_original = trust_roots.inspect_lexical_path_identity
+    lstat_original = Path.lstat
     calls = 0
 
-    def lstat(self):
+    def inspect(root, relative):
         nonlocal calls
-        if self.name == "f.txt":
-            calls += 1
-            if calls > 1:  # every inspection after the read
-                raise PermissionError("private filesystem detail")
-        return original(self)
+        calls += 1
+        return inspect_original(root, relative)
 
+    def lstat(self):
+        if self.name == "f.txt" and calls == 2:
+            raise PermissionError("private filesystem detail")
+        return lstat_original(self)
+
+    monkeypatch.setattr(trust_roots, "inspect_lexical_path_identity", inspect)
     monkeypatch.setattr(Path, "lstat", lstat)
     with pytest.raises(ValueError) as raised:
         standalone_read(tmp_path, Path("f.txt"), max_bytes=10)
@@ -200,10 +226,8 @@ def test_standalone_read_names_no_change_when_it_cannot_look_after_reading(
 
 
 def test_standalone_read_of_a_file_removed_after_reading_says_it_changed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, standalone_read,
 ) -> None:
-    if os.open not in os.supports_dir_fd:
-        pytest.skip("descriptor-relative open unavailable")
     target = tmp_path / "f.txt"
     target.write_text("x")
     original = trust_roots.inspect_lexical_path_identity
@@ -218,7 +242,7 @@ def test_standalone_read_of_a_file_removed_after_reading_says_it_changed(
 
     monkeypatch.setattr(trust_roots, "inspect_lexical_path_identity", inspect)
     with pytest.raises(ValueError) as raised:
-        trust_roots.read_identity_bound_bytes(tmp_path, Path("f.txt"), max_bytes=10)
+        standalone_read(tmp_path, Path("f.txt"), max_bytes=10)
     assert str(raised.value) == "path changed while it was read"
     assert isinstance(raised.value.__cause__, FileNotFoundError)
 
@@ -310,9 +334,10 @@ def test_preflight_says_the_graph_changed_when_its_root_is_reported_absent(
     monkeypatch.setattr(IdentityBoundReadSession, "finish", finish)
     with pytest.raises(ConfigError) as raised:
         build_trust_root_graph(tmp_path)
-    # The reader lets this OSError through untyped, as before; it is still
-    # an observed absence, so the graph is reported changed.
-    assert isinstance(raised.value.__cause__, FileNotFoundError)
+    failure = raised.value.__cause__
+    assert isinstance(failure, IdentityValidationFailure)
+    assert _facts(failure) == ("final_validation", "root_changed", None)
+    assert isinstance(failure.__cause__, FileNotFoundError)
     assert "changed identity" in str(raised.value)
     assert "no change was established" not in str(raised.value)
 
