@@ -867,7 +867,10 @@ accepts:
 
 `verify` without `--head` no longer refuses a commit for a path name that is
 not portable. It reads the checkout as it is, and the `--head` snapshot still
-refuses such a name. A consumer that treated every `config_error` from these
+refuses such a name. A name holding a backslash is the exception: no route can
+record it, so every `verify` refuses it as `git_tree_listing_unreadable`.
+The committed names these routes echo in `why` and `details.path` are shown on
+one line, with control characters escaped. A consumer that treated every `config_error` from these
 commands as "edit the manifest" should route on `details.origin` and
 `next_actions[0].kind`. See [`docs/errors.json`](docs/errors.json).
 
@@ -6238,14 +6241,20 @@ file, and follows the deprecation cycle above.
 
 ### Provisional CLI command surface
 
-The org/fleet governance commands are preview surfaces in the current
-`0.14.x` line. They are documented, deterministic, local-only, and included in
-`agents-shipgate contract --json` / `.well-known/agents-shipgate.json` for
-design-partner discovery, but their flags and schemas are not stable
-command-contract commitments yet. They remain consumers of `verify` artifacts;
-`report.json.release_decision.decision` is still the only release gate.
+[The report 1.0 contract](docs/report-1-0-contract.md#cli-exit-codes-and-control)
+classifies org governance, the org evidence bundle, and `registry query` as
+provisional. Their flags and payload schemas may change within `1.x`.
 
-| Command | Preview flags |
+The table also lists `attest`, `shipgate audit --host`, and the other `registry`
+commands. Their `1.x` classification awaits the owner's ruling in
+[#1045](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1045).
+
+`agents-shipgate contract --json` and `.well-known/agents-shipgate.json` publish
+the current schema versions for discovery. Each published schema file retains
+its bytes. Changes to a published schema use a new version.
+`report.json.release_decision.decision` remains the only release gate.
+
+| Command | Current flags |
 |---|---|
 | `agents-shipgate attest` | `--from`, `--out`, `--redact`/`--no-redact`, `--config`, `--org-id`, `--repo`, `--service`, `--tier`, `--pr-number`, `--workflow-run-id`, `--actor`, `--merge-sha`, `--verify-run`, `--event-time`, `--source-url`, `--branch`, `--base-sha`, `--head-sha`, `--ci-context`, `--reviews`, `--json` |
 | `agents-shipgate org status` | `--config`/`-c`, `--workspace`, `--baseline`, `--host-baseline`, `--as-of`, `--json` |
@@ -6316,14 +6325,53 @@ Stable JSON fields:
   emitted by `agents-shipgate capability export`.
 - `capability_lock_diff_schema_version` — current stable semantic diff schema
   emitted by `agents-shipgate capability diff`.
+- `capability_payload_schema_version` / `capability_payload_schema_path` —
+  version and checked-in JSON Schema path of the frozen
+  `shipgate.capability_payload/v1`, the payload whose `delta` view the `v1`
+  capability delta attestation carries as `predicate.delta`.
+- `capability_delta_attestation_schema_version` /
+  `capability_delta_attestation_schema_path` /
+  `capability_delta_predicate_type` / `capability_delta_attestation_artifact` —
+  predicate body version, checked-in JSON Schema path, in-toto `predicateType`,
+  and default artifact path of the capability delta attestation `verify`
+  writes for a committed-tree subject. It gates nothing; see
+  [the attestation specification](docs/capability-delta-attestation.md).
+- `capability_payload_v2_schema_version` / `capability_payload_v2_schema_path` /
+  `capability_delta_attestation_v2_schema_version` /
+  `capability_delta_attestation_v2_schema_path` /
+  `capability_delta_predicate_type_v2` / `capability_delta_attestation_v2_artifact`
+  — the same six facts for `v2`, whose payload records also publish each tool's
+  definition digests. `verify` writes the `v2` attestation beside the unchanged
+  `v1` file.
 - `preflight_schema_version` — current proactive preflight routing schema.
 - `capability_standard_version` — current capability standard version.
 - `governance_benchmark_catalog_schema_version` — current benchmark catalog
   schema version.
 - `governance_benchmark_result_schema_version` — current benchmark result
   schema version.
-- `external_integration_surfaces[]` — stable non-gating integration and
-  research surfaces exposed by the contract.
+- `attestation_schema_version` — schema version of the attestation
+  `agents-shipgate attest` derives from `verifier.json`. The key is stable.
+  The command's classification is [pending](#provisional-cli-command-surface).
+- `registry_schema_version` — schema version of the rows in the local registry
+  (`.agents-shipgate/registry.jsonl`) that `registry ingest` writes. Registry
+  command results with a `registry_schema_version` field use the same version.
+  The key is stable. `registry query` is provisional, and the other registry
+  commands await classification. See
+  [Provisional CLI command surface](#provisional-cli-command-surface).
+- `org_evidence_bundle_schema_version` — schema version of the org evidence
+  bundle `agents-shipgate org bundle` writes. The key is stable; the bundle it
+  names is [provisional](#provisional-cli-command-surface).
+- `host_grants_inventory_schema_version`, `host_grants_baseline_schema_version`,
+  and `host_grants_drift_schema_version` — schema versions of the
+  `shipgate audit --host` inventory, of the acknowledged baseline that
+  `--save-baseline` writes (default `.agents-shipgate/host-grants.json`), and of
+  the drift comparison that `--drift` prints and that `preflight` and
+  `org status` embed as `host_grant_drift`. The keys are stable. The
+  classification of `audit --host` is pending as described under
+  [Provisional CLI command surface](#provisional-cli-command-surface).
+- `external_integration_surfaces[]` — non-gating integration and research
+  surfaces exposed by the contract. The list field is stable. Each surface it
+  names keeps its own stability classification.
 - `gating_signal` — always `release_decision.decision` in this contract.
 - `agent_result_schema_version` — legacy local-agent protocol schema retained
   for compatibility with existing in-repo protocol and MCP surfaces. It is not
@@ -6342,6 +6390,16 @@ Stable JSON fields:
   evaluator emits.
 - `verify_run_schema_version` — schema version for
   `agents-shipgate-reports/verify-run.json`.
+- `verification_plan_schema_version`, `verification_unit_result_schema_version`,
+  `verification_artifact_manifest_schema_version`, and
+  `verification_receipt_schema_version` — schema versions of the
+  content-addressed artifacts from a full `verify` run:
+  `verification-plan.json` (the request), `verification-unit-result.json`
+  (decision-free worker output), `verification-artifacts.json` (the manifest of
+  emitted artifacts), and
+  `verification-receipt.json` (the terminal receipt, written after the
+  manifest). See
+  [verification identity](docs/verification-reproducibility.md).
 - `human_authorization_request_schema_version`,
   `human_authorization_schema_version`,
   `human_authorization_evaluation_schema_version`, and
@@ -6353,13 +6411,36 @@ Stable JSON fields:
   redirect it.
 - `human_authorization_schema_path` — checked-in schema family path for those
   four authorization objects.
+- `human_review_request_schema_version` / `human_review_request_schema_path` /
+  `human_review_request_artifact` — schema version, checked-in JSON Schema path,
+  and default artifact path for
+  `agents-shipgate-reports/human-review-request.json`, the optional unsigned
+  review question `verify` can publish. It grants no permission; see
+  [the request contract](docs/human-review-request.md).
+- `human_review_decision_schema_version`,
+  `human_review_evaluation_schema_version`, and
+  `human_review_decision_schema_path` — schema versions for an externally signed
+  review decision and its read-only applicability evaluation, and the
+  checked-in schema family path for both. They are integration surfaces, not
+  CLI outputs; see [the decision contract](docs/human-review-decision.md).
 - `agent_handoff_schema_version` — schema version for
   `agents-shipgate-reports/agent-handoff.json`.
 - `agent_handoff_schema_path` — checked-in JSON Schema path for the handoff
   artifact.
 - `agent_handoff_artifact` — default emitted handoff artifact path.
 - `codex_boundary_result_schema_version` — schema version emitted by
-  `shipgate check --format codex-boundary-json`.
+  `shipgate check --format codex-boundary-json`, a deprecated format (see
+  `deprecated_surfaces{}`).
+- `agent_boundary_result_schema_version` / `agent_boundary_result_schema_path`
+  — schema version and checked-in JSON Schema path for `shipgate check --format
+  agent-boundary-json`, the local-boundary result for Codex, Claude Code, and
+  Cursor.
+- `deprecated_surfaces{}` — deprecated output formats the contract names, each
+  mapped to a one-line deprecation note. It names `codex-boundary-json`, a
+  compatibility projection kept through `1.x`; use `agent-boundary-json`. It is
+  not a full deprecation registry: deprecated check IDs, for example, are
+  published by `list-checks`. A listed format still works, but it is
+  deprecated, not informational: do not build a new consumer on it.
 - `current_control_schema_version` / `current_control_schema_path` /
   `current_control_artifact` — schema version, checked-in JSON Schema path, and
   default artifact path for `agents-shipgate-reports/current-control.json`, the
@@ -7801,10 +7882,12 @@ both serialize one structure instead of two. The schema is
 and the spec is
 [`docs/capability-payload.md`](docs/capability-payload.md).
 
-**Nothing emits it yet.** No command writes it, no artifact carries it, and
-`contract_version`, `report_schema_version`, the runtime contract JSON, and
-`.well-known/agents-shipgate.json` are all unchanged by its publication. The
-capability lock and lock diff above are unchanged. It is non-gating;
+**`verify` emits the delta view, and the state view is still unemitted.** The
+delta view is the `predicate.delta` of the capability delta attestation that
+`verify` writes (see
+[the attestation specification](docs/capability-delta-attestation.md)). Its
+version and schema path are in the runtime contract JSON. The capability lock
+and lock diff above are unchanged. It is non-gating;
 `release_decision.decision` remains the only gate.
 
 **Validation is two stages, and the schema file is stage one.** Pydantic

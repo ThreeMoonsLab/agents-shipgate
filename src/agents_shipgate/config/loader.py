@@ -8,9 +8,7 @@ from typing import Any, get_args
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from agents_shipgate.core.agent_control_envelope import single_line_text
 from agents_shipgate.core.errors import ConfigError, InputParseError, format_validation_error
-from agents_shipgate.core.privacy import redact_text
 from agents_shipgate.core.yaml_limits import BoundedSafeLoader
 from agents_shipgate.inputs.common import (
     PositionIndex,
@@ -189,10 +187,12 @@ def _validate_manifest_data(
 
 
 def _format_validation_error(exc: ValidationError, data: Mapping[str, Any]) -> str:
-    message = format_validation_error(
-        exc, label="Invalid shipgate.yaml", suggest=_field_suggestion
+    return format_validation_error(
+        exc,
+        label="Invalid shipgate.yaml",
+        suggest=_field_suggestion,
+        hint=lambda error, location: _unquoted_colon_hint(error, data, location),
     )
-    return "\n".join([message, *_unquoted_colon_hints(exc, data)])
 
 
 #: Pydantic error types that mean a field wanted one scalar value.
@@ -201,7 +201,9 @@ _SCALAR_ERROR_TYPES = frozenset(
 )
 
 
-def _unquoted_colon_hints(exc: ValidationError, data: Mapping[str, Any]) -> list[str]:
+def _unquoted_colon_hint(
+    error: dict[str, Any], data: Mapping[str, Any], location: str
+) -> str | None:
     """Name the YAML cause when a scalar field received a one-key mapping.
 
     An unquoted ``: `` in plain text makes YAML read the words before it as a
@@ -213,36 +215,22 @@ def _unquoted_colon_hints(exc: ValidationError, data: Mapping[str, Any]) -> list
     so the hint is added only there; it names the field, never the value.
     """
 
-    hints: list[str] = []
-    seen: set[str] = set()
-    for error in exc.errors(include_input=False, include_url=False, include_context=False):
-        if error["type"] not in _SCALAR_ERROR_TYPES:
-            continue
-        walked = _walk_location(data, error["loc"])
-        if walked is None:
-            continue
-        location, value = walked
-        if not (isinstance(value, dict) and len(value) == 1):
-            continue
-        # A nested value is a structure someone wrote, not a sentence split.
-        ((_key, inner),) = value.items()
-        if isinstance(inner, (dict, list)):
-            continue
-        if location in seen:
-            continue
-        seen.add(location)
-        safe_location = single_line_text(redact_text(location) or "")
-        hints.append(
-            f"Hint: {safe_location} is a key-value mapping, not a single value. "
-            "An unquoted ': ' inside text makes YAML read the words before it "
-            "as a key; if the value is text that contains ': ', put it in quotes."
-        )
-    return hints
+    if error["type"] not in _SCALAR_ERROR_TYPES:
+        return None
+    value = _walk_location(data, error["loc"])
+    if not (isinstance(value, dict) and len(value) == 1):
+        return None
+    # A nested value indicates an explicit structure.
+    if isinstance(next(iter(value.values())), (dict, list)):
+        return None
+    return (
+        f"Hint: {location} is a key-value mapping, not a single value. "
+        "An unquoted ': ' inside text makes YAML read the words before it "
+        "as a key; if the value is text that contains ': ', put it in quotes."
+    )
 
 
-def _walk_location(
-    data: Mapping[str, Any], loc: tuple[int | str, ...]
-) -> tuple[str, Any] | None:
+def _walk_location(data: Mapping[str, Any], loc: tuple[int | str, ...]) -> Any:
     """The value a validation error's location names in the parsed document.
 
     ``None`` when a part does not resolve — a union member's tag, or a key a
@@ -260,7 +248,7 @@ def _walk_location(
             return None
     if not loc:
         return None
-    return ".".join(str(part) for part in loc), node
+    return node
 
 
 

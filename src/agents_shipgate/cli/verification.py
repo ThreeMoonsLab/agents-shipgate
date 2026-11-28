@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from agents_shipgate.cli._helpers import (
     _config_error_details,
+    _config_error_message,
     _config_error_next_actions,
     _echo_next_action_hint,
 )
@@ -245,7 +246,8 @@ def prepare(
         )
         raise typer.Exit(3) from exc
     except ConfigError as exc:
-        typer.echo(f"Config error: {exc}", err=True)
+        message = _config_error_message(exc)
+        typer.echo(f"Config error: {message}", err=True)
         # Route through the shared diagnostic catalog rather than a local
         # guess, so a missing manifest gets the setup route, an unparseable one
         # gets the edit route, and an unresolved adapter gets its own — exactly
@@ -268,7 +270,7 @@ def prepare(
         _echo_next_action_hint(actions)
         emit_agent_mode_error(
             "config_error",
-            message=str(exc),
+            message=message,
             exit_code=2,
             next_action=actions[0].to_legacy_string(),
             next_actions=[action.model_dump(mode="json") for action in actions],

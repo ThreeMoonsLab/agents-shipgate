@@ -422,8 +422,8 @@ def product_limitation_recovery(
             "reads bytes the commit does not hold. Git accepts this tree and "
             "nothing in shipgate.yaml is wrong. To verify now, run the same "
             "command without --head from a checkout of that commit; if "
-            f"{entry} is not meant to leave the repository, correcting it also "
-            "clears this."
+            f"{entry} is not meant to point outside the repository or at a path "
+            "the commit does not hold, correcting it also clears this."
         )
         expects = "A run that reads the commit from a checkout."
     elif failure == UNSUPPORTED_GIT_TREE_ENTRY:
@@ -445,10 +445,12 @@ def product_limitation_recovery(
         named = f" ({details['path']})" if details.get("path") else ""
         why = (
             f"{refusal} This is a limitation of Agents Shipgate, not an error in "
-            "shipgate.yaml or in the repository: every verify reads the commit's "
-            "path listing to bind the manifest's exact spelling, and it cannot "
-            f"read this one{named}, with or without --head. Neither the manifest "
-            f"nor the repository needs to change; report it at {_REPORT_URL} "
+            "shipgate.yaml or in the repository: verification reads the "
+            "commit's path listing and records the paths it reads, and this "
+            "listing exceeds the bound it is read within or holds a name "
+            f"verification cannot record{named}. That holds with or without "
+            "--head, so no run of this commit gets past it; neither the manifest "
+            f"nor the repository needs to change. Report it at {_REPORT_URL} "
             "with this message."
         )
         expects = "An Agents Shipgate release that reads this commit's path listing."

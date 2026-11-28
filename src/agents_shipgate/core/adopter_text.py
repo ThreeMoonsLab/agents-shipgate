@@ -111,13 +111,15 @@ AGENTS_SHIPGATE_ORIGIN = "agents_shipgate"
 #: Git accepts and ``verify --head`` / ``verification prepare --head`` do not
 #: read (#328). ``UNSUPPORTED_GIT_TREE_ENTRY`` — an entry the snapshot does not
 #: support yet: a submodule, a committed link where links are not recreated,
-#: a name that is not portable, or names a filesystem merges.
+#: a name that is not portable (one without a backslash), or names a
+#: filesystem merges.
 #: ``UNCONTAINED_GIT_TREE_LINK`` — a link that does not open a file or
 #: directory inside the repository, which the snapshot refuses by design so no
 #: read reaches bytes the commit does not hold. ``GIT_TREE_LISTING_UNREADABLE``
 #: — the commit's path listing, which every ``verify`` reads to bind the
 #: manifest's exact spelling, exceeds the bound it is read within or holds a
-#: name that is not UTF-8; no route avoids it.
+#: name verification cannot record (not UTF-8, or holding a backslash); no
+#: route avoids it.
 UNSUPPORTED_GIT_TREE_ENTRY = "unsupported_git_tree_entry"
 UNCONTAINED_GIT_TREE_LINK = "uncontained_git_tree_link"
 GIT_TREE_LISTING_UNREADABLE = "git_tree_listing_unreadable"

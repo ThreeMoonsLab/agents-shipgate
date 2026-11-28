@@ -10,6 +10,7 @@ import typer
 from agents_shipgate.cli._artifact_lifecycle import ArtifactLifecycleError
 from agents_shipgate.cli._helpers import (
     _config_error_details,
+    _config_error_message,
     _config_error_next_actions,
     _echo_next_action_hint,
     _parse_fail_on,
@@ -356,7 +357,8 @@ def verify(
                 progress=_terminal_progress if stdout_format == "text" else None,
             )
     except ConfigError as exc:
-        typer.echo(f"Config error: {exc}", err=True)
+        message = _config_error_message(exc)
+        typer.echo(f"Config error: {message}", err=True)
         if isinstance(exc, OutputDirectoryHoldsRepositoryContent):
             # Nothing about the manifest is wrong, so the manifest diagnostics
             # would route this to an edit that cannot clear it (#804). The way
@@ -407,7 +409,7 @@ def verify(
         _echo_next_action_hint(flattened)
         emit_agent_mode_error(
             "config_error",
-            message=str(exc),
+            message=message,
             exit_code=2,
             next_action=flattened[0].to_legacy_string(),
             next_actions=[a.model_dump(mode="json") for a in flattened],

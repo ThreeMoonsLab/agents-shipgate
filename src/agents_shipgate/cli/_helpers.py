@@ -20,6 +20,8 @@ from agents_shipgate.cli.diagnostics import (
 from agents_shipgate.cli.discovery import discover_manifest_paths
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.action_semantics import effect_phrase, join_phrases
+from agents_shipgate.core.adopter_text import AGENTS_SHIPGATE_ORIGIN, MANIFEST_SPELLING_COLLISION
+from agents_shipgate.core.agent_control_envelope import single_line_text
 from agents_shipgate.core.control_packs import control_rule_summaries
 from agents_shipgate.core.declaration_questions import progress_sentence
 from agents_shipgate.core.disclaimers import (
@@ -31,6 +33,7 @@ from agents_shipgate.core.findings.subject_rollup import (
     roll_up_findings,
     top_findings_block,
 )
+from agents_shipgate.core.privacy import redact_text
 from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.report.human_order import (
     HumanArtifactContext,
@@ -287,8 +290,11 @@ def _config_error_next_actions(
     failure takes the manifest diagnostics' rank-1 actions, as before.
     """
 
+    # The message and the paths name committed entries, which may hold control
+    # characters: shown on one line, as every other echoed value is.
+    message, details = _config_error_message(exc), _shown_details(exc.details)
     for recovery in (product_limitation_recovery, committed_tree_input_recovery):
-        actions = recovery(str(exc), exc.details)
+        actions = recovery(message, details)
         if actions is not None:
             return actions
     return top_next_actions(
@@ -309,7 +315,34 @@ def _config_error_details(exc: ConfigError) -> dict | None:
     Other configuration failures keep the line they always had.
     """
 
-    return dict(exc.details) if exc.details.get("origin") else None
+    return _shown_details(exc.details) if exc.details.get("origin") else None
+
+
+def _config_error_message(exc: ConfigError) -> str:
+    """Keep committed path labels safe in every rendering of a tree refusal."""
+
+    message = str(exc)
+    if (
+        exc.details.get("origin") == AGENTS_SHIPGATE_ORIGIN
+        or exc.details.get("failure") == MANIFEST_SPELLING_COLLISION
+    ):
+        return _shown(message)
+    return message
+
+
+def _shown(text: str) -> str:
+    return single_line_text(redact_text(text) or "")
+
+
+def _shown_details(details: dict) -> dict:
+    """``details`` with the committed paths it names shown on one line."""
+
+    shown = dict(details)
+    if isinstance(shown.get("path"), str):
+        shown["path"] = _shown(shown["path"])
+    if isinstance(shown.get("paths"), list):
+        shown["paths"] = [_shown(str(path)) for path in shown["paths"]]
+    return shown
 
 
 def _echo_next_action_hint(actions: list, *, limit: int = 1) -> None:
