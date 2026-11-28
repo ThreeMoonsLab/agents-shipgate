@@ -55,6 +55,22 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TESTS_DIR = REPO_ROOT / "tests"
 ALLOWLIST = TESTS_DIR / "fixtures" / "catalog_coverage_allowlist.yaml"
 
+# The exceptions recorded when this gate was introduced. Keep these ceilings
+# fixed so the editable YAML can retire existing gaps but cannot exempt new IDs.
+LEGACY_EXCEPTIONS = {
+    "uncovered": frozenset({
+        "SHIP-ADK-FUNCTION-TOOL-METADATA-MISSING",
+        "SHIP-API-RETRY-POLICY-MISSING",
+        "SHIP-API-TEST-CASES-MISSING",
+        "SHIP-API-TRACE-CONFIRMATION-MISSING",
+        "SHIP-CREWAI-FUNCTION-TOOL-METADATA-MISSING",
+        "SHIP-LANGCHAIN-FUNCTION-TOOL-METADATA-MISSING",
+        "SHIP-N8N-AI-TOOL-METADATA-MISSING",
+        "SHIP-VERIFY-OPENSHELL-PROOF-UNAVAILABLE",
+    }),
+    "unreachable": frozenset({"SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED"}),
+}
+
 #: Directories under ``tests/`` that hold inputs a test scans, not test code.
 DATA_DIRS = frozenset({"corpus", "fixtures", "golden", "starter_repo"})
 
@@ -488,6 +504,9 @@ class Allowlist:
 def load_allowlist(path: Path = ALLOWLIST) -> Allowlist:
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     assert set(raw) <= {"uncovered", "unreachable"}, sorted(raw)
+    for section, legacy in LEGACY_EXCEPTIONS.items():
+        added = sorted(set(raw.get(section) or {}) - legacy)
+        assert not added, f"New {section} exceptions in {path.name}: {added}. Add a firing test."
     return Allowlist(
         uncovered=dict(raw.get("uncovered") or {}),
         unreachable={
@@ -703,6 +722,19 @@ def test_the_allowlist_only_shrinks() -> None:
         "SHIP-GAINED-A-TEST now has an assertion site; remove it from "
         "catalog_coverage_allowlist.yaml."
     ]
+
+
+@pytest.mark.parametrize("section", ["uncovered", "unreachable"])
+def test_allowlist_cannot_add_an_exception_for_a_new_id(tmp_path: Path, section: str) -> None:
+    path = tmp_path / ALLOWLIST.name
+    entry = "no test yet" if section == "uncovered" else {
+        "reason": "no code path emits it",
+        "guard_test": "tests/test_guard.py::test_nothing_emits_it",
+    }
+    path.write_text(yaml.safe_dump({section: {"SHIP-NEW-UNTESTED": entry}}), encoding="utf-8")
+
+    with pytest.raises(AssertionError, match=r"SHIP-NEW-UNTESTED.*firing test"):
+        load_allowlist(path)
 
 
 @pytest.mark.parametrize("severity", ["critical", "high"])
