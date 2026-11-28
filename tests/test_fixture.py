@@ -221,6 +221,9 @@ _SUMMARY = "Real summary."
             id="list-items",
         ),
         pytest.param("| a | b |\n|---|---|\n| 1 | 2 |\n\nReal summary.\n", _SUMMARY, id="table"),
+        pytest.param(
+            "a | b\n:--- | ---:\n1 | 2\n\nReal summary.\n", _SUMMARY, id="table-without-leading-pipe"
+        ),
         pytest.param("Title\n=====\n\nSub title\n---------\nReal summary.\n", _SUMMARY, id="setext-headings"),
         pytest.param("***\nReal summary.\n", _SUMMARY, id="thematic-break"),
         pytest.param("    pip install x\n    Not prose.\n\nReal summary.\n", _SUMMARY, id="indented-code"),
@@ -243,6 +246,11 @@ _SUMMARY = "Real summary."
             "A *quick* and **bold** fixture with `stripe:*` scope.\n",
             "A quick and bold fixture with stripe:* scope.",
             id="emphasis-outside-code",
+        ),
+        pytest.param(
+            "A literal `[x](y)` link and `![p](q)` image.\n",
+            "A literal [x](y) link and ![p](q) image.",
+            id="link-and-image-text-inside-code",
         ),
         pytest.param("\ufeffReal summary.\n", _SUMMARY, id="utf8-bom"),
         pytest.param("\ufeff---\ntitle: X\n---\nReal summary.\n", _SUMMARY, id="utf8-bom-front-matter"),

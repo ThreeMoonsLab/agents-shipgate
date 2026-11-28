@@ -28,13 +28,17 @@ _ATX_HEADING = re.compile(r"#{1,6}(?:[ \t]|$)")
 _FENCE_OPEN = re.compile(r"`{3,}|~{3,}")
 _SETEXT_UNDERLINE = re.compile(r"(?:=+|-+)[ \t]*$")
 _THEMATIC_BREAK = re.compile(r"(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$")
+_TABLE_DELIMITER = re.compile(r"\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?")
 # HTML, blockquotes, tables, bullet and ordered list items.
 _NON_PROSE_BLOCK = re.compile(r"[<>|]|[-*+](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)")
 # Inline: a link destination may hold one level of balanced parentheses.
 _LINK_TARGET = r"(?:\((?:[^()]|\([^()]*\))*\)|\[[^\]]*\])"
-_IMAGE = re.compile(r"!\[[^\]]*\]" + _LINK_TARGET)
-_LINK = re.compile(r"\[([^\]]*)\]" + _LINK_TARGET)
-_CODE_SPAN = re.compile(r"(`+)(.+?)\1")
+_IMAGE = rf"!\[[^\]]*\]{_LINK_TARGET}"
+_INLINE_MARKUP = re.compile(
+    rf"(?P<ticks>`+)(?P<code>.+?)(?P=ticks)"
+    rf"|\[{_IMAGE}\]{_LINK_TARGET}|{_IMAGE}"
+    rf"|\[(?P<label>[^\]]*)\]{_LINK_TARGET}"
+)
 _EMPHASIS = re.compile(r"\*+(?=\S)|(?<=\S)\*+")
 # A sentence ends at ., ! or ? followed by whitespace and a capital letter.
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
@@ -358,6 +362,10 @@ def _prose_paragraphs(markdown: str) -> Iterator[list[str]]:
             if paragraph:
                 paragraph.append(stripped)
             continue
+        if len(paragraph) == 1 and "|" in paragraph[0] and _TABLE_DELIMITER.fullmatch(stripped):
+            paragraph = []
+            in_non_prose_block = True
+            continue
         if paragraph and _SETEXT_UNDERLINE.match(stripped):
             paragraph = []  # The paragraph was a setext heading.
             continue
@@ -386,12 +394,14 @@ def _prose_paragraphs(markdown: str) -> Iterator[list[str]]:
 
 
 def _plain_markdown_text(text: str) -> str:
-    text = _LINK.sub(r"\1", _IMAGE.sub("", text))
     pieces: list[str] = []
     position = 0
-    for code in _CODE_SPAN.finditer(text):
-        pieces.append(_EMPHASIS.sub("", text[position : code.start()]))
-        pieces.append(code.group(2))
-        position = code.end()
+    for token in _INLINE_MARKUP.finditer(text):
+        pieces.append(_EMPHASIS.sub("", text[position : token.start()]))
+        if token.group("code") is not None:
+            pieces.append(token.group("code"))
+        elif token.group("label") is not None:
+            pieces.append(_plain_markdown_text(token.group("label")))
+        position = token.end()
     pieces.append(_EMPHASIS.sub("", text[position:]))
     return "".join(pieces)
