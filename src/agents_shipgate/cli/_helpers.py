@@ -11,12 +11,16 @@ from agents_shipgate import __version__
 from agents_shipgate.checks.plugin_validation import strict_failure_messages
 from agents_shipgate.cli.current_workspace import caller_path_spelling
 from agents_shipgate.cli.diagnostics import (
+    committed_tree_input_recovery,
     diagnose_invalid_manifest,
     diagnose_missing_manifest,
+    product_limitation_recovery,
+    top_next_actions,
 )
 from agents_shipgate.cli.discovery import discover_manifest_paths
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.action_semantics import effect_phrase, join_phrases
+from agents_shipgate.core.adopter_text import AGENTS_SHIPGATE_ORIGIN, MANIFEST_SPELLING_COLLISION
 from agents_shipgate.core.control_packs import control_rule_summaries
 from agents_shipgate.core.declaration_questions import progress_sentence
 from agents_shipgate.core.disclaimers import (
@@ -273,6 +277,81 @@ def _diagnose_config_error(
     return diagnose_missing_manifest(
         _missing_manifest_workspace(config=config, workspace=workspace)
     )
+
+
+def _config_error_next_actions(
+    *,
+    config: str,
+    workspace: Path | None,
+    exc: ConfigError,
+    plugins_enabled: bool | None = None,
+) -> list:
+    """The ranked recovery a command publishes for a ``ConfigError``.
+
+    A refusal of committed tree content is answered first, from its typed
+    ``details``: :func:`_diagnose_config_error` would find the manifest on disk
+    and route it to an edit of a file that is not at fault (#328). Every other
+    failure takes the manifest diagnostics' rank-1 actions, as before.
+    """
+
+    # The message and the paths name committed entries, which may hold control
+    # characters: shown on one line, as every other echoed value is.
+    message, details = _config_error_message(exc), _shown_details(exc.details)
+    for recovery in (product_limitation_recovery, committed_tree_input_recovery):
+        actions = recovery(message, details)
+        if actions is not None:
+            return actions
+    return top_next_actions(
+        _diagnose_config_error(
+            config=config,
+            workspace=workspace,
+            exc=exc,
+            plugins_enabled=plugins_enabled,
+        )
+    )
+
+
+def _config_error_details(exc: ConfigError) -> dict | None:
+    """The ``details`` a ``config_error`` line publishes, if any.
+
+    Only a failure that carries its own classification (``details.origin``)
+    publishes them, so a caller can route on that rather than on the message.
+    Other configuration failures keep the line they always had.
+    """
+
+    return _shown_details(exc.details) if exc.details.get("origin") else None
+
+
+def _config_error_message(exc: ConfigError) -> str:
+    """Keep committed path labels safe in every rendering of a tree refusal."""
+
+    message = str(exc)
+    if (
+        exc.details.get("origin") == AGENTS_SHIPGATE_ORIGIN
+        or exc.details.get("failure") == MANIFEST_SPELLING_COLLISION
+    ):
+        return _shown(message)
+    return message
+
+
+def _shown(text: str) -> str:
+    # Imported here: only a refusal route runs this, and the envelope module is
+    # heavy enough that every command importing this file would pay for it.
+    from agents_shipgate.core.agent_control_envelope import single_line_text
+    from agents_shipgate.core.privacy import redact_text
+
+    return single_line_text(redact_text(text) or "")
+
+
+def _shown_details(details: dict) -> dict:
+    """``details`` with the committed paths it names shown on one line."""
+
+    shown = dict(details)
+    if isinstance(shown.get("path"), str):
+        shown["path"] = _shown(shown["path"])
+    if isinstance(shown.get("paths"), list):
+        shown["paths"] = [_shown(str(path)) for path in shown["paths"]]
+    return shown
 
 
 def _echo_next_action_hint(actions: list, *, limit: int = 1) -> None:

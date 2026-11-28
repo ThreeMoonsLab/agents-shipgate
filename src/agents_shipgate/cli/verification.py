@@ -13,7 +13,9 @@ import typer
 from pydantic import ValidationError
 
 from agents_shipgate.cli._helpers import (
-    _diagnose_config_error,
+    _config_error_details,
+    _config_error_message,
+    _config_error_next_actions,
     _echo_next_action_hint,
 )
 from agents_shipgate.cli.agent_mode import (
@@ -21,7 +23,7 @@ from agents_shipgate.cli.agent_mode import (
     emit_agent_mode_error_action,
     mark_cli_routing_reported,
 )
-from agents_shipgate.cli.diagnostics import input_parse_recovery, top_next_actions
+from agents_shipgate.cli.diagnostics import input_parse_recovery
 from agents_shipgate.cli.verify.git import (
     archive_verification_tree,
     commit_date,
@@ -250,11 +252,14 @@ def prepare(
         )
         raise typer.Exit(3) from exc
     except ConfigError as exc:
-        typer.echo(f"Config error: {exc}", err=True)
+        message = _config_error_message(exc)
+        typer.echo(f"Config error: {message}", err=True)
         # Route through the shared diagnostic catalog rather than a local
         # guess, so a missing manifest gets the setup route, an unparseable one
         # gets the edit route, and an unresolved adapter gets its own — exactly
-        # as `scan` and `doctor` already answer.
+        # as `scan` and `doctor` already answer. A committed tree entry the
+        # snapshot does not support is Agents Shipgate's limitation and is
+        # answered as one, with no manifest edit (#328).
         #
         # Diagnose the exact manifest this invocation asked for. Passing a
         # workspace instead makes the catalog discover every `shipgate.yaml`
@@ -262,21 +267,20 @@ def prepare(
         # monorepo — or any `--config` naming a file that is not there — would
         # be told to edit an unrelated, perfectly valid manifest. `prepare`
         # always resolves one exact path, so there is nothing to discover.
-        actions = top_next_actions(
-            _diagnose_config_error(
-                config=str(root / config_relative),
-                workspace=None,
-                exc=exc,
-                plugins_enabled=False if no_plugins else None,
-            )
+        actions = _config_error_next_actions(
+            config=str(root / config_relative),
+            workspace=None,
+            exc=exc,
+            plugins_enabled=False if no_plugins else None,
         )
         _echo_next_action_hint(actions)
         emit_agent_mode_error(
             "config_error",
-            message=str(exc),
+            message=message,
             exit_code=2,
             next_action=actions[0].to_legacy_string(),
             next_actions=[action.model_dump(mode="json") for action in actions],
+            details=_config_error_details(exc),
         )
         raise typer.Exit(2) from exc
     diff_path = out.with_name("verification-input.diff")
