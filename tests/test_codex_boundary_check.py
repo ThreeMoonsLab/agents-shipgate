@@ -1396,6 +1396,9 @@ index 1111111..2222222 100644
 
     assert result.decision == "require_review"
     assert [item.id for item in result.violated_rules] == ["CODEX-HOOK-COMMAND-CHANGED"]
+    assert [item.check_id for item in result.violated_rules] == [
+        "SHIP-CODEX-BOUNDARY-HOOK-COMMAND-CHANGED"
+    ]
 
 
 def test_codex_mcp_auto_approve_tokenizes_risky_tool_names(tmp_path: Path) -> None:
@@ -1414,6 +1417,9 @@ index 0000000..1111111
 
     assert result.decision == "require_review"
     assert [item.id for item in result.violated_rules] == ["CODEX-MCP-AUTO-APPROVE-UNKNOWN"]
+    assert [item.check_id for item in result.violated_rules] == [
+        "SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-UNKNOWN"
+    ]
 
 
 def test_codex_mcp_auto_approve_blocks_inflected_destructive_tools(
@@ -1434,6 +1440,63 @@ index 0000000..1111111
 
     assert result.decision == "block"
     assert [item.id for item in result.violated_rules] == ["CODEX-MCP-AUTO-APPROVE-WRITE"]
+
+
+@pytest.mark.parametrize(
+    ("tool", "decision", "check_id"),
+    [
+        ("list_events", "require_review", "SHIP-CODEX-BOUNDARY-APP-AUTO-APPROVE"),
+        # A risky app tool name is the write rule, not the app rule.
+        ("delete_event", "block", "SHIP-CODEX-BOUNDARY-MCP-AUTO-APPROVE-WRITE"),
+    ],
+)
+def test_codex_app_tool_auto_approval_is_a_boundary_violation(
+    tmp_path: Path, tool: str, decision: str, check_id: str
+) -> None:
+    diff_text = f"""diff --git a/.codex/config.toml b/.codex/config.toml
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/.codex/config.toml
+@@ -0,0 +1,2 @@
++[apps.calendar.tools.{tool}]
++approval_mode = "approve"
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == decision
+    assert [item.check_id for item in result.violated_rules] == [check_id]
+    assert result.violated_rules[0].evidence == {
+        "kind": "app_tool_auto_approve",
+        "app": "calendar",
+        "tool": tool,
+    }
+
+
+def test_codex_app_tool_already_auto_approved_is_not_a_new_approval(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text(
+        '[apps.calendar.tools.list_events]\napproval_mode = "approve"\n',
+        encoding="utf-8",
+    )
+    diff_text = """diff --git a/.codex/config.toml b/.codex/config.toml
+index 1111111..2222222 100644
+--- a/.codex/config.toml
++++ b/.codex/config.toml
+@@ -1,2 +1,3 @@
++# Calendar reads stay auto-approved.
+ [apps.calendar.tools.list_events]
+ approval_mode = "approve"
+"""
+
+    result = evaluate_codex_boundary_result(workspace=tmp_path, diff_text=diff_text)
+
+    assert result.decision == "allow"
+    assert result.violated_rules == []
 
 
 def test_codex_agents_softening_without_captured_file_is_incomplete(
@@ -1683,6 +1746,9 @@ index 1111111..2222222 100644
     assert result.decision == "require_review"
     assert "workspace_already_contains_diff_head" in result.diagnostics[0].message
     assert [item.id for item in result.violated_rules] == ["CODEX-NETWORK-EXPANDED"]
+    assert [item.check_id for item in result.violated_rules] == [
+        "SHIP-CODEX-BOUNDARY-NETWORK-EXPANDED"
+    ]
 
 
 def test_codex_boundary_result_never_contradicts_release_decision(tmp_path: Path) -> None:

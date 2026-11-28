@@ -299,6 +299,9 @@ def test_codex_requirements_change_requires_human_review(tmp_path: Path) -> None
     )
     assert result.control.state == "review_publishable"
     assert result.affected_hosts == ["codex"]
+    assert [(item.check_id, item.path) for item in result.violations] == [
+        ("SHIP-AGENT-BOUNDARY-STATIC-REQUIREMENTS-CHANGED", ".codex/requirements.toml")
+    ]
 
 
 def test_stored_lowercase_instruction_prose_has_the_same_structural_classification(
