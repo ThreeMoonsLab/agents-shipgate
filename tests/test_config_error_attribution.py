@@ -16,6 +16,7 @@ only that their sentence was not a string.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -76,54 +77,73 @@ def _repo(tmp_path: Path, *, purpose: str = "test") -> Path:
     return repo
 
 
-def _commit_on_top(repo: Path, extra: dict[str, tuple[str, bytes]]) -> None:
+def _commit_on_top(repo: Path, extra: dict[bytes, tuple[str, bytes]]) -> None:
     """Commit HEAD's tree plus ``extra`` (path -> (mode, bytes)) through plumbing.
 
-    A ``160000`` entry's bytes are ignored: it points at HEAD, as a submodule
+    Paths are bytes, so a name that is not UTF-8 can be committed. A
+    ``160000`` entry's bytes are ignored: it points at HEAD, as a submodule
     pointer names a commit. The worktree is left alone, so a tree that this
     filesystem cannot hold can still be committed on it.
     """
 
     nested: dict = {}
 
-    def place(path: str, value: tuple[str, str, str]) -> None:
-        *parents, name = path.split("/")
+    def place(path: bytes, value: tuple[bytes, bytes, bytes]) -> None:
+        *parents, name = path.split(b"/")
         node = nested
         for part in parents:
             node = node.setdefault(part, {})
         node[name] = value
 
-    for record in _git(repo, "ls-tree", "-r", "-z", "HEAD").split("\0"):
+    listing = subprocess.run(
+        ["git", "-C", str(repo), "ls-tree", "-r", "-z", "HEAD"],
+        check=True, capture_output=True,
+    ).stdout
+    for record in listing.split(b"\0"):
         if record:
-            metadata, path = record.split("\t", 1)
-            mode, kind, oid = metadata.split(" ")
+            metadata, path = record.split(b"\t", 1)
+            mode, kind, oid = metadata.split(b" ")
             place(path, (mode, kind, oid))
-    head = _git(repo, "rev-parse", "HEAD")
+    head = _git(repo, "rev-parse", "HEAD").encode()
     for path, (mode, data) in extra.items():
         if mode == "160000":
-            place(path, (mode, "commit", head))
+            place(path, (b"160000", b"commit", head))
         else:
-            place(path, (mode, "blob", _git(repo, "hash-object", "-w", "--stdin", data=data)))
+            oid = _git(repo, "hash-object", "-w", "--stdin", data=data).encode()
+            place(path, (mode.encode(), b"blob", oid))
 
-    def write(node: dict) -> str:
-        lines = [
-            f"040000 tree {write(value)}\t{name}"
+    def write(node: dict) -> bytes:
+        records = [
+            b"040000 tree " + write(value) + b"\t" + name
             if isinstance(value, dict)
-            else f"{value[0]} {value[1]} {value[2]}\t{name}"
+            else b" ".join(value) + b"\t" + name
             for name, value in node.items()
         ]
-        return _git(repo, "mktree", data=("\n".join(lines) + "\n").encode())
+        return _git(repo, "mktree", "-z", data=b"\0".join(records) + b"\0").encode()
 
-    commit = _git(repo, "commit-tree", write(nested), "-p", "HEAD", "-m", "plumbed")
+    commit = _git(repo, "commit-tree", write(nested).decode(), "-p", "HEAD", "-m", "plumbed")
     _git(repo, "update-ref", "HEAD", commit)
 
 
-def _verify_head(repo: Path, out: Path, env: dict[str, str]):
+def _verify(repo: Path, out: Path, env: dict[str, str], *args: str):
     return runner.invoke(
         app,
         ["verify", "--workspace", str(repo), "--json", "--out", str(out),
-         "--base", "HEAD~1", "--head", "HEAD"],
+         "--base", "HEAD~1", *args],
         env=env,
+    )
+
+
+def _verify_head(repo: Path, out: Path, env: dict[str, str]):
+    return _verify(repo, out, env, "--head", "HEAD")
+
+
+def _prepare_head(repo: Path, plan: Path):
+    return runner.invoke(
+        app,
+        ["verification", "prepare", "--workspace", str(repo), "--base", "HEAD~1",
+         "--head", "HEAD", "--out", str(plan)],
+        env=AGENT_MODE,
     )
 
 
@@ -135,15 +155,23 @@ def _error_line(result) -> dict:
     return json.loads(lines[0])
 
 
-def _assert_limitation_route(payload: dict, *, path: str, refusal: str) -> None:
+UNSUPPORTED = "unsupported_git_tree_entry"
+UNCONTAINED = "uncontained_git_tree_link"
+LISTING = "git_tree_listing_unreadable"
+
+
+def _assert_limitation_route(
+    payload: dict, *, failure: str, path: str | None, refusal: str
+) -> str:
+    """The route every refusal Agents Shipgate owns takes; returns its ``why``."""
+
     assert payload["error"] == "config_error"
     assert payload["exit_code"] == 2
     assert payload["message"] == refusal
-    assert payload["details"] == {
-        "failure": "unsupported_git_tree_entry",
-        "origin": "agents_shipgate",
-        "path": path,
-    }
+    expected = {"failure": failure, "origin": "agents_shipgate"}
+    if path is not None:
+        expected["path"] = path
+    assert payload["details"] == expected
     actions = payload["next_actions"]
     assert [action["kind"] for action in actions] == ["review"]
     for action in actions:
@@ -151,75 +179,180 @@ def _assert_limitation_route(payload: dict, *, path: str, refusal: str) -> None:
         assert action["command"] is None
     why = actions[0]["why"]
     assert why.startswith(refusal.rstrip("."))
-    assert f"Git holds {path} as part of a valid tree" in why
-    assert "This is a limitation of Agents Shipgate" in why
-    assert "neither the manifest nor the repository needs to change" in why
-    assert "without --head" in why
+    assert "shipgate.yaml" not in why.replace("not an error in shipgate.yaml", "").replace(
+        "nothing in shipgate.yaml is wrong", ""
+    )
     assert "Fix the manifest" not in why
     assert payload["next_action"] == f"Review: {why}"
+    if failure == UNSUPPORTED:
+        assert f"Git holds {path} as part of a valid tree" in why
+        assert "does not support it yet" in why
+        assert "neither the manifest nor the repository needs to change" in why
+        assert "without --head from a checkout" in why
+        assert "report it at https://github.com/ThreeMoonsLab/agents-shipgate/issues" in why
+    elif failure == UNCONTAINED:
+        # Refused by design: no promise a later release lifts it, and no report.
+        assert "deliberately recreates only links that open a file or directory" in why
+        assert "nothing in shipgate.yaml is wrong" in why
+        assert "without --head from a checkout" in why
+        assert f"if {path} is not meant to leave the repository" in why
+        assert "report" not in why
+        assert payload["next_actions"][0]["expects"] == (
+            "A run that reads the commit from a checkout."
+        )
+    else:
+        # Every verify reads the listing, so nothing is offered that cannot help.
+        assert "with or without --head" in why
+        assert "without --head from a checkout" not in why
+        assert "report it at" in why
+    return why
 
 
-# Each kind of committed entry the verification archive refuses, all in a tree
-# Git's own strict check accepts.
+#: Each kind of committed entry the --head archive refuses, in a tree Git's
+#: own strict check accepts: (extra entries, failure, refused path, message).
 _REFUSED_TREES = {
     "link-leaving-the-tree": (
-        {"VERSION": ("120000", b"../outside")},
+        {b"VERSION": ("120000", b"../outside")},
+        UNSUPPORTED if os.name == "nt" else UNCONTAINED,
         "VERSION",
-        "Git tree contains unsupported external binding at VERSION (mode 120000, type blob): ",
+        "Git tree contains unsupported external binding at VERSION (mode 120000, type blob): "
+        + (
+            "committed links are not recreated on Windows."
+            if os.name == "nt"
+            else "only a link that opens a file or directory inside the repository is recreated."
+        ),
     ),
     "submodule": (
-        {"vendor/lib": ("160000", b"")},
+        {b"vendor/lib": ("160000", b"")},
+        UNSUPPORTED,
         "vendor/lib",
         "Git tree contains unsupported external binding at vendor/lib "
         "(mode 160000, type commit).",
     ),
     "names-a-filesystem-merges": (
-        {"README": ("100644", b"upper\n"), "readme": ("100644", b"lower\n")},
+        {b"README": ("100644", b"upper\n"), b"readme": ("100644", b"lower\n")},
+        UNSUPPORTED,
         "readme",
         "Git tree contains filesystem-colliding paths: 'README' and 'readme'",
     ),
     "name-not-portable": (
-        {"notes/a:b.md": ("100644", b"note\n")},
+        {b"notes/a:b.md": ("100644", b"note\n")},
+        UNSUPPORTED,
         "notes/a:b.md",
         "Git tree path is not portable: notes/a:b.md",
+    ),
+    "name-with-a-backslash": (
+        {b"notes/a\\b.md": ("100644", b"note\n")},
+        UNSUPPORTED,
+        "notes/a\\b.md",
+        "Git tree path is not portable: notes/a\\b.md",
     ),
 }
 
 
 @pytest.mark.parametrize("case", sorted(_REFUSED_TREES))
 def test_an_unsupported_committed_entry_is_not_routed_to_the_manifest(tmp_path, case):
-    extra, path, refusal = _REFUSED_TREES[case]
+    extra, failure, path, refusal = _REFUSED_TREES[case]
     repo = _repo(tmp_path)
     _commit_on_top(repo, extra)
 
     result = _verify_head(repo, tmp_path / "out", AGENT_MODE)
 
     assert result.exit_code == 2, result.output
-    payload = _error_line(result)
-    assert payload["message"].startswith(refusal)
-    _assert_limitation_route(payload, path=path, refusal=payload["message"])
-    assert "shipgate.yaml" not in json.dumps(payload["next_actions"]).replace(
-        "not an error in shipgate.yaml", ""
-    )
+    _assert_limitation_route(_error_line(result), failure=failure, path=path, refusal=refusal)
 
 
-def test_a_manifest_name_a_filesystem_merges_is_a_limitation(tmp_path):
-    # Both spellings are valid Git entries; which one is the manifest cannot
-    # be settled portably, and that is not the manifest's content at fault.
+@pytest.mark.parametrize(
+    "case", ["submodule", "name-not-portable", "name-with-a-backslash"]
+)
+def test_verification_prepare_routes_the_refusal_the_same_way(tmp_path, case):
+    # `prepare` archives the head without the manifest-spelling read `verify`
+    # does first, so the archive's own name checks are what it meets.
+    extra, failure, path, refusal = _REFUSED_TREES[case]
     repo = _repo(tmp_path)
-    _commit_on_top(repo, {"SHIPGATE.yaml": ("100644", b"other\n")})
+    _commit_on_top(repo, extra)
 
-    result = _verify_head(repo, tmp_path / "out", AGENT_MODE)
+    result = _prepare_head(repo, tmp_path / "plan.json")
+
+    assert result.exit_code == 2, result.output
+    _assert_limitation_route(_error_line(result), failure=failure, path=path, refusal=refusal)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the name cannot be checked out on Windows")
+def test_a_name_only_the_head_snapshot_refuses_does_not_stop_a_checkout_run(tmp_path):
+    # Reading the manifest's exact spelling used to refuse any non-portable
+    # name anywhere in the tree, so the "run without --head" route failed the
+    # same way. Such a name cannot be a spelling of the manifest; a run on the
+    # checkout reads it as the checkout holds it.
+    repo = _repo(tmp_path)
+    _commit_on_top(repo, {b"notes/a:b.md": ("100644", b"note\n")})
+    _git(repo, "reset", "-q", "--hard")
+
+    result = _verify(repo, tmp_path / "out", AGENT_MODE)
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["head_status"] == "succeeded"
+
+
+@pytest.mark.parametrize("head", [True, False], ids=["head", "checkout"])
+def test_a_name_that_is_not_utf8_is_a_limitation_on_every_route(tmp_path, head):
+    repo = _repo(tmp_path)
+    _commit_on_top(repo, {b"bad\xff.txt": ("100644", b"x\n")})
+
+    result = _verify(repo, tmp_path / "out", AGENT_MODE, *(("--head", "HEAD") if head else ()))
+
+    assert result.exit_code == 2, result.output
+    why = _assert_limitation_route(
+        _error_line(result),
+        failure=LISTING,
+        path="bad\\xff.txt",
+        refusal="Git tree contains a non-UTF-8 path",
+    )
+    assert "(bad\\xff.txt)" in why
+
+
+def test_a_path_listing_past_its_bound_is_a_limitation(tmp_path, monkeypatch):
+    from agents_shipgate.cli.verify import git as git_module
+
+    monkeypatch.setattr(git_module, "_MAX_MANIFEST_LISTING_BYTES", 10)
+    repo = _repo(tmp_path)
+    _commit_on_top(repo, {b"notes.md": ("100644", b"x\n")})
+
+    result = _verify(repo, tmp_path / "out", AGENT_MODE)
 
     assert result.exit_code == 2, result.output
     _assert_limitation_route(
         _error_line(result),
-        path="shipgate.yaml",
+        failure=LISTING,
+        path=None,
         refusal=(
-            "Git tree contains filesystem-colliding paths for configured manifest "
-            "'shipgate.yaml': ['SHIPGATE.yaml', 'shipgate.yaml']"
+            "Git tree path identity could not be established within static resource bounds."
         ),
     )
+
+
+def test_two_spellings_of_the_manifest_are_the_repository_to_settle(tmp_path):
+    # Every route refuses this commit, so it is not a limitation to wait out:
+    # the route names both spellings and asks for one to be kept.
+    repo = _repo(tmp_path)
+    _commit_on_top(repo, {b"SHIPGATE.yaml": ("100644", b"other\n")})
+
+    result = _verify_head(repo, tmp_path / "out", AGENT_MODE)
+
+    assert result.exit_code == 2, result.output
+    payload = _error_line(result)
+    assert payload["message"] == (
+        "Git tree contains filesystem-colliding paths for configured manifest "
+        "'shipgate.yaml': ['SHIPGATE.yaml', 'shipgate.yaml']"
+    )
+    assert "details" not in payload
+    [action] = payload["next_actions"]
+    assert action["kind"] == "review"
+    assert action["path"] is None
+    assert "The commit holds SHIPGATE.yaml and shipgate.yaml" in action["why"]
+    assert "Keep one spelling: remove or rename the other" in action["why"]
+    assert "limitation" not in action["why"]
+    assert "Fix the manifest" not in action["why"]
 
 
 def test_a_committed_link_refused_on_windows_is_a_limitation(tmp_path, monkeypatch):
@@ -230,8 +363,8 @@ def test_a_committed_link_refused_on_windows_is_a_limitation(tmp_path, monkeypat
     monkeypatch.setattr(git_module, "_recreates_committed_links", lambda: False)
     repo = _repo(tmp_path)
     _commit_on_top(repo, {
-        "AGENTS.md": ("100644", b"# Agents\n"),
-        "CLAUDE.md": ("120000", b"AGENTS.md"),
+        b"AGENTS.md": ("100644", b"# Agents\n"),
+        b"CLAUDE.md": ("120000", b"AGENTS.md"),
     })
 
     result = _verify_head(repo, tmp_path / "out", AGENT_MODE)
@@ -239,6 +372,7 @@ def test_a_committed_link_refused_on_windows_is_a_limitation(tmp_path, monkeypat
     assert result.exit_code == 2, result.output
     _assert_limitation_route(
         _error_line(result),
+        failure=UNSUPPORTED,
         path="CLAUDE.md",
         refusal=(
             "Git tree contains unsupported external binding at CLAUDE.md "
@@ -247,9 +381,35 @@ def test_a_committed_link_refused_on_windows_is_a_limitation(tmp_path, monkeypat
     )
 
 
+@pytest.mark.skipif(os.name == "nt", reason="committed links are not recreated on Windows")
+def test_a_link_the_filesystem_will_not_create_is_not_classified(tmp_path, monkeypatch):
+    # The filesystem refusing the write is not a property of the tree, so it
+    # carries no tree classification and keeps the generic route.
+    from agents_shipgate.cli.verify.git import archive_verification_tree
+
+    repo = _repo(tmp_path)
+    _commit_on_top(repo, {
+        b"AGENTS.md": ("100644", b"# Agents\n"),
+        b"CLAUDE.md": ("120000", b"AGENTS.md"),
+    })
+
+    def refuse(*_args, **_kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr("agents_shipgate.cli.verify.git.os.symlink", refuse)
+    with pytest.raises(ConfigError) as refused:
+        archive_verification_tree(repo, "HEAD", tmp_path / "snapshot")
+
+    assert str(refused.value) == (
+        "Git tree contains unsupported external binding at CLAUDE.md "
+        "(mode 120000, type blob): this system could not create the link."
+    )
+    assert refused.value.details == {}
+
+
 def test_a_person_reading_the_console_is_not_told_to_edit_the_manifest(tmp_path):
     repo = _repo(tmp_path)
-    _commit_on_top(repo, {"vendor/lib": ("160000", b"")})
+    _commit_on_top(repo, {b"vendor/lib": ("160000", b"")})
 
     result = _verify_head(repo, tmp_path / "out", HUMAN_MODE)
 
@@ -263,28 +423,6 @@ def test_a_person_reading_the_console_is_not_told_to_edit_the_manifest(tmp_path)
     assert "This is a limitation of Agents Shipgate" in hints[0]
     assert "Edit " not in result.stderr
     assert "Fix the manifest" not in result.stderr
-
-
-def test_verification_prepare_routes_the_refusal_the_same_way(tmp_path):
-    repo = _repo(tmp_path)
-    _commit_on_top(repo, {"vendor/lib": ("160000", b"")})
-
-    result = runner.invoke(
-        app,
-        ["verification", "prepare", "--workspace", str(repo), "--base", "HEAD~1",
-         "--head", "HEAD", "--out", str(tmp_path / "plan.json")],
-        env=AGENT_MODE,
-    )
-
-    assert result.exit_code == 2, result.output
-    _assert_limitation_route(
-        _error_line(result),
-        path="vendor/lib",
-        refusal=(
-            "Git tree contains unsupported external binding at vendor/lib "
-            "(mode 160000, type commit)."
-        ),
-    )
 
 
 def test_a_manifest_the_loader_rejects_still_routes_to_its_edit(tmp_path):

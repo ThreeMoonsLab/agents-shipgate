@@ -13,6 +13,7 @@ from agents_shipgate.cli.current_workspace import caller_path_spelling
 from agents_shipgate.cli.diagnostics import (
     diagnose_invalid_manifest,
     diagnose_missing_manifest,
+    manifest_spelling_collision_recovery,
     product_limitation_recovery,
     top_next_actions,
 )
@@ -280,16 +281,16 @@ def _config_error_next_actions(
 ) -> list:
     """The ranked recovery a command publishes for a ``ConfigError``.
 
-    A refusal that is Agents Shipgate's own limitation is answered first, from
-    its typed ``details``: :func:`_diagnose_config_error` would find the
-    manifest on disk and route it to an edit of a file that is not at fault
-    (#328). Every other failure takes the manifest diagnostics' rank-1 actions,
-    as before.
+    A refusal of committed tree content is answered first, from its typed
+    ``details``: :func:`_diagnose_config_error` would find the manifest on disk
+    and route it to an edit of a file that is not at fault (#328). Every other
+    failure takes the manifest diagnostics' rank-1 actions, as before.
     """
 
-    limitation = product_limitation_recovery(str(exc), exc.details)
-    if limitation is not None:
-        return limitation
+    for recovery in (product_limitation_recovery, manifest_spelling_collision_recovery):
+        actions = recovery(str(exc), exc.details)
+        if actions is not None:
+            return actions
     return top_next_actions(
         _diagnose_config_error(
             config=config,

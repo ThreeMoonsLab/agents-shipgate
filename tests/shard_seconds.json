@@ -466,7 +466,7 @@
   "tests/test_repository_links.py": 1.0,
   "tests/test_verify_committed_links.py": 41.4,
   "tests/test_catalog_lifecycle.py": 16.0,
-  "tests/test_config_error_attribution.py": 15.5
+  "tests/test_config_error_attribution.py": 33.1
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -910,12 +910,12 @@
   },
   {
    "source": "junit",
-   "measured_at": "2612cf40e619 with issue #328 limitation-vs-configuration increment",
-   "report_sha256": "5fb61aae6bce0c01387d053a6f179572dd702237213a8a2c0a0001945fbacb14",
+   "measured_at": "e2659eec69 with issue #328 limitation-vs-configuration increment (review cycle 1)",
+   "report_sha256": "d1b378c9a5ca6bcb8b01ae267321648c73b1c416b21e0afd3e6b19faad0ff2f7",
    "files": {
-    "tests/test_config_error_attribution.py": 15.5
+    "tests/test_config_error_attribution.py": 33.1
    },
-   "case_count": 17,
+   "case_count": 25,
    "command": "python -m pytest tests/test_config_error_attribution.py -o junit_duration_report=total --junitxml=shard-weight.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }

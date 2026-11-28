@@ -18,7 +18,13 @@ from urllib.parse import urlsplit
 import yaml
 
 from agents_shipgate import _perf
-from agents_shipgate.core.adopter_text import AGENTS_SHIPGATE_ORIGIN, UNSUPPORTED_GIT_TREE_ENTRY
+from agents_shipgate.core.adopter_text import (
+    AGENTS_SHIPGATE_ORIGIN,
+    GIT_TREE_LISTING_UNREADABLE,
+    MANIFEST_SPELLING_COLLISION,
+    UNCONTAINED_GIT_TREE_LINK,
+    UNSUPPORTED_GIT_TREE_ENTRY,
+)
 from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.git_env import hardened_git_env
@@ -2424,25 +2430,44 @@ def resolve_tree_path_identity(
         max_output_bytes=_MAX_MANIFEST_LISTING_BYTES,
     )
     if listing is None:
-        raise ConfigError(
+        raise _tree_limitation(
             "Git tree path identity could not be established within static "
-            "resource bounds."
+            "resource bounds.",
+            failure=GIT_TREE_LISTING_UNREADABLE,
         )
-    try:
-        paths = [
-            raw.decode("utf-8", errors="strict")
-            for raw in listing.split(b"\0")
-            if raw
-        ]
-    except UnicodeDecodeError as exc:
-        raise ConfigError("Git tree contains a non-UTF-8 path") from exc
     requested_key = _portable_tree_path_key(requested_text)
-    matches = [path for path in paths if _committed_tree_path_key(path) == requested_key]
+    matches: list[str] = []
+    for raw in listing.split(b"\0"):
+        if not raw:
+            continue
+        try:
+            path = raw.decode("utf-8", errors="strict")
+        except UnicodeDecodeError:
+            # The diff and the readers decode every path as UTF-8 too, so this
+            # refusal stands on every route; it is classified, not lifted.
+            raise _tree_limitation(
+                "Git tree contains a non-UTF-8 path",
+                failure=GIT_TREE_LISTING_UNREADABLE,
+                path=raw.decode("utf-8", errors="backslashreplace"),
+            ) from None
+        # A name the portable rule refuses is not compared: the path asked for
+        # passed that rule, and such a name is refused where it would be read,
+        # by the --head archive before any reader runs. Refusing it here refused
+        # every verify of the repository, with or without --head, over an entry
+        # nothing opens (#328).
+        try:
+            key = _portable_tree_path_key(path)
+        except ConfigError:
+            continue
+        if key == requested_key:
+            matches.append(path)
     if len(matches) > 1:
-        raise _unsupported_tree_entry(
+        # Every route refuses this one, so it is the repository's to settle by
+        # keeping one spelling, not a limitation to wait out.
+        raise ConfigError(
             "Git tree contains filesystem-colliding paths for configured "
             f"manifest {requested_text!r}: {matches!r}",
-            path=matches[-1],
+            details={"failure": MANIFEST_SPELLING_COLLISION, "paths": list(matches)},
         )
     if not matches:
         return None
@@ -3457,7 +3482,7 @@ def _materialize_isolated_tree(
                 # its children are in scope so both inventories can refuse it.
                 target = (root / path_text).resolve()
                 if target == root or root not in target.parents:
-                    raise _escapes_destination(path_text)
+                    raise ConfigError(f"Git tree path escapes destination: {path_text}")
                 target.mkdir(parents=True, exist_ok=True)
                 continue
             if record_gitlinks and mode == "160000" and object_type == "commit":
@@ -3466,7 +3491,7 @@ def _materialize_isolated_tree(
                 # repository's object graph, and the caller names it as unread.
                 target = (root / path_text).resolve()
                 if target == root or root not in target.parents:
-                    raise _escapes_destination(path_text)
+                    raise ConfigError(f"Git tree path escapes destination: {path_text}")
                 target.mkdir(parents=True, exist_ok=True)
                 gitlinks[path_text] = oid
                 continue
@@ -3536,7 +3561,7 @@ def _materialize_isolated_tree(
         for (mode, oid, path_text), blob in zip(entries, entry_blobs, strict=True):
             target = (root / path_text).resolve()
             if target == root or root not in target.parents:
-                raise _escapes_destination(path_text)
+                raise ConfigError(f"Git tree path escapes destination: {path_text}")
             if _git_object_id("blob", blob, algorithm=object_format) != oid:
                 raise ConfigError(f"Git blob failed object-ID validation: {path_text}")
             try:
@@ -3560,7 +3585,7 @@ def _materialize_isolated_tree(
         for (oid, path_text), blob in zip(links, _isolated_blobs(git_dir, links), strict=True):
             target = root / path_text
             if scope is not None and not _within(root, target.parent):
-                raise _escapes_destination(path_text)
+                raise ConfigError(f"Git tree path escapes destination: {path_text}")
             if _git_object_id("blob", blob, algorithm=object_format) != oid:
                 raise ConfigError(f"Git blob failed object-ID validation: {path_text}")
             # The link's own text is the blob. Scoped, it may point anywhere,
@@ -3606,31 +3631,34 @@ def _materialize_isolated_tree(
     return gitlinks
 
 
-def _unsupported_tree_entry(message: str, *, path: str) -> ConfigError:
-    """The refusal of a committed tree entry ``verify --head`` will not read (#328).
+def _tree_limitation(message: str, *, failure: str, path: str | None = None) -> ConfigError:
+    """A refusal of committed tree content that is Agents Shipgate's, not the repository's (#328).
 
-    Git holds the entry as part of a valid tree; the refusal is a limitation of
-    the archive Agents Shipgate reads the commit through, or of the portable
-    path rule that archive keeps, not a fault in the repository or its
-    manifest. ``details`` carries that classification, so a caller routes on it
-    rather than on the message, which keeps the wording every refusal has
-    always had. It stays a plain :class:`ConfigError`: every handler, exit code
-    and the class name some comparison reasons record are unchanged.
+    Git accepts the tree; what refuses it is the archive Agents Shipgate reads
+    the commit through, the portable path rule that archive keeps, or the
+    reading of the commit's path listing. ``details`` carries that classification
+    -- ``origin`` and ``failure``, and ``path`` when one entry is refused -- so
+    a caller routes on it rather than on the message, which keeps the wording
+    every refusal has always had. It stays a plain :class:`ConfigError`: every
+    handler, exit code and the class name some comparison reasons record are
+    unchanged.
     """
 
-    return ConfigError(
-        message,
-        details={
-            "failure": UNSUPPORTED_GIT_TREE_ENTRY,
-            "origin": AGENTS_SHIPGATE_ORIGIN,
-            "path": path,
-        },
-    )
+    details: dict[str, str] = {"failure": failure, "origin": AGENTS_SHIPGATE_ORIGIN}
+    if path is not None:
+        details["path"] = path
+    return ConfigError(message, details=details)
 
 
-def _unsupported_binding(
+def _unsupported_tree_entry(message: str, *, path: str) -> ConfigError:
+    """A committed entry the verification archive does not support yet."""
+
+    return _tree_limitation(message, failure=UNSUPPORTED_GIT_TREE_ENTRY, path=path)
+
+
+def _binding_refusal_text(
     path_text: str, mode: str, object_type: str, *, reason: str | None = None
-) -> ConfigError:
+) -> str:
     """The refusal of a tree entry an archive will not materialize.
 
     It names the entry and why it is refused, and nothing about the manifest:
@@ -3641,16 +3669,27 @@ def _unsupported_binding(
         f"Git tree contains unsupported external binding at {path_text} "
         f"(mode {mode}, type {object_type})"
     )
-    return _unsupported_tree_entry(
-        f"{message}: {reason}." if reason else f"{message}.", path=path_text
-    )
+    return f"{message}: {reason}." if reason else f"{message}."
 
 
-def _escapes_destination(path_text: str) -> ConfigError:
-    """The refusal of a tree entry that would not land inside the archive."""
+def _unsupported_binding(
+    path_text: str, mode: str, object_type: str, *, reason: str | None = None
+) -> ConfigError:
+    """:func:`_binding_refusal_text`, classified.
 
-    return _unsupported_tree_entry(
-        f"Git tree path escapes destination: {path_text}", path=path_text
+    A link that does not open inside the tree is refused by design, so that no
+    read reaches bytes the commit does not hold; every other entry here is one
+    the archive does not support yet.
+    """
+
+    return _tree_limitation(
+        _binding_refusal_text(path_text, mode, object_type, reason=reason),
+        failure=(
+            UNCONTAINED_GIT_TREE_LINK
+            if reason == _LINK_NOT_CONTAINED
+            else UNSUPPORTED_GIT_TREE_ENTRY
+        ),
+        path=path_text,
     )
 
 
@@ -3691,11 +3730,15 @@ def _create_admitted_link(root: Path, path_text: str, link_text: str, *, directo
         collides = isinstance(exc, (FileExistsError, NotADirectoryError, RuntimeError)) or (
             isinstance(exc, OSError) and exc.errno == errno.ELOOP
         )
-        raise _unsupported_binding(
-            path_text,
-            "120000",
-            "blob",
-            reason=_LINK_COLLIDES if collides else "this system could not create the link",
+        if collides:
+            raise _unsupported_binding(
+                path_text, "120000", "blob", reason=_LINK_COLLIDES
+            ) from exc
+        # Not a property of the tree: the filesystem refused the write.
+        raise ConfigError(
+            _binding_refusal_text(
+                path_text, "120000", "blob", reason="this system could not create the link"
+            )
         ) from exc
 
 

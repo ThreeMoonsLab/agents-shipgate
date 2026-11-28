@@ -8,7 +8,9 @@ from typing import Any, get_args
 import yaml
 from pydantic import BaseModel, ValidationError
 
+from agents_shipgate.core.agent_control_envelope import single_line_text
 from agents_shipgate.core.errors import ConfigError, InputParseError, format_validation_error
+from agents_shipgate.core.privacy import redact_text
 from agents_shipgate.core.yaml_limits import BoundedSafeLoader
 from agents_shipgate.inputs.common import (
     PositionIndex,
@@ -210,9 +212,6 @@ def _unquoted_colon_hints(exc: ValidationError, data: Mapping[str, Any]) -> list
     write by hand in prose (#328). The parsed document says which case it is,
     so the hint is added only there; it names the field, never the value.
     """
-
-    from agents_shipgate.core.agent_control_envelope import single_line_text
-    from agents_shipgate.core.privacy import redact_text
 
     hints: list[str] = []
     seen: set[str] = set()

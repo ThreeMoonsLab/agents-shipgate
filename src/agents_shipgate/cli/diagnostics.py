@@ -27,7 +27,10 @@ from agents_shipgate.core.adopter_text import (
     AGENTS_SHIPGATE_ORIGIN,
     DUPLICATE_ACROSS_ARTIFACTS,
     DUPLICATE_TOOL_IN_SOURCE,
+    GIT_TREE_LISTING_UNREADABLE,
+    MANIFEST_SPELLING_COLLISION,
     REPEATED_SOURCE_ENTRY,
+    UNCONTAINED_GIT_TREE_LINK,
     UNSUPPORTED_GIT_TREE_ENTRY,
     source_label,
 )
@@ -383,53 +386,108 @@ def input_parse_recovery(
     ]
 
 
+_REPORT_URL = "https://github.com/ThreeMoonsLab/agents-shipgate/issues"
+
+
 def product_limitation_recovery(
     message: str, details: Mapping[str, Any]
 ) -> list[NextAction] | None:
-    """The route for a refusal that is Agents Shipgate's limitation, or ``None``.
+    """The route for a refusal that is Agents Shipgate's own, or ``None``.
 
     ``verify --head`` and ``verification prepare --head`` read the commit
     through an archive that does not write every entry a valid Git tree can
-    hold. That refusal reached the ``ConfigError`` handlers, whose manifest
-    diagnostics found ``shipgate.yaml`` on disk and told the reader to fix it
-    in place, though nothing in the manifest or the repository is wrong (#328).
+    hold, and every ``verify`` reads the commit's path listing. Those
+    refusals reached the ``ConfigError`` handlers, whose manifest diagnostics
+    found ``shipgate.yaml`` on disk and told the reader to fix it in place,
+    though nothing in the manifest or the repository is wrong (#328).
 
     Decided on the failure's typed ``details`` (``origin`` and ``failure``),
-    never on its text, so the sentence stays free to change. The route names
-    the entry and the reason, which the message already carries, and asks for
-    no repository or manifest edit: the reader can verify from a checkout,
-    where the archive is not used, or report the limitation.
+    never on its text, so the sentence stays free to change. Each route names
+    the refusal, which carries the entry and the reason, and requires no
+    repository or manifest edit. Where reading from a checkout avoids the
+    snapshot it says so; a deliberate refusal is not offered as something a
+    later release will lift.
     """
 
-    if (
-        details.get("origin") != AGENTS_SHIPGATE_ORIGIN
-        or details.get("failure") != UNSUPPORTED_GIT_TREE_ENTRY
-    ):
+    if details.get("origin") != AGENTS_SHIPGATE_ORIGIN:
         return None
-    refusal = message.strip()
-    if not refusal.endswith("."):
-        refusal = f"{refusal}."
+    failure = details.get("failure")
+    refusal = _as_sentence(message)
     entry = details.get("path") or "this entry"
+    if failure == UNCONTAINED_GIT_TREE_LINK:
+        why = (
+            f"{refusal} The --head snapshot deliberately recreates only links "
+            "that open a file or directory inside the repository, so a run never "
+            "reads bytes the commit does not hold. Git accepts this tree and "
+            "nothing in shipgate.yaml is wrong. To verify now, run the same "
+            "command without --head from a checkout of that commit; if "
+            f"{entry} is not meant to leave the repository, correcting it also "
+            "clears this."
+        )
+        expects = "A run that reads the commit from a checkout."
+    elif failure == UNSUPPORTED_GIT_TREE_ENTRY:
+        why = (
+            f"{refusal} This is a limitation of Agents Shipgate, not an error in "
+            f"shipgate.yaml or in the repository: Git holds {entry} as part of a "
+            "valid tree, but the --head snapshot does not support it yet, so "
+            "neither the manifest nor the repository needs to change. To verify "
+            "the change now, run the same command without --head from a "
+            f"checkout of that commit; otherwise report it at {_REPORT_URL} "
+            "with this message."
+        )
+        expects = (
+            "A run that reads the commit from a checkout, or an Agents Shipgate "
+            "release that supports this tree entry."
+        )
+    elif failure == GIT_TREE_LISTING_UNREADABLE:
+        named = f" ({details['path']})" if details.get("path") else ""
+        why = (
+            f"{refusal} This is a limitation of Agents Shipgate, not an error in "
+            "shipgate.yaml or in the repository: every verify reads the commit's "
+            "path listing to bind the manifest's exact spelling, and it cannot "
+            f"read this one{named}, with or without --head. Neither the manifest "
+            f"nor the repository needs to change; report it at {_REPORT_URL} "
+            "with this message."
+        )
+        expects = "An Agents Shipgate release that reads this commit's path listing."
+    else:
+        return None
+    return [NextAction(kind="review", why=why, expects=expects)]
+
+
+def manifest_spelling_collision_recovery(
+    message: str, details: Mapping[str, Any]
+) -> list[NextAction] | None:
+    """The route for a commit holding two spellings of the manifest, or ``None``.
+
+    Unlike :func:`product_limitation_recovery`, this one is the repository's to
+    settle: a case- or normalization-insensitive filesystem merges the two, so
+    which one is the configured manifest cannot be decided portably, and every
+    route refuses the commit until it holds one.
+    """
+
+    if details.get("failure") != MANIFEST_SPELLING_COLLISION:
+        return None
+    spellings = [str(path) for path in details.get("paths") or ()]
+    named = _join_and(spellings) if spellings else "two spellings of the manifest"
     return [
         NextAction(
             kind="review",
             why=(
-                f"{refusal} This is a limitation of Agents Shipgate, not an error "
-                f"in shipgate.yaml or in the repository: Git holds {entry} as part "
-                "of a valid tree, but the snapshot this run reads the commit "
-                "through does not support it, so neither the manifest nor the "
-                "repository needs to change. To verify the change now, run the "
-                "same command without --head from a checkout of that commit; "
-                "otherwise report it at "
-                "https://github.com/ThreeMoonsLab/agents-shipgate/issues with "
-                "this message."
+                f"{_as_sentence(message)} The commit holds {named}, which a case- "
+                "or normalization-insensitive filesystem treats as one file, so "
+                "verify cannot tell which one is the configured manifest and "
+                "refuses this commit on every route. Keep one spelling: remove or "
+                "rename the other, then rerun verify."
             ),
-            expects=(
-                "A run that reads the commit from a checkout, or an Agents "
-                "Shipgate release that supports this tree entry."
-            ),
+            expects="The commit holds one spelling of the configured manifest.",
         )
     ]
+
+
+def _as_sentence(message: str) -> str:
+    text = message.strip()
+    return text if text.endswith(".") else f"{text}."
 
 
 def _duplicate_tool_action(
