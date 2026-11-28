@@ -72,10 +72,11 @@ holds: a link that opens a file or directory inside the repository, such as
 as that link instead of failing the tree. A reader that refuses links refuses
 it there too, and a read that follows it reaches only that commit's own files.
 A committed link that is absolute, leaves the repository, dangles, loops or
-passes more than eight links, a link this system cannot create, a name that
-collides with another on a case- or normalization-insensitive filesystem, and
-on Windows any committed link, still refuse that tree before anything is
-compared (#688).
+passes more than eight links, a link this system cannot create, a link whose
+name collides with a directory's name or that sits in a directory whose name
+collides with a file or link name, as a case- or normalization-insensitive
+filesystem would fold them (on every platform), and on Windows any committed
+link, still refuse that tree before anything is compared (#688).
 Path classification is case-insensitive so protected files cannot evade review
 on macOS or Windows. A case variant is also read as its lower-case spelling:
 `.github/workflows/CI.YML` is parsed and evaluated as a workflow, and
