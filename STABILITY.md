@@ -6209,23 +6209,20 @@ file, and follows the deprecation cycle above.
 
 ### Provisional CLI command surface
 
-The commands below are provisional in the `1.x` line. They are documented,
-deterministic, and local-only, and `agents-shipgate contract --json` /
-`.well-known/agents-shipgate.json` name their schema versions so a consumer can
-discover them, but their flags and payload schemas are not stable
-command-contract commitments: either may change within `1.x`. A schema file a
-release has published still keeps its bytes, so a changed payload ships under a
-new schema version. `report.json.release_decision.decision` is still the only
-release gate.
-
 [The report 1.0 contract](docs/report-1-0-contract.md#cli-exit-codes-and-control)
-names org governance, the org evidence bundle, and registry query as
-provisional, outside the `1.0` merge-gate promise. The table's other rows,
-among them `attest`, `shipgate audit --host`, and the other `registry`
-commands, are not classified there and await the owner's ruling
-([#1045](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1045)).
+classifies org governance, the org evidence bundle, and `registry query` as
+provisional. Their flags and payload schemas may change within `1.x`.
 
-| Command | Preview flags |
+The table also lists `attest`, `shipgate audit --host`, and the other `registry`
+commands. Their `1.x` classification awaits the owner's ruling in
+[#1045](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1045).
+
+`agents-shipgate contract --json` and `.well-known/agents-shipgate.json` publish
+the current schema versions for discovery. Each published schema file retains
+its bytes. Changes to a published schema use a new version.
+`report.json.release_decision.decision` remains the only release gate.
+
+| Command | Current flags |
 |---|---|
 | `agents-shipgate attest` | `--from`, `--out`, `--redact`/`--no-redact`, `--config`, `--org-id`, `--repo`, `--service`, `--tier`, `--pr-number`, `--workflow-run-id`, `--actor`, `--merge-sha`, `--verify-run`, `--event-time`, `--source-url`, `--branch`, `--base-sha`, `--head-sha`, `--ci-context`, `--reviews`, `--json` |
 | `agents-shipgate org status` | `--config`/`-c`, `--workspace`, `--baseline`, `--host-baseline`, `--as-of`, `--json` |
@@ -6321,13 +6318,14 @@ Stable JSON fields:
 - `governance_benchmark_result_schema_version` — current benchmark result
   schema version.
 - `attestation_schema_version` — schema version of the attestation
-  `agents-shipgate attest` derives from `verifier.json`. The key is stable; the
-  `attest` payload it names is
-  [provisional](#provisional-cli-command-surface).
+  `agents-shipgate attest` derives from `verifier.json`. The key is stable.
+  The command's classification is [pending](#provisional-cli-command-surface).
 - `registry_schema_version` — schema version of the rows in the local registry
-  (`.agents-shipgate/registry.jsonl`) that `registry ingest` writes, and of the
-  `registry` command results that read them. The key is stable; the payloads it
-  names are [provisional](#provisional-cli-command-surface).
+  (`.agents-shipgate/registry.jsonl`) that `registry ingest` writes. Registry
+  command results with a `registry_schema_version` field use the same version.
+  The key is stable. `registry query` is provisional, and the other registry
+  commands await classification. See
+  [Provisional CLI command surface](#provisional-cli-command-surface).
 - `org_evidence_bundle_schema_version` — schema version of the org evidence
   bundle `agents-shipgate org bundle` writes. The key is stable; the bundle it
   names is [provisional](#provisional-cli-command-surface).
@@ -6336,14 +6334,12 @@ Stable JSON fields:
   `shipgate audit --host` inventory, of the acknowledged baseline that
   `--save-baseline` writes (default `.agents-shipgate/host-grants.json`), and of
   the drift comparison that `--drift` prints and that `preflight` and
-  `org status` embed as `host_grant_drift`. The keys are stable; `audit --host`
-  is listed under
+  `org status` embed as `host_grant_drift`. The keys are stable. The
+  classification of `audit --host` is pending as described under
   [Provisional CLI command surface](#provisional-cli-command-surface).
 - `external_integration_surfaces[]` — non-gating integration and research
-  surfaces exposed by the contract. The list is stable; each surface it names
-  keeps its own stability. For example, a surface whose command is listed under
-  [Provisional CLI command surface](#provisional-cli-command-surface) is
-  provisional.
+  surfaces exposed by the contract. The list field is stable. Each surface it
+  names keeps its own stability classification.
 - `gating_signal` — always `release_decision.decision` in this contract.
 - `agent_result_schema_version` — legacy local-agent protocol schema retained
   for compatibility with existing in-repo protocol and MCP surfaces. It is not
@@ -6365,11 +6361,12 @@ Stable JSON fields:
 - `verification_plan_schema_version`, `verification_unit_result_schema_version`,
   `verification_artifact_manifest_schema_version`, and
   `verification_receipt_schema_version` — schema versions of the
-  content-addressed verification artifacts `verify` writes:
+  content-addressed artifacts from a full `verify` run:
   `verification-plan.json` (the request), `verification-unit-result.json`
   (decision-free worker output), `verification-artifacts.json` (the manifest of
   emitted artifacts), and
-  `verification-receipt.json` (the terminal receipt, written last). See
+  `verification-receipt.json` (the terminal receipt, written after the
+  manifest). See
   [verification identity](docs/verification-reproducibility.md).
 - `human_authorization_request_schema_version`,
   `human_authorization_schema_version`,
