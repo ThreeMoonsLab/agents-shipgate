@@ -3437,7 +3437,7 @@ def _materialize_isolated_tree(
                     "Git tree contains filesystem-colliding paths: "
                     f"{prior!r} and {path_text!r}"
                 )
-            if scope is None and admit_contained_links:
+            if admitted_links:
                 parts = path_text.split("/")
                 for index in range(1, len(parts)):
                     directory = "/".join(parts[:index])
