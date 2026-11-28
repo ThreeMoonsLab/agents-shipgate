@@ -18,7 +18,10 @@ projection.
 
 from __future__ import annotations
 
+import sys
 from typing import get_args
+
+import pytest
 
 from agents_shipgate.core.findings import build_reviewer_summary
 from agents_shipgate.schemas.report import (
@@ -315,6 +318,16 @@ def test_privacy_redactions_returns_zero_when_audit_disabled():
     )
     summary = build_reviewer_summary(findings=[], report=report)
     assert summary.privacy_redactions == 0
+
+
+def test_an_unimportable_evidence_matrix_fails_instead_of_counting_zero_gaps(monkeypatch):
+    """#1053: the evidence matrix ships in every install, so failing to
+    import it is a bug. It used to be swallowed and reported as zero
+    reviewer evidence gaps, which reads exactly like a clean matrix."""
+    # A ``None`` entry makes the next import of the module raise ImportError.
+    monkeypatch.setitem(sys.modules, "agents_shipgate.packet.evidence_matrix", None)
+    with pytest.raises(ImportError):
+        build_reviewer_summary(findings=[], report=_empty_report())
 
 
 def _baseline_finding(check_id: str, suppressed: bool = False) -> Finding:
