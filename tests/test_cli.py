@@ -684,6 +684,27 @@ def test_cli_help_hides_niche_commands_but_keeps_them_invokable():
         assert re.search(rf"\b{re.escape(name)}\b", output), output
 
 
+def test_every_root_command_and_group_has_help_text():
+    """`--help-all` lists every command with a description, groups included.
+
+    `verification` and `authorization` once rendered as bare names (#1056).
+    """
+    root = get_command(app)
+    ctx = typer.Context(root)
+    helpless = [
+        name
+        for name in root.list_commands(ctx)
+        if not root.get_command(ctx, name).get_short_help_str(limit=200).strip()
+    ]
+    assert helpless == []
+
+    result = runner.invoke(app, ["--help-all"], terminal_width=160)
+    assert result.exit_code == 0, result.output
+    rows = re.findall(r"^│ ([a-z][a-z-]*) +(\S?)", _plain_cli_output(result.output), re.M)
+    assert {"verification", "authorization"} <= {name for name, _ in rows}
+    assert [name for name, first_char in rows if not first_char or first_char == "│"] == []
+
+
 def test_diff_help_describes_both_comparison_modes():
     result = runner.invoke(app, ["diff", "--help"], terminal_width=120)
     assert result.exit_code == 0, result.output

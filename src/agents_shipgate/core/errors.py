@@ -41,6 +41,7 @@ def format_validation_error(
     *,
     label: str,
     suggest: Callable[[dict[str, Any]], str | None] | None = None,
+    hint: Callable[[dict[str, Any], str], str | None] | None = None,
 ) -> str:
     """Describe invalid fields without serializing Pydantic's original inputs."""
 
@@ -48,6 +49,7 @@ def format_validation_error(
     from agents_shipgate.core.privacy import redact_text
 
     lines = [f"{label}:"]
+    hints: dict[str, None] = {}
     for error in exc.errors(include_input=False, include_context=False, include_url=False):
         location = ".".join(str(part) for part in error["loc"]) or "<root>"
         message = (
@@ -60,4 +62,7 @@ def format_validation_error(
         safe_location = single_line_text(redact_text(location) or "")
         safe_message = single_line_text(redact_text(message) or "")
         lines.append(f"- {safe_location}: {safe_message}")
-    return "\n".join(lines)
+        if hint is not None and (guidance := hint(error, safe_location)):
+            safe_hint = single_line_text(redact_text(guidance) or "")
+            hints[safe_hint] = None
+    return "\n".join([*lines, *hints])

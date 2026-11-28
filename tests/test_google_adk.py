@@ -1896,6 +1896,54 @@ def test_a_proven_adk_surface_with_declared_actions_reaches_a_merge_verdict(tmp_
     assert decision.evidence_coverage.evidence_gaps == []
 
 
+_DESTRUCTIVE_QUOTE_ACTIONS = _PROVEN_ACTIONS.replace("effect: write", "effect: destructive")
+
+
+def test_a_declared_destructive_adk_tool_without_a_guardrail_is_reported(tmp_path):
+    report = _scan_proven(
+        tmp_path, _proven_project(tmp_path, manifest_extra=_DESTRUCTIVE_QUOTE_ACTIONS)
+    )
+
+    [finding] = [
+        item
+        for item in report.findings
+        if item.check_id == "SHIP-ADK-GUARDRAIL-EVIDENCE-MISSING"
+    ]
+    assert finding.severity == "high"
+    assert finding.evidence == {"tools": ["create_quote"]}
+
+
+@pytest.mark.parametrize(
+    ("module_kwargs", "actions", "high_risk"),
+    [
+        pytest.param(
+            {
+                "preamble": "\ndef guard(*args, **kwargs):\n    return None\n",
+                "agent_kwargs": "\n    before_tool_callback=guard,",
+            },
+            _DESTRUCTIVE_QUOTE_ACTIONS,
+            True,
+            id="callback-guards-the-destructive-tool",
+        ),
+        pytest.param({}, _PROVEN_ACTIONS, False, id="no-high-risk-tool"),
+    ],
+)
+def test_adk_guardrail_evidence_is_not_missing_where_it_is_not_needed(
+    tmp_path, module_kwargs: dict, actions: str, high_risk: bool
+):
+    project = _proven_project(
+        tmp_path, source=_proven_module(**module_kwargs), manifest_extra=actions
+    )
+
+    report = _scan_proven(tmp_path, project)
+
+    check_ids = {finding.check_id for finding in report.findings}
+    assert "SHIP-ADK-GUARDRAIL-EVIDENCE-MISSING" not in check_ids
+    # The callback case still reads `create_quote` as destructive: only the
+    # guardrail evidence answers the check.
+    assert ("SHIP-POLICY-APPROVAL-MISSING" in check_ids) is high_risk
+
+
 #: One construct per row, each leaving some part of the tool surface unproven,
 #: with the reason code the adapter has to record for it. Every row starts from
 #: the module above, which reaches `high` on its own, so the construct is the

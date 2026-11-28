@@ -8,6 +8,8 @@ exposes the public ``fixture_path`` / ``list_fixtures`` helpers.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
@@ -19,6 +21,27 @@ _FIXTURE_MARKER = "shipgate.yaml"
 # user-facing fixtures (anti-patterns ship as documentation only; see the
 # README in samples/_anti_patterns/).
 _HIDDEN_PREFIXES = ("_", ".")
+
+# ``fixture list`` summarizes a README as the first sentence of its first prose
+# paragraph (see ``_short_description``). Block-level shapes:
+_ATX_HEADING = re.compile(r"#{1,6}(?:[ \t]|$)")
+_FENCE_OPEN = re.compile(r"`{3,}|~{3,}")
+_SETEXT_UNDERLINE = re.compile(r"(?:=+|-+)[ \t]*$")
+_THEMATIC_BREAK = re.compile(r"(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$")
+_TABLE_DELIMITER = re.compile(r"\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?")
+# HTML, blockquotes, tables, bullet and ordered list items.
+_NON_PROSE_BLOCK = re.compile(r"[<>|]|[-*+](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)")
+# Inline: a link destination may hold one level of balanced parentheses.
+_LINK_TARGET = r"(?:\((?:[^()]|\([^()]*\))*\)|\[[^\]]*\])"
+_IMAGE = rf"!\[[^\]]*\]{_LINK_TARGET}"
+_INLINE_MARKUP = re.compile(
+    rf"(?P<ticks>`+)(?P<code>.+?)(?P=ticks)"
+    rf"|\[{_IMAGE}\]{_LINK_TARGET}|{_IMAGE}"
+    rf"|\[(?P<label>[^\]]*)\]{_LINK_TARGET}"
+)
+_EMPHASIS = re.compile(r"\*+(?=\S)|(?<=\S)\*+")
+# A sentence ends at ., ! or ? followed by whitespace and a capital letter.
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
 
 
 @dataclass(frozen=True)
@@ -272,12 +295,113 @@ def _validate_replay_fixture_names(root: Path) -> None:
 
 
 def _short_description(path: Path) -> str:
-    """Read the first non-empty line of a fixture's README.md (if present)."""
+    """Summarize a fixture's README.md as one line of plain text.
+
+    The summary is the first sentence of the first paragraph that is prose
+    and still has text once its markup is gone. YAML front matter, headings
+    (ATX and setext), fenced and indented code, HTML blocks and comments,
+    blockquotes, lists, tables and thematic breaks are skipped. Images and
+    badges are dropped, links keep their text, backticks are dropped, ``*``
+    emphasis markers outside code are dropped, and whitespace is collapsed.
+
+    Sentence splitting is a heuristic: an abbreviation followed by a capital
+    letter (``e.g. The``, ``U.S. Army``) ends the summary early.
+
+    Returns ``""`` when there is no README or no such paragraph in it; the
+    text listing renders that absence explicitly.
+    """
     readme = path / "README.md"
     if not readme.is_file():
         return ""
-    for line in readme.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#"):
-            return stripped
+    for paragraph in _prose_paragraphs(readme.read_text(encoding="utf-8-sig")):
+        text = " ".join(_plain_markdown_text(" ".join(paragraph)).split())
+        if text:
+            match = _SENTENCE_END.search(text)
+            return text[: match.start()] if match else text
     return ""
+
+
+def _prose_paragraphs(markdown: str) -> Iterator[list[str]]:
+    """Yield the README's prose paragraphs, in order, as stripped lines."""
+    lines = markdown.splitlines()
+    start = 0
+    if lines and lines[0].strip() == "---":
+        closing = next(
+            (index for index, line in enumerate(lines[1:], 1) if line.strip() in ("---", "...")),
+            None,
+        )
+        if closing is None:
+            return
+        start = closing + 1
+
+    paragraph: list[str] = []
+    fence: str | None = None
+    in_comment = False
+    in_non_prose_block = False
+    for raw in lines[start:]:
+        line = raw.expandtabs(4)
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip(" "))
+        if fence is not None:
+            if indent < 4 and stripped.startswith(fence) and not stripped.strip(fence[0]):
+                fence = None
+            continue
+        if in_comment:
+            in_comment = "-->" not in stripped
+            continue
+        if not stripped:
+            if paragraph:
+                yield paragraph
+                paragraph = []
+            in_non_prose_block = False
+            continue
+        if in_non_prose_block:
+            continue
+        if indent >= 4:
+            # Indented code, unless it continues a paragraph.
+            if paragraph:
+                paragraph.append(stripped)
+            continue
+        if len(paragraph) == 1 and "|" in paragraph[0] and _TABLE_DELIMITER.fullmatch(stripped):
+            paragraph = []
+            in_non_prose_block = True
+            continue
+        if paragraph and _SETEXT_UNDERLINE.match(stripped):
+            paragraph = []  # The paragraph was a setext heading.
+            continue
+        fence_open = _FENCE_OPEN.match(stripped)
+        starts_block = bool(
+            fence_open
+            or stripped.startswith("<!--")
+            or _ATX_HEADING.match(stripped)
+            or _THEMATIC_BREAK.match(stripped)
+            or _NON_PROSE_BLOCK.match(stripped)
+        )
+        if not starts_block:
+            paragraph.append(stripped)
+            continue
+        if paragraph:
+            yield paragraph
+            paragraph = []
+        if fence_open:
+            fence = fence_open.group(0)
+        elif stripped.startswith("<!--"):
+            in_comment = "-->" not in stripped[4:]
+        elif not (_ATX_HEADING.match(stripped) or _THEMATIC_BREAK.match(stripped)):
+            in_non_prose_block = True
+    if paragraph:
+        yield paragraph
+
+
+def _plain_markdown_text(text: str) -> str:
+    pieces: list[str] = []
+    position = 0
+    for token in _INLINE_MARKUP.finditer(text):
+        pieces.append(_EMPHASIS.sub("", text[position : token.start()]))
+        if token.group("code") is not None:
+            pieces.append(token.group("code"))
+        elif token.group("label") is not None:
+            pieces.append(_plain_markdown_text(token.group("label")))
+        position = token.end()
+    pieces.append(_EMPHASIS.sub("", text[position:]))
+    return "".join(pieces)
