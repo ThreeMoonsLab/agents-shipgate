@@ -30,6 +30,16 @@ checks:
 - id: SHIP-API-OPERATIONAL-READINESS
   default_severity: medium
   mvp_tier: adapter
+  lifecycle: deprecated
+  deprecated_in: 0.4.0
+  replaced_by:
+  - SHIP-API-RETRY-POLICY-MISSING
+  - SHIP-API-TIMEOUT-MISSING
+  - SHIP-API-TEST-CASES-MISSING
+  - SHIP-API-TOOL-OUTPUT-SCHEMA-MISSING
+  - SHIP-API-RETRY-WITHOUT-IDEMPOTENCY
+  - SHIP-API-TRACE-APPROVAL-MISSING
+  - SHIP-API-TRACE-CONFIRMATION-MISSING
   description: Deprecated compatibility alias for the v0.3 OpenAI API operational
     readiness bundle.
   rationale: |-

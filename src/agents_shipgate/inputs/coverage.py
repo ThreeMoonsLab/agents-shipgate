@@ -702,9 +702,10 @@ def build_boundary_matrix(registry: AdapterRegistry | None = None) -> BoundaryMa
 
     # A published check id must resolve. Done here rather than in the cell
     # validator so importing an adapter never drags in the check registry.
-    from agents_shipgate.checks.registry import check_catalog
+    from agents_shipgate.checks.registry import check_catalog, configurable_check_ids
 
-    known_checks = {check.id for check in check_catalog(plugins_enabled=False)}
+    # A projection id is catalogued but no check owns it (#1047).
+    known_checks = configurable_check_ids(check_catalog(plugins_enabled=False))
     for source in sources:
         for cell in source.cells:
             unknown = sorted(set(cell.raises) - known_checks)

@@ -1278,7 +1278,8 @@ def test_no_builtin_check_emitted_above_its_default_lowers_without_ack() -> None
     accepted: list[str] = []
     checked = 0
     for entry in catalog:
-        if entry.default_severity == "critical":
+        # A projection ID is never a finding, so it has no override (#1047).
+        if entry.default_severity == "critical" or entry.lifecycle == "projection":
             continue
         checked += 1
         try:
