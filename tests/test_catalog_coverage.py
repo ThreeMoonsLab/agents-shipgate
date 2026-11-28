@@ -9,7 +9,9 @@ and requires every ``active`` catalog ID to appear, as the full ID string, at an
 * in a comprehension's filter, which selects findings for a test to assert on
   (``[f for f in findings if f.check_id == "SHIP-..."]``);
 * bound by a plain assignment (``CHECK = "SHIP-..."``, or a tuple, list, set or
-  dict of literals) to a name that an assertion site reads;
+  dict of literals) to a name that an assertion site in the same scope reads.
+  Storing into an attribute or a key (``finding.check_id = "SHIP-..."``) binds
+  no name, and a function's local name is not visible to another test;
 * in a ``pytest.mark.parametrize`` value whose parameter an assertion site in the
   decorated test reads (an ``id=`` label is not a value);
 * in the value of a one-element unpacking (``[finding] = ...``), which fails
@@ -17,15 +19,19 @@ and requires every ``active`` catalog ID to appear, as the full ID string, at an
 * as a ``check_id`` in a committed golden that a test compares whole against
   what the engine emits.
 
-An ID under ``not`` or on either side of ``not in``/``!=``/``is not`` is a
-negative assertion and does not count. Comments, docstrings, assertion messages,
-comparisons in an ``if`` statement and plain mentions never count.
+An ID under ``not``, on either side of ``not in``/``!=``/``is not``, or in a
+comparison with absence (``== []``, ``== 0``, ``is None``, ``is False``) is a
+negative assertion and does not count; nor does a literal tested only for
+truth. Comments, docstrings, assertion messages, comparisons in an ``if``
+statement and plain mentions never count, and neither do the tests named in
+``METADATA_ONLY_TESTS``, which assert what the catalog says about an ID.
 
 The rule proves an ID is pinned where a test fails if it changes; it cannot see
-whether the asserted value came from running a check, so an assertion about the
-catalog entry itself (its metadata or its docs) also counts. Projection and deprecated
-IDs are exempt through the catalog's ``lifecycle`` field. The rest of the gap is
-the shrink-only allowlist in ``tests/fixtures/catalog_coverage_allowlist.yaml``.
+whether the asserted value came from running a check, so an assertion about a
+hand-built report elsewhere still counts. Projection and deprecated IDs are
+exempt through the catalog's ``lifecycle`` field. The rest of the gap is the
+shrink-only allowlist in ``tests/fixtures/catalog_coverage_allowlist.yaml``,
+whose ``unreachable`` entries each name a guard test.
 """
 
 from __future__ import annotations
@@ -34,7 +40,7 @@ import ast
 import json
 import re
 from collections import defaultdict
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
@@ -64,6 +70,27 @@ COMPARED_GOLDENS: dict[str, tuple[str, str]] = {
     "tests/golden/codex_boundary_result/*.json": (
         "tests/test_codex_boundary_check.py",
         '"codex_boundary_result"',
+    ),
+}
+
+#: Tests that assert what the catalog says about an ID — its listing, its
+#: ``explain`` text, its remediation policy, its docs anchor — and run no check.
+#: Their assertions are about metadata, so they do not count. ``None`` leaves out
+#: the whole module; otherwise the named test functions. Each module's other
+#: tests run a scan and still count.
+METADATA_ONLY_TESTS: dict[str, frozenset[str] | None] = {
+    "tests/test_remediation_metadata.py": None,
+    "tests/test_catalog_lifecycle.py": frozenset(
+        {
+            "test_list_checks_json_and_docs_catalog_carry_lifecycle",
+            "test_list_checks_text_and_explain_show_the_lifecycle",
+        }
+    ),
+    "tests/test_finding_remediation.py": frozenset(
+        {
+            "test_catalog_marks_high_risk_checks_with_override",
+            "test_docs_url_is_always_from_catalog_not_patches",
+        }
     ),
 }
 
@@ -116,28 +143,75 @@ def _literal_ids(node: ast.AST | None) -> set[str] | None:
     return found
 
 
-def _positive_reads(node: ast.AST, positive: bool = True) -> Iterator[tuple[str, str]]:
-    """Yield ``("literal", text)`` and ``("name", id)`` reached positively."""
+def _is_absence(node: ast.AST) -> bool:
+    """``None``, ``False``, zero, an empty string or an empty container."""
+
+    if isinstance(node, ast.Constant):
+        return node.value is None or (
+            isinstance(node.value, (str, bytes, int, float)) and not node.value
+        )
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return not node.elts
+    if isinstance(node, ast.Dict):
+        return not node.keys
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in _LITERAL_CALLS
+        and not node.args
+        and not node.keywords
+    )
+
+
+def _positive_reads(
+    node: ast.AST, positive: bool = True, truthy: bool = False, lookup: bool = True
+) -> Iterator[tuple[str, str]]:
+    """Yield ``("literal", text)`` and ``("name", id)`` reached positively.
+
+    ``not``, ``not in``, ``!=`` and ``is not`` negate, and so does comparing
+    with absence: ``== []``, ``== 0``, ``is None``, ``is False``
+    (``len(matches) == 0`` included). ``!= []`` asserts presence again. A
+    literal or name tested only for truthiness (``assert "SHIP-..."``,
+    ``assert x or "SHIP-..."``) asserts nothing about it, so it is not read.
+
+    ``lookup`` is the polarity of a subscript key. It follows the negations but
+    not an absence comparison, because the key is still looked up:
+    ``by_id["SHIP-..."].blocks_release is False`` asserts the finding exists and
+    does not block.
+    """
 
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
-        yield from _positive_reads(node.operand, not positive)
+        yield from _positive_reads(node.operand, not positive, True, not lookup)
+        return
+    if isinstance(node, ast.BoolOp):
+        for value in node.values:
+            yield from _positive_reads(value, positive, True, lookup)
         return
     if isinstance(node, ast.Compare):
-        if all(isinstance(op, _NEGATIVE_OPS) for op in node.ops):
-            positive = not positive
-        for part in (node.left, *node.comparators):
-            yield from _positive_reads(part, positive)
+        parts = (node.left, *node.comparators)
+        if any(_is_absence(part) for part in parts):
+            # ``== []``/``is None`` assert absence; ``!= []`` asserts presence.
+            if all(isinstance(op, (ast.Eq, ast.Is)) for op in node.ops):
+                positive = not positive
+        elif all(isinstance(op, _NEGATIVE_OPS) for op in node.ops):
+            positive, lookup = not positive, not lookup
+        for part in parts:
+            yield from _positive_reads(part, positive, False, lookup)
+        return
+    if isinstance(node, ast.Subscript):
+        yield from _positive_reads(node.value, positive, False, lookup)
+        yield from _positive_reads(node.slice, lookup, False, lookup)
         return
     if isinstance(node, ast.Constant):
-        if positive and isinstance(node.value, str):
+        if positive and not truthy and isinstance(node.value, str):
             yield "literal", node.value
         return
     if isinstance(node, ast.Name):
-        if positive:
+        if positive and not truthy:
             yield "name", node.id
         return
     for child in ast.iter_child_nodes(node):
-        yield from _positive_reads(child, positive)
+        yield from _positive_reads(child, positive, False, lookup)
 
 
 def _is_single_unpack(target: ast.AST) -> bool:
@@ -148,49 +222,145 @@ def _is_single_unpack(target: ast.AST) -> bool:
     )
 
 
-def _assertion_sites(tree: ast.AST) -> Iterator[ast.AST]:
-    """An assert's condition, a comprehension's filter, a one-element unpacking.
+# --- Names, scoped as Python scopes them ----------------------------------
 
-    A comparison in an ``if`` statement is not a site: the block it guards may
-    never run, and ``if check_id in ids: raise AssertionError`` asserts the
-    opposite of firing.
+_FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+_SCOPES = (*_FUNCTIONS, ast.ClassDef)
+
+
+@dataclass
+class _Scope:
+    """The names one module, class or function binds, and the IDs bound to them."""
+
+    parent: _Scope | None
+    is_class: bool = False
+    assigned: set[str] = field(default_factory=set)
+    literal: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
+
+    def resolve(self, name: str) -> set[str]:
+        """The IDs ``name`` stands for here: its innermost binding wins.
+
+        A class body's names are invisible to the functions inside it.
+        """
+
+        scope: _Scope | None = self
+        own = True
+        while scope is not None:
+            if (own or not scope.is_class) and name in scope.assigned:
+                return scope.literal.get(name, set())
+            own = False
+            scope = scope.parent
+        return set()
+
+
+def _bound_names(target: ast.AST) -> Iterator[str]:
+    """The names an assignment target binds.
+
+    ``finding.check_id = ...`` and ``row["check_id"] = ...`` bind no name: they
+    store into an object the name already stands for.
     """
 
+    if isinstance(target, ast.Name):
+        yield target.id
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        for element in target.elts:
+            yield from _bound_names(element)
+    elif isinstance(target, ast.Starred):
+        yield from _bound_names(target.value)
+
+
+def _bind(node: ast.AST, scope: _Scope) -> None:
+    value: ast.AST | None = None
+    if isinstance(node, ast.Assign):
+        targets, value = list(node.targets), node.value
+    elif isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+        targets, value = [node.target], node.value
+    elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+        targets, value = [node.target], node.iter
+    elif isinstance(node, ast.withitem) and node.optional_vars is not None:
+        targets = [node.optional_vars]
+    elif isinstance(node, (ast.Import, ast.ImportFrom)):
+        scope.assigned |= {
+            (alias.asname or alias.name).split(".")[0] for alias in node.names
+        }
+        return
+    elif isinstance(node, ast.ExceptHandler) and node.name:
+        scope.assigned.add(node.name)
+        return
+    else:
+        return
+    ids = None if isinstance(node, ast.AugAssign) else _literal_ids(value)
+    for target in targets:
+        for name in _bound_names(target):
+            scope.assigned.add(name)
+            if ids:
+                scope.literal[name] |= ids
+
+
+def _argument_names(arguments: ast.arguments) -> set[str]:
+    every = [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]
+    every += [arg for arg in (arguments.vararg, arguments.kwarg) if arg is not None]
+    return {arg.arg for arg in every}
+
+
+def _scopes(tree: ast.Module) -> dict[int, _Scope]:
+    """Every module, class and function scope, keyed by the node that owns it."""
+
+    scopes = {id(tree): _Scope(parent=None)}
+
+    def visit(node: ast.AST, scope: _Scope) -> None:
+        if isinstance(node, _SCOPES):
+            if not isinstance(node, ast.Lambda):
+                scope.assigned.add(node.name)
+            inner = _Scope(parent=scope, is_class=isinstance(node, ast.ClassDef))
+            if isinstance(node, _FUNCTIONS):
+                inner.assigned |= _argument_names(node.args)
+            scopes[id(node)] = inner
+            body = node.body if isinstance(node.body, list) else [node.body]
+            for child in body:
+                visit(child, inner)
+            return
+        _bind(node, scope)
+        for child in ast.iter_child_nodes(node):
+            visit(child, scope)
+
+    for child in tree.body:
+        visit(child, scopes[id(tree)])
+    return scopes
+
+
+def _assertion_sites(
+    tree: ast.AST,
+    scopes: Mapping[int, _Scope],
+    scope: _Scope,
+    skip: Collection[str] = (),
+) -> Iterator[tuple[ast.AST, bool, _Scope]]:
+    """An assert's condition, a comprehension's filter, a one-element unpacking.
+
+    Each comes with whether it is read for truthiness and the scope its names
+    resolve in. A comparison in an ``if`` statement is not a site: the block it
+    guards may never run, and ``if check_id in ids: raise AssertionError``
+    asserts the opposite of firing. A function named in ``skip`` has none.
+    """
+
+    if isinstance(tree, (ast.FunctionDef, ast.AsyncFunctionDef)) and tree.name in skip:
+        return
+    scope = scopes.get(id(tree), scope)
     if isinstance(tree, ast.Assert):
-        yield tree.test
+        yield tree.test, True, scope
         return
     if (
         isinstance(tree, ast.Assign)
         and len(tree.targets) == 1
         and _is_single_unpack(tree.targets[0])
     ):
-        yield tree.value
+        yield tree.value, False, scope
         return
     if isinstance(tree, ast.comprehension):
-        yield from tree.ifs
+        for condition in tree.ifs:
+            yield condition, True, scope
     for child in ast.iter_child_nodes(tree):
-        yield from _assertion_sites(child)
-
-
-def _name_bindings(tree: ast.AST) -> dict[str, set[str]]:
-    bound: dict[str, set[str]] = defaultdict(set)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            targets, value = node.targets, node.value
-        elif isinstance(node, ast.AnnAssign) and node.value is not None:
-            targets, value = [node.target], node.value
-        elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
-            targets, value = [node.target], node.iter
-        else:
-            continue
-        ids = _literal_ids(value)
-        if not ids:
-            continue
-        for target in targets:
-            for name in ast.walk(target):
-                if isinstance(name, ast.Name):
-                    bound[name.id] |= ids
-    return bound
+        yield from _assertion_sites(child, scopes, scope, skip)
 
 
 def _module_values(tree: ast.Module) -> dict[str, ast.AST]:
@@ -239,23 +409,31 @@ def _parametrize_rows(
     return names, rows
 
 
-def asserted_ids(source: str) -> set[str]:
-    """Every ID-shaped token the module's source pins at an assertion site."""
+def asserted_ids(source: str, skip: Collection[str] = ()) -> set[str]:
+    """Every ID-shaped token the module's source pins at an assertion site.
+
+    Test functions named in ``skip`` are left out.
+    """
 
     tree = ast.parse(source)
-    bound = _name_bindings(tree)
+    scopes = _scopes(tree)
     found: set[str] = set()
-    for site in _assertion_sites(tree):
-        for kind, value in _positive_reads(site):
-            found |= _ids_in(value) if kind == "literal" else bound.get(value, set())
+    for site, truthy, scope in _assertion_sites(tree, scopes, scopes[id(tree)], skip):
+        for kind, value in _positive_reads(site, truthy=truthy):
+            found |= _ids_in(value) if kind == "literal" else scope.resolve(value)
     module_values = _module_values(tree)
     for function in ast.walk(tree):
         if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
+        if function.name in skip:
+            continue
         read = {
             value
-            for site in _assertion_sites(ast.Module(body=function.body, type_ignores=[]))
-            for kind, value in _positive_reads(site)
+            for statement in function.body
+            for site, truthy, _scope in _assertion_sites(
+                statement, scopes, scopes[id(function)]
+            )
+            for kind, value in _positive_reads(site, truthy=truthy)
             if kind == "name"
         }
         for decorator in function.decorator_list:
@@ -293,8 +471,14 @@ def golden_check_ids(payload: object) -> set[str]:
 
 @dataclass(frozen=True)
 class Allowlist:
+    """``uncovered``: ID → reason. ``unreachable``: ID → ``reason`` and ``guard_test``.
+
+    A ``guard_test`` is the ``path::function`` of a test that fails, naming the
+    ID, once a code path can emit it again.
+    """
+
     uncovered: dict[str, str] = field(default_factory=dict)
-    unreachable: dict[str, str] = field(default_factory=dict)
+    unreachable: dict[str, dict[str, str]] = field(default_factory=dict)
 
     @property
     def ids(self) -> set[str]:
@@ -306,7 +490,10 @@ def load_allowlist(path: Path = ALLOWLIST) -> Allowlist:
     assert set(raw) <= {"uncovered", "unreachable"}, sorted(raw)
     return Allowlist(
         uncovered=dict(raw.get("uncovered") or {}),
-        unreachable=dict(raw.get("unreachable") or {}),
+        unreachable={
+            check_id: dict(entry) if isinstance(entry, dict) else entry
+            for check_id, entry in (raw.get("unreachable") or {}).items()
+        },
     )
 
 
@@ -341,10 +528,45 @@ def coverage_problems(
                 f"{check_id} is {check.default_severity}: it needs a firing test, "
                 "not an allowlist entry."
             )
-    for section in (allowlist.uncovered, allowlist.unreachable):
-        for check_id, reason in sorted(section.items()):
-            if not isinstance(reason, str) or not reason.strip():
-                problems.append(f"{check_id} is allowlisted without a reason.")
+    for check_id, reason in sorted(allowlist.uncovered.items()):
+        if not isinstance(reason, str) or not reason.strip():
+            problems.append(f"{check_id} is allowlisted without a reason.")
+    for check_id, entry in sorted(allowlist.unreachable.items()):
+        if not isinstance(entry, dict) or set(entry) != {"reason", "guard_test"}:
+            problems.append(f"{check_id} is unreachable without exactly a reason and a guard_test.")
+            continue
+        if not all(isinstance(value, str) and value.strip() for value in entry.values()):
+            problems.append(f"{check_id} is unreachable with an empty reason or guard_test.")
+        elif not re.fullmatch(r"tests/\S+\.py::test_\w+", entry["guard_test"]):
+            problems.append(f"{check_id}'s guard_test is not a tests/...py::test_... node.")
+    return problems
+
+
+def guard_test_problems(allowlist: Allowlist, root: Path = REPO_ROOT) -> list[str]:
+    """Each unreachable entry's guard test exists and names the ID it guards."""
+
+    problems: list[str] = []
+    for check_id, entry in sorted(allowlist.unreachable.items()):
+        path, _, name = entry["guard_test"].partition("::")
+        module = root / path
+        functions = (
+            {
+                node.name: node
+                for node in ast.parse(module.read_text(encoding="utf-8")).body
+                if isinstance(node, ast.FunctionDef)
+            }
+            if module.is_file()
+            else {}
+        )
+        if name not in functions:
+            problems.append(f"{check_id}'s guard test {entry['guard_test']} does not exist.")
+        elif not any(
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and check_id in _ids_in(node.value)
+            for node in ast.walk(functions[name])
+        ):
+            problems.append(f"{check_id}'s guard test {entry['guard_test']} does not name it.")
     return problems
 
 
@@ -358,7 +580,11 @@ def _test_sources() -> Iterator[Path]:
 def _covered_by_tests() -> frozenset[str]:
     found: set[str] = set()
     for path in _test_sources():
-        found |= asserted_ids(path.read_text(encoding="utf-8"))
+        relative = path.relative_to(REPO_ROOT).as_posix()
+        if relative in METADATA_ONLY_TESTS and METADATA_ONLY_TESTS[relative] is None:
+            continue
+        skip = METADATA_ONLY_TESTS.get(relative) or frozenset()
+        found |= asserted_ids(path.read_text(encoding="utf-8"), skip)
     return frozenset(found)
 
 
@@ -396,6 +622,41 @@ def test_the_scan_reads_the_test_tree_and_skips_its_data() -> None:
     assert "tests/agent_tasks/test_agent_tasks.py" in scanned
     assert not any(
         part in DATA_DIRS for path in scanned for part in Path(path).parts[1:-1]
+    )
+
+
+def test_the_metadata_only_tests_still_exist() -> None:
+    """A renamed metadata test would start counting again, silently."""
+
+    for path, names in METADATA_ONLY_TESTS.items():
+        module = REPO_ROOT / path
+        assert module.is_file(), path
+        defined = {
+            node.name
+            for node in ast.parse(module.read_text(encoding="utf-8")).body
+            if isinstance(node, ast.FunctionDef)
+        }
+        assert set(names or ()) <= defined, (path, sorted(set(names or ()) - defined))
+
+
+def test_every_unreachable_entry_has_a_guard_test_that_names_it() -> None:
+    assert guard_test_problems(load_allowlist()) == []
+
+
+def test_no_boundary_adapter_is_experimental() -> None:
+    """Guards the unreachable SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED entry.
+
+    ``core.agent_boundary._with_experimental_adapter_changes`` emits that ID
+    only for a path whose boundary adapter is experimental.
+    """
+
+    from agents_shipgate.core.boundary_registry import BOUNDARY_ADAPTERS
+
+    entry = "SHIP-AGENT-BOUNDARY-EXPERIMENTAL-SURFACE-CHANGED"
+    experimental = [adapter.id for adapter in BOUNDARY_ADAPTERS if adapter.experimental]
+    assert not experimental, (
+        f"{entry} can fire again: {experimental} are experimental. Give it a firing "
+        f"test and remove it from the unreachable section of {ALLOWLIST.name}."
     )
 
 
@@ -457,15 +718,46 @@ def test_a_blocking_id_cannot_be_allowlisted_as_uncovered(severity: str) -> None
     ]
 
 
-def test_an_unreachable_id_is_listed_with_its_reason_at_any_severity() -> None:
+_GUARD = "tests/test_guard.py::test_nothing_emits_it"
+
+
+def test_an_unreachable_id_is_listed_with_a_reason_and_a_guard_at_any_severity() -> None:
     catalog = [_check("SHIP-NO-EMITTER", "high")]
 
-    assert coverage_problems(
-        catalog, set(), Allowlist(unreachable={"SHIP-NO-EMITTER": "no code path emits it"})
-    ) == []
-    assert coverage_problems(
-        catalog, set(), Allowlist(unreachable={"SHIP-NO-EMITTER": " "})
-    ) == ["SHIP-NO-EMITTER is allowlisted without a reason."]
+    def problems(entry: object) -> list[str]:
+        return coverage_problems(catalog, set(), Allowlist(unreachable={"SHIP-NO-EMITTER": entry}))
+
+    assert problems({"reason": "no code path emits it", "guard_test": _GUARD}) == []
+    assert problems("no code path emits it") == [
+        "SHIP-NO-EMITTER is unreachable without exactly a reason and a guard_test."
+    ]
+    assert problems({"reason": " ", "guard_test": _GUARD}) == [
+        "SHIP-NO-EMITTER is unreachable with an empty reason or guard_test."
+    ]
+    assert problems({"reason": "no code path emits it", "guard_test": "a test"}) == [
+        "SHIP-NO-EMITTER's guard_test is not a tests/...py::test_... node."
+    ]
+
+
+def test_a_guard_test_must_exist_and_name_the_id_it_guards(tmp_path: Path) -> None:
+    module = tmp_path / "tests" / "test_guard.py"
+    module.parent.mkdir()
+    allowlist = Allowlist(
+        unreachable={"SHIP-NO-EMITTER": {"reason": "no code path emits it", "guard_test": _GUARD}}
+    )
+
+    assert guard_test_problems(allowlist, tmp_path) == [
+        f"SHIP-NO-EMITTER's guard test {_GUARD} does not exist."
+    ]
+    module.write_text("def test_nothing_emits_it():\n    assert True\n", encoding="utf-8")
+    assert guard_test_problems(allowlist, tmp_path) == [
+        f"SHIP-NO-EMITTER's guard test {_GUARD} does not name it."
+    ]
+    module.write_text(
+        'def test_nothing_emits_it():\n    assert not emitters(), "SHIP-NO-EMITTER can fire"\n',
+        encoding="utf-8",
+    )
+    assert guard_test_problems(allowlist, tmp_path) == []
 
 
 def test_an_allowlisted_id_the_catalog_no_longer_treats_as_active_is_removed() -> None:
@@ -545,6 +837,18 @@ PLANTED = "SHIP-PLANTED-ID"
             f'def test_x(text):\n    assert "fires {PLANTED} once" in text\n',
             id="inside-a-longer-literal",
         ),
+        pytest.param(
+            f'def test_x(ids):\n    check = "{PLANTED}"\n    assert check in ids\n',
+            id="function-local-binding-read-in-its-function",
+        ),
+        pytest.param(
+            f'def test_x(findings):\n    assert [f for f in findings if f.check_id == "{PLANTED}"] != []\n',
+            id="not-equal-to-empty",
+        ),
+        pytest.param(
+            f'def test_x(by_id):\n    assert by_id["{PLANTED}"].blocks_release is False\n',
+            id="looked-up-then-compared-with-false",
+        ),
     ],
 )
 def test_an_assertion_site_counts(source: str) -> None:
@@ -598,6 +902,47 @@ def test_an_assertion_site_counts(source: str) -> None:
         pytest.param(
             f'def test_x(ids):\n    assert "{PLANTED}-LONGER" in ids\n',
             id="longer-id",
+        ),
+        pytest.param(
+            f'def test_a(make):\n    finding = make()\n    finding.check_id = "{PLANTED}"\n'
+            '    assert render(finding)\n\n'
+            'def test_b(finding):\n    assert finding.title == "t"\n',
+            id="attribute-assigned-hand-built-finding",
+        ),
+        pytest.param(
+            f'def test_x(row):\n    row["check_id"] = "{PLANTED}"\n    assert row["title"] == "t"\n',
+            id="subscript-assigned-row",
+        ),
+        pytest.param(
+            f'def test_a():\n    check = "{PLANTED}"\n\n'
+            "def test_b(ids, check):\n    assert check in ids\n",
+            id="function-local-binding-read-in-another-test",
+        ),
+        pytest.param(
+            f'def test_x(findings):\n    assert [f for f in findings if f.check_id == "{PLANTED}"] == []\n',
+            id="equal-to-empty-list",
+        ),
+        pytest.param(
+            f'def test_x(findings):\n    assert len([f for f in findings if f.check_id == "{PLANTED}"]) == 0\n',
+            id="length-zero",
+        ),
+        pytest.param(
+            f'def test_x(count):\n    assert count("{PLANTED}") == 0\n',
+            id="equal-to-zero",
+        ),
+        pytest.param(
+            f'def test_x(lookup):\n    assert lookup("{PLANTED}") is None\n',
+            id="is-none",
+        ),
+        pytest.param(
+            f'def test_x(ids):\n    assert ("{PLANTED}" in ids) is False\n',
+            id="is-false",
+        ),
+        pytest.param(f'def test_x():\n    assert "{PLANTED}"\n', id="bare-literal"),
+        pytest.param(f'def test_x(ok):\n    assert ok or "{PLANTED}"\n', id="or-literal"),
+        pytest.param(
+            f'CHECK = "{PLANTED}"\n\ndef test_x():\n    assert CHECK\n',
+            id="bound-name-tested-for-truth",
         ),
     ],
 )
