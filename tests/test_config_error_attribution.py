@@ -344,9 +344,13 @@ def test_a_committed_name_is_echoed_on_one_line(tmp_path, operation):
     why = payload["next_actions"][0]["why"]
     assert "\n" not in why
     assert f"Git holds {shown} as part of a valid tree" in why
-    [hint] = [line for line in human.stderr.splitlines() if line.startswith("next: Review:")]
+    # A person reads one recovery line, and the refusal before it is one line too.
+    [hint] = [line for line in human.stderr.splitlines() if line.startswith("next:")]
+    assert hint.startswith("next: Review:")
     assert shown in hint
     assert hint.endswith("with this message.")
+    [refusal] = [line for line in human.stderr.splitlines() if line.startswith("Config error:")]
+    assert shown in refusal
 
 
 @pytest.mark.skipif(os.name == "nt", reason="the name cannot be checked out on Windows")

@@ -21,7 +21,6 @@ from agents_shipgate.cli.discovery import discover_manifest_paths
 from agents_shipgate.cli.scan.orchestrator import run_scan
 from agents_shipgate.core.action_semantics import effect_phrase, join_phrases
 from agents_shipgate.core.adopter_text import AGENTS_SHIPGATE_ORIGIN, MANIFEST_SPELLING_COLLISION
-from agents_shipgate.core.agent_control_envelope import single_line_text
 from agents_shipgate.core.control_packs import control_rule_summaries
 from agents_shipgate.core.declaration_questions import progress_sentence
 from agents_shipgate.core.disclaimers import (
@@ -33,7 +32,6 @@ from agents_shipgate.core.findings.subject_rollup import (
     roll_up_findings,
     top_findings_block,
 )
-from agents_shipgate.core.privacy import redact_text
 from agents_shipgate.core.source_warnings import group_source_warnings
 from agents_shipgate.report.human_order import (
     HumanArtifactContext,
@@ -331,6 +329,11 @@ def _config_error_message(exc: ConfigError) -> str:
 
 
 def _shown(text: str) -> str:
+    # Imported here: only a refusal route runs this, and the envelope module is
+    # heavy enough that every command importing this file would pay for it.
+    from agents_shipgate.core.agent_control_envelope import single_line_text
+    from agents_shipgate.core.privacy import redact_text
+
     return single_line_text(redact_text(text) or "")
 
 
