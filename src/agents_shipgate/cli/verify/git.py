@@ -2450,11 +2450,20 @@ def resolve_tree_path_identity(
                 failure=GIT_TREE_LISTING_UNREADABLE,
                 path=raw.decode("utf-8", errors="backslashreplace"),
             ) from None
-        # A name the portable rule refuses is not compared: the path asked for
-        # passed that rule, and such a name is refused where it would be read,
-        # by the --head archive before any reader runs. Refusing it here refused
-        # every verify of the repository, with or without --head, over an entry
-        # nothing opens (#328).
+        if "\\" in path:
+            # So does a backslash: the verification receipt records every path
+            # in portable form, which has none, so a checkout run cannot record
+            # it either. Refused here, before any reader runs (#328).
+            raise _tree_limitation(
+                f"Git tree path is not portable: {path}",
+                failure=GIT_TREE_LISTING_UNREADABLE,
+                path=path,
+            )
+        # Any other name the portable rule refuses is not compared: the path
+        # asked for passed that rule, and such a name is refused where it would
+        # be read, by the --head archive before any reader runs. Refusing it
+        # here refused every verify of the repository, with or without --head,
+        # over an entry nothing opens (#328).
         try:
             key = _portable_tree_path_key(path)
         except ConfigError:
@@ -3456,8 +3465,11 @@ def _materialize_isolated_tree(
                 # boundary path from the reader.
                 continue
             if "\\" in path_text:
-                raise _unsupported_tree_entry(
-                    f"Git tree path is not portable: {path_text}", path=path_text
+                # No route records such a name (see resolve_tree_path_identity).
+                raise _tree_limitation(
+                    f"Git tree path is not portable: {path_text}",
+                    failure=GIT_TREE_LISTING_UNREADABLE,
+                    path=path_text,
                 )
             portable_key = _committed_tree_path_key(path_text)
             prior = portable_paths.setdefault(portable_key, path_text)

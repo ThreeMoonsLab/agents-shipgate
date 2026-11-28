@@ -867,7 +867,10 @@ accepts:
 
 `verify` without `--head` no longer refuses a commit for a path name that is
 not portable. It reads the checkout as it is, and the `--head` snapshot still
-refuses such a name. A consumer that treated every `config_error` from these
+refuses such a name. A name holding a backslash is the exception: no route can
+record it, so every `verify` refuses it as `git_tree_listing_unreadable`.
+The committed names these routes echo in `why` and `details.path` are shown on
+one line, with control characters escaped. A consumer that treated every `config_error` from these
 commands as "edit the manifest" should route on `details.origin` and
 `next_actions[0].kind`. See [`docs/errors.json`](docs/errors.json).
 
