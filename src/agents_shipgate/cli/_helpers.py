@@ -11,9 +11,9 @@ from agents_shipgate import __version__
 from agents_shipgate.checks.plugin_validation import strict_failure_messages
 from agents_shipgate.cli.current_workspace import caller_path_spelling
 from agents_shipgate.cli.diagnostics import (
+    committed_tree_input_recovery,
     diagnose_invalid_manifest,
     diagnose_missing_manifest,
-    manifest_spelling_collision_recovery,
     product_limitation_recovery,
     top_next_actions,
 )
@@ -287,7 +287,7 @@ def _config_error_next_actions(
     failure takes the manifest diagnostics' rank-1 actions, as before.
     """
 
-    for recovery in (product_limitation_recovery, manifest_spelling_collision_recovery):
+    for recovery in (product_limitation_recovery, committed_tree_input_recovery):
         actions = recovery(str(exc), exc.details)
         if actions is not None:
             return actions

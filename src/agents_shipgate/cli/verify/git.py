@@ -20,6 +20,7 @@ import yaml
 from agents_shipgate import _perf
 from agents_shipgate.core.adopter_text import (
     AGENTS_SHIPGATE_ORIGIN,
+    GIT_TREE_LISTING_FAILED,
     GIT_TREE_LISTING_UNREADABLE,
     MANIFEST_SPELLING_COLLISION,
     UNCONTAINED_GIT_TREE_LINK,
@@ -2424,32 +2425,30 @@ def resolve_tree_path_identity(
     if commit is None:
         return None
     requested_text = requested.as_posix()
-    listing = _run_git_bounded_output(
+    listing = _run_git_bounded_result(
         workspace,
         ["ls-tree", "-r", "--name-only", "-z", commit],
         max_output_bytes=_MAX_MANIFEST_LISTING_BYTES,
     )
-    if listing is None:
+    if listing.exceeded:
         raise _tree_limitation(
             "Git tree path identity could not be established within static "
             "resource bounds.",
             failure=GIT_TREE_LISTING_UNREADABLE,
         )
+    if listing.payload is None:
+        message = (
+            "Git timed out reading the commit's path listing."
+            if listing.timed_out
+            else "Git could not read the commit's path listing."
+        )
+        raise ConfigError(message, details={"failure": GIT_TREE_LISTING_FAILED})
     requested_key = _portable_tree_path_key(requested_text)
     matches: list[str] = []
-    for raw in listing.split(b"\0"):
+    for raw in listing.payload.split(b"\0"):
         if not raw:
             continue
-        try:
-            path = raw.decode("utf-8", errors="strict")
-        except UnicodeDecodeError:
-            # The diff and the readers decode every path as UTF-8 too, so this
-            # refusal stands on every route; it is classified, not lifted.
-            raise _tree_limitation(
-                "Git tree contains a non-UTF-8 path",
-                failure=GIT_TREE_LISTING_UNREADABLE,
-                path=raw.decode("utf-8", errors="backslashreplace"),
-            ) from None
+        path = _decode_committed_tree_path(raw)
         # A name the portable rule refuses is not compared: the path asked for
         # passed that rule, and such a name is refused where it would be read,
         # by the --head archive before any reader runs. Refusing it here refused
@@ -3422,7 +3421,7 @@ def _materialize_isolated_tree(
             continue
         metadata, raw_path = raw.split(b"\t", 1)
         mode, object_type, oid = metadata.decode("ascii").split(" ", 2)
-        path_text = raw_path.decode("utf-8", errors="strict")
+        path_text = _decode_committed_tree_path(raw_path)
         tree_types[path_text] = "link" if mode == "120000" else object_type
         listed.append((mode, object_type, oid, path_text))
     #: Unscoped, a link is refused unless the caller admits the links that
@@ -3629,6 +3628,17 @@ def _materialize_isolated_tree(
     if materialized != expected_digests:
         raise ConfigError("Materialized Git tree differs from the verified object graph")
     return gitlinks
+
+
+def _decode_committed_tree_path(raw: bytes) -> str:
+    try:
+        return raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        raise _tree_limitation(
+            "Git tree contains a non-UTF-8 path",
+            failure=GIT_TREE_LISTING_UNREADABLE,
+            path=raw.decode("utf-8", errors="backslashreplace"),
+        ) from None
 
 
 def _tree_limitation(message: str, *, failure: str, path: str | None = None) -> ConfigError:

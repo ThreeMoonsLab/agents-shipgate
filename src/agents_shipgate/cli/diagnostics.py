@@ -27,6 +27,7 @@ from agents_shipgate.core.adopter_text import (
     AGENTS_SHIPGATE_ORIGIN,
     DUPLICATE_ACROSS_ARTIFACTS,
     DUPLICATE_TOOL_IN_SOURCE,
+    GIT_TREE_LISTING_FAILED,
     GIT_TREE_LISTING_UNREADABLE,
     MANIFEST_SPELLING_COLLISION,
     REPEATED_SOURCE_ENTRY,
@@ -430,8 +431,9 @@ def product_limitation_recovery(
             f"{refusal} This is a limitation of Agents Shipgate, not an error in "
             f"shipgate.yaml or in the repository: Git holds {entry} as part of a "
             "valid tree, but the --head snapshot does not support it yet, so "
-            "neither the manifest nor the repository needs to change. To verify "
-            "the change now, run the same command without --head from a "
+            "neither the manifest nor the repository needs to change. On a "
+            "filesystem that can check out all entries of the commit, run the "
+            "same command without --head from a "
             f"checkout of that commit; otherwise report it at {_REPORT_URL} "
             "with this message."
         )
@@ -455,18 +457,19 @@ def product_limitation_recovery(
     return [NextAction(kind="review", why=why, expects=expects)]
 
 
-def manifest_spelling_collision_recovery(
+def committed_tree_input_recovery(
     message: str, details: Mapping[str, Any]
 ) -> list[NextAction] | None:
-    """The route for a commit holding two spellings of the manifest, or ``None``.
+    """The route for failed Git reads and manifest spelling collisions."""
 
-    Unlike :func:`product_limitation_recovery`, this one is the repository's to
-    settle: a case- or normalization-insensitive filesystem merges the two, so
-    which one is the configured manifest cannot be decided portably, and every
-    route refuses the commit until it holds one.
-    """
-
-    if details.get("failure") != MANIFEST_SPELLING_COLLISION:
+    failure = details.get("failure")
+    if failure == GIT_TREE_LISTING_FAILED:
+        return [NextAction(
+            kind="review",
+            why=f"{_as_sentence(message)} Check that Git can read the commit tree in this checkout.",
+            expects="A checkout with the commit's tree objects available to Git.",
+        )]
+    if failure != MANIFEST_SPELLING_COLLISION:
         return None
     spellings = [str(path) for path in details.get("paths") or ()]
     named = _join_and(spellings) if spellings else "two spellings of the manifest"

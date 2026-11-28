@@ -311,6 +311,47 @@ def test_a_name_that_is_not_utf8_is_a_limitation_on_every_route(tmp_path, head):
     assert "(bad\\xff.txt)" in why
 
 
+def test_prepare_routes_an_unchanged_non_utf8_entry_to_review(tmp_path):
+    repo = _repo(tmp_path)
+    _commit_on_top(repo, {b"bad\xff.txt": ("100644", b"note\n")})
+    _commit_on_top(repo, {b"notes.md": ("100644", b"ordinary diff\n")})
+    _git(repo, "fsck", "--strict")
+
+    result = _prepare_head(repo, tmp_path / "plan.json")
+
+    assert result.exit_code == 2, result.output
+    _assert_limitation_route(
+        _error_line(result), failure=LISTING, path="bad\\xff.txt",
+        refusal="Git tree contains a non-UTF-8 path",
+    )
+
+
+@pytest.mark.parametrize("timed_out", [True, False], ids=["timeout", "git-failure"])
+def test_a_failed_listing_routes_to_git_review(tmp_path, monkeypatch, timed_out):
+    from agents_shipgate.cli.verify import git as git_module
+
+    repo = _repo(tmp_path)
+    _commit_on_top(repo, {b"notes.md": ("100644", b"note\n")})
+    bounded_read = git_module._run_git_bounded_result
+
+    def read(workspace, args, **kwargs):
+        if args[:4] == ["ls-tree", "-r", "--name-only", "-z"]:
+            return git_module._BoundedGitResult(None, timed_out=timed_out)
+        return bounded_read(workspace, args, **kwargs)
+
+    monkeypatch.setattr(git_module, "_run_git_bounded_result", read)
+    result = _verify_head(repo, tmp_path / "out", AGENT_MODE)
+
+    assert result.exit_code == 2, result.output
+    payload = _error_line(result)
+    assert "details" not in payload
+    [action] = payload["next_actions"]
+    assert action["kind"] == "review"
+    assert "Git can read the commit tree" in action["why"]
+    expected = "timed out" if timed_out else "could not read"
+    assert expected in payload["message"]
+
+
 def test_a_path_listing_past_its_bound_is_a_limitation(tmp_path, monkeypatch):
     from agents_shipgate.cli.verify import git as git_module
 

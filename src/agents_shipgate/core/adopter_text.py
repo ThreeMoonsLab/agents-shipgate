@@ -57,6 +57,7 @@ __all__ = [
     "DUPLICATE_IN_SOURCE_ARTIFACT",
     "DUPLICATE_TOOL_IN_SOURCE",
     "FINGERPRINT_PATTERN",
+    "GIT_TREE_LISTING_FAILED",
     "GIT_TREE_LISTING_UNREADABLE",
     "INTERNAL_ID_SHAPES",
     "INTERNAL_ONLY_TERMS",
@@ -120,6 +121,7 @@ AGENTS_SHIPGATE_ORIGIN = "agents_shipgate"
 UNSUPPORTED_GIT_TREE_ENTRY = "unsupported_git_tree_entry"
 UNCONTAINED_GIT_TREE_LINK = "uncontained_git_tree_link"
 GIT_TREE_LISTING_UNREADABLE = "git_tree_listing_unreadable"
+GIT_TREE_LISTING_FAILED = "git_tree_listing_failed"
 
 #: ``details["failure"]`` for a commit holding two spellings of the configured
 #: manifest that a case- or normalization-insensitive filesystem merges. Every
