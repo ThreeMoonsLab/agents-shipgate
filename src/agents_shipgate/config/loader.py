@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from difflib import get_close_matches
 from pathlib import Path
 from typing import Any, get_args
@@ -182,11 +183,72 @@ def _validate_manifest_data(
     try:
         return AgentsShipgateManifest.model_validate(data)
     except ValidationError as exc:
-        raise ConfigError(_format_validation_error(exc)) from exc
+        raise ConfigError(_format_validation_error(exc, data)) from exc
 
 
-def _format_validation_error(exc: ValidationError) -> str:
-    return format_validation_error(exc, label="Invalid shipgate.yaml", suggest=_field_suggestion)
+def _format_validation_error(exc: ValidationError, data: Mapping[str, Any]) -> str:
+    return format_validation_error(
+        exc,
+        label="Invalid shipgate.yaml",
+        suggest=_field_suggestion,
+        hint=lambda error, location: _unquoted_colon_hint(error, data, location),
+    )
+
+
+#: Pydantic error types that mean a field wanted one scalar value.
+_SCALAR_ERROR_TYPES = frozenset(
+    {"string_type", "int_type", "float_type", "bool_type", "literal_error", "enum"}
+)
+
+
+def _unquoted_colon_hint(
+    error: dict[str, Any], data: Mapping[str, Any], location: str
+) -> str | None:
+    """Name the YAML cause when a scalar field received a one-key mapping.
+
+    An unquoted ``: `` in plain text makes YAML read the words before it as a
+    key, so the list item ``- Handle refunds: read orders and issue credits``
+    is the mapping ``{"Handle refunds": "read orders and issue credits"}``. The
+    schema then reports ``agent.declared_purpose.0: Input should be a valid
+    string`` — the violation, not its cause — on the field people most often
+    write by hand in prose (#328). The parsed document says which case it is,
+    so the hint is added only there; it names the field, never the value.
+    """
+
+    if error["type"] not in _SCALAR_ERROR_TYPES:
+        return None
+    value = _walk_location(data, error["loc"])
+    if not (isinstance(value, dict) and len(value) == 1):
+        return None
+    # A nested value indicates an explicit structure.
+    if isinstance(next(iter(value.values())), (dict, list)):
+        return None
+    return (
+        f"Hint: {location} is a key-value mapping, not a single value. "
+        "An unquoted ': ' inside text makes YAML read the words before it "
+        "as a key; if the value is text that contains ': ', put it in quotes."
+    )
+
+
+def _walk_location(data: Mapping[str, Any], loc: tuple[int | str, ...]) -> Any:
+    """The value a validation error's location names in the parsed document.
+
+    ``None`` when a part does not resolve — a union member's tag, or a key a
+    validator renamed — so a location the document cannot account for gets
+    no hint rather than one about some other value.
+    """
+
+    node: Any = data
+    for part in loc:
+        if isinstance(node, dict) and part in node:
+            node = node[part]
+        elif isinstance(node, list) and isinstance(part, int) and 0 <= part < len(node):
+            node = node[part]
+        else:
+            return None
+    if not loc:
+        return None
+    return node
 
 
 

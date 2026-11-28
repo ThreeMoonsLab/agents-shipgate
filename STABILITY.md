@@ -844,6 +844,38 @@ already says.
 
 ---
 
+<a id="config-error-routing-328"></a>
+
+## Migration Note: Unreleased — committed tree content verify refuses is routed as Agents Shipgate's, not as a manifest edit (#328)
+
+No schema, error kind, message, exit code or contract version moves. What
+changes is the agent-mode `config_error` line from `verify` and
+`verification prepare` for refusals of committed tree content that Git
+accepts:
+
+- **`next_actions[0].kind` moves from `edit` to `review`.** The action no
+  longer names `shipgate.yaml` as its `path`, and `next_action` reads
+  `Review: …` instead of `Edit …/shipgate.yaml`.
+- **The line gains `details`**, which no `config_error` line carried before:
+  `origin: "agents_shipgate"`, a `failure` of `unsupported_git_tree_entry`,
+  `uncontained_git_tree_link` or `git_tree_listing_unreadable`, and `path` when
+  one entry is refused. Every other `config_error` line is unchanged and
+  carries no `details`.
+- **A commit holding two spellings of the configured manifest** that a
+  filesystem merges gets a `review` that names both, in place of the `edit`.
+  It carries no `details`.
+
+`verify` without `--head` no longer refuses a commit for a path name that is
+not portable. It reads the checkout as it is, and the `--head` snapshot still
+refuses such a name. A name holding a backslash is the exception: no route can
+record it, so every `verify` refuses it as `git_tree_listing_unreadable`.
+The committed names these routes echo in `why` and `details.path` are shown on
+one line, with control characters escaped. A consumer that treated every `config_error` from these
+commands as "edit the manifest" should route on `details.origin` and
+`next_actions[0].kind`. See [`docs/errors.json`](docs/errors.json).
+
+---
+
 <a id="lock-family-redaction-1079"></a>
 
 ## Migration Note: Unreleased — the capability lock family is redacted, and the digests it computes are taken over the redacted text (#1079)
