@@ -143,6 +143,22 @@ building blocks; an applicable evaluation is not persisted human approval or
 merge permission. A GitHub `User` review can be agent-created. Do not describe
 this integration as implemented merely because its protocols exist.
 
+## Control-map evidence view built before assessor validation
+
+**Implemented; assessor validation remains open:** the control-map view,
+`registry report --control-map`
+([#1121](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1121)), merged
+to `main` in [#1126](https://github.com/ThreeMoonsLab/agents-shipgate/pull/1126)
+on 2026-11-18. [#1120](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1120)
+was meant to gate that view on whether an accredited AIUC-1 assessor would
+accept this evidence shape for B006.3 and E004; the owner chose to build the
+view first, so that gate no longer holds it back. The assessor validation
+itself remains open in #1120, and its answers may change the
+[AIUC-1 map](control-maps/aiuc-1.yaml)'s wording in a follow-up. Until then,
+the [control evidence](control-evidence.md) view and that map make no claim
+that an assessor accepts this evidence. Both belong to the AIUC-1 B006.3
+evidence epic, [#1122](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1122).
+
 ## What changed from the historical v0.1 record
 
 The statuses below were reconciled on 2026-09-08. They are a replacement index,

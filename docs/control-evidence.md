@@ -9,6 +9,9 @@ extract alone instead of trusting the summary.
 
 It states rows, counts and gaps. Judging them against a control is the
 assessor's decision, and nothing in the output says a control is met.
+This evidence shape has not yet been reviewed by an accredited assessor; that
+validation is tracked in
+[#1120](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1120).
 `release_decision.decision` remains the only release gate.
 
 ```bash
