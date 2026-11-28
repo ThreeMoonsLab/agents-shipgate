@@ -8,6 +8,7 @@ exposes the public ``fixture_path`` / ``list_fixtures`` helpers.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
@@ -19,6 +20,13 @@ _FIXTURE_MARKER = "shipgate.yaml"
 # user-facing fixtures (anti-patterns ship as documentation only; see the
 # README in samples/_anti_patterns/).
 _HIDDEN_PREFIXES = ("_", ".")
+
+# ``fixture list`` summarizes a README as the first sentence of its first prose
+# paragraph: a sentence ends at ., ! or ? followed by whitespace and a capital
+# letter. Links and images keep only their text; code and bold markers drop.
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
+_MARKDOWN_LINK = re.compile(r"!?\[([^\]]*)\](?:\([^)]*\)|\[[^\]]*\])")
+_MARKDOWN_MARKERS = re.compile(r"`|\*\*")
 
 
 @dataclass(frozen=True)
@@ -272,12 +280,40 @@ def _validate_replay_fixture_names(root: Path) -> None:
 
 
 def _short_description(path: Path) -> str:
-    """Read the first non-empty line of a fixture's README.md (if present)."""
+    """Summarize a fixture's README.md as one line of plain text.
+
+    Headings and fenced code are skipped, and whitespace is collapsed. Returns
+    ``""`` when there is no README or no prose paragraph in it; the text
+    listing renders that absence explicitly.
+    """
     readme = path / "README.md"
     if not readme.is_file():
         return ""
-    for line in readme.read_text(encoding="utf-8").splitlines():
+    paragraph = _first_prose_paragraph(readme.read_text(encoding="utf-8"))
+    text = " ".join(_plain_markdown_text(" ".join(paragraph)).split())
+    match = _SENTENCE_END.search(text)
+    return text[: match.start()] if match else text
+
+
+def _first_prose_paragraph(markdown: str) -> list[str]:
+    paragraph: list[str] = []
+    in_fence = False
+    for line in markdown.splitlines():
         stripped = line.strip()
-        if stripped and not stripped.startswith("#"):
-            return stripped
-    return ""
+        if stripped.startswith(("```", "~~~")):
+            if paragraph:
+                break
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if not stripped or stripped.startswith("#"):
+            if paragraph:
+                break
+            continue
+        paragraph.append(stripped)
+    return paragraph
+
+
+def _plain_markdown_text(text: str) -> str:
+    return _MARKDOWN_MARKERS.sub("", _MARKDOWN_LINK.sub(r"\1", text))

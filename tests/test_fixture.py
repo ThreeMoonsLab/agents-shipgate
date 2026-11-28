@@ -137,6 +137,67 @@ def test_cli_fixture_list_text():
     assert "support_refund_agent" in result.output
 
 
+_MARKDOWN_IN_SUMMARY = re.compile(r"\]\(|\]\[|`|\*\*")
+
+
+def test_cli_fixture_list_text_gives_every_fixture_a_plain_one_line_description():
+    """No blank cell, no raw Markdown, no sentence cut at a line wrap (#1056)."""
+    result = runner.invoke(app, ["fixture", "list"])
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert len(lines) == len(list_fixtures())
+    for line in lines:
+        name, separator, description = line.partition("\t")
+        assert separator and description.strip(), f"{name}: blank description"
+        assert not _MARKDOWN_IN_SUMMARY.search(description), line
+        assert description == "(no README summary)" or description.endswith(
+            (".", "!", "?")
+        ), line
+
+
+def test_fixture_list_descriptions_summarize_the_readme_as_plain_text():
+    by_name = {entry["name"]: entry["description"] for entry in list_fixtures()}
+    for name, description in by_name.items():
+        assert "\n" not in description and description == description.strip(), name
+        assert not _MARKDOWN_IN_SUMMARY.search(description), (name, description)
+        assert not description or description.endswith((".", "!", "?")), (name, description)
+    # The README's first physical line stopped mid-sentence here.
+    assert by_name["ai_generated_refund_pr"].endswith(
+        "no approval or idempotency evidence."
+    )
+    # A link keeps its text, without the code markers or the target.
+    assert by_name["declaration_repair_agent"] == (
+        "The repair sibling of google_adk_cold_start_agent."
+    )
+    # No README: `--json` keeps "" so a consumer can tell absence apart.
+    assert by_name["clean_read_only_agent"] == ""
+
+
+def test_short_description_reads_the_first_prose_sentence(tmp_path: Path):
+    (tmp_path / "README.md").write_text(
+        "# Title\n"
+        "\n"
+        "```bash\n"
+        "Not prose. Skipped.\n"
+        "```\n"
+        "\n"
+        "A **bold** [`linked`](../x/) fixture with ![an image](i.png) and a\n"
+        "[reference][ref] that wraps. The second sentence is dropped.\n"
+        "\n"
+        "Second paragraph.\n",
+        encoding="utf-8",
+    )
+    assert fixtures_module._short_description(tmp_path) == (
+        "A bold linked fixture with an image and a reference that wraps."
+    )
+
+    (tmp_path / "README.md").write_text("# Only a heading\n\n```\ncode\n```\n", encoding="utf-8")
+    assert fixtures_module._short_description(tmp_path) == ""
+
+    (tmp_path / "README.md").unlink()
+    assert fixtures_module._short_description(tmp_path) == ""
+
+
 def test_cli_fixture_list_json():
     result = runner.invoke(app, ["fixture", "list", "--json"])
     assert result.exit_code == 0
