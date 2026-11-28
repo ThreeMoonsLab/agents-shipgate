@@ -464,7 +464,8 @@
   "tests/test_git_fixture_isolation.py": 9.7,
   "tests/test_repository_links.py": 1.0,
   "tests/test_verify_committed_links.py": 41.4,
-  "tests/test_catalog_lifecycle.py": 16.0
+  "tests/test_catalog_lifecycle.py": 16.0,
+  "tests/test_config_error_attribution.py": 15.5
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -904,6 +905,17 @@
    },
    "case_count": 66,
    "command": "python -m pytest tests/test_catalog_lifecycle.py --junitxml=catalog-lifecycle.xml",
+   "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "2612cf40e619 with issue #328 limitation-vs-configuration increment",
+   "report_sha256": "5fb61aae6bce0c01387d053a6f179572dd702237213a8a2c0a0001945fbacb14",
+   "files": {
+    "tests/test_config_error_attribution.py": 15.5
+   },
+   "case_count": 17,
+   "command": "python -m pytest tests/test_config_error_attribution.py -o junit_duration_report=total --junitxml=shard-weight.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
   }
  ]

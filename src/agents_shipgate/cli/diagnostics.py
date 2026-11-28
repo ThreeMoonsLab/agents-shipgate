@@ -24,9 +24,11 @@ from typing import Any
 
 from agents_shipgate.cli.discovery.identity_recovery import AgentNameRecovery
 from agents_shipgate.core.adopter_text import (
+    AGENTS_SHIPGATE_ORIGIN,
     DUPLICATE_ACROSS_ARTIFACTS,
     DUPLICATE_TOOL_IN_SOURCE,
     REPEATED_SOURCE_ENTRY,
+    UNSUPPORTED_GIT_TREE_ENTRY,
     source_label,
 )
 from agents_shipgate.core.errors import InputParseError
@@ -376,6 +378,55 @@ def input_parse_recovery(
             expects=(
                 "Referenced file is present, parseable, and inside the manifest "
                 "directory."
+            ),
+        )
+    ]
+
+
+def product_limitation_recovery(
+    message: str, details: Mapping[str, Any]
+) -> list[NextAction] | None:
+    """The route for a refusal that is Agents Shipgate's limitation, or ``None``.
+
+    ``verify --head`` and ``verification prepare --head`` read the commit
+    through an archive that does not write every entry a valid Git tree can
+    hold. That refusal reached the ``ConfigError`` handlers, whose manifest
+    diagnostics found ``shipgate.yaml`` on disk and told the reader to fix it
+    in place, though nothing in the manifest or the repository is wrong (#328).
+
+    Decided on the failure's typed ``details`` (``origin`` and ``failure``),
+    never on its text, so the sentence stays free to change. The route names
+    the entry and the reason, which the message already carries, and asks for
+    no repository or manifest edit: the reader can verify from a checkout,
+    where the archive is not used, or report the limitation.
+    """
+
+    if (
+        details.get("origin") != AGENTS_SHIPGATE_ORIGIN
+        or details.get("failure") != UNSUPPORTED_GIT_TREE_ENTRY
+    ):
+        return None
+    refusal = message.strip()
+    if not refusal.endswith("."):
+        refusal = f"{refusal}."
+    entry = details.get("path") or "this entry"
+    return [
+        NextAction(
+            kind="review",
+            why=(
+                f"{refusal} This is a limitation of Agents Shipgate, not an error "
+                f"in shipgate.yaml or in the repository: Git holds {entry} as part "
+                "of a valid tree, but the snapshot this run reads the commit "
+                "through does not support it, so neither the manifest nor the "
+                "repository needs to change. To verify the change now, run the "
+                "same command without --head from a checkout of that commit; "
+                "otherwise report it at "
+                "https://github.com/ThreeMoonsLab/agents-shipgate/issues with "
+                "this message."
+            ),
+            expects=(
+                "A run that reads the commit from a checkout, or an Agents "
+                "Shipgate release that supports this tree entry."
             ),
         )
     ]

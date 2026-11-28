@@ -561,6 +561,8 @@ When a required `tool_sources[].path` does not resolve under the manifest direct
 - **Missing**: file does not exist → `SHIP-DIAG-MISSING-MANIFEST`, rank-1 is `agents-shipgate detect --workspace <dir> --json` (then `init --write`).
 - **Invalid**: file exists but the loader rejected it (invalid YAML, schema validation, unsupported version) → `SHIP-DIAG-INVALID-MANIFEST`, rank-1 is `edit <path>` with the loader error in `why`. Do **not** re-run `init` — it refuses to overwrite an existing file.
 
+A `config_error` whose `details.origin` is `agents_shipgate` is neither: it is Agents Shipgate's own limitation. With `details.failure: unsupported_git_tree_entry`, `verify --head` or `verification prepare --head` met a committed tree entry (`details.path`) that Git accepts and the snapshot those commands read does not support. Its one action is a `review`; do not edit `shipgate.yaml` or the repository to clear it — run without `--head` from a checkout of that commit, or report it.
+
 ---
 
 ## When to use this tool

@@ -9,7 +9,8 @@ import typer
 
 from agents_shipgate.cli._artifact_lifecycle import ArtifactLifecycleError
 from agents_shipgate.cli._helpers import (
-    _diagnose_config_error,
+    _config_error_details,
+    _config_error_next_actions,
     _echo_next_action_hint,
     _parse_fail_on,
 )
@@ -25,7 +26,7 @@ from agents_shipgate.cli.current_workspace import (
     output_directory_remedy,
     relative_output_notice,
 )
-from agents_shipgate.cli.diagnostics import input_parse_recovery, top_next_actions
+from agents_shipgate.cli.diagnostics import input_parse_recovery
 from agents_shipgate.cli.discovery.gitignore_block import REPORTS_DIR_NAME
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_control_envelope import (
@@ -397,13 +398,12 @@ def verify(
                 )
             ]
         else:
-            diagnostics = _diagnose_config_error(
+            flattened = _config_error_next_actions(
                 config=str(config or Path("shipgate.yaml")),
                 workspace=workspace,
                 exc=exc,
                 plugins_enabled=False if no_plugins else None,
             )
-            flattened = top_next_actions(diagnostics)
         _echo_next_action_hint(flattened)
         emit_agent_mode_error(
             "config_error",
@@ -411,6 +411,7 @@ def verify(
             exit_code=2,
             next_action=flattened[0].to_legacy_string(),
             next_actions=[a.model_dump(mode="json") for a in flattened],
+            details=_config_error_details(exc),
         )
         raise typer.Exit(2) from exc
     except InputParseError as exc:

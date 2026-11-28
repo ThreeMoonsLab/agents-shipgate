@@ -13,6 +13,8 @@ from agents_shipgate.cli.current_workspace import caller_path_spelling
 from agents_shipgate.cli.diagnostics import (
     diagnose_invalid_manifest,
     diagnose_missing_manifest,
+    product_limitation_recovery,
+    top_next_actions,
 )
 from agents_shipgate.cli.discovery import discover_manifest_paths
 from agents_shipgate.cli.scan.orchestrator import run_scan
@@ -267,6 +269,46 @@ def _diagnose_config_error(
     return diagnose_missing_manifest(
         _missing_manifest_workspace(config=config, workspace=workspace)
     )
+
+
+def _config_error_next_actions(
+    *,
+    config: str,
+    workspace: Path | None,
+    exc: ConfigError,
+    plugins_enabled: bool | None = None,
+) -> list:
+    """The ranked recovery a command publishes for a ``ConfigError``.
+
+    A refusal that is Agents Shipgate's own limitation is answered first, from
+    its typed ``details``: :func:`_diagnose_config_error` would find the
+    manifest on disk and route it to an edit of a file that is not at fault
+    (#328). Every other failure takes the manifest diagnostics' rank-1 actions,
+    as before.
+    """
+
+    limitation = product_limitation_recovery(str(exc), exc.details)
+    if limitation is not None:
+        return limitation
+    return top_next_actions(
+        _diagnose_config_error(
+            config=config,
+            workspace=workspace,
+            exc=exc,
+            plugins_enabled=plugins_enabled,
+        )
+    )
+
+
+def _config_error_details(exc: ConfigError) -> dict | None:
+    """The ``details`` a ``config_error`` line publishes, if any.
+
+    Only a failure that carries its own classification (``details.origin``)
+    publishes them, so a caller can route on that rather than on the message.
+    Other configuration failures keep the line they always had.
+    """
+
+    return dict(exc.details) if exc.details.get("origin") else None
 
 
 def _echo_next_action_hint(actions: list, *, limit: int = 1) -> None:

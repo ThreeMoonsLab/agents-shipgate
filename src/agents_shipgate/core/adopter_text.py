@@ -52,6 +52,7 @@ from collections.abc import Iterable
 
 __all__ = [
     "AGENT_ID_PATTERN",
+    "AGENTS_SHIPGATE_ORIGIN",
     "DUPLICATE_ACROSS_ARTIFACTS",
     "DUPLICATE_IN_SOURCE_ARTIFACT",
     "DUPLICATE_TOOL_IN_SOURCE",
@@ -64,6 +65,7 @@ __all__ = [
     "OBSERVATION_ID_PATTERN",
     "REPEATED_SOURCE_ENTRY",
     "TOOL_ID_PATTERN",
+    "UNSUPPORTED_GIT_TREE_ENTRY",
     "duplicate_tool_observation_message",
     "internal_vocabulary",
     "names_a_locatable_anchor",
@@ -94,6 +96,16 @@ DUPLICATE_TOOL_IN_SOURCE = "duplicate_tool_in_source"
 REPEATED_SOURCE_ENTRY = "repeated_source_entry"
 DUPLICATE_IN_SOURCE_ARTIFACT = "duplicate_in_source_artifact"
 DUPLICATE_ACROSS_ARTIFACTS = "duplicate_across_artifacts"
+
+#: ``details["origin"]`` of a failure that is Agents Shipgate's own — a defect
+#: or a limitation — rather than a fault in what the adopter supplied (#328).
+#: Its route never asks the adopter to change the repository or the manifest.
+AGENTS_SHIPGATE_ORIGIN = "agents_shipgate"
+
+#: ``details["failure"]`` for a committed tree entry the verification archive
+#: does not write: Git holds it as part of a valid tree, and the snapshot
+#: ``verify --head`` reads the commit through cannot (#328).
+UNSUPPORTED_GIT_TREE_ENTRY = "unsupported_git_tree_entry"
 
 #: Identity-model terms with no counterpart in anything an adopter writes or
 #: opens. No anchor rescues these: there is nowhere to send the reader.
