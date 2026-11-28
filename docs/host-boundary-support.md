@@ -1690,6 +1690,15 @@ its recommendation names the input to restore before rerunning. Read failures,
 directory inventory failures and final snapshot-validation failures remain
 distinct. A final validation failure means the read could not be confirmed as
 coherent; it does not by itself establish concurrent modification as the cause.
+When the reader typed that failure, the recovery also carries `entry`, the
+repository-relative entry it was checking, as a bounded, redacted label of the
+spelling the reader already held, and `observation`: `identity_mismatch`,
+`entries_changed`, `kind_changed` or `root_changed` when the reader saw that
+entry differ from what was read (an entry reported no longer there is
+`identity_mismatch`), or `inspection_unavailable` when it could not inspect the
+entry, which claims no change. `source` stays the read root, because
+the failure discards every read under it. Without a typed failure, neither field
+is present.
 Existing inventory issue kinds and control permissions are unchanged. Older
 snapshots without these private reader facts keep their generic recovery route.
 
