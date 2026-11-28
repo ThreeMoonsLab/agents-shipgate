@@ -107,12 +107,12 @@ def _evidence_matrix_gap_count(
 
     Import is deferred to avoid a top-level cycle: ``packet`` imports
         from ``schemas/report.py`` (and indirectly from ``core/findings/``
-    via build helpers), so we import only when this function runs.
+    via build helpers), so we import only when this function runs. The
+    module ships in every install, so a failure to import it is a bug and
+    propagates; it must not read as zero evidence gaps (#1053).
     """
-    try:
-        from agents_shipgate.packet.evidence_matrix import build_evidence_matrix
-    except ImportError:  # pragma: no cover - defensive
-        return 0
+    from agents_shipgate.packet.evidence_matrix import build_evidence_matrix
+
     payload = evidence_matrix_payload or _evidence_matrix_payload(report)
     section = build_evidence_matrix(payload)
     return sum(
