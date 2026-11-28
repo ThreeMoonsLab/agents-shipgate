@@ -495,6 +495,13 @@ def _plant(root: Path, files: dict[str, str]) -> list[ImportSite]:
         ("agents_shipgate/inputs/reader.py", "__import__('agents_shipgate.cli.main')\n", "agents_shipgate.cli.main"),
         (
             "agents_shipgate/inputs/reader.py",
+            "import importlib\nimportlib.import_module(name='agents_shipgate.cli.main')\n",
+            "agents_shipgate.cli.main",
+        ),
+        # Only the later of two names breaks a rule: inputs may import ci.
+        ("agents_shipgate/inputs/reader.py", "from agents_shipgate import ci, cli\n", "agents_shipgate.cli"),
+        (
+            "agents_shipgate/inputs/reader.py",
             "import importlib\nload = lambda: importlib.import_module('agents_shipgate.cli')\n",
             "agents_shipgate.cli",
         ),
@@ -641,6 +648,27 @@ def test_the_ratchet_counts_only_deferred_first_party_imports(tmp_path: Path) ->
         "Loader.load",
         MODULE_SCOPE,
     }
+
+
+@pytest.mark.parametrize(
+    ("source", "deferred"),
+    [
+        # A class body inside a function runs when the function does.
+        ("def build():\n    class Local:\n        from agents_shipgate.core import x\n", True),
+        # A lambda's default argument runs when the lambda is made, here at import.
+        (
+            "import importlib\nload = lambda m=importlib.import_module('agents_shipgate.core'): m\n",
+            False,
+        ),
+    ],
+)
+def test_deferral_follows_the_code_that_runs_the_import(
+    tmp_path: Path, source: str, deferred: bool
+) -> None:
+    sites = _plant(tmp_path, {"agents_shipgate/cli/main.py": source})
+    first_party = [site for site in sites if any(t.startswith(f"{PACKAGE}.") for t in site.targets)]
+    assert [site.function_local for site in first_party] == [deferred]
+    assert len(_function_local_first_party(sites)) == int(deferred)
 
 
 @pytest.mark.parametrize(
