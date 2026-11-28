@@ -18,7 +18,8 @@ checked:
    ``agents_shipgate`` module inside a function (or lambda) runs only when
    the function does, so it can hide an import cycle that a module-level
    import would have turned into an ``ImportError`` at load time. Their
-   number, one per import statement or literal dynamic-import call, is
+   number, one per distinct first-party target in an import statement or
+   literal dynamic-import call, is
    recorded in ``FUNCTION_LOCAL_FIRST_PARTY_IMPORTS``. A count above it
    fails; a count below it fails too, until the number is lowered to match,
    so the ratchet tightens as imports move out and cannot drift back up
@@ -218,7 +219,12 @@ def _dynamic_target(node: ast.Call, package: tuple[str, ...]) -> str | None:
     """The module a literal ``import_module`` / ``__import__`` call imports."""
 
     func = node.func
-    name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
+    name = None
+    if isinstance(func, ast.Name):
+        name = func.id
+    elif isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        if (func.value.id, func.attr) in {("importlib", "import_module"), ("builtins", "__import__")}:
+            name = func.attr
     if name not in _DYNAMIC_IMPORTERS:
         return None
     keywords = {keyword.arg: keyword.value for keyword in node.keywords if keyword.arg}
@@ -332,12 +338,13 @@ def _layer_violations(sites: Iterable[ImportSite]) -> list[LayerViolation]:
     return violations
 
 
-def _function_local_first_party(sites: Iterable[ImportSite]) -> list[ImportSite]:
+def _function_local_first_party(sites: Iterable[ImportSite]) -> list[tuple[ImportSite, str]]:
     return [
-        site
+        (site, target)
         for site in sites
         if site.function_local
-        and any(target == PACKAGE or target.startswith(f"{PACKAGE}.") for target in site.targets)
+        for target in sorted(set(site.targets))
+        if target == PACKAGE or target.startswith(f"{PACKAGE}.")
     ]
 
 
@@ -548,6 +555,10 @@ def test_a_planted_upward_import_is_reported(tmp_path: Path, relative: str, sour
         ("agents_shipgate/core/decision.py", "NAME = 'agents_shipgate.cli.main'\nprint('agents_shipgate.ci')\n"),
         # A computed name cannot be resolved, and is documented as unseen.
         ("agents_shipgate/inputs/reader.py", "import importlib\nimportlib.import_module(NAME)\n"),
+        (
+            "agents_shipgate/inputs/reader.py",
+            "def read(adapter):\n    adapter.import_module('agents_shipgate.cli.main')\n",
+        ),
         ("agents_shipgate/inputs/reader.py", "from agents_shipgate import __version__\n"),
     ],
 )
@@ -641,8 +652,8 @@ def test_the_ratchet_counts_only_deferred_first_party_imports(tmp_path: Path) ->
         },
     )
     counted = _function_local_first_party(sites)
-    assert sorted(site.line for site in counted) == [10, 11, 12, 19, 20, 22]
-    assert {site.scope for site in counted} == {
+    assert sorted(site.line for site, _ in counted) == [10, 11, 12, 19, 20, 22]
+    assert {site.scope for site, _ in counted} == {
         "command",
         "Loader.load.<locals>.inner",
         "Loader.load",
@@ -692,3 +703,12 @@ def test_the_ratchet_catches_a_new_deferred_import(tmp_path: Path) -> None:
         {"agents_shipgate/core/x.py": "def f():\n    from agents_shipgate.core import y\n    from agents_shipgate.core import z\n"},
     )
     assert _ratchet_problem(len(_function_local_first_party(after)), limit) is not None
+
+
+def test_the_ratchet_counts_each_first_party_target_in_one_statement(tmp_path: Path) -> None:
+    sites = _plant(
+        tmp_path,
+        {"agents_shipgate/cli/x.py": "def f():\n    import json, agents_shipgate.core, agents_shipgate.schemas\n"},
+    )
+
+    assert len(_function_local_first_party(sites)) == 2
