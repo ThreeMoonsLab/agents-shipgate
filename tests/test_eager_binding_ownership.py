@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import sys
 
 import pytest
 
@@ -11,6 +12,35 @@ from agents_shipgate.inputs.python_imports import ScopeIndex, _module_bindings
 from tests.constructor_engine_fixture import frozen_constructor_engine as frozen_constructor_engine
 from tests.test_framework_constructor_bindings import _files
 from tests.test_imported_tool_bindings import _commit, _compare, _git
+
+# Python 3.14 evaluates each annotation lazily in its own annotation scope
+# (PEP 649, PEP 749) and rejects ``:=`` there, as ``from __future__ import
+# annotations`` already does on 3.12 and 3.13. Without that import, 3.12 and
+# 3.13 compile such a walrus and bind its name in the enclosing scope, which
+# is what the reader models; the binding assertions run on every version.
+ANNOTATION_WALRUS = "named expression cannot be used within an annotation"
+
+
+def _walrus_in_annotation(tree):
+    annotations = [node.annotation for node in ast.walk(tree) if isinstance(node, ast.arg | ast.AnnAssign)]
+    annotations += [node.returns for node in ast.walk(tree)
+                    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)]
+    return any(isinstance(item, ast.NamedExpr)
+               for annotation in annotations if annotation is not None for item in ast.walk(annotation))
+
+
+def _rejected_by_this_python(tree):
+    return sys.version_info >= (3, 14) and _walrus_in_annotation(tree)
+
+
+def _compile_control(tree):
+    """Validate scope syntax, without execution, as the running Python reads it."""
+    if _rejected_by_this_python(tree):
+        with pytest.raises(SyntaxError, match=ANNOTATION_WALRUS):
+            compile(tree, "<binding-control>", "exec", dont_inherit=True)
+    else:
+        compile(tree, "<binding-control>", "exec", dont_inherit=True)
+
 
 MODULE_BINDERS = [
     "[(target := object) for item in (0,)]",
@@ -37,7 +67,7 @@ MODULE_BINDERS = [
 @pytest.mark.parametrize("source", MODULE_BINDERS)
 def test_eager_or_comprehension_store_is_an_uncertain_module_binding(source):
     tree = ast.parse(source)
-    compile(tree, "<binding-control>", "exec", dont_inherit=True)  # Validate scope syntax, without execution.
+    _compile_control(tree)
     bindings, _ = _module_bindings(tree)
     assert "target" in bindings
     assert all(not binding.top_level for binding in bindings["target"])
@@ -62,24 +92,31 @@ LEXICAL_BINDERS = [
 @pytest.mark.parametrize("source", LEXICAL_BINDERS)
 def test_lexical_cells_and_temporary_comprehension_targets_do_not_bind_module(source):
     tree = ast.parse(source)
-    compile(tree, "<binding-control>", "exec", dont_inherit=True)
+    _compile_control(tree)
     assert "target" not in _module_bindings(tree)[0]
 
 
-@pytest.mark.parametrize("binding", [
+HIDDEN_CELL_BINDERS = [
     "[(target := object) for item in (0,)]",
     "def initialize(value=(target := object)):\n    pass",
     "value = lambda argument=(target := object): argument",
     "class Initialize((target := object)):\n    pass",
     "def initialize(value: (target := object)):\n    pass",
-])
-@pytest.mark.parametrize("nonlocal_use", [False, True])
-def test_hidden_lexical_cells_are_visible_to_their_actual_reader(binding, nonlocal_use):
+]
+
+
+def _hidden_cell_source(binding, nonlocal_use):
     body = "\n".join("    " + line for line in binding.splitlines())
     use = ("    def reader():\n        nonlocal target\n        observe(target)\n"
            if nonlocal_use else "    observe(target)\n")
-    tree = ast.parse("def outer():\n" + body + "\n" + use)
-    compile(tree, "<binding-control>", "exec", dont_inherit=True)
+    return "def outer():\n" + body + "\n" + use
+
+
+@pytest.mark.parametrize("binding", HIDDEN_CELL_BINDERS)
+@pytest.mark.parametrize("nonlocal_use", [False, True])
+def test_hidden_lexical_cells_are_visible_to_their_actual_reader(binding, nonlocal_use):
+    tree = ast.parse(_hidden_cell_source(binding, nonlocal_use))
+    _compile_control(tree)
     scopes = ScopeIndex(tree)
     probe = next(node.args[0] for node in ast.walk(tree)
                  if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "observe")
@@ -87,6 +124,34 @@ def test_hidden_lexical_cells_are_visible_to_their_actual_reader(binding, nonloc
     assert len(bindings) == 1
     assert isinstance(bindings[0], ast.Name) and isinstance(bindings[0].ctx, ast.Store)
     assert "target" not in _module_bindings(tree)[0]
+
+
+def test_only_annotation_walrus_controls_stop_compiling_on_python_3_14(monkeypatch):
+    annotated = "def initialize(value: (target := object)):\n    pass"
+    expected = {annotated, "def initialize() -> (target := object):\n    pass",
+                _hidden_cell_source(annotated, False), _hidden_cell_source(annotated, True)}
+    trees = {source: ast.parse(source) for source in [
+        *MODULE_BINDERS, *LEXICAL_BINDERS,
+        *(_hidden_cell_source(binding, nonlocal_use)
+          for binding in HIDDEN_CELL_BINDERS for nonlocal_use in (False, True)),
+    ]}
+    # The annotations future applies PEP 749's rule on every supported Python,
+    # so the predicate is checked against the compiler itself.
+    for source, tree in trees.items():
+        try:
+            compile("from __future__ import annotations\n" + source, "<binding-control>", "exec",
+                    dont_inherit=True)
+        except SyntaxError as error:
+            assert error.msg == ANNOTATION_WALRUS
+            assert source in expected
+        else:
+            assert source not in expected
+        assert _walrus_in_annotation(tree) is (source in expected)
+    with monkeypatch.context() as patch:
+        patch.setattr(sys, "version_info", (3, 13, 0, "final", 0))
+        assert not any(_rejected_by_this_python(tree) for tree in trees.values())
+        patch.setattr(sys, "version_info", (3, 14, 0, "final", 0))
+        assert {source for source, tree in trees.items() if _rejected_by_this_python(tree)} == expected
 
 
 def test_lambda_body_walrus_stays_in_its_lambda_frame():
