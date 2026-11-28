@@ -9,6 +9,7 @@ exposes the public ``fixture_path`` / ``list_fixtures`` helpers.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
@@ -22,11 +23,21 @@ _FIXTURE_MARKER = "shipgate.yaml"
 _HIDDEN_PREFIXES = ("_", ".")
 
 # ``fixture list`` summarizes a README as the first sentence of its first prose
-# paragraph: a sentence ends at ., ! or ? followed by whitespace and a capital
-# letter. Links and images keep only their text; code and bold markers drop.
+# paragraph (see ``_short_description``). Block-level shapes:
+_ATX_HEADING = re.compile(r"#{1,6}(?:[ \t]|$)")
+_FENCE_OPEN = re.compile(r"`{3,}|~{3,}")
+_SETEXT_UNDERLINE = re.compile(r"(?:=+|-+)[ \t]*$")
+_THEMATIC_BREAK = re.compile(r"(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$")
+# HTML, blockquotes, tables, bullet and ordered list items.
+_NON_PROSE_BLOCK = re.compile(r"[<>|]|[-*+](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)")
+# Inline: a link destination may hold one level of balanced parentheses.
+_LINK_TARGET = r"(?:\((?:[^()]|\([^()]*\))*\)|\[[^\]]*\])"
+_IMAGE = re.compile(r"!\[[^\]]*\]" + _LINK_TARGET)
+_LINK = re.compile(r"\[([^\]]*)\]" + _LINK_TARGET)
+_CODE_SPAN = re.compile(r"(`+)(.+?)\1")
+_EMPHASIS = re.compile(r"\*+(?=\S)|(?<=\S)\*+")
+# A sentence ends at ., ! or ? followed by whitespace and a capital letter.
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
-_MARKDOWN_LINK = re.compile(r"!?\[([^\]]*)\](?:\([^)]*\)|\[[^\]]*\])")
-_MARKDOWN_MARKERS = re.compile(r"`|\*\*")
 
 
 @dataclass(frozen=True)
@@ -282,38 +293,105 @@ def _validate_replay_fixture_names(root: Path) -> None:
 def _short_description(path: Path) -> str:
     """Summarize a fixture's README.md as one line of plain text.
 
-    Headings and fenced code are skipped, and whitespace is collapsed. Returns
-    ``""`` when there is no README or no prose paragraph in it; the text
-    listing renders that absence explicitly.
+    The summary is the first sentence of the first paragraph that is prose
+    and still has text once its markup is gone. YAML front matter, headings
+    (ATX and setext), fenced and indented code, HTML blocks and comments,
+    blockquotes, lists, tables and thematic breaks are skipped. Images and
+    badges are dropped, links keep their text, backticks are dropped, ``*``
+    emphasis markers outside code are dropped, and whitespace is collapsed.
+
+    Sentence splitting is a heuristic: an abbreviation followed by a capital
+    letter (``e.g. The``, ``U.S. Army``) ends the summary early.
+
+    Returns ``""`` when there is no README or no such paragraph in it; the
+    text listing renders that absence explicitly.
     """
     readme = path / "README.md"
     if not readme.is_file():
         return ""
-    paragraph = _first_prose_paragraph(readme.read_text(encoding="utf-8"))
-    text = " ".join(_plain_markdown_text(" ".join(paragraph)).split())
-    match = _SENTENCE_END.search(text)
-    return text[: match.start()] if match else text
+    for paragraph in _prose_paragraphs(readme.read_text(encoding="utf-8-sig")):
+        text = " ".join(_plain_markdown_text(" ".join(paragraph)).split())
+        if text:
+            match = _SENTENCE_END.search(text)
+            return text[: match.start()] if match else text
+    return ""
 
 
-def _first_prose_paragraph(markdown: str) -> list[str]:
+def _prose_paragraphs(markdown: str) -> Iterator[list[str]]:
+    """Yield the README's prose paragraphs, in order, as stripped lines."""
+    lines = markdown.splitlines()
+    start = 0
+    if lines and lines[0].strip() == "---":
+        closing = next(
+            (index for index, line in enumerate(lines[1:], 1) if line.strip() in ("---", "...")),
+            None,
+        )
+        if closing is None:
+            return
+        start = closing + 1
+
     paragraph: list[str] = []
-    in_fence = False
-    for line in markdown.splitlines():
+    fence: str | None = None
+    in_comment = False
+    in_non_prose_block = False
+    for raw in lines[start:]:
+        line = raw.expandtabs(4)
         stripped = line.strip()
-        if stripped.startswith(("```", "~~~")):
+        indent = len(line) - len(line.lstrip(" "))
+        if fence is not None:
+            if indent < 4 and stripped.startswith(fence) and not stripped.strip(fence[0]):
+                fence = None
+            continue
+        if in_comment:
+            in_comment = "-->" not in stripped
+            continue
+        if not stripped:
             if paragraph:
-                break
-            in_fence = not in_fence
+                yield paragraph
+                paragraph = []
+            in_non_prose_block = False
             continue
-        if in_fence:
+        if in_non_prose_block:
             continue
-        if not stripped or stripped.startswith("#"):
+        if indent >= 4:
+            # Indented code, unless it continues a paragraph.
             if paragraph:
-                break
+                paragraph.append(stripped)
             continue
-        paragraph.append(stripped)
-    return paragraph
+        if paragraph and _SETEXT_UNDERLINE.match(stripped):
+            paragraph = []  # The paragraph was a setext heading.
+            continue
+        fence_open = _FENCE_OPEN.match(stripped)
+        starts_block = bool(
+            fence_open
+            or stripped.startswith("<!--")
+            or _ATX_HEADING.match(stripped)
+            or _THEMATIC_BREAK.match(stripped)
+            or _NON_PROSE_BLOCK.match(stripped)
+        )
+        if not starts_block:
+            paragraph.append(stripped)
+            continue
+        if paragraph:
+            yield paragraph
+            paragraph = []
+        if fence_open:
+            fence = fence_open.group(0)
+        elif stripped.startswith("<!--"):
+            in_comment = "-->" not in stripped[4:]
+        elif not (_ATX_HEADING.match(stripped) or _THEMATIC_BREAK.match(stripped)):
+            in_non_prose_block = True
+    if paragraph:
+        yield paragraph
 
 
 def _plain_markdown_text(text: str) -> str:
-    return _MARKDOWN_MARKERS.sub("", _MARKDOWN_LINK.sub(r"\1", text))
+    text = _LINK.sub(r"\1", _IMAGE.sub("", text))
+    pieces: list[str] = []
+    position = 0
+    for code in _CODE_SPAN.finditer(text):
+        pieces.append(_EMPHASIS.sub("", text[position : code.start()]))
+        pieces.append(code.group(2))
+        position = code.end()
+    pieces.append(_EMPHASIS.sub("", text[position:]))
+    return "".join(pieces)

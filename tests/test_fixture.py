@@ -137,7 +137,9 @@ def test_cli_fixture_list_text():
     assert "support_refund_agent" in result.output
 
 
-_MARKDOWN_IN_SUMMARY = re.compile(r"\]\(|\]\[|`|\*\*")
+# Markup that must never reach a summary: links, images and badges, code and
+# emphasis markers, HTML, blockquotes, tables, and a leading list marker.
+_MARKDOWN_IN_SUMMARY = re.compile(r"[<>\[\]*|`]|^-")
 
 
 def test_cli_fixture_list_text_gives_every_fixture_a_plain_one_line_description():
@@ -181,14 +183,14 @@ def test_short_description_reads_the_first_prose_sentence(tmp_path: Path):
         "Not prose. Skipped.\n"
         "```\n"
         "\n"
-        "A **bold** [`linked`](../x/) fixture with ![an image](i.png) and a\n"
+        "A **bold** [`linked`](../x/) fixture with a\n"
         "[reference][ref] that wraps. The second sentence is dropped.\n"
         "\n"
         "Second paragraph.\n",
         encoding="utf-8",
     )
     assert fixtures_module._short_description(tmp_path) == (
-        "A bold linked fixture with an image and a reference that wraps."
+        "A bold linked fixture with a reference that wraps."
     )
 
     (tmp_path / "README.md").write_text("# Only a heading\n\n```\ncode\n```\n", encoding="utf-8")
@@ -196,6 +198,59 @@ def test_short_description_reads_the_first_prose_sentence(tmp_path: Path):
 
     (tmp_path / "README.md").unlink()
     assert fixtures_module._short_description(tmp_path) == ""
+
+
+_SUMMARY = "Real summary."
+
+
+@pytest.mark.parametrize(
+    ("readme", "expected"),
+    [
+        pytest.param("---\ntitle: X\nsummary: y\n---\n\nReal summary. More.\n", _SUMMARY, id="front-matter"),
+        pytest.param("---\ntitle: X\n\nNever closed.\n", "", id="unclosed-front-matter"),
+        pytest.param(
+            "<!-- generated; do not edit.\nStill a comment. -->\nReal summary.\n", _SUMMARY, id="html-comment"
+        ),
+        pytest.param(
+            '<p align="center">\n  <img src="logo.png">\n</p>\n\nReal summary.\n', _SUMMARY, id="html-block"
+        ),
+        pytest.param("> [!NOTE]\n> Quoted. Text.\n\nReal summary.\n", _SUMMARY, id="blockquote"),
+        pytest.param(
+            "- one\nlazy continuation.\n\n* two\n\n+ three\n\n1. four\n2) five\n\nReal summary.\n",
+            _SUMMARY,
+            id="list-items",
+        ),
+        pytest.param("| a | b |\n|---|---|\n| 1 | 2 |\n\nReal summary.\n", _SUMMARY, id="table"),
+        pytest.param("Title\n=====\n\nSub title\n---------\nReal summary.\n", _SUMMARY, id="setext-headings"),
+        pytest.param("***\nReal summary.\n", _SUMMARY, id="thematic-break"),
+        pytest.param("    pip install x\n    Not prose.\n\nReal summary.\n", _SUMMARY, id="indented-code"),
+        pytest.param(
+            "Real summary\n    continues lazily. More.\n", "Real summary continues lazily.", id="indented-continuation"
+        ),
+        pytest.param(
+            "[![CI](https://x.test/badge.svg)](https://x.test) [![PyPI](p.svg)](q)\n\nReal summary.\n",
+            _SUMMARY,
+            id="badges-only-paragraph",
+        ),
+        pytest.param("A ![logo](l.png) fixture.\n", "A fixture.", id="inline-image"),
+        pytest.param(
+            "See [Foo](https://en.wikipedia.org/wiki/Foo_(bar)) here.\n", "See Foo here.", id="link-url-parentheses"
+        ),
+        pytest.param("#1056 tracks this fixture.\n", "#1056 tracks this fixture.", id="hash-number-is-prose"),
+        pytest.param("````\n```\nStill code.\n````\n\nReal summary.\n", _SUMMARY, id="shorter-fence-stays-open"),
+        pytest.param("~~~\n```\nStill code.\n~~~\n\nReal summary.\n", _SUMMARY, id="other-fence-char-stays-open"),
+        pytest.param(
+            "A *quick* and **bold** fixture with `stripe:*` scope.\n",
+            "A quick and bold fixture with stripe:* scope.",
+            id="emphasis-outside-code",
+        ),
+        pytest.param("\ufeffReal summary.\n", _SUMMARY, id="utf8-bom"),
+        pytest.param("\ufeff---\ntitle: X\n---\nReal summary.\n", _SUMMARY, id="utf8-bom-front-matter"),
+    ],
+)
+def test_short_description_skips_markup_that_is_not_a_summary(tmp_path: Path, readme: str, expected: str):
+    (tmp_path / "README.md").write_text(readme, encoding="utf-8")
+    assert fixtures_module._short_description(tmp_path) == expected
 
 
 def test_cli_fixture_list_json():
