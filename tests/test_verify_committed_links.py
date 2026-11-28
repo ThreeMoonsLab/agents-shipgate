@@ -49,17 +49,26 @@ TOOLS = '{"tools":[{"name":"docs.lookup","annotations":{"readOnlyHint":true}}]}\
 _RUN_SPECIFIC = {"decision_id", "generated_reports", "input_set_id", "request_id", "subject_id"}
 
 
+def _git(repo: Path, *args: str) -> None:
+    # `-C`, as the root conftest expects of fixture Git (#1218).
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def _init(repo: Path) -> None:
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "Test User")
+
+
 def _commit(repo: Path, message: str) -> None:
-    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", message], cwd=repo, check=True)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", message)
 
 
 def _repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
+    _init(repo)
     (repo / "shipgate.yaml").write_text(MANIFEST, encoding="utf-8")
     (repo / "tools.json").write_text(TOOLS, encoding="utf-8")
     _commit(repo, "base")
@@ -187,7 +196,7 @@ def test_verify_meets_a_committed_tool_source_link_as_a_checkout_does(tmp_path):
 
 def _git_out(repo: Path, *args: str, data: bytes | None = None) -> str:
     return subprocess.run(
-        ["git", *args], cwd=repo, input=data, check=True, capture_output=True
+        ["git", "-C", str(repo), *args], input=data, check=True, capture_output=True
     ).stdout.decode().strip()
 
 
@@ -252,9 +261,7 @@ def test_verify_checks_the_head_manifest_path_before_writing_to_it(tmp_path, mon
     # the path is refused before anything is written through one.
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
-    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
+    _init(repo)
     (repo / "real-agent").mkdir()
     (repo / "real-agent/tools.json").write_text(TOOLS, encoding="utf-8")
     _commit(repo, "base")
@@ -284,3 +291,113 @@ def test_verify_checks_the_head_manifest_path_before_writing_to_it(tmp_path, mon
         "components: agent"
     )
     assert written_through_links == []
+
+
+def test_verify_keeps_a_link_free_tree_whose_names_fold_together(tmp_path):
+    # `BUILD` beside `build/` holds no link, so the archive's behaviour for it
+    # is unchanged: verified where the filesystem keeps the names apart, and a
+    # typed refusal, not an internal error, where it merges them.
+    repo = _repo(tmp_path)
+    _commit_on_top(repo, {"BUILD": ("100644", b"b\n"), "build/x": ("100644", b"x\n")})
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    (probe / "BUILD").write_text("")
+    merges = (probe / "build").exists()
+    result = _verify(repo, tmp_path / "out", "--base", "HEAD~1", "--head", "HEAD")
+    if merges:
+        assert result.exit_code == 2, result.output
+        assert _error_line(result) == (
+            "Config error: Git tree path build/x collides with another path on this filesystem."
+        )
+        assert "agents-shipgate-verify" not in result.output
+    else:
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["head_status"] == "succeeded"
+
+
+def _alias_reported_for(root: Path, monkeypatch, spelled: str, stored: str) -> None:
+    """Report ``spelled`` as an alias of ``stored``, as a merging filesystem does."""
+
+    from agents_shipgate.cli.verify import orchestrator
+    from agents_shipgate.core.trust_roots import PathIdentityIssue
+
+    real = orchestrator.inspect_lexical_path_identity
+
+    def inspect(base: Path, relative: Path):
+        if relative.parts and relative.parts[0] == spelled:
+            return PathIdentityIssue(
+                kind="alias", requested=base / spelled, actual=base / stored
+            )
+        return real(base, relative)
+
+    monkeypatch.setattr(orchestrator, "inspect_lexical_path_identity", inspect)
+
+
+@pytest.mark.parametrize(
+    ("layout", "refused"),
+    [("stored-link", True), ("link-beneath", True), ("plain", False)],
+)
+def test_an_allowed_manifest_alias_is_held_to_the_link_rule(
+    tmp_path, monkeypatch, layout, refused
+):
+    # An alias spelling is allowed only for the entry it is stored as, and that
+    # entry, and the rest of the path beneath it, may hold no link either.
+    from agents_shipgate.cli.verify.orchestrator import _reject_symlink_components
+    from agents_shipgate.core.errors import ConfigError
+
+    root = tmp_path / "tree"
+    (root / "other").mkdir(parents=True)
+    (root / "other/shipgate.yaml").write_text(MANIFEST, encoding="utf-8")
+    if layout == "stored-link":
+        (root / "Apps").symlink_to("other")
+    else:
+        (root / "Apps").mkdir()
+        if layout == "link-beneath":
+            (root / "Apps/shipgate.yaml").symlink_to("../other/shipgate.yaml")
+        else:
+            (root / "Apps/shipgate.yaml").write_text(MANIFEST, encoding="utf-8")
+    _alias_reported_for(root, monkeypatch, "apps", "Apps")
+
+    def check() -> None:
+        _reject_symlink_components(
+            root,
+            Path("apps/shipgate.yaml"),
+            label="Head manifest apps/shipgate.yaml",
+            allow_filesystem_alias=True,
+        )
+
+    if refused:
+        with pytest.raises(ConfigError, match="must not contain symlink components"):
+            check()
+    else:
+        check()
+
+
+def test_an_archived_link_spelled_as_an_alias_is_refused_as_a_link(tmp_path):
+    # On a filesystem that merges case variants, the manifest guard meets a
+    # committed directory link under another spelling and still refuses it.
+    from agents_shipgate.cli.verify.git import archive_verification_tree
+    from agents_shipgate.cli.verify.orchestrator import _reject_symlink_components
+    from agents_shipgate.core.errors import ConfigError
+
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    (probe / "PROBE").write_text("")
+    if not (probe / "probe").exists():
+        pytest.skip("this filesystem keeps case variants apart")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init(repo)
+    (repo / "other").mkdir()
+    (repo / "other/shipgate.yaml").write_text(MANIFEST, encoding="utf-8")
+    (repo / "Apps").symlink_to("other")
+    _commit(repo, "linked directory")
+    out = tmp_path / "snapshot"
+    archive_verification_tree(repo, "HEAD", out)
+    with pytest.raises(ConfigError, match="must not contain symlink components"):
+        _reject_symlink_components(
+            out.resolve(),
+            Path("apps/shipgate.yaml"),
+            label="Head manifest apps/shipgate.yaml",
+            allow_filesystem_alias=True,
+        )
