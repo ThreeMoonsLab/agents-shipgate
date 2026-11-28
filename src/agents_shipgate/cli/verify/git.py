@@ -18,6 +18,14 @@ from urllib.parse import urlsplit
 import yaml
 
 from agents_shipgate import _perf
+from agents_shipgate.core.adopter_text import (
+    AGENTS_SHIPGATE_ORIGIN,
+    GIT_TREE_LISTING_FAILED,
+    GIT_TREE_LISTING_UNREADABLE,
+    MANIFEST_SPELLING_COLLISION,
+    UNCONTAINED_GIT_TREE_LINK,
+    UNSUPPORTED_GIT_TREE_ENTRY,
+)
 from agents_shipgate.core.boundary_registry import is_agent_boundary_path
 from agents_shipgate.core.errors import ConfigError
 from agents_shipgate.core.git_env import hardened_git_env
@@ -2417,30 +2425,57 @@ def resolve_tree_path_identity(
     if commit is None:
         return None
     requested_text = requested.as_posix()
-    listing = _run_git_bounded_output(
+    listing = _run_git_bounded_result(
         workspace,
         ["ls-tree", "-r", "--name-only", "-z", commit],
         max_output_bytes=_MAX_MANIFEST_LISTING_BYTES,
     )
-    if listing is None:
-        raise ConfigError(
+    if listing.exceeded:
+        raise _tree_limitation(
             "Git tree path identity could not be established within static "
-            "resource bounds."
+            "resource bounds.",
+            failure=GIT_TREE_LISTING_UNREADABLE,
         )
-    try:
-        paths = [
-            raw.decode("utf-8", errors="strict")
-            for raw in listing.split(b"\0")
-            if raw
-        ]
-    except UnicodeDecodeError as exc:
-        raise ConfigError("Git tree contains a non-UTF-8 path") from exc
+    if listing.payload is None:
+        message = (
+            "Git timed out reading the commit's path listing."
+            if listing.timed_out
+            else "Git could not read the commit's path listing."
+        )
+        raise ConfigError(message, details={"failure": GIT_TREE_LISTING_FAILED})
     requested_key = _portable_tree_path_key(requested_text)
-    matches = [path for path in paths if _portable_tree_path_key(path) == requested_key]
+    matches: list[str] = []
+    for raw in listing.payload.split(b"\0"):
+        if not raw:
+            continue
+        path = _decode_committed_tree_path(raw)
+        if "\\" in path:
+            # So does a backslash: the verification receipt records every path
+            # in portable form, which has none, so a checkout run cannot record
+            # it either. Refused here, before any reader runs (#328).
+            raise _tree_limitation(
+                f"Git tree path is not portable: {path}",
+                failure=GIT_TREE_LISTING_UNREADABLE,
+                path=path,
+            )
+        # Any other name the portable rule refuses is not compared: the path
+        # asked for passed that rule, and such a name is refused where it would
+        # be read, by the --head archive before any reader runs. Refusing it
+        # here refused every verify of the repository, with or without --head,
+        # over an entry nothing opens (#328).
+        try:
+            key = _portable_tree_path_key(path)
+        except ConfigError:
+            continue
+        if key == requested_key:
+            matches.append(path)
     if len(matches) > 1:
+        # Every route refuses this one, so it is the repository's to settle by
+        # keeping one spelling, not a limitation to wait out.
         raise ConfigError(
             "Git tree contains filesystem-colliding paths for configured "
-            f"manifest {requested_text!r}: {matches!r}"
+            f"manifest {requested_text!r}: {matches!r}",
+            details={"failure": MANIFEST_SPELLING_COLLISION, "paths": list(matches)},
         )
     if not matches:
         return None
@@ -3395,7 +3430,7 @@ def _materialize_isolated_tree(
             continue
         metadata, raw_path = raw.split(b"\t", 1)
         mode, object_type, oid = metadata.decode("ascii").split(" ", 2)
-        path_text = raw_path.decode("utf-8", errors="strict")
+        path_text = _decode_committed_tree_path(raw_path)
         tree_types[path_text] = "link" if mode == "120000" else object_type
         listed.append((mode, object_type, oid, path_text))
     #: Unscoped, a link is refused unless the caller admits the links that
@@ -3429,13 +3464,19 @@ def _materialize_isolated_tree(
                 # boundary path from the reader.
                 continue
             if "\\" in path_text:
-                raise ConfigError(f"Git tree path is not portable: {path_text}")
-            portable_key = _portable_tree_path_key(path_text)
+                # No route records such a name (see resolve_tree_path_identity).
+                raise _tree_limitation(
+                    f"Git tree path is not portable: {path_text}",
+                    failure=GIT_TREE_LISTING_UNREADABLE,
+                    path=path_text,
+                )
+            portable_key = _committed_tree_path_key(path_text)
             prior = portable_paths.setdefault(portable_key, path_text)
             if prior != path_text:
-                raise ConfigError(
+                raise _unsupported_tree_entry(
                     "Git tree contains filesystem-colliding paths: "
-                    f"{prior!r} and {path_text!r}"
+                    f"{prior!r} and {path_text!r}",
+                    path=path_text,
                 )
             if admitted_links:
                 parts = path_text.split("/")
@@ -3468,21 +3509,19 @@ def _materialize_isolated_tree(
             if object_type != "blob" or mode == "160000" or (
                 mode == "120000" and scope is None and path_text not in admitted_links
             ):
-                raise ConfigError(
-                    _unsupported_binding(
-                        path_text,
-                        mode,
-                        object_type,
-                        reason=(
-                            (
-                                _LINK_NOT_CONTAINED
-                                if _recreates_committed_links()
-                                else _LINKS_NOT_RECREATED_HERE
-                            )
-                            if mode == "120000" and admit_contained_links
-                            else None
-                        ),
-                    )
+                raise _unsupported_binding(
+                    path_text,
+                    mode,
+                    object_type,
+                    reason=(
+                        (
+                            _LINK_NOT_CONTAINED
+                            if _recreates_committed_links()
+                            else _LINKS_NOT_RECREATED_HERE
+                        )
+                        if mode == "120000" and admit_contained_links
+                        else None
+                    ),
                 )
             if mode == "120000":
                 # Recreated as a link rather than refused, so the base tree
@@ -3520,9 +3559,10 @@ def _materialize_isolated_tree(
                 if directory is None or directory == path_text:
                     continue
                 if path_text in admitted_links or portable_key in link_directory_keys:
-                    raise ConfigError(
+                    raise _unsupported_tree_entry(
                         "Git tree contains filesystem-colliding paths: "
-                        f"{directory!r} and {path_text!r}"
+                        f"{directory!r} and {path_text!r}",
+                        path=path_text,
                     )
 
     object_format = _run_git_dir(git_dir, ["rev-parse", "--show-object-format"]).stdout.strip()
@@ -3543,8 +3583,9 @@ def _materialize_isolated_tree(
                 # merges can put a file where a directory goes, or the reverse.
                 if scope is not None or not admit_contained_links:
                     raise
-                raise ConfigError(
-                    f"Git tree path {path_text} collides with another path on this filesystem."
+                raise _unsupported_tree_entry(
+                    f"Git tree path {path_text} collides with another path on this filesystem.",
+                    path=path_text,
                 ) from exc
             expected_digests[path_text] = hashlib.sha256(blob).hexdigest()
             if mode == "100755":
@@ -3577,8 +3618,8 @@ def _materialize_isolated_tree(
                 if os.path.realpath(root / path_text) != os.path.realpath(
                     root.joinpath(*PurePosixPath(opened).parts)
                 ):
-                    raise ConfigError(
-                        _unsupported_binding(path_text, "120000", "blob", reason=_LINK_COLLIDES)
+                    raise _unsupported_binding(
+                        path_text, "120000", "blob", reason=_LINK_COLLIDES
                     )
 
     with _perf.phase("archive.tree.link_target_types"):
@@ -3601,7 +3642,43 @@ def _materialize_isolated_tree(
     return gitlinks
 
 
-def _unsupported_binding(
+def _decode_committed_tree_path(raw: bytes) -> str:
+    try:
+        return raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        raise _tree_limitation(
+            "Git tree contains a non-UTF-8 path",
+            failure=GIT_TREE_LISTING_UNREADABLE,
+            path=raw.decode("utf-8", errors="backslashreplace"),
+        ) from None
+
+
+def _tree_limitation(message: str, *, failure: str, path: str | None = None) -> ConfigError:
+    """A refusal of committed tree content that is Agents Shipgate's, not the repository's (#328).
+
+    Git accepts the tree; what refuses it is the archive Agents Shipgate reads
+    the commit through, the portable path rule that archive keeps, or the
+    reading of the commit's path listing. ``details`` carries that classification
+    -- ``origin`` and ``failure``, and ``path`` when one entry is refused -- so
+    a caller routes on it rather than on the message, which keeps the wording
+    every refusal has always had. It stays a plain :class:`ConfigError`: every
+    handler, exit code and the class name some comparison reasons record are
+    unchanged.
+    """
+
+    details: dict[str, str] = {"failure": failure, "origin": AGENTS_SHIPGATE_ORIGIN}
+    if path is not None:
+        details["path"] = path
+    return ConfigError(message, details=details)
+
+
+def _unsupported_tree_entry(message: str, *, path: str) -> ConfigError:
+    """A committed entry the verification archive does not support yet."""
+
+    return _tree_limitation(message, failure=UNSUPPORTED_GIT_TREE_ENTRY, path=path)
+
+
+def _binding_refusal_text(
     path_text: str, mode: str, object_type: str, *, reason: str | None = None
 ) -> str:
     """The refusal of a tree entry an archive will not materialize.
@@ -3617,6 +3694,40 @@ def _unsupported_binding(
     return f"{message}: {reason}." if reason else f"{message}."
 
 
+def _unsupported_binding(
+    path_text: str, mode: str, object_type: str, *, reason: str | None = None
+) -> ConfigError:
+    """:func:`_binding_refusal_text`, classified.
+
+    A link that does not open inside the tree is refused by design, so that no
+    read reaches bytes the commit does not hold; every other entry here is one
+    the archive does not support yet.
+    """
+
+    return _tree_limitation(
+        _binding_refusal_text(path_text, mode, object_type, reason=reason),
+        failure=(
+            UNCONTAINED_GIT_TREE_LINK
+            if reason == _LINK_NOT_CONTAINED
+            else UNSUPPORTED_GIT_TREE_ENTRY
+        ),
+        path=path_text,
+    )
+
+
+def _committed_tree_path_key(path_text: str) -> str:
+    """:func:`_portable_tree_path_key` of an entry of a committed tree.
+
+    The same rule refuses a path the caller asked for, which is the caller's to
+    fix, so a committed entry's refusal is typed here rather than in the rule.
+    """
+
+    try:
+        return _portable_tree_path_key(path_text)
+    except ConfigError as exc:
+        raise _unsupported_tree_entry(str(exc), path=path_text) from None
+
+
 def _create_admitted_link(root: Path, path_text: str, link_text: str, *, directory: bool) -> None:
     """Recreate one admitted link of an unscoped archive at its exact tree path.
 
@@ -3628,9 +3739,7 @@ def _create_admitted_link(root: Path, path_text: str, link_text: str, *, directo
 
     target = root / path_text
     expected_parent = root.joinpath(*PurePosixPath(path_text).parent.parts)
-    refusal = ConfigError(
-        _unsupported_binding(path_text, "120000", "blob", reason=_LINK_COLLIDES)
-    )
+    refusal = _unsupported_binding(path_text, "120000", "blob", reason=_LINK_COLLIDES)
     try:
         if target.parent.resolve() != expected_parent:
             raise refusal
@@ -3643,12 +3752,14 @@ def _create_admitted_link(root: Path, path_text: str, link_text: str, *, directo
         collides = isinstance(exc, (FileExistsError, NotADirectoryError, RuntimeError)) or (
             isinstance(exc, OSError) and exc.errno == errno.ELOOP
         )
+        if collides:
+            raise _unsupported_binding(
+                path_text, "120000", "blob", reason=_LINK_COLLIDES
+            ) from exc
+        # Not a property of the tree: the filesystem refused the write.
         raise ConfigError(
-            _unsupported_binding(
-                path_text,
-                "120000",
-                "blob",
-                reason=_LINK_COLLIDES if collides else "this system could not create the link",
+            _binding_refusal_text(
+                path_text, "120000", "blob", reason="this system could not create the link"
             )
         ) from exc
 

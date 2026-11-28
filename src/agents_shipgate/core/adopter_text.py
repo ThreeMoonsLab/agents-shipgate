@@ -52,18 +52,24 @@ from collections.abc import Iterable
 
 __all__ = [
     "AGENT_ID_PATTERN",
+    "AGENTS_SHIPGATE_ORIGIN",
     "DUPLICATE_ACROSS_ARTIFACTS",
     "DUPLICATE_IN_SOURCE_ARTIFACT",
     "DUPLICATE_TOOL_IN_SOURCE",
     "FINGERPRINT_PATTERN",
+    "GIT_TREE_LISTING_FAILED",
+    "GIT_TREE_LISTING_UNREADABLE",
     "INTERNAL_ID_SHAPES",
     "INTERNAL_ONLY_TERMS",
     "INTERNAL_POLICY_IDS",
     "LOCATABLE_ANCHORS",
     "MANIFEST_SPELLED_TERMS",
+    "MANIFEST_SPELLING_COLLISION",
     "OBSERVATION_ID_PATTERN",
     "REPEATED_SOURCE_ENTRY",
     "TOOL_ID_PATTERN",
+    "UNCONTAINED_GIT_TREE_LINK",
+    "UNSUPPORTED_GIT_TREE_ENTRY",
     "duplicate_tool_observation_message",
     "internal_vocabulary",
     "names_a_locatable_anchor",
@@ -94,6 +100,36 @@ DUPLICATE_TOOL_IN_SOURCE = "duplicate_tool_in_source"
 REPEATED_SOURCE_ENTRY = "repeated_source_entry"
 DUPLICATE_IN_SOURCE_ARTIFACT = "duplicate_in_source_artifact"
 DUPLICATE_ACROSS_ARTIFACTS = "duplicate_across_artifacts"
+
+#: ``details["origin"]`` of a failure that is Agents Shipgate's own — a defect,
+#: a limitation or a deliberate refusal — rather than a fault in what the
+#: adopter supplied (#328). Its route never requires a change to the
+#: repository or the manifest.
+AGENTS_SHIPGATE_ORIGIN = "agents_shipgate"
+
+#: ``details["failure"]`` values with that origin, for committed tree content
+#: Git accepts and ``verify --head`` / ``verification prepare --head`` do not
+#: read (#328). ``UNSUPPORTED_GIT_TREE_ENTRY`` — an entry the snapshot does not
+#: support yet: a submodule, a committed link where links are not recreated,
+#: a name that is not portable (one without a backslash), or names a
+#: filesystem merges.
+#: ``UNCONTAINED_GIT_TREE_LINK`` — a link that does not open a file or
+#: directory inside the repository, which the snapshot refuses by design so no
+#: read reaches bytes the commit does not hold. ``GIT_TREE_LISTING_UNREADABLE``
+#: — the commit's path listing, which every ``verify`` reads to bind the
+#: manifest's exact spelling, exceeds the bound it is read within or holds a
+#: name verification cannot record (not UTF-8, or holding a backslash); no
+#: route avoids it.
+UNSUPPORTED_GIT_TREE_ENTRY = "unsupported_git_tree_entry"
+UNCONTAINED_GIT_TREE_LINK = "uncontained_git_tree_link"
+GIT_TREE_LISTING_UNREADABLE = "git_tree_listing_unreadable"
+GIT_TREE_LISTING_FAILED = "git_tree_listing_failed"
+
+#: ``details["failure"]`` for a commit holding two spellings of the configured
+#: manifest that a case- or normalization-insensitive filesystem merges. Every
+#: route refuses it, so it is the repository's to settle by keeping one; it
+#: carries no ``origin`` and its ``details`` are not published.
+MANIFEST_SPELLING_COLLISION = "manifest_spelling_collision"
 
 #: Identity-model terms with no counterpart in anything an adopter writes or
 #: opens. No anchor rescues these: there is nowhere to send the reader.
