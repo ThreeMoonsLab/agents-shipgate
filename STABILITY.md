@@ -6209,17 +6209,21 @@ file, and follows the deprecation cycle above.
 
 ### Provisional CLI command surface
 
-The org/fleet governance commands below are provisional in the `1.x` line:
-Ring-2 surfaces outside the `1.0` merge-gate promise (see
-[the report 1.0 contract](docs/report-1-0-contract.md#cli-exit-codes-and-control)).
-They are documented, deterministic, and local-only, and
-`agents-shipgate contract --json` / `.well-known/agents-shipgate.json` name
-their schema versions so a consumer can discover them, but their flags and
-payload schemas are not stable command-contract commitments: either may change
-within `1.x`. A schema file a release has published still keeps its bytes, so a
-changed payload ships under a new schema version. They remain consumers of
-`verify` artifacts; `report.json.release_decision.decision` is still the only
+The commands below are provisional in the `1.x` line. They are documented,
+deterministic, and local-only, and `agents-shipgate contract --json` /
+`.well-known/agents-shipgate.json` name their schema versions so a consumer can
+discover them, but their flags and payload schemas are not stable
+command-contract commitments: either may change within `1.x`. A schema file a
+release has published still keeps its bytes, so a changed payload ships under a
+new schema version. `report.json.release_decision.decision` is still the only
 release gate.
+
+[The report 1.0 contract](docs/report-1-0-contract.md#cli-exit-codes-and-control)
+names org governance, the org evidence bundle, and registry query among its
+provisional surfaces, outside the `1.0` merge-gate promise. It does not
+classify `attest` or `shipgate audit --host`. Both are listed here, and whether
+either belongs in the stable command surface instead awaits the owner's ruling
+([#1231](https://github.com/ThreeMoonsLab/agents-shipgate/pull/1231)).
 
 | Command | Preview flags |
 |---|---|
@@ -6331,12 +6335,15 @@ Stable JSON fields:
   and `host_grants_drift_schema_version` — schema versions of the
   `shipgate audit --host` inventory, of the acknowledged baseline that
   `--save-baseline` writes (default `.agents-shipgate/host-grants.json`), and of
-  the `--drift` comparison. The keys are stable; `audit --host` is listed under
+  the drift comparison that `--drift` prints and that `preflight` and
+  `org status` embed as `host_grant_drift`. The keys are stable; `audit --host`
+  is listed under
   [Provisional CLI command surface](#provisional-cli-command-surface).
 - `external_integration_surfaces[]` — non-gating integration and research
   surfaces exposed by the contract. The list is stable; each surface it names
-  keeps its own stability; for example, the org/fleet and host-audit ones are
-  [provisional](#provisional-cli-command-surface).
+  keeps its own stability. For example, a surface whose command is listed under
+  [Provisional CLI command surface](#provisional-cli-command-surface) is
+  provisional.
 - `gating_signal` — always `release_decision.decision` in this contract.
 - `agent_result_schema_version` — legacy local-agent protocol schema retained
   for compatibility with existing in-repo protocol and MCP surfaces. It is not
@@ -6399,11 +6406,12 @@ Stable JSON fields:
   — schema version and checked-in JSON Schema path for `shipgate check --format
   agent-boundary-json`, the local-boundary result for Codex, Claude Code, and
   Cursor.
-- `deprecated_surfaces{}` — maps each deprecated surface that is still emitted
-  to a one-line deprecation note. Currently one entry: `codex-boundary-json`,
-  a compatibility projection kept through `1.x`; use `agent-boundary-json`. A
-  listed surface still works, but it is deprecated, not informational: do not
-  build a new consumer on it.
+- `deprecated_surfaces{}` — deprecated output formats the contract names, each
+  mapped to a one-line deprecation note. It names `codex-boundary-json`, a
+  compatibility projection kept through `1.x`; use `agent-boundary-json`. It is
+  not a full deprecation registry: deprecated check IDs, for example, are
+  published by `list-checks`. A listed format still works, but it is
+  deprecated, not informational: do not build a new consumer on it.
 - `current_control_schema_version` / `current_control_schema_path` /
   `current_control_artifact` — schema version, checked-in JSON Schema path, and
   default artifact path for `agents-shipgate-reports/current-control.json`, the
@@ -7845,10 +7853,12 @@ both serialize one structure instead of two. The schema is
 and the spec is
 [`docs/capability-payload.md`](docs/capability-payload.md).
 
-**Nothing emits it yet.** No command writes it, no artifact carries it, and
-`contract_version`, `report_schema_version`, the runtime contract JSON, and
-`.well-known/agents-shipgate.json` are all unchanged by its publication. The
-capability lock and lock diff above are unchanged. It is non-gating;
+**`verify` emits the delta view, and the state view is still unemitted.** The
+delta view is the `predicate.delta` of the capability delta attestation that
+`verify` writes (see
+[the attestation specification](docs/capability-delta-attestation.md)). Its
+version and schema path are in the runtime contract JSON. The capability lock
+and lock diff above are unchanged. It is non-gating;
 `release_decision.decision` remains the only gate.
 
 **Validation is two stages, and the schema file is stage one.** Pydantic
