@@ -235,6 +235,7 @@
   "tests/test_human_review_decision.py": 115.0,
   "tests/test_human_review_presentation.py": 4.0,
   "tests/test_human_review_request.py": 14.1,
+  "tests/test_identity_validation_failure.py": 0.1,
   "tests/test_implicit_child_constructor_ownership.py": 0.8,
   "tests/test_import_search_ownership.py": 2.8,
   "tests/test_imported_tool_bindings.py": 25.6,

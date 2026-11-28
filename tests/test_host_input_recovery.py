@@ -129,18 +129,16 @@ def test_named_source_failures_keep_their_own_phase(
     assert all(count == 1 for count in snapshot.cache.parse_counts.values())
 
 
-@pytest.mark.parametrize("failure_kind", ["actual_change", "value_error", "os_error"])
+@pytest.mark.parametrize("failure_kind", ["value_error", "os_error"])
 def test_final_validation_does_not_guess_why_coherent_read_failed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_kind: str,
 ) -> None:
     source = tmp_path / ".mcp.json"
     source.write_text('{"mcpServers": {}}')
-    original = IdentityBoundReadSession.finish
 
     def finish(self):
-        if failure_kind == "actual_change":
-            source.write_text('{"mcpServers": {}, "changed": true}')
-            return original(self)
+        # An untyped failure: nothing names an entry or an observation, so
+        # nothing is published beyond the read root (#588).
         if failure_kind == "os_error":
             raise OSError("unclassified failure with sensitive context")
         raise ValueError("unclassified failure with sensitive context")
@@ -157,6 +155,144 @@ def test_final_validation_does_not_guess_why_coherent_read_failed(
     assert "did not establish whether concurrent changes" in rows[0]["recommendation"]
     assert snapshot.inventory["artifacts"] == snapshot.inventory["grants"] == []
     assert "sensitive context" not in json.dumps(snapshot.inventory)
+
+
+def _changed_during_final_validation(
+    monkeypatch: pytest.MonkeyPatch, source: Path,
+) -> None:
+    """A real change to ``source`` after it was read, before final validation."""
+
+    original = IdentityBoundReadSession.finish
+
+    def finish(self):
+        source.write_text('{"mcpServers": {}, "changed": true}')
+        return original(self)
+
+    monkeypatch.setattr(IdentityBoundReadSession, "finish", finish)
+
+
+def test_final_validation_names_the_entry_whose_change_it_observed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#588: the typed reader fact reaches the recovery, not parsed prose."""
+
+    import jsonschema
+
+    source = tmp_path / ".mcp.json"
+    source.write_text('{"mcpServers": {}}')
+    _changed_during_final_validation(monkeypatch, source)
+    snapshot = build_host_boundary_snapshot(tmp_path)
+    payload = _result(tmp_path, snapshot)
+    rows = _denied(payload)
+    assert len(rows) == 1
+    assert rows[0]["evidence"]["recovery"] == {
+        "reason": "snapshot_validation_failed", "phase": "snapshot_validation", "source": ".",
+        "entry": ".mcp.json", "observation": "identity_mismatch",
+    }
+    # The failure still discards every read under the root: the entry locates
+    # it, and the issue keeps the root as its source, so no comparison or
+    # routing rule can treat it as one path's limit.
+    assert rows[0]["path"] == "."
+    assert {(i["kind"], i["source"]) for i in snapshot.inventory["issues"]} == {
+        ("unreadable", "."),
+    }
+    assert snapshot.inventory["artifacts"] == snapshot.inventory["grants"] == []
+    assert "could not confirm a coherent read" in payload["control"]["reason"]
+    assert "no longer had the identity it was read with: .mcp.json" in rows[0]["title"]
+    assert "observed that .mcp.json differed" in rows[0]["recommendation"]
+    assert all(count == 1 for count in snapshot.cache.read_counts.values())
+    for name, document in (
+        ("agent-boundary-result-schema.v3.json", payload),
+        ("host-grants-inventory-schema.v0.10.json", snapshot.inventory),
+    ):
+        jsonschema.validate(document, json.loads((Path("docs") / name).read_text()))
+
+
+def test_final_validation_does_not_claim_an_uninspectable_entry_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / ".mcp.json").write_text('{"mcpServers": {}}')
+    original_finish = IdentityBoundReadSession.finish
+    original_lstat = Path.lstat
+
+    def lstat(self):
+        if self.name == ".mcp.json":
+            raise PermissionError("private filesystem detail")
+        return original_lstat(self)
+
+    def finish(self):
+        # Only the final pass cannot look; the read itself succeeded.
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(Path, "lstat", lstat)
+            return original_finish(self)
+
+    monkeypatch.setattr(IdentityBoundReadSession, "finish", finish)
+    snapshot = build_host_boundary_snapshot(tmp_path)
+    payload = _result(tmp_path, snapshot)
+    rows = _denied(payload)
+    assert len(rows) == 1
+    assert rows[0]["evidence"]["recovery"] == {
+        "reason": "snapshot_validation_failed", "phase": "snapshot_validation", "source": ".",
+        "entry": ".mcp.json", "observation": "inspection_unavailable",
+    }
+    assert snapshot.inventory["artifacts"] == snapshot.inventory["grants"] == []
+    published = json.dumps(payload) + json.dumps(snapshot.inventory)
+    assert "private filesystem detail" not in published
+    for text in (rows[0]["title"], rows[0]["recommendation"], payload["control"]["reason"]):
+        assert "no longer" not in text
+        assert "differed" not in text
+    assert "could not be inspected, and no change was established: .mcp.json" in rows[0]["title"]
+    assert "did not establish that it changed" in rows[0]["recommendation"]
+
+
+def test_final_validation_entry_is_bounded_and_redacted_but_kept_exactly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "ghp_" + "S" * 36
+    folder = "settings TOKEN=" + secret + " " + "long" * 20
+    (tmp_path / folder).mkdir()
+    source = tmp_path / folder / ".mcp.json"
+    source.write_text('{"mcpServers": {}}')
+    _changed_during_final_validation(monkeypatch, source)
+    snapshot = build_host_boundary_snapshot(tmp_path)
+    payload = _result(tmp_path, snapshot)
+    rows = _denied(payload)
+    assert len(rows) == 1
+    entry = rows[0]["evidence"]["recovery"]["entry"]
+    assert rows[0]["evidence"]["recovery"]["observation"] == "identity_mismatch"
+    assert entry.startswith("settings TOKEN=") and entry.endswith("/.mcp.json")
+    assert len(entry) <= MAX_FAILURE_TEXT
+    assert "\n" not in entry
+    for published in (payload, snapshot.inventory):
+        assert secret not in json.dumps(published)
+    # The private failure keeps the exact spelling the reader held: locating
+    # the original entry needs no second filesystem read.
+    assert {failure.entry for failure in snapshot.input_failures.values()} == {
+        f"{folder}/.mcp.json",
+    }
+
+
+def test_a_long_entry_never_pushes_the_observation_out_of_the_bounded_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    folder = tmp_path.joinpath("x" * 200, "y" * 200, "z" * 200)
+    folder.mkdir(parents=True)
+    source = folder / ".mcp.json"
+    source.write_text('{"mcpServers": {}}')
+    _changed_during_final_validation(monkeypatch, source)
+    snapshot = build_host_boundary_snapshot(tmp_path)
+    payload = _result(tmp_path, snapshot)
+    rows = _denied(payload)
+    assert len(rows) == 1
+    # The evidence keeps the whole bounded label; the prose keeps the observed
+    # words and the entry's own name.
+    assert len(rows[0]["evidence"]["recovery"]["entry"]) > 500
+    for text in (rows[0]["title"], payload["control"]["reason"]):
+        assert "no longer had the identity it was read with: …" in text
+        assert "/.mcp.json." in text
+    assert len(rows[0]["title"]) <= MAX_FAILURE_TEXT
+    assert "observed that …" in rows[0]["recommendation"]
+    assert "/.mcp.json differed" in rows[0]["recommendation"]
 
 
 def test_old_snapshot_has_no_invented_recovery_metadata(tmp_path: Path, monkeypatch) -> None:

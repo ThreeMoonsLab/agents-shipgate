@@ -39,6 +39,10 @@ fixture_app = typer.Typer(
     no_args_is_help=True,
 )
 
+# Shown by the text listing in place of an empty description; `--json` keeps
+# "" so a consumer can still tell a missing summary from a real one.
+_NO_FIXTURE_SUMMARY = "(no README summary)"
+
 
 @fixture_app.command("list")
 def fixture_list(
@@ -59,10 +63,8 @@ def fixture_list(
         typer.echo("No bundled fixtures available.")
         return
     for fixture in fixtures:
-        line = f"{fixture['name']}"
-        if fixture.get("description"):
-            line += f"\t{fixture['description']}"
-        typer.echo(line)
+        description = fixture.get("description") or _NO_FIXTURE_SUMMARY
+        typer.echo(f"{fixture['name']}\t{description}")
 
 
 @fixture_app.command("run")
