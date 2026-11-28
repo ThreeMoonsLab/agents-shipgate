@@ -48,6 +48,7 @@ from agents_shipgate.core.trust_roots import (
     IdentityBoundReadSession,
     IdentityReadBudget,
     IdentityReadBudgetExceeded,
+    IdentityValidationFailure,
     conditional_instruction_edits,
     inspect_lexical_path_identity,
     is_configured_manifest,
@@ -689,9 +690,17 @@ def _build_trust_root_graph(
             "Trust-root graph exceeded its aggregate static resource bound."
         ) from exc
     except (OSError, ValueError, NotImplementedError) as exc:
+        if isinstance(exc, IdentityValidationFailure) and (
+            exc.observation != "inspection_unavailable"
+        ):
+            raise ConfigError(
+                "Trust-root graph changed identity while its bounded snapshot "
+                "was captured."
+            ) from exc
+        # The reader did not observe a change, so none is claimed (#588).
         raise ConfigError(
-            "Trust-root graph changed identity while its bounded snapshot "
-            "was captured."
+            "Trust-root graph could not be inspected during final validation "
+            "of its bounded snapshot; no change was established."
         ) from exc
     graph_hash = _stable_hash([node.model_dump(mode="json") for node in nodes])
     return (

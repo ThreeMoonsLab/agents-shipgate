@@ -127,6 +127,107 @@ def test_changed_names_and_kinds_name_their_entry(
     assert _facts(raised.value) == ("final_validation", "entries_changed", "pkg")
 
 
+@pytest.fixture(params=["dir_fd", "portable"])
+def standalone_read(request, monkeypatch: pytest.MonkeyPatch):
+    """The standalone reader, on its descriptor-relative and its portable path."""
+
+    if request.param == "portable":
+        monkeypatch.setattr(os, "supports_dir_fd", set())
+    elif os.open not in os.supports_dir_fd:
+        pytest.skip("descriptor-relative open unavailable")
+    return trust_roots.read_identity_bound_bytes
+
+
+def test_standalone_read_names_no_change_when_it_cannot_look_after_reading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The descriptor-relative path's post-read inspection; the portable path
+    # lets the same OSError propagate unchanged, making no claim either.
+    if os.open not in os.supports_dir_fd:
+        pytest.skip("descriptor-relative open unavailable")
+    standalone_read = trust_roots.read_identity_bound_bytes
+    (tmp_path / "f.txt").write_text("x")
+    original = Path.lstat
+    calls = 0
+
+    def lstat(self):
+        nonlocal calls
+        if self.name == "f.txt":
+            calls += 1
+            if calls > 1:  # every inspection after the read
+                raise PermissionError("private filesystem detail")
+        return original(self)
+
+    monkeypatch.setattr(Path, "lstat", lstat)
+    with pytest.raises(ValueError) as raised:
+        standalone_read(tmp_path, Path("f.txt"), max_bytes=10)
+    assert "changed" not in str(raised.value)
+    assert "could not be inspected" in str(raised.value)
+
+
+@pytest.mark.parametrize(("kind", "claims_change"), [
+    ("inspection_error", False), ("symlink", True), ("alias", True),
+])
+def test_standalone_read_claims_a_change_only_when_it_saw_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, standalone_read,
+    kind: str, claims_change: bool,
+) -> None:
+    (tmp_path / "f.txt").write_text("x")
+    original = trust_roots.inspect_lexical_path_identity
+    calls = 0
+
+    def inspect(root, relative):
+        nonlocal calls
+        calls += 1
+        if calls == 1:  # the inspection before the read is clean
+            return original(root, relative)
+        return trust_roots.PathIdentityIssue(kind=kind, requested=root / relative)
+
+    monkeypatch.setattr(trust_roots, "inspect_lexical_path_identity", inspect)
+    with pytest.raises(ValueError) as raised:
+        standalone_read(tmp_path, Path("f.txt"), max_bytes=10)
+    assert ("changed" in str(raised.value)) is claims_change
+
+
+@pytest.mark.parametrize("failure", ["uninspectable", "changed"])
+def test_preflight_claims_a_graph_change_only_when_the_reader_saw_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str,
+) -> None:
+    from agents_shipgate.core.errors import ConfigError
+    from agents_shipgate.core.preflight import build_trust_root_graph
+
+    instructions = tmp_path / "AGENTS.md"
+    instructions.write_text("# agents\n")
+    original_finish = IdentityBoundReadSession.finish
+    original_lstat = Path.lstat
+
+    def lstat(self):
+        if self.name == "AGENTS.md":
+            raise PermissionError("private filesystem detail")
+        return original_lstat(self)
+
+    def finish(self):
+        if failure == "changed":
+            instructions.write_text("# agents, edited after the read\n")
+            return original_finish(self)
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(Path, "lstat", lstat)
+            return original_finish(self)
+
+    monkeypatch.setattr(IdentityBoundReadSession, "finish", finish)
+    with pytest.raises(ConfigError) as raised:
+        build_trust_root_graph(tmp_path)
+    cause = raised.value.__cause__
+    assert isinstance(cause, IdentityValidationFailure)
+    if failure == "changed":
+        assert cause.observation == "identity_mismatch"
+        assert "changed identity" in str(raised.value)
+    else:
+        assert cause.observation == "inspection_unavailable"
+        assert "changed" not in str(raised.value)
+        assert "could not be inspected during final validation" in str(raised.value)
+
+
 @pytest.mark.parametrize("refusal", ["oversized", "hard_link"])
 def test_read_refusals_are_typed_with_unchanged_messages(tmp_path: Path, refusal: str) -> None:
     (tmp_path / "pkg").mkdir()

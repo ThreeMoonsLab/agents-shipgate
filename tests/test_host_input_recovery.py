@@ -198,7 +198,7 @@ def test_final_validation_names_the_entry_whose_change_it_observed(
     }
     assert snapshot.inventory["artifacts"] == snapshot.inventory["grants"] == []
     assert "could not confirm a coherent read" in payload["control"]["reason"]
-    assert ".mcp.json no longer had the identity it was read with" in rows[0]["title"]
+    assert "no longer had the identity it was read with: .mcp.json" in rows[0]["title"]
     assert "observed that .mcp.json differed" in rows[0]["recommendation"]
     assert all(count == 1 for count in snapshot.cache.read_counts.values())
     for name, document in (
@@ -241,7 +241,7 @@ def test_final_validation_does_not_claim_an_uninspectable_entry_changed(
     for text in (rows[0]["title"], rows[0]["recommendation"], payload["control"]["reason"]):
         assert "no longer" not in text
         assert "differed" not in text
-    assert ".mcp.json could not be inspected" in rows[0]["title"]
+    assert "could not be inspected, and no change was established: .mcp.json" in rows[0]["title"]
     assert "did not establish that it changed" in rows[0]["recommendation"]
 
 
@@ -270,6 +270,29 @@ def test_final_validation_entry_is_bounded_and_redacted_but_kept_exactly(
     assert {failure.entry for failure in snapshot.input_failures.values()} == {
         f"{folder}/.mcp.json",
     }
+
+
+def test_a_long_entry_never_pushes_the_observation_out_of_the_bounded_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    folder = tmp_path.joinpath("x" * 200, "y" * 200, "z" * 200)
+    folder.mkdir(parents=True)
+    source = folder / ".mcp.json"
+    source.write_text('{"mcpServers": {}}')
+    _changed_during_final_validation(monkeypatch, source)
+    snapshot = build_host_boundary_snapshot(tmp_path)
+    payload = _result(tmp_path, snapshot)
+    rows = _denied(payload)
+    assert len(rows) == 1
+    # The evidence keeps the whole bounded label; the prose keeps the observed
+    # words and the entry's own name.
+    assert len(rows[0]["evidence"]["recovery"]["entry"]) > 500
+    for text in (rows[0]["title"], payload["control"]["reason"]):
+        assert "no longer had the identity it was read with: …" in text
+        assert "/.mcp.json." in text
+    assert len(rows[0]["title"]) <= MAX_FAILURE_TEXT
+    assert "observed that …" in rows[0]["recommendation"]
+    assert "/.mcp.json differed" in rows[0]["recommendation"]
 
 
 def test_old_snapshot_has_no_invented_recovery_metadata(tmp_path: Path, monkeypatch) -> None:

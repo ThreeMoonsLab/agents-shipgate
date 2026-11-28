@@ -27,13 +27,20 @@ SnapshotObservation = Literal[
     "inspection_unavailable",
 ]
 
+# What was observed comes before the entry, so a long entry cannot push it
+# out of the bounded text.
 _OBSERVED: dict[str, str] = {
-    "identity_mismatch": "{entry} no longer had the identity it was read with",
-    "entries_changed": "the entries of {entry} were no longer the ones read",
-    "kind_changed": "{entry} was no longer the kind of entry it was listed as",
+    "identity_mismatch": "an entry no longer had the identity it was read with: {entry}",
+    "entries_changed": "a directory's entries were no longer the ones read: {entry}",
+    "kind_changed": "an entry was no longer the kind it was listed as: {entry}",
     "root_changed": "the read root no longer had the identity it was read with",
-    "inspection_unavailable": "{entry} could not be inspected, and no change was established",
+    "inspection_unavailable": (
+        "an entry could not be inspected, and no change was established: {entry}"
+    ),
 }
+
+#: How much of an entry's label prose repeats; the evidence keeps all of it.
+PROSE_ENTRY_CHARS = 160
 
 
 @dataclass(frozen=True)
@@ -72,10 +79,26 @@ class HostInputFailure:
         return _issue_source_label(self.entry or ".")
 
     def _entry_label(self) -> str:
-        return (
-            "repository root (.)" if self.entry in {None, ".", "<repository>"}
-            else self._entry_text()
-        )
+        if self.entry in {None, ".", "<repository>"}:
+            return "repository root (.)"
+        from agents_shipgate.core.host_grants import _issue_source_label
+
+        # Prose names the entry by its trailing whole components, so the
+        # entry's own name survives the bound. Each component is redacted on
+        # its own, never cut first: a cut could split a secret before
+        # redaction sees it. The evidence keeps the whole bounded label.
+        parts = self.entry.split("/")
+        kept = 1
+        while kept < len(parts) and len(
+            _issue_source_label("/".join(parts[-(kept + 1):]))
+        ) <= PROSE_ENTRY_CHARS - 2:
+            kept += 1
+        label = _issue_source_label("/".join(parts[-kept:]))
+        if kept < len(parts):
+            label = "…/" + label
+        if len(label) > PROSE_ENTRY_CHARS:
+            label = label[:PROSE_ENTRY_CHARS - 1] + "…"
+        return label
 
     def summary(self) -> str:
         phase = {

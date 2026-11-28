@@ -890,10 +890,30 @@ def read_identity_bound_bytes(
     try:
         current_metadata = (lexical_root / relative).lstat()
     except OSError as exc:
-        raise ValueError("path changed while it was read") from exc
-    if issue is not None or _identity_stat(opened) != _identity_stat(current_metadata):
-        raise ValueError("path changed identity while it was read")
+        # Failing to look is not seeing a change (#588).
+        raise ValueError("path could not be inspected after it was read") from exc
+    _refuse_unconfirmed_read(issue, opened, current_metadata)
     return bytes(raw)
+
+
+def _refuse_unconfirmed_read(
+    issue: PathIdentityIssue | None,
+    opened: os.stat_result,
+    current: os.stat_result,
+) -> None:
+    """Refuse a read the path no longer confirms, saying only what was observed.
+
+    A different identity, or a link, reparse point or alias now on the path,
+    is an observed change. A component that could not be inspected is not:
+    the read is refused just the same, without claiming a change (#588).
+    """
+
+    if _identity_stat(opened) != _identity_stat(current) or (
+        issue is not None and issue.kind != "inspection_error"
+    ):
+        raise ValueError("path changed identity while it was read")
+    if issue is not None:
+        raise ValueError("path could not be inspected after it was read")
 
 
 def read_identity_bound_text(
@@ -958,8 +978,7 @@ def _read_identity_bound_bytes_portable(
         raise ValueError("file changed while it was read")
     issue = inspect_lexical_path_identity(root, relative)
     current = path.lstat()
-    if issue is not None or _identity_stat(opened) != _identity_stat(current):
-        raise ValueError("path changed identity while it was read")
+    _refuse_unconfirmed_read(issue, opened, current)
     return bytes(raw)
 
 
