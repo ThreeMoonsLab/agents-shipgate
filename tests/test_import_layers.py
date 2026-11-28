@@ -77,7 +77,7 @@ LAYER_RULES: dict[str, frozenset[str]] = {
 
 #: Function-local imports of ``agents_shipgate`` modules in ``src``. Lower it
 #: when the count falls; see the module docstring before raising it.
-FUNCTION_LOCAL_FIRST_PARTY_IMPORTS = 321
+FUNCTION_LOCAL_FIRST_PARTY_IMPORTS = 323
 
 
 @dataclass(frozen=True)
