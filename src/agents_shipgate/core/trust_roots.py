@@ -246,6 +246,61 @@ class IdentityReadBudgetExceeded(ValueError):
     """A graph-scoped identity reader exhausted its aggregate resource budget."""
 
 
+IdentityValidationPhase = Literal["read", "final_validation"]
+IdentityObservation = Literal[
+    "identity_mismatch",
+    "entries_changed",
+    "kind_changed",
+    "root_changed",
+    "inspection_unavailable",
+    "not_singly_linked_regular_file",
+    "size_limit_exceeded",
+]
+
+
+class IdentityValidationFailure(ValueError):
+    """A refused identity-bound read, with the facts the refusing branch knew (#588).
+
+    ``phase`` is ``read`` for a refusal while a file is read, and
+    ``final_validation`` for :meth:`IdentityBoundReadSession.finish`.
+    ``entry`` is the root-relative POSIX spelling of the one captured entry
+    the refusal is about, or ``None`` for the read root itself. It is the
+    spelling the session already held, so recovering it needs no second
+    filesystem read; it is private and must be bounded and redacted before
+    anything publishes it. ``observation`` is what the branch observed:
+
+    * ``identity_mismatch``: the entry's no-follow identity is not the one
+      captured when it was read, including an entry that is no longer there;
+    * ``entries_changed``: a directory's exact name inventory is not the one
+      captured;
+    * ``kind_changed``: an enumerated entry's no-follow kind is not the one
+      captured;
+    * ``root_changed``: the read root's identity is not the one captured;
+    * ``inspection_unavailable``: the entry could not be inspected, so the
+      branch observed no change and claims none. A captured entry the
+      filesystem reports as absent was observed, not uninspected: that is
+      ``identity_mismatch``;
+    * ``not_singly_linked_regular_file`` and ``size_limit_exceeded``: a read
+      refused for what the entry is, not for a change.
+
+    The message keeps the prose existing callers match. Classify a failure by
+    these attributes, never by parsing the message.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        phase: IdentityValidationPhase,
+        observation: IdentityObservation,
+        entry: str | None,
+    ) -> None:
+        super().__init__(message)
+        self.phase: IdentityValidationPhase = phase
+        self.observation: IdentityObservation = observation
+        self.entry = entry
+
+
 @dataclass
 class IdentityReadBudget:
     """Aggregate entry/byte budget shared by one or more read sessions."""
@@ -362,9 +417,19 @@ class IdentityBoundReadSession:
             raise ValueError("identity-bound reads require a file path")
         final_metadata = components[-1][2]
         if not stat.S_ISREG(final_metadata.st_mode) or final_metadata.st_nlink != 1:
-            raise ValueError("path is not one singly-linked regular file")
+            raise IdentityValidationFailure(
+                "path is not one singly-linked regular file",
+                phase="read",
+                observation="not_singly_linked_regular_file",
+                entry=relative.as_posix(),
+            )
         if max_bytes is not None and final_metadata.st_size > max_bytes:
-            raise ValueError(f"file exceeds the {max_bytes}-byte read limit")
+            raise IdentityValidationFailure(
+                f"file exceeds the {max_bytes}-byte read limit",
+                phase="read",
+                observation="size_limit_exceeded",
+                entry=relative.as_posix(),
+            )
         remaining = self._budget.remaining_bytes
         if final_metadata.st_size > remaining:
             raise IdentityReadBudgetExceeded(
@@ -433,36 +498,120 @@ class IdentityBoundReadSession:
 
         if self._finished:
             return
-        current_root = self.root.lstat()
+        try:
+            current_root = self.root.lstat()
+        except FileNotFoundError as exc:
+            raise IdentityValidationFailure(
+                "identity-read root changed while files were read",
+                phase="final_validation",
+                observation="root_changed",
+                entry=None,
+            ) from exc
+        except OSError as exc:
+            raise IdentityValidationFailure(
+                "identity-read root could not be inspected during final validation",
+                phase="final_validation",
+                observation="inspection_unavailable",
+                entry=None,
+            ) from exc
         if _identity_stat(current_root) != _identity_stat(self._root_metadata):
-            raise ValueError("identity-read root changed while files were read")
+            raise IdentityValidationFailure(
+                "identity-read root changed while files were read",
+                phase="final_validation",
+                observation="root_changed",
+                entry=None,
+            )
         for directory in sorted(self._snapshots, key=os.fspath):
             snapshot = self._snapshots[directory]
-            current_names = self._scan_names(directory)
+            try:
+                current_names = self._scan_names(directory)
+            except IdentityValidationFailure as exc:
+                # This listing is the final pass's own inspection.
+                raise IdentityValidationFailure(
+                    str(exc),
+                    phase="final_validation",
+                    observation=exc.observation,
+                    entry=exc.entry,
+                ) from exc.__cause__
             if current_names != snapshot.names:
-                raise ValueError(
-                    "directory entries changed while identity-bound files were read"
+                raise IdentityValidationFailure(
+                    "directory entries changed while identity-bound files were read",
+                    phase="final_validation",
+                    observation="entries_changed",
+                    entry=self._entry(directory),
                 )
             for name, expected_kind in sorted(snapshot.entry_kinds.items()):
                 requested = directory / name
-                if _directory_member_kind(requested) != expected_kind:
-                    raise ValueError("directory entry kind changed while inputs were read")
+                try:
+                    current_kind = _directory_member_kind(requested)
+                except FileNotFoundError as exc:
+                    raise IdentityValidationFailure(
+                        "directory entry changed while it was read",
+                        phase="final_validation",
+                        observation="identity_mismatch",
+                        entry=self._entry(requested),
+                    ) from exc
+                except OSError as exc:
+                    raise IdentityValidationFailure(
+                        "directory entry could not be inspected during final validation",
+                        phase="final_validation",
+                        observation="inspection_unavailable",
+                        entry=self._entry(requested),
+                    ) from exc
+                if current_kind != expected_kind:
+                    raise IdentityValidationFailure(
+                        "directory entry kind changed while inputs were read",
+                        phase="final_validation",
+                        observation="kind_changed",
+                        entry=self._entry(requested),
+                    )
             for name, expected in sorted(snapshot.observed.items()):
                 if name not in current_names:
-                    raise ValueError("path changed lexical identity while it was read")
+                    raise IdentityValidationFailure(
+                        "path changed lexical identity while it was read",
+                        phase="final_validation",
+                        observation="entries_changed",
+                        entry=self._entry(directory),
+                    )
                 requested = directory / name
                 try:
                     current = requested.lstat()
+                except FileNotFoundError as exc:
+                    # The captured entry is gone: an observed change.
+                    raise IdentityValidationFailure(
+                        "path changed while it was read",
+                        phase="final_validation",
+                        observation="identity_mismatch",
+                        entry=self._entry(requested),
+                    ) from exc
                 except OSError as exc:
-                    raise ValueError("path changed while it was read") from exc
+                    # Failing to look is not seeing a change: name the entry,
+                    # and claim nothing about its content or identity.
+                    raise IdentityValidationFailure(
+                        "path could not be inspected during final validation",
+                        phase="final_validation",
+                        observation="inspection_unavailable",
+                        entry=self._entry(requested),
+                    ) from exc
                 if (
                     stat.S_ISLNK(current.st_mode)
                     or _is_reparse_point(current)
                     or _is_junction(requested)
                     or _identity_stat(current) != _identity_stat(expected)
                 ):
-                    raise ValueError("path changed identity while it was read")
+                    raise IdentityValidationFailure(
+                        "path changed identity while it was read",
+                        phase="final_validation",
+                        observation="identity_mismatch",
+                        entry=self._entry(requested),
+                    )
         self._finished = True
+
+    def _entry(self, path: Path) -> str | None:
+        """The root-relative POSIX spelling of one captured lexical path."""
+
+        relative = path.relative_to(self.root)
+        return None if relative == Path() else relative.as_posix()
 
     def directory_entry_kind(self, relative: Path) -> str:
         """Observe one enumerated name's no-follow kind, without reading bytes.
@@ -589,8 +738,22 @@ class IdentityBoundReadSession:
                     names.add(entry.name)
         except IdentityReadBudgetExceeded:
             raise
+        except FileNotFoundError as exc:
+            # Every directory listed here was just seen: its absence is an
+            # observed change, not a failure to look.
+            raise IdentityValidationFailure(
+                "directory changed while it was read",
+                phase="read",
+                observation="identity_mismatch",
+                entry=self._entry(directory),
+            ) from exc
         except OSError as exc:
-            raise ValueError("directory could not be inspected safely") from exc
+            raise IdentityValidationFailure(
+                "directory could not be inspected safely",
+                phase="read",
+                observation="inspection_unavailable",
+                entry=self._entry(directory),
+            ) from exc
         return frozenset(names)
 
     def _read_with_dir_fds(
@@ -632,7 +795,12 @@ class IdentityBoundReadSession:
             ):
                 raw.extend(chunk)
                 if len(raw) > max_bytes:
-                    raise ValueError(f"file exceeds the {max_bytes}-byte read limit")
+                    raise IdentityValidationFailure(
+                        f"file exceeds the {max_bytes}-byte read limit",
+                        phase="read",
+                        observation="size_limit_exceeded",
+                        entry="/".join(part for _parent, part, _meta in components),
+                    )
                 if len(raw) > remaining:
                     raise IdentityReadBudgetExceeded(
                         "identity reads exceeded their aggregate byte bound"
@@ -671,7 +839,12 @@ class IdentityBoundReadSession:
             ):
                 raw.extend(chunk)
                 if len(raw) > max_bytes:
-                    raise ValueError(f"file exceeds the {max_bytes}-byte read limit")
+                    raise IdentityValidationFailure(
+                        f"file exceeds the {max_bytes}-byte read limit",
+                        phase="read",
+                        observation="size_limit_exceeded",
+                        entry=relative.as_posix(),
+                    )
                 if len(raw) > remaining:
                     raise IdentityReadBudgetExceeded(
                         "identity reads exceeded their aggregate byte bound"
@@ -761,16 +934,38 @@ def read_identity_bound_bytes(
                 pass
 
     assert opened is not None and after is not None
+    _revalidate_completed_read(lexical_root, relative, opened, after)
+    return bytes(raw)
+
+
+def _revalidate_completed_read(
+    root: Path,
+    relative: Path,
+    opened: os.stat_result,
+    after: os.stat_result,
+) -> None:
+    """Refuse a read the path no longer confirms, saying only what was observed.
+
+    A different identity, or a link, reparse point or alias now on the path,
+    is an observed change. A component that could not be inspected is not:
+    the read is refused just the same, without claiming a change (#588).
+    """
+
     if _identity_stat(opened) != _identity_stat(after):
         raise ValueError("file changed while it was read")
-    issue = inspect_lexical_path_identity(lexical_root, relative)
+    issue = inspect_lexical_path_identity(root, relative)
     try:
-        current_metadata = (lexical_root / relative).lstat()
-    except OSError as exc:
+        current = (root / relative).lstat()
+    except FileNotFoundError as exc:
         raise ValueError("path changed while it was read") from exc
-    if issue is not None or _identity_stat(opened) != _identity_stat(current_metadata):
+    except OSError as exc:
+        raise ValueError("path could not be inspected after it was read") from exc
+    if _identity_stat(opened) != _identity_stat(current) or (
+        issue is not None and issue.kind != "inspection_error"
+    ):
         raise ValueError("path changed identity while it was read")
-    return bytes(raw)
+    if issue is not None:
+        raise ValueError("path could not be inspected after it was read")
 
 
 def read_identity_bound_text(
@@ -831,12 +1026,7 @@ def _read_identity_bound_bytes_portable(
         after = os.fstat(descriptor)
     finally:
         os.close(descriptor)
-    if _identity_stat(opened) != _identity_stat(after):
-        raise ValueError("file changed while it was read")
-    issue = inspect_lexical_path_identity(root, relative)
-    current = path.lstat()
-    if issue is not None or _identity_stat(opened) != _identity_stat(current):
-        raise ValueError("path changed identity while it was read")
+    _revalidate_completed_read(root, relative, opened, after)
     return bytes(raw)
 
 
@@ -1162,6 +1352,7 @@ __all__ = [
     "IdentityBoundReadSession",
     "IdentityReadBudget",
     "IdentityReadBudgetExceeded",
+    "IdentityValidationFailure",
     "PROTECTED_FILE_EDITS",
     "PathIdentityIssue",
     "configured_input_trust_root",
