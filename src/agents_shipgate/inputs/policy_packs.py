@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from agents_shipgate.core.capability_policy import match_policy_pack_subject
 from agents_shipgate.core.context import ScanContext
-from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.errors import ConfigError, InputParseError, format_error_message
 from agents_shipgate.core.paths import display_path as _display_path
 from agents_shipgate.core.policy_evidence import finding_support, policy_evidence_gap
 from agents_shipgate.core.static_inputs import read_static_input_bytes
@@ -100,7 +100,9 @@ def load_policy_packs(
         except (ConfigError, InputParseError, ValidationError) as exc:
             if isinstance(exc, ConfigError):
                 raise
-            raise ConfigError(f"Invalid policy pack {config.path!r}: {exc}") from exc
+            raise ConfigError(
+                format_error_message(exc, label=f"Invalid policy pack {config.path!r}")
+            ) from exc
     _validate_rule_ids(resolved_rules)
     return LoadedPolicyPacks(rules=resolved_rules, loaded=loaded, warnings=warnings)
 

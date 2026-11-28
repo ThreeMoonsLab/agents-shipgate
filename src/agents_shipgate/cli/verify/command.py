@@ -46,7 +46,14 @@ from agents_shipgate.core.disclaimers import (
     DETERMINISM_BOUNDARY_REFERENCE,
     STATIC_VERDICT_DISCLAIMER,
 )
-from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
+from agents_shipgate.core.errors import (
+    INTERNAL_VALIDATION_LABEL,
+    AgentsShipgateError,
+    ConfigError,
+    InputParseError,
+    format_error_message,
+    format_exception_text,
+)
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.report.summary_text import primary_evidence_remediation_text
 from agents_shipgate.schemas.agent_control_envelope import (
@@ -500,10 +507,11 @@ def verify(
     except Exception as exc:  # noqa: BLE001 - CLI boundary.
         if verbose:
             logger.exception("unhandled exception")
-        typer.echo(f"Internal error: {exc}", err=True)
+        detail = format_exception_text(exc, validation_label=INTERNAL_VALIDATION_LABEL)
+        typer.echo(f"Internal error: {detail}", err=True)
         emit_agent_mode_error(
             "internal_error",
-            message=str(exc),
+            message=detail,
             exit_code=4,
             next_action=(
                 "Re-run with --verbose for a stack trace, then file an issue if "
@@ -530,14 +538,15 @@ def verify(
     except Exception as exc:  # noqa: BLE001 - CLI boundary.
         if verbose:
             logger.exception("control projection failed")
-        typer.echo(f"Internal error: {exc}", err=True)
+        detail = format_exception_text(exc, validation_label=INTERNAL_VALIDATION_LABEL)
+        typer.echo(f"Internal error: {detail}", err=True)
         guidance = (
             "Re-run with --verbose for a stack trace, then file an issue. Until "
             "this run reports a control state, treat it as authorizing nothing."
         )
         emit_agent_mode_error(
             "internal_error",
-            message=str(exc),
+            message=detail,
             exit_code=4,
             next_action=guidance,
             next_actions=[NextAction(kind="review", why=guidance).model_dump(mode="json")],
@@ -841,7 +850,9 @@ def _verify_envelope(
     try:
         current = VerifierArtifact.model_validate_json(captured)
     except ValueError as exc:
-        return denied(f"The bound verifier artifact could not be read: {exc}")
+        return denied(
+            format_error_message(exc, label="The bound verifier artifact could not be read")
+        )
     if (
         (current.request_id, current.decision_id) != (verifier.request_id, verifier.decision_id)
         or current.host_comparison != verifier.host_comparison

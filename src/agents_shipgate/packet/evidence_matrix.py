@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from agents_shipgate.core.errors import format_exception_text
 from agents_shipgate.core.findings.advisory import ADVISORY_LABEL, is_lexical_advisory
 from agents_shipgate.schemas.packet import (
     EvidenceMatrixConfidence,
@@ -453,7 +454,11 @@ def _release_items(
         try:
             out.append(ReleaseDecisionItem.model_validate(item))
         except ValueError as exc:
-            _LOGGER.debug("Skipping malformed release_decision.%s item: %s", key, exc)
+            _LOGGER.debug(
+                "Skipping malformed release_decision.%s item: %s",
+                key,
+                format_exception_text(exc, validation_label="invalid item"),
+            )
             continue
     return out
 

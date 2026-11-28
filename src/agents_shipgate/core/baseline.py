@@ -21,7 +21,7 @@ from agents_shipgate.core.baseline_audit import (
     utc_now_isoformat,
 )
 from agents_shipgate.core.check_ids import retired_check_ids
-from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.errors import InputParseError, format_error_message
 from agents_shipgate.core.evaluation_clock import trust_expiry_date
 from agents_shipgate.core.findings.identity import (
     legacy_policy_routing_fingerprint,
@@ -241,7 +241,9 @@ def load_baseline(path: Path) -> BaselineFile:
     try:
         return BaselineFile.model_validate_json(read_static_input_text(path))
     except (OSError, UnicodeDecodeError, ValidationError, ValueError) as exc:
-        raise InputParseError(f"Invalid baseline file {path}: {exc}") from exc
+        raise InputParseError(
+            format_error_message(exc, label=f"Invalid baseline file {path}")
+        ) from exc
 
 
 # --- Debt status (exception-workflow reporting and gating) ----------------

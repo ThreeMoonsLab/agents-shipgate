@@ -84,7 +84,13 @@ from agents_shipgate.core.current_control import (
     publish_current_control,
     workspace_identity_from_plan,
 )
-from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
+from agents_shipgate.core.errors import (
+    AgentsShipgateError,
+    ConfigError,
+    InputParseError,
+    format_error_message,
+    format_exception_text,
+)
 from agents_shipgate.core.evaluation_clock import use_evaluation_date
 from agents_shipgate.core.findings.constants import SEVERITY_ORDER
 from agents_shipgate.core.human_authorization import (
@@ -6501,7 +6507,9 @@ def _write_capability_delta_attestation(
         except Exception as exc:  # noqa: BLE001 - review artifacts never gate.
             label = "" if version == 1 else f" (v{version})"
             verifier.base_notes.append(
-                f"Capability delta attestation{label} unavailable: {exc}"
+                format_error_message(
+                    exc, label=f"Capability delta attestation{label} unavailable"
+                )
             )
             continue
         verifier.artifacts[artifact_key] = _display_path(path.resolve(), git_root, resolve=False)
@@ -6829,7 +6837,7 @@ def _stable_archive_error(
 ) -> str:
     """Remove random temporary-root spellings from public verifier evidence."""
 
-    detail = str(exc) or type(exc).__name__
+    detail = format_exception_text(exc, validation_label="Invalid input") or type(exc).__name__
     spellings = {str(archive_root), str(archive_root.absolute())}
     try:
         spellings.add(str(archive_root.resolve()))

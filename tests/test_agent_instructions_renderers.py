@@ -51,7 +51,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: compare ``schema_version`` against or pick a schema file by.
 BOUNDARY_RESULT_SCHEMA_TOKEN = re.compile(r"shipgate\.agent_boundary_result/v\d+")
 EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
-    ".claude/skills/agents-shipgate/SKILL.md": "38c6c4002dad4abbc27a237550c0840e4e0056b8a83a01d9598ebc163c87b759",
+    ".claude/skills/agents-shipgate/SKILL.md": "cf39bcf5f2bf498b6746cc879100f308b4216e4d719d26f9944e20d702df617b",
     ".claude/skills/agents-shipgate/ci-recipes/advisory-pr-comment.yml": "4003fee3f7034504a90e7fee571bd224fbcfe2ddb63e122f38ff40407d0616d5",
     ".claude/skills/agents-shipgate/prompts/add-shipgate-to-repo.md": "c93c4e412b3d2d63f258df5d517e6ff0f5f64302f39ba70420ad927299e2beeb",
     ".claude/skills/agents-shipgate/prompts/decide-shipgate-relevance.md": "ab4c162dd2543a66638145f437a5a74c9166253f5d7a310cc8293cb5ccb0c54c",
@@ -64,7 +64,7 @@ EXPECTED_CLAUDE_CODE_SKILL_RENDER_SHA256 = {
     ".claude/skills/agents-shipgate/prompts/verify-agent-diff.md": "1e0279c7b6beae88f468f478b4e3b7401d7cc53bead5c53b6edcc256f59e159c",
 }
 EXPECTED_CODEX_SKILL_RENDER_SHA256 = {
-    ".agents/skills/agents-shipgate/SKILL.md": "d34336c2052b7ced6f2124e11c3203c87008d511fd7a420f48da5ed520d874b9",
+    ".agents/skills/agents-shipgate/SKILL.md": "94fd67dddac6a6706847a6085fe5a78fa58ef1f82227a78dabd035d4935dbd20",
     ".agents/skills/agents-shipgate/agents/openai.yaml": "aa511e933ff663dcd1e0d2af3da2a7101206ce2bb1bb98c4dae801bb3f4e42ef",
     ".agents/skills/agents-shipgate/assets/advisory-pr-comment.yml": "2aad175ba6f9212136df084fbcc99a1c9c583429f916ad6a8ae53cd2289a60dc",
     ".agents/skills/agents-shipgate/references/recipes.md": "c4cfcf755f6953c822ab19f9dc7a0b98d2bb9eb137070876a21a10306cad8093",

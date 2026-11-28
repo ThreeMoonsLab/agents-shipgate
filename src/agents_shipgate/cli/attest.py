@@ -26,7 +26,7 @@ from pydantic import ValidationError
 from agents_shipgate import __version__
 from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
 from agents_shipgate.config.loader import load_manifest
-from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.errors import ConfigError, InputParseError, format_validation_error
 from agents_shipgate.core.pr_approval import (
     APPROVAL_SOURCE,
     ApprovalEvaluation,
@@ -357,7 +357,12 @@ def verified_head_commit(receipt: VerificationReceipt | None, *, root: Path) -> 
         raise ValueError(f"the verification plan could not be read: {exc}") from exc
     if sha256_bytes(raw) != ref.sha256:
         raise ValueError("the verification plan changed after its receipt was validated")
-    plan = VerificationPlan.model_validate_json(raw)
+    try:
+        plan = VerificationPlan.model_validate_json(raw)
+    except ValidationError as exc:
+        raise ValueError(
+            format_validation_error(exc, label="the verification plan is invalid")
+        ) from exc
     if plan.subject.subject_id != receipt.subject_id:  # pragma: no cover - validated
         raise ValueError("the verification plan is not the receipt's")
     git = plan.subject.git

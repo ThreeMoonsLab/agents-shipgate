@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Literal, ParamSpec, TypeVar
 
 from agents_shipgate.core.contained_write import UnsafeOutputPathError, write_contained
-from agents_shipgate.core.errors import AgentsShipgateError
+from agents_shipgate.core.errors import AgentsShipgateError, format_error_message
 from agents_shipgate.core.privacy import redact_text
 from agents_shipgate.core.verification_identity import (
     plan_worktree_overlay_paths,
@@ -314,7 +314,7 @@ def _receipt_binding_refusal(
             else VerificationReceipt.model_validate_json(receipt_bytes)
         )
     except ValueError as exc:
-        return f"The bound terminal receipt could not be read: {exc}"
+        return format_error_message(exc, label="The bound terminal receipt could not be read")
     if receipt.request_id != request_id or receipt.decision_id != decision_id:
         return (
             "The bound terminal receipt closes a different request than the one "
@@ -333,7 +333,9 @@ def _load_receipt(out_dir: Path, ref: CurrentControlArtifactRef) -> Verification
     try:
         return VerificationReceipt.model_validate_json(data)
     except Exception as exc:  # pydantic ValidationError and friends
-        raise ValueError(str(exc)) from exc
+        raise ValueError(
+            format_error_message(exc, label="Invalid verification receipt")
+        ) from exc
 
 
 def bind_current_control_artifacts(
@@ -823,7 +825,10 @@ def _load_pointer(out_dir: Path, path: Path) -> CurrentControlPointer:
     except Exception as exc:  # pydantic ValidationError and friends
         raise CurrentControlUnavailable(
             "invalid_schema",
-            f"{CURRENT_CONTROL_ARTIFACT_NAME} is not a valid control pointer: {exc}",
+            format_error_message(
+                exc,
+                label=f"{CURRENT_CONTROL_ARTIFACT_NAME} is not a valid control pointer",
+            ),
             path=path,
         ) from exc
 
@@ -954,7 +959,10 @@ def _validate_control_currency(
         except (ValueError, OSError) as exc:
             raise CurrentControlUnavailable(
                 "workspace_unverifiable",
-                f"The recorded source and dependency inputs are no longer current: {exc}",
+                format_error_message(
+                    exc,
+                    label="The recorded source and dependency inputs are no longer current",
+                ),
                 path=out_dir,
             ) from exc
 
@@ -1165,7 +1173,10 @@ def _validate_worktree_currency(
     except (ValueError, OSError) as exc:
         raise CurrentControlUnavailable(
             "workspace_unverifiable",
-            f"The worktree overlay this decision committed to could not be recomputed: {exc}",
+            format_error_message(
+                exc,
+                label="The worktree overlay this decision committed to could not be recomputed",
+            ),
             path=out_dir,
         ) from exc
     observed = content_id(rows) if rows else None

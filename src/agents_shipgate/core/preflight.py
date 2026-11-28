@@ -22,7 +22,7 @@ from agents_shipgate.core.agent_controls import (
     verify_command_for as _shared_verify_command_for,
 )
 from agents_shipgate.core.boundary_diff import _resolve_changed_file_text, parse_unified_diff
-from agents_shipgate.core.errors import ConfigError, InputParseError
+from agents_shipgate.core.errors import ConfigError, InputParseError, format_validation_error
 from agents_shipgate.core.globbing import glob_match_ci
 from agents_shipgate.core.host_grants import (
     DEFAULT_BASELINE_FILE,
@@ -1569,7 +1569,7 @@ def _coerce_capability_request(
     try:
         return CapabilityRequestV1.model_validate(value)
     except ValidationError as exc:
-        raise ConfigError(f"Invalid capability request: {exc}") from exc
+        raise ConfigError(format_validation_error(exc, label="Invalid capability request")) from exc
 
 
 def _coerce_plan(
@@ -1580,7 +1580,7 @@ def _coerce_plan(
     try:
         return PreflightPlanV1.model_validate(value)
     except ValidationError as exc:
-        raise ConfigError(f"Invalid preflight plan: {exc}") from exc
+        raise ConfigError(format_validation_error(exc, label="Invalid preflight plan")) from exc
 
 
 def _changed_files_from_diff_text(diff_text: str) -> list[str]:
@@ -1641,7 +1641,9 @@ def _coerce_host_permission_requests(
         try:
             out.append(HostPermissionRequestV1.model_validate(raw))
         except ValidationError as exc:
-            raise ConfigError(f"Invalid host permission request: {exc}") from exc
+            raise ConfigError(
+                format_validation_error(exc, label="Invalid host permission request")
+            ) from exc
     if plan is not None:
         out.extend(plan.host_permission_requests)
     return out
@@ -1660,7 +1662,9 @@ def _coerce_base_preflight(
     try:
         return parse_preflight_result(dict(value))
     except ValidationError as exc:
-        raise ConfigError(f"Invalid base preflight result: {exc}") from exc
+        raise ConfigError(
+            format_validation_error(exc, label="Invalid base preflight result")
+        ) from exc
 
 
 def _host_grant_drift_payload(

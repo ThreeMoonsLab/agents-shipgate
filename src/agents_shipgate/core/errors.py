@@ -66,3 +66,42 @@ def format_validation_error(
             safe_hint = single_line_text(redact_text(guidance) or "")
             hints[safe_hint] = None
     return "\n".join([*lines, *hints])
+
+
+def format_error_message(exc: BaseException, *, label: str) -> str:
+    """``label: exc``, with a ``ValidationError`` described the way
+    :func:`format_validation_error` does.
+
+    For a handler that catches a ``ValidationError`` beside other exceptions,
+    or through ``ValueError`` or ``Exception``. Pydantic's own text carries
+    type codes, the invalid input values and documentation URLs; it is not a
+    message (#1040), and ``tests/test_validation_error_messages.py`` keeps it
+    out of every handler that interpolates the exception.
+    """
+
+    from pydantic import ValidationError
+
+    if isinstance(exc, ValidationError):
+        return format_validation_error(exc, label=label)
+    return f"{label}: {exc}"
+
+
+#: The ``validation_label`` for an internal-error boundary. A ValidationError
+#: that reaches one comes from a model Agents Shipgate built, not from the
+#: user's input, which every input boundary describes on its own (#1040, #328).
+INTERNAL_VALIDATION_LABEL = "an internal model failed validation"
+
+
+def format_exception_text(exc: BaseException, *, validation_label: str) -> str:
+    """``str(exc)``, with a ``ValidationError`` described under
+    ``validation_label`` the way :func:`format_validation_error` does.
+
+    For a handler that shows the bare exception text, such as an internal-error
+    boundary around code that can raise a ``ValidationError`` from deep inside.
+    """
+
+    from pydantic import ValidationError
+
+    if isinstance(exc, ValidationError):
+        return format_validation_error(exc, label=validation_label)
+    return str(exc)

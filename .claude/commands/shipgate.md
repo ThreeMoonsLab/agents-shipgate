@@ -46,13 +46,13 @@ scanned. For committed PR/CI refs, make the base ref available first because
 
 Required behavior (do not skip):
 
-1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` for every CLI call so the errors a
-   command handles itself emit a `next_action` JSON line on stderr. Usage
-   errors (an unknown option, a rejected option value) and some supporting
-   commands print prose only
-   ([#1040](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1040)),
-   and `verify` reports many failures in the `verifier.json` it prints; when
-   no JSON line appears, act on the message and the exit code.
+1. Set `AGENTS_SHIPGATE_AGENT_MODE=1` for every CLI call so every error a
+   command handles, usage errors (an unknown option, a rejected option value)
+   included, emits one `next_action` JSON line on stderr. Where the command
+   knows no specific recovery, that action is `review`: act on the prose
+   message printed with it. `verify` reports most failures in the
+   `verifier.json` it prints instead. An older CLI prints prose only on some
+   paths; when no JSON line appears, act on the message and the exit code.
 2. Run `agents-shipgate contract --json` when available and use it to verify the installed CLI's schema versions and gating signal.
 3. For verifier runs, read `agents-shipgate-reports/current-control.json` first,
    then validate the `agents-shipgate-reports/verification-receipt.json` it binds,

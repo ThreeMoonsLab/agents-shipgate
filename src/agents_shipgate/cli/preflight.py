@@ -23,9 +23,11 @@ from agents_shipgate.core.bounded_io import (
 )
 from agents_shipgate.core.codex_boundary import parse_unified_diff
 from agents_shipgate.core.errors import (
+    INTERNAL_VALIDATION_LABEL,
     AgentsShipgateError,
     ConfigError,
     InputParseError,
+    format_exception_text,
     format_validation_error,
 )
 from agents_shipgate.core.logging import configure_logging
@@ -126,7 +128,9 @@ def _agent_mode_exit(
 
     emit_agent_mode_error(
         error_kind,
-        message=str(exc),
+        # Input boundaries raise ConfigError or InputParseError with the fields
+        # already described; only the internal-error path hands in a raw one.
+        message=format_exception_text(exc, validation_label=INTERNAL_VALIDATION_LABEL),
         exit_code=exit_code,
         next_action=actions[0].to_legacy_string(),
         next_actions=[action.model_dump(mode="json") for action in actions],
@@ -448,7 +452,8 @@ def preflight(
         # what that flag exists to prevent.
         if verbose:
             logger.exception("unhandled exception")
-        typer.echo(f"Agents Shipgate internal error: {exc}", err=True)
+        detail = format_exception_text(exc, validation_label=INTERNAL_VALIDATION_LABEL)
+        typer.echo(f"Agents Shipgate internal error: {detail}", err=True)
         raise _agent_mode_exit(
             "internal_error",
             exc,

@@ -6,7 +6,13 @@ import typer
 
 from agents_shipgate import __version__
 from agents_shipgate.cli._helpers import _parse_fail_on, _parse_formats
-from agents_shipgate.core.errors import AgentsShipgateError, ConfigError, InputParseError
+from agents_shipgate.core.errors import (
+    INTERNAL_VALIDATION_LABEL,
+    AgentsShipgateError,
+    ConfigError,
+    InputParseError,
+    format_exception_text,
+)
 from agents_shipgate.core.logging import configure_logging
 from agents_shipgate.skill.models import SkillCommand
 from agents_shipgate.skill.runner import run_skill_review
@@ -179,7 +185,8 @@ def _run(
         typer.echo(f"Agents Shipgate error: {exc}", err=True)
         raise typer.Exit(4) from exc
     except Exception as exc:  # noqa: BLE001 - CLI should map unexpected failures.
-        typer.echo(f"Internal error: {exc}", err=True)
+        detail = format_exception_text(exc, validation_label=INTERNAL_VALIDATION_LABEL)
+        typer.echo(f"Internal error: {detail}", err=True)
         raise typer.Exit(4) from exc
 
     typer.echo(f"Agents Shipgate Skill {command.title()} {__version__}")

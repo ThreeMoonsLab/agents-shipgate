@@ -16,6 +16,7 @@ from agents_shipgate.cli.agent_mode import emit_agent_mode_error_action
 from agents_shipgate.cli.current_workspace import explicit_output_path
 from agents_shipgate.cli.workspace_guard import require_workspace
 from agents_shipgate.core.agent_controls import _cwd_anchored
+from agents_shipgate.core.errors import format_exception_text
 from agents_shipgate.core.host_grants import (
     DEFAULT_BASELINE_FILE,
     HOST_GRANTS_INVENTORY_SCHEMA_VERSION,
@@ -305,7 +306,9 @@ def audit(
         except ValueError as exc:
             coverage_review = _incomplete_inventory_review(inventory)
             raise _config_error(
-                str(exc),
+                format_exception_text(
+                    exc, validation_label="The host-grants baseline could not be built"
+                ),
                 next_action=coverage_review,
                 command=None,
             ) from exc

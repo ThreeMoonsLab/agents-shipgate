@@ -29,7 +29,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from agents_shipgate.core.errors import InputParseError
+from agents_shipgate.core.errors import InputParseError, format_validation_error
 from agents_shipgate.core.static_inputs import read_static_input_bytes
 
 AUDIT_LOG_SCHEMA_VERSION = "0.1"
@@ -149,7 +149,10 @@ def read_audit_log(log_path: Path) -> list[BaselineAuditEntry]:
             entries.append(BaselineAuditEntry.model_validate_json(raw))
         except ValidationError as exc:
             raise InputParseError(
-                f"Invalid baseline audit log entry at {log_path}:{line_number}: {exc}"
+                format_validation_error(
+                    exc,
+                    label=f"Invalid baseline audit log entry at {log_path}:{line_number}",
+                )
             ) from exc
     return entries
 

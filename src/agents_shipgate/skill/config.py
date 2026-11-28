@@ -6,7 +6,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from agents_shipgate.core.errors import ConfigError
+from agents_shipgate.core.errors import ConfigError, format_validation_error
 from agents_shipgate.skill.models import SkillReviewConfig
 
 DEFAULT_SKILL_PATTERNS = [
@@ -51,7 +51,9 @@ def load_skill_review_config(path: Path | None) -> tuple[SkillReviewConfig, Path
     try:
         config = SkillReviewConfig.model_validate(raw)
     except ValidationError as exc:
-        raise ConfigError(f"Invalid skill review config {path}: {exc}") from exc
+        raise ConfigError(
+            format_validation_error(exc, label=f"Invalid skill review config {path}")
+        ) from exc
     return _with_defaults(config, raw=raw), path
 
 
