@@ -479,9 +479,6 @@ def evaluate_codex_boundary_result(
       would miss the undeclared one.
     """
 
-    # Keep this local diff projector aligned with
-    # agents_shipgate.ci.agent_result.build_agent_result; both produce
-    # boundary-result routing fields for different substrates.
     resolved_verify_command = retarget_command(verify_command or _VERIFY_COMMAND)
     resolved_detect_command = retarget_command(detect_command or _DETECT_COMMAND)
     resolved_preview_command = retarget_command(preview_command or _VERIFY_PREVIEW_COMMAND)

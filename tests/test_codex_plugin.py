@@ -387,6 +387,89 @@ def test_codex_plugin_invalid_mode_is_manifest_error(tmp_path: Path) -> None:
         load_manifest(manifest)
 
 
+# --- package defects the codex_plugin checks report (#1048) -----------------
+# The clean skill-only package these vary is the one that passes above.
+
+_SKILLISH_MANIFEST = """version: "0.1"
+project:
+  name: codex-plugin-test
+agent:
+  name: codex-plugin-review
+  declared_purpose:
+    - review a plugin package
+environment:
+  target: local
+tool_sources:
+  - id: skillish
+    type: codex_plugin
+    mode: package
+    path: plugins/skillish
+output:
+  packet:
+    enabled: false
+"""
+
+
+def _scan_skillish(
+    tmp_path: Path,
+    *,
+    extra_manifest: dict[str, object] | None = None,
+    skill_md: str | None = None,
+):
+    root = tmp_path / "plugins" / "skillish"
+    _write_skill_only_codex_plugin(root, extra_manifest=extra_manifest)
+    if skill_md is not None:
+        (root / "skills" / "review" / "SKILL.md").write_text(skill_md, encoding="utf-8")
+    report, _ = run_scan(config_path=_write_manifest(tmp_path, _SKILLISH_MANIFEST))
+    return report
+
+
+def test_codex_plugin_component_path_that_does_not_exist_is_reported(
+    tmp_path: Path,
+) -> None:
+    report = _scan_skillish(tmp_path, extra_manifest={"hooks": "./hooks.json"})
+
+    assert [finding.check_id for finding in report.findings] == [
+        "SHIP-CODEX-PLUGIN-COMPONENT-PATH-MISSING"
+    ]
+    [finding] = report.findings
+    assert finding.severity == "high"
+    assert {key: finding.evidence[key] for key in ("plugin", "component", "path", "reason")} == {
+        "plugin": "skillish",
+        "component": "hooks",
+        "path": "./hooks.json",
+        "reason": "missing",
+    }
+    assert report.release_decision.decision != "passed"
+
+
+@pytest.mark.parametrize(
+    ("extra_manifest", "issue"),
+    [
+        ({"version": ""}, "version"),
+        ({"name": "renamed"}, "name does not match plugin root directory"),
+    ],
+)
+def test_codex_plugin_metadata_gap_is_reported(
+    tmp_path: Path, extra_manifest: dict[str, object], issue: str
+) -> None:
+    report = _scan_skillish(tmp_path, extra_manifest=extra_manifest)
+
+    assert [finding.check_id for finding in report.findings] == [
+        "SHIP-CODEX-PLUGIN-METADATA-MISSING"
+    ]
+    assert issue in report.findings[0].evidence["issues"]
+
+
+def test_codex_plugin_skill_without_a_description_is_reported(tmp_path: Path) -> None:
+    report = _scan_skillish(tmp_path, skill_md="---\nname: review\n---\n\n# Review\n")
+
+    assert [finding.check_id for finding in report.findings] == [
+        "SHIP-CODEX-PLUGIN-SKILL-METADATA-MISSING"
+    ]
+    assert report.findings[0].evidence["missing_fields"] == ["description"]
+
+
 def _write_manifest(tmp_path: Path, content: str) -> Path:
     path = tmp_path / "shipgate.yaml"
     path.write_text(content, encoding="utf-8")
