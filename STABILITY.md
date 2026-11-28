@@ -6219,11 +6219,11 @@ new schema version. `report.json.release_decision.decision` is still the only
 release gate.
 
 [The report 1.0 contract](docs/report-1-0-contract.md#cli-exit-codes-and-control)
-names org governance, the org evidence bundle, and registry query among its
-provisional surfaces, outside the `1.0` merge-gate promise. It does not
-classify `attest` or `shipgate audit --host`. Both are listed here, and whether
-either belongs in the stable command surface instead awaits the owner's ruling
-([#1231](https://github.com/ThreeMoonsLab/agents-shipgate/pull/1231)).
+names org governance, the org evidence bundle, and registry query as
+provisional, outside the `1.0` merge-gate promise. The table's other rows,
+among them `attest`, `shipgate audit --host`, and the other `registry`
+commands, are not classified there and await the owner's ruling
+([#1045](https://github.com/ThreeMoonsLab/agents-shipgate/issues/1045)).
 
 | Command | Preview flags |
 |---|---|
