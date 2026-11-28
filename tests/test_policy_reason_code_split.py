@@ -204,7 +204,7 @@ def test_an_existing_override_still_reaches_the_no_base_finding(manifest_introdu
     findings = verify_policy.run(
         _policy_context(manifest_introduced=manifest_introduced)
     )
-    assert [f.check_id for f in findings] == [POLICY_BASE_ABSENT_CHECK_ID]
+    assert [f.check_id for f in findings] == ["SHIP-VERIFY-POLICY-BASE-ABSENT"]
     apply_severity_overrides(findings, {POLICY_WEAKENED_CHECK_ID: "critical"})
     assert findings[0].severity == "critical"
 

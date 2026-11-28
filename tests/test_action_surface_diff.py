@@ -1838,6 +1838,38 @@ def test_safeguard_removed_on_an_established_effect_still_blocks():
     assert finding.support is not None and finding.support.policy_eligible is True
 
 
+def _approval_manifest(required: bool | None) -> AgentsShipgateManifest:
+    action: dict = {"tool": "add_comment", "effect": "write"}
+    if required is not None:
+        action["approval"] = {"required": required}
+    return _manifest({"action_surface": {"actions": [action]}})
+
+
+@pytest.mark.parametrize("head_required", [False, None], ids=["set-false", "dropped"])
+def test_removing_an_action_approval_is_a_critical_blocker(head_required):
+    _, base = _semantic_facts(_approval_manifest(True))
+    head_manifest = _approval_manifest(head_required)
+    head_tools, head = _semantic_facts(head_manifest)
+
+    findings = _diff_findings(base, head_manifest, head_tools, head, "SHIP-ACTION-APPROVAL-REMOVED")
+
+    assert [finding.check_id for finding in findings] == ["SHIP-ACTION-APPROVAL-REMOVED"]
+    assert findings[0].severity == "critical"
+    assert findings[0].blocks_release is True
+
+
+def test_an_approval_kept_or_added_is_not_a_removal():
+    for base_required, head_required in ((True, True), (None, True)):
+        _, base = _semantic_facts(_approval_manifest(base_required))
+        head_manifest = _approval_manifest(head_required)
+        head_tools, head = _semantic_facts(head_manifest)
+
+        assert (
+            _diff_findings(base, head_manifest, head_tools, head, "SHIP-ACTION-APPROVAL-REMOVED")
+            == []
+        )
+
+
 @pytest.mark.parametrize(
     ("effect", "hints", "severity"),
     [("destructive", (), "critical"), ("write", (_KEYWORD_DESTRUCTIVE,), "high")],
