@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from importlib.metadata import entry_points
 from typing import Any
@@ -135,9 +135,9 @@ def run_checks(
             context,
             known_check_ids=known_check_ids_with_legacy(
                 {
-                    *(metadata.id for metadata in CHECK_METADATA),
-                    *(
-                        record.metadata.id
+                    *configurable_check_ids(CHECK_METADATA),
+                    *configurable_check_ids(
+                        record.metadata
                         for record in plugin_records
                         if record.metadata is not None
                     ),
@@ -147,6 +147,16 @@ def run_checks(
         )
     )
     return findings
+
+
+def configurable_check_ids(catalog: Iterable[CheckMetadata]) -> set[str]:
+    """Catalog ids a manifest may name: every entry that can be a finding.
+
+    A ``projection`` entry labels a PR annotation or SARIF row and is never a
+    finding, so being in the catalog does not make it configurable (#1047).
+    Deprecated ids stay configurable through their deprecation window.
+    """
+    return {metadata.id for metadata in catalog if metadata.lifecycle != "projection"}
 
 
 def check_catalog(*, plugins_enabled: bool | None = None) -> list[CheckMetadata]:

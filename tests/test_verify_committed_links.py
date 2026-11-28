@@ -1,0 +1,403 @@
+"""``verify`` reads a committed tree that holds links as a checkout of it reads.
+
+A repository that commits ``CLAUDE.md -> AGENTS.md`` made ``verify --head``
+(and so every GitHub Action run) exit 2 with ``unsupported external binding``,
+and a worktree run lose its base comparison, because the full verification
+archive refused every link. A link that opens a file or directory inside the
+tree is now recreated as the link it is, so the archived scan meets what the
+worktree scan meets. A link that leaves the tree keeps the refusal.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+from typer.testing import CliRunner
+
+from agents_shipgate.cli.main import app
+
+pytestmark = pytest.mark.skipif(os.name == "nt", reason="symbolic link fixtures")
+
+runner = CliRunner()
+
+MANIFEST = """\
+version: "0.1"
+project:
+  name: test
+agent:
+  name: test-agent
+  declared_purpose:
+    - test
+environment:
+  target: local
+tool_sources:
+  - id: tools
+    type: mcp
+    path: tools.json
+"""
+
+TOOLS = '{"tools":[{"name":"docs.lookup","annotations":{"readOnlyHint":true}}]}\n'
+
+#: What differs between an archived-head run and a worktree run of the same
+#: commit whatever the tree holds: run identities, where the reports were
+#: written, and how the cached base report's path is spelled.
+_RUN_SPECIFIC = {"decision_id", "generated_reports", "input_set_id", "request_id", "subject_id"}
+
+
+def _git(repo: Path, *args: str) -> None:
+    # `-C`, as the root conftest expects of fixture Git (#1218).
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def _init(repo: Path) -> None:
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "Test User")
+
+
+def _commit(repo: Path, message: str) -> None:
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", message)
+
+
+def _repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init(repo)
+    (repo / "shipgate.yaml").write_text(MANIFEST, encoding="utf-8")
+    (repo / "tools.json").write_text(TOOLS, encoding="utf-8")
+    _commit(repo, "base")
+    return repo
+
+
+def _commit_links(repo: Path, links: dict[str, str]) -> None:
+    (repo / "AGENTS.md").write_text("# Agents\n", encoding="utf-8")
+    (repo / ".agents/skills/demo").mkdir(parents=True)
+    (repo / ".agents/skills/demo/SKILL.md").write_text(
+        "---\nname: demo\ndescription: A demo skill.\n---\nBody.\n", encoding="utf-8"
+    )
+    for link, target in links.items():
+        (repo / link).parent.mkdir(parents=True, exist_ok=True)
+        (repo / link).symlink_to(target)
+    _commit(repo, "links")
+    # A later change, so `--base HEAD~1` is a base that already holds the links.
+    (repo / "README.md").write_text("change\n", encoding="utf-8")
+    _commit(repo, "change")
+
+
+def _verify(repo: Path, out: Path, *args: str):
+    return runner.invoke(
+        app, ["verify", "--workspace", str(repo), "--json", "--out", str(out), *args]
+    )
+
+
+def _error_line(result) -> str:
+    return next(line for line in result.stderr.splitlines() if line.startswith(("Config", "Input")))
+
+
+def _comparable(report: dict) -> dict:
+    report = {key: value for key, value in report.items() if key not in _RUN_SPECIFIC}
+    for key in ("action_surface_diff", "tool_surface_diff"):
+        section = report.get(key)
+        if isinstance(section, dict) and isinstance(section.get("base"), dict):
+            base = {k: v for k, v in section["base"].items() if k != "path"}
+            report[key] = {**section, "base": base}
+    return report
+
+
+@pytest.mark.parametrize(
+    "links",
+    [{"CLAUDE.md": "AGENTS.md"}, {".claude/skills": "../.agents/skills"}],
+    ids=["claude-md", "skills-directory"],
+)
+def test_verify_reads_committed_in_tree_links_as_a_checkout_does(tmp_path, links):
+    repo = _repo(tmp_path)
+    _commit_links(repo, links)
+
+    runs = {}
+    for label, args in {
+        "archived": ("--base", "HEAD~1", "--head", "HEAD"),
+        "worktree": ("--base", "HEAD~1"),
+    }.items():
+        out = tmp_path / f"out-{label}"
+        result = _verify(repo, out, *args)
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        # The base tree holds the links too, so the comparison is kept.
+        assert payload["base_status"] == "succeeded", payload["base_notes"]
+        assert payload["head_status"] == "succeeded"
+        runs[label] = (payload, json.loads((out / "report.json").read_text(encoding="utf-8")))
+
+    (archived, archived_report), (worktree, worktree_report) = runs["archived"], runs["worktree"]
+    assert archived["merge_verdict"] == worktree["merge_verdict"]
+    assert archived["decision"] == worktree["decision"]
+    assert _comparable(archived_report) == _comparable(worktree_report)
+
+    prepared = runner.invoke(app, [
+        "verification", "prepare", "--workspace", str(repo), "--base", "HEAD~1",
+        "--head", "HEAD", "--out", str(tmp_path / "plan.json"),
+    ])
+    assert prepared.exit_code == 0, prepared.output
+
+
+@pytest.mark.parametrize("target", ["../outside", "/etc/hosts"], ids=["escaping", "absolute"])
+def test_verify_still_refuses_a_committed_link_that_leaves_the_tree(tmp_path, target):
+    repo = _repo(tmp_path)
+    _commit_links(repo, {"VERSION": target})
+
+    archived = _verify(repo, tmp_path / "out-archived", "--base", "HEAD~1", "--head", "HEAD")
+    assert archived.exit_code == 2, archived.output
+    error = _error_line(archived)
+    assert error == (
+        "Config error: Git tree contains unsupported external binding at VERSION "
+        "(mode 120000, type blob): only a link that opens a file or directory inside "
+        "the repository is recreated."
+    )
+    assert "shipgate.yaml" not in error
+
+    worktree = _verify(repo, tmp_path / "out-worktree", "--base", "HEAD~1")
+    assert worktree.exit_code == 0, worktree.output
+    payload = json.loads(worktree.stdout)
+    assert payload["base_status"] == "archive_failed"
+    assert "unsupported external binding at VERSION " in payload["base_notes"][0]
+
+
+def test_verify_meets_a_committed_tool_source_link_as_a_checkout_does(tmp_path):
+    # The manifest's tool source becomes an in-tree link to the moved file.
+    # The identity-bound reader refuses to read through it on a checkout, and
+    # the archived head now presents the same link, so it refuses it the same
+    # way, instead of refusing the whole tree before any reader runs.
+    repo = _repo(tmp_path)
+    (repo / "inventories").mkdir()
+    (repo / "tools.json").rename(repo / "inventories/tools.json")
+    (repo / "tools.json").symlink_to("inventories/tools.json")
+    _commit(repo, "move the tool source behind a link")
+
+    worktree = _verify(repo, tmp_path / "out-worktree", "--base", "HEAD~1")
+    archived = _verify(repo, tmp_path / "out-archived", "--base", "HEAD~1", "--head", "HEAD")
+    assert worktree.exit_code != 0, worktree.output
+    assert (archived.exit_code, _error_line(archived)) == (
+        worktree.exit_code, _error_line(worktree)
+    )
+    assert "symlink" in _error_line(archived)
+
+    # It is the committed link the archived run meets: a worktree that has
+    # since replaced it with the file changes nothing about `--head HEAD`.
+    (repo / "tools.json").unlink()
+    shutil.copyfile(repo / "inventories/tools.json", repo / "tools.json")
+    again = _verify(repo, tmp_path / "out-again", "--base", "HEAD~1", "--head", "HEAD")
+    assert (again.exit_code, _error_line(again)) == (archived.exit_code, _error_line(archived))
+
+
+def _git_out(repo: Path, *args: str, data: bytes | None = None) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], input=data, check=True, capture_output=True
+    ).stdout.decode().strip()
+
+
+def _commit_on_top(repo: Path, extra: dict[str, tuple[str, bytes]]) -> None:
+    """Commit HEAD's tree plus ``extra`` (path -> (mode, bytes)) through plumbing.
+
+    The worktree is left alone, so a tree that one filesystem cannot hold can
+    still be committed on it.
+    """
+
+    nested: dict = {}
+
+    def place(path: str, value: tuple[str, str]) -> None:
+        *parents, name = path.split("/")
+        node = nested
+        for part in parents:
+            node = node.setdefault(part, {})
+        node[name] = value
+
+    for record in _git_out(repo, "ls-tree", "-r", "-z", "HEAD").split("\0"):
+        if record:
+            metadata, path = record.split("\t", 1)
+            mode, _kind, oid = metadata.split(" ")
+            place(path, (mode, oid))
+    for path, (mode, data) in extra.items():
+        place(path, (mode, _git_out(repo, "hash-object", "-w", "--stdin", data=data)))
+
+    def write(node: dict) -> str:
+        lines = [
+            f"040000 tree {write(value)}\t{name}"
+            if isinstance(value, dict)
+            else f"{value[0]} blob {value[1]}\t{name}"
+            for name, value in node.items()
+        ]
+        return _git_out(repo, "mktree", data=("\n".join(lines) + "\n").encode())
+
+    commit = _git_out(repo, "commit-tree", write(nested), "-p", "HEAD", "-m", "plumbed")
+    _git_out(repo, "update-ref", "HEAD", commit)
+
+
+def test_verify_refuses_a_tree_whose_names_collide_as_a_typed_error(tmp_path):
+    # A file and a directory whose names a case-insensitive filesystem merges
+    # are refused with a typed error on every filesystem, never an internal
+    # error naming a temporary path.
+    repo = _repo(tmp_path)
+    _commit_on_top(repo, {
+        "A": ("100644", b"a\n"),
+        "B": ("100644", b"b\n"),
+        "a/x": ("120000", b"../B"),
+    })
+    result = _verify(repo, tmp_path / "out", "--base", "HEAD~1", "--head", "HEAD")
+    assert result.exit_code == 2, result.output
+    assert _error_line(result) == (
+        "Config error: Git tree contains filesystem-colliding paths: 'a' and 'A'"
+    )
+    assert "agents-shipgate-verify" not in result.output
+
+
+def test_verify_checks_the_head_manifest_path_before_writing_to_it(tmp_path, monkeypatch):
+    # The manifest is not committed at either side, so the worktree's copy is
+    # written into the archived head. That tree holds the commit's links, so
+    # the path is refused before anything is written through one.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init(repo)
+    (repo / "real-agent").mkdir()
+    (repo / "real-agent/tools.json").write_text(TOOLS, encoding="utf-8")
+    _commit(repo, "base")
+    (repo / "agent").symlink_to("real-agent")
+    _commit(repo, "link the agent directory")
+    (repo / "agent").unlink()
+    (repo / "agent").mkdir()
+    (repo / "agent/shipgate.yaml").write_text(MANIFEST, encoding="utf-8")
+    (repo / "agent/tools.json").write_text(TOOLS, encoding="utf-8")
+
+    written_through_links: list[Path] = []
+    write_text = Path.write_text
+
+    def recording(self: Path, *args, **kwargs):
+        if self.name == "shipgate.yaml" and any(parent.is_symlink() for parent in self.parents):
+            written_through_links.append(self)
+        return write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", recording)
+    result = runner.invoke(app, [
+        "verify", "--workspace", str(repo), "--config", "agent/shipgate.yaml", "--json",
+        "--out", str(tmp_path / "out"), "--base", "HEAD~1", "--head", "HEAD",
+    ])
+    assert result.exit_code == 2, result.output
+    assert _error_line(result) == (
+        "Config error: Head manifest agent/shipgate.yaml must not contain symlink "
+        "components: agent"
+    )
+    assert written_through_links == []
+
+
+def test_verify_keeps_a_link_free_tree_whose_names_fold_together(tmp_path):
+    # `BUILD` beside `build/` holds no link, so the archive's behaviour for it
+    # is unchanged: verified where the filesystem keeps the names apart, and a
+    # typed refusal, not an internal error, where it merges them.
+    repo = _repo(tmp_path)
+    _commit_on_top(repo, {"BUILD": ("100644", b"b\n"), "build/x": ("100644", b"x\n")})
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    (probe / "BUILD").write_text("")
+    merges = (probe / "build").exists()
+    result = _verify(repo, tmp_path / "out", "--base", "HEAD~1", "--head", "HEAD")
+    if merges:
+        assert result.exit_code == 2, result.output
+        assert _error_line(result) == (
+            "Config error: Git tree path build/x collides with another path on this filesystem."
+        )
+        assert "agents-shipgate-verify" not in result.output
+    else:
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["head_status"] == "succeeded"
+
+
+def _alias_reported_for(root: Path, monkeypatch, spelled: str, stored: str) -> None:
+    """Report ``spelled`` as an alias of ``stored``, as a merging filesystem does."""
+
+    from agents_shipgate.cli.verify import orchestrator
+    from agents_shipgate.core.trust_roots import PathIdentityIssue
+
+    real = orchestrator.inspect_lexical_path_identity
+
+    def inspect(base: Path, relative: Path):
+        if relative.parts and relative.parts[0] == spelled:
+            return PathIdentityIssue(
+                kind="alias", requested=base / spelled, actual=base / stored
+            )
+        return real(base, relative)
+
+    monkeypatch.setattr(orchestrator, "inspect_lexical_path_identity", inspect)
+
+
+@pytest.mark.parametrize(
+    ("layout", "refused"),
+    [("stored-link", True), ("link-beneath", True), ("plain", False)],
+)
+def test_an_allowed_manifest_alias_is_held_to_the_link_rule(
+    tmp_path, monkeypatch, layout, refused
+):
+    # An alias spelling is allowed only for the entry it is stored as, and that
+    # entry, and the rest of the path beneath it, may hold no link either.
+    from agents_shipgate.cli.verify.orchestrator import _reject_symlink_components
+    from agents_shipgate.core.errors import ConfigError
+
+    root = tmp_path / "tree"
+    (root / "other").mkdir(parents=True)
+    (root / "other/shipgate.yaml").write_text(MANIFEST, encoding="utf-8")
+    if layout == "stored-link":
+        (root / "Apps").symlink_to("other")
+    else:
+        (root / "Apps").mkdir()
+        if layout == "link-beneath":
+            (root / "Apps/shipgate.yaml").symlink_to("../other/shipgate.yaml")
+        else:
+            (root / "Apps/shipgate.yaml").write_text(MANIFEST, encoding="utf-8")
+    _alias_reported_for(root, monkeypatch, "apps", "Apps")
+
+    def check() -> None:
+        _reject_symlink_components(
+            root,
+            Path("apps/shipgate.yaml"),
+            label="Head manifest apps/shipgate.yaml",
+            allow_filesystem_alias=True,
+        )
+
+    if refused:
+        with pytest.raises(ConfigError, match="must not contain symlink components"):
+            check()
+    else:
+        check()
+
+
+def test_an_archived_link_spelled_as_an_alias_is_refused_as_a_link(tmp_path):
+    # On a filesystem that merges case variants, the manifest guard meets a
+    # committed directory link under another spelling and still refuses it.
+    from agents_shipgate.cli.verify.git import archive_verification_tree
+    from agents_shipgate.cli.verify.orchestrator import _reject_symlink_components
+    from agents_shipgate.core.errors import ConfigError
+
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    (probe / "PROBE").write_text("")
+    if not (probe / "probe").exists():
+        pytest.skip("this filesystem keeps case variants apart")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init(repo)
+    (repo / "other").mkdir()
+    (repo / "other/shipgate.yaml").write_text(MANIFEST, encoding="utf-8")
+    (repo / "Apps").symlink_to("other")
+    _commit(repo, "linked directory")
+    out = tmp_path / "snapshot"
+    archive_verification_tree(repo, "HEAD", out)
+    with pytest.raises(ConfigError, match="must not contain symlink components"):
+        _reject_symlink_components(
+            out.resolve(),
+            Path("apps/shipgate.yaml"),
+            label="Head manifest apps/shipgate.yaml",
+            allow_filesystem_alias=True,
+        )

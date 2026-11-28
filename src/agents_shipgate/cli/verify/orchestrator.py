@@ -1517,6 +1517,14 @@ def run_verify(
             head_config_path = head_tree_dir / config_relative
             if overlay_worktree_manifest:
                 assert worktree_manifest_text is not None
+                # The archived tree holds the links its commit holds, so the
+                # path is checked before anything is written to it.
+                _reject_symlink_components(
+                    head_tree_dir,
+                    config_relative,
+                    label=f"Head manifest {config_relative.as_posix()}",
+                    allow_filesystem_alias=True,
+                )
                 head_config_path.parent.mkdir(parents=True, exist_ok=True)
                 head_config_path.write_text(worktree_manifest_text, encoding="utf-8")
             _reject_symlink_components(
@@ -6682,20 +6690,24 @@ def _reject_symlink_components(
     """Reject a manifest reached through a symlink or filesystem alias."""
 
     issue = inspect_lexical_path_identity(root, relative)
+    while issue is not None and issue.kind == "alias" and allow_filesystem_alias and issue.actual is not None:
+        # Git can materialize a tracked path with a different Unicode or case
+        # spelling. The same-entry match identifies the stored component.
+        # Hold it and the rest of the path to the same no-link rule.
+        if os.path.islink(issue.actual):
+            requested = _display_path(issue.requested, root, resolve=False)
+            raise ConfigError(f"{label} must not contain symlink components: {requested}")
+        stored = Path(issue.actual).relative_to(root)
+        remaining = relative.parts[len(Path(issue.requested).relative_to(root).parts):]
+        relative = Path(*stored.parts, *remaining)
+        issue = inspect_lexical_path_identity(root, relative)
+
     if issue is None:
         return
     requested = _display_path(issue.requested, root, resolve=False)
     if issue.kind == "symlink":
         raise ConfigError(f"{label} must not contain symlink components: {requested}")
     if issue.kind == "alias":
-        if allow_filesystem_alias and issue.actual is not None:
-            # Git can materialize the same tracked path with a precomposed
-            # Unicode or index-canonical case spelling. The worktree-side
-            # config identity was already validated before archiving, and
-            # checks compare the two spellings by same-entry identity. An
-            # unresolved alias (``actual is None``) did not prove that
-            # same-entry relationship and therefore remains fail-closed.
-            return
         actual = (
             _display_path(issue.actual, root, resolve=False)
             if issue.actual is not None
