@@ -105,7 +105,7 @@
   "tests/test_cli.py": 5.9,
   "tests/test_cli_on_demand_loading.py": 2.2,
   "tests/test_codex_boundary_check.py": 0.4,
-  "tests/test_codex_plugin.py": 0.6,
+  "tests/test_codex_plugin.py": 0.7,
   "tests/test_codex_plugin_default_identity.py": 149.6,
   "tests/test_codex_plugin_input_identity.py": 98.8,
   "tests/test_codex_plugin_launch_package.py": 0.0,
@@ -192,7 +192,7 @@
   "tests/test_github_check_run.py": 0.0,
   "tests/test_globbing_cache.py": 0.2,
   "tests/test_go_tool_descriptions.py": 0.1,
-  "tests/test_google_adk.py": 38.3,
+  "tests/test_google_adk.py": 38.6,
   "tests/test_governance_benchmark.py": 57.3,
   "tests/test_governance_benchmark_baseline.py": 39.0,
   "tests/test_guard_dependency_verification.py": 101.0,
@@ -274,7 +274,7 @@
   "tests/test_mcp_idioms.py": 0.0,
   "tests/test_mcp_launch_source.py": 40.6,
   "tests/test_mcp_manifest.py": 0.3,
-  "tests/test_mcp_permissions.py": 0.2,
+  "tests/test_mcp_permissions.py": 0.5,
   "tests/test_mcp_row_bounded_wording.py": 92.0,
   "tests/test_mcp_server.py": 0.1,
   "tests/test_mcp_server_findings_table.py": 0.0,
@@ -465,7 +465,9 @@
   "tests/test_git_fixture_isolation.py": 9.7,
   "tests/test_repository_links.py": 1.0,
   "tests/test_verify_committed_links.py": 41.4,
-  "tests/test_catalog_lifecycle.py": 16.0
+  "tests/test_catalog_lifecycle.py": 16.0,
+  "tests/test_catalog_coverage.py": 11.1,
+  "tests/test_inventory_checks.py": 1.3
  },
  "measured_at": "cbff1ef0b101",
  "measurement": {
@@ -906,6 +908,32 @@
    "case_count": 66,
    "command": "python -m pytest tests/test_catalog_lifecycle.py --junitxml=catalog-lifecycle.xml",
    "time_basis": "JUnit testcase time; original full-suite measurements retained"
+  },
+  {
+   "source": "junit",
+   "measured_at": "66346efd95 with issue #1048 catalog coverage increment",
+   "report_sha256": "bee6a5c758880ea9897cdf002a214b15074a8885edda2c4a7b22bba3cbaf088b",
+   "files": {
+    "tests/test_catalog_coverage.py": 7.0,
+    "tests/test_codex_plugin.py": 0.7,
+    "tests/test_google_adk.py": 38.6,
+    "tests/test_inventory_checks.py": 1.3,
+    "tests/test_mcp_permissions.py": 0.5
+   },
+   "case_count": 61,
+   "command": "python -m pytest tests/test_catalog_coverage.py tests/test_inventory_checks.py <the new cases in test_codex_boundary_check, test_codex_plugin, test_google_adk, test_mcp_permissions and test_action_surface_diff> --junitxml=catalog-coverage.xml",
+   "time_basis": "JUnit testcase time, serial, on a machine at load average ~50 on 10 cores; a changed file keeps its full-suite weight plus its new cases' time"
+  },
+  {
+   "source": "junit",
+   "measured_at": "b1755f966e with the issue #1048 review fixes",
+   "report_sha256": "71b279b44d4b8a49ac33aa087aaf580852d702fc3b205bdceb887e28080db665",
+   "files": {
+    "tests/test_catalog_coverage.py": 11.1
+   },
+   "case_count": 54,
+   "command": "python -m pytest tests/test_catalog_coverage.py --junitxml=catalog-coverage.xml",
+   "time_basis": "JUnit testcase time, serial, on a machine at load average ~50 on 10 cores; original full-suite measurements retained"
   }
  ]
 }

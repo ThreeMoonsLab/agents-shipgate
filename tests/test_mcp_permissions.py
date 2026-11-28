@@ -795,3 +795,110 @@ def test_a_topic_noun_only_in_the_description_does_not_contradict() -> None:
     )
 
     assert _contradicting_effects(tool) == []
+
+
+# --- auto-approval and unknown schemas, through the scan (#1048) ---------------
+
+_REVIEWED_CODEX_MANIFEST = """version: "0.1"
+project:
+  name: mcp-permissions-scan
+agent:
+  name: codex-agent
+  declared_purpose:
+    - read repository MCP declarations
+environment:
+  target: local
+tool_sources:
+  - id: codex
+    type: codex_config
+    path: .
+    binding:
+      complete: true
+      reason: Reviewed test fixture binding for the declared MCP servers.
+    authority:
+      mode: none
+output:
+  packet:
+    enabled: false
+"""
+
+_EMPTY_SCHEMA = 'inputSchema = { type = "object", properties = {}, additionalProperties = false }\n'
+
+
+def _scan_codex_mcp(tmp_path: Path, config_toml: str):
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text(config_toml, encoding="utf-8")
+    (tmp_path / "shipgate.yaml").write_text(_REVIEWED_CODEX_MANIFEST, encoding="utf-8")
+    report, _exit_code = run_scan(
+        config_path=tmp_path / "shipgate.yaml",
+        output_dir=tmp_path / "agents-shipgate-reports",
+    )
+    return report
+
+
+def test_an_auto_approved_destructive_mcp_tool_is_a_critical_blocker(tmp_path: Path) -> None:
+    report = _scan_codex_mcp(
+        tmp_path,
+        '[mcp_servers.ops]\ncommand = "ops"\ndefault_tools_approval_mode = "approve"\n'
+        f"[mcp_servers.ops.tools.purge_cache]\ndestructiveHint = true\n{_EMPTY_SCHEMA}",
+    )
+
+    [finding] = [
+        item for item in report.findings if item.check_id == "SHIP-MCP-AUTO-APPROVE-SIDE-EFFECT"
+    ]
+    assert finding.severity == "critical"
+    assert finding.blocks_release is True
+    assert finding.tool_name == "purge_cache"
+    assert finding.evidence["approval_mode"] == "approve"
+    assert "destructive" in finding.evidence["permission_classes"]
+    assert report.release_decision.decision == "blocked"
+
+
+@pytest.mark.parametrize(
+    ("config_toml", "tool"),
+    [
+        pytest.param(
+            '[mcp_servers.ops]\ncommand = "ops"\n'
+            f"[mcp_servers.ops.tools.purge_cache]\ndestructiveHint = true\n{_EMPTY_SCHEMA}",
+            "purge_cache",
+            id="destructive-but-prompted",
+        ),
+        pytest.param(
+            '[mcp_servers.ops]\ncommand = "ops"\ndefault_tools_approval_mode = "approve"\n'
+            f"[mcp_servers.ops.tools.list_jobs]\nreadOnlyHint = true\n{_EMPTY_SCHEMA}",
+            "list_jobs",
+            id="auto-approved-but-read-only",
+        ),
+    ],
+)
+def test_auto_approval_alone_or_a_side_effect_alone_is_not_the_blocker(
+    tmp_path: Path, config_toml: str, tool: str
+) -> None:
+    report = _scan_codex_mcp(tmp_path, config_toml)
+
+    assert [row["name"] for row in report.tool_catalog] == [tool]
+    assert "SHIP-MCP-AUTO-APPROVE-SIDE-EFFECT" not in {
+        finding.check_id for finding in report.findings
+    }
+
+
+def test_an_mcp_server_that_names_no_tools_has_an_unknown_tool_schema(tmp_path: Path) -> None:
+    report = _scan_codex_mcp(tmp_path, '[mcp_servers.billing]\ncommand = "billing-mcp"\n')
+
+    [finding] = [
+        item for item in report.findings if item.check_id == "SHIP-MCP-UNKNOWN-TOOL-SCHEMA"
+    ]
+    assert finding.severity == "high"
+    assert finding.tool_name == "billing.*"
+    assert finding.evidence["wildcard"] is True
+
+
+def test_an_mcp_tool_with_a_declared_schema_is_not_unknown(tmp_path: Path) -> None:
+    report = _scan_codex_mcp(
+        tmp_path,
+        '[mcp_servers.billing]\ncommand = "billing-mcp"\n'
+        f"[mcp_servers.billing.tools.refund_order]\n{_EMPTY_SCHEMA}",
+    )
+
+    assert "SHIP-MCP-UNKNOWN-TOOL-SCHEMA" not in {finding.check_id for finding in report.findings}
