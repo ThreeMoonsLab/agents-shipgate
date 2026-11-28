@@ -92,6 +92,40 @@ def test_a_directory_that_cannot_be_listed_at_final_validation(
     assert "changed" not in str(raised.value)
 
 
+@pytest.mark.parametrize("gone", ["file", "directory"])
+def test_a_captured_entry_reported_absent_is_an_observed_change(
+    read_one, monkeypatch: pytest.MonkeyPatch, gone: str,
+) -> None:
+    # Absent is an answer the filesystem gave, not a failure to look. Only the
+    # one lookup reports it, so the parent's own identity cannot answer first.
+    session, source = read_one
+    if gone == "file":
+        original_lstat = Path.lstat
+
+        def lstat(self):
+            if self.name == source.name:
+                raise FileNotFoundError("private filesystem detail")
+            return original_lstat(self)
+
+        monkeypatch.setattr(Path, "lstat", lstat)
+        expected = ("final_validation", "identity_mismatch", "pkg/settings.json")
+    else:
+        original_scandir = os.scandir
+
+        def scandir(path):
+            if Path(path) == source.parent:
+                raise FileNotFoundError("private filesystem detail")
+            return original_scandir(path)
+
+        monkeypatch.setattr(os, "scandir", scandir)
+        expected = ("final_validation", "identity_mismatch", "pkg")
+    with pytest.raises(IdentityValidationFailure) as raised:
+        session.finish()
+    assert _facts(raised.value) == expected
+    assert "changed while it was read" in str(raised.value)
+    assert isinstance(raised.value.__cause__, FileNotFoundError)
+
+
 def test_a_changed_root_has_no_entry(tmp_path: Path) -> None:
     session = _session(tmp_path)
     assert session.directory_entries() == ()
@@ -165,6 +199,30 @@ def test_standalone_read_names_no_change_when_it_cannot_look_after_reading(
     assert "could not be inspected" in str(raised.value)
 
 
+def test_standalone_read_of_a_file_removed_after_reading_says_it_changed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if os.open not in os.supports_dir_fd:
+        pytest.skip("descriptor-relative open unavailable")
+    target = tmp_path / "f.txt"
+    target.write_text("x")
+    original = trust_roots.inspect_lexical_path_identity
+    calls = 0
+
+    def inspect(root, relative):
+        nonlocal calls
+        calls += 1
+        if calls == 2:  # the read is done: really remove the file
+            target.unlink()
+        return original(root, relative)
+
+    monkeypatch.setattr(trust_roots, "inspect_lexical_path_identity", inspect)
+    with pytest.raises(ValueError) as raised:
+        trust_roots.read_identity_bound_bytes(tmp_path, Path("f.txt"), max_bytes=10)
+    assert str(raised.value) == "path changed while it was read"
+    assert isinstance(raised.value.__cause__, FileNotFoundError)
+
+
 @pytest.mark.parametrize(("kind", "claims_change"), [
     ("inspection_error", False), ("symlink", True), ("alias", True),
 ])
@@ -226,6 +284,75 @@ def test_preflight_claims_a_graph_change_only_when_the_reader_saw_one(
         assert cause.observation == "inspection_unavailable"
         assert "changed" not in str(raised.value)
         assert "could not be inspected during final validation" in str(raised.value)
+
+
+def test_preflight_says_the_graph_changed_when_its_root_is_reported_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agents_shipgate.core.errors import ConfigError
+    from agents_shipgate.core.preflight import build_trust_root_graph
+
+    (tmp_path / "AGENTS.md").write_text("# agents\n")
+    root = tmp_path.resolve()
+    original_finish = IdentityBoundReadSession.finish
+    original_lstat = Path.lstat
+
+    def lstat(self):
+        if Path(self) == root:
+            raise FileNotFoundError("private filesystem detail")
+        return original_lstat(self)
+
+    def finish(self):
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(Path, "lstat", lstat)
+            return original_finish(self)
+
+    monkeypatch.setattr(IdentityBoundReadSession, "finish", finish)
+    with pytest.raises(ConfigError) as raised:
+        build_trust_root_graph(tmp_path)
+    # The reader lets this OSError through untyped, as before; it is still
+    # an observed absence, so the graph is reported changed.
+    assert isinstance(raised.value.__cause__, FileNotFoundError)
+    assert "changed identity" in str(raised.value)
+    assert "no change was established" not in str(raised.value)
+
+
+@pytest.mark.parametrize(("failure", "says"), [
+    ("lstat_denied", "could not be inspected after it was read"),
+    ("lstat_absent", "changed while it was read"),
+    ("inspection_error", "could not be inspected after it was read"),
+    ("symlink", "changed identity while it was read"),
+])
+def test_host_grants_baseline_claims_a_change_only_when_it_saw_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str, says: str,
+) -> None:
+    from agents_shipgate.core import host_grants
+
+    baseline = (tmp_path / "baseline.json").resolve()
+    baseline.write_text("{}")
+    if failure.startswith("lstat_"):
+        error = PermissionError if failure == "lstat_denied" else FileNotFoundError
+        original_lstat = Path.lstat
+
+        def lstat(self):
+            # The read opens the baseline by descriptor, so every lstat of it
+            # here is the inspection after the read.
+            if self.name == baseline.name:
+                raise error("private filesystem detail")
+            return original_lstat(self)
+
+        monkeypatch.setattr(Path, "lstat", lstat)
+    else:
+        def inspect(root, relative):
+            return trust_roots.PathIdentityIssue(kind=failure, requested=root / relative)
+
+        monkeypatch.setattr(host_grants, "inspect_lexical_path_identity", inspect)
+    # The exact read itself: the path checks before it are their own refusals.
+    with pytest.raises(ValueError) as raised:
+        host_grants._read_exact_baseline_text(baseline, display_path=baseline)
+    assert says in str(raised.value)
+    if "could not be inspected" in says:
+        assert "changed" not in str(raised.value)
 
 
 @pytest.mark.parametrize("refusal", ["oversized", "hard_link"])

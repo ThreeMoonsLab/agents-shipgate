@@ -270,14 +270,16 @@ class IdentityValidationFailure(ValueError):
     anything publishes it. ``observation`` is what the branch observed:
 
     * ``identity_mismatch``: the entry's no-follow identity is not the one
-      captured when it was read;
+      captured when it was read, including an entry that is no longer there;
     * ``entries_changed``: a directory's exact name inventory is not the one
       captured;
     * ``kind_changed``: an enumerated entry's no-follow kind is not the one
       captured;
     * ``root_changed``: the read root's identity is not the one captured;
     * ``inspection_unavailable``: the entry could not be inspected, so the
-      branch observed no change and claims none;
+      branch observed no change and claims none. A captured entry the
+      filesystem reports as absent was observed, not uninspected: that is
+      ``identity_mismatch``;
     * ``not_singly_linked_regular_file`` and ``size_limit_exceeded``: a read
       refused for what the entry is, not for a change.
 
@@ -543,6 +545,14 @@ class IdentityBoundReadSession:
                 requested = directory / name
                 try:
                     current = requested.lstat()
+                except FileNotFoundError as exc:
+                    # The captured entry is gone: an observed change.
+                    raise IdentityValidationFailure(
+                        "path changed while it was read",
+                        phase="final_validation",
+                        observation="identity_mismatch",
+                        entry=self._entry(requested),
+                    ) from exc
                 except OSError as exc:
                     # Failing to look is not seeing a change: name the entry,
                     # and claim nothing about its content or identity.
@@ -697,6 +707,15 @@ class IdentityBoundReadSession:
                     names.add(entry.name)
         except IdentityReadBudgetExceeded:
             raise
+        except FileNotFoundError as exc:
+            # Every directory listed here was just seen: its absence is an
+            # observed change, not a failure to look.
+            raise IdentityValidationFailure(
+                "directory changed while it was read",
+                phase="read",
+                observation="identity_mismatch",
+                entry=self._entry(directory),
+            ) from exc
         except OSError as exc:
             raise IdentityValidationFailure(
                 "directory could not be inspected safely",
@@ -889,6 +908,9 @@ def read_identity_bound_bytes(
     issue = inspect_lexical_path_identity(lexical_root, relative)
     try:
         current_metadata = (lexical_root / relative).lstat()
+    except FileNotFoundError as exc:
+        # The file that was just read is gone: an observed change.
+        raise ValueError("path changed while it was read") from exc
     except OSError as exc:
         # Failing to look is not seeing a change (#588).
         raise ValueError("path could not be inspected after it was read") from exc

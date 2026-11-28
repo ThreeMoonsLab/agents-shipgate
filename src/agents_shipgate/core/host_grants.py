@@ -7301,14 +7301,22 @@ def _read_exact_baseline_text(path: Path, *, display_path: Path) -> str:
     anchor = Path(path.anchor)
     relative = path.relative_to(anchor)
     issue = inspect_lexical_path_identity(anchor, relative)
+    uninspectable = (
+        f"Host-grants baseline {display_path} could not be inspected after it "
+        "was read; no change was established. Make it readable, then rerun."
+    )
     try:
         current = path.lstat()
-    except OSError as exc:
+    except FileNotFoundError as exc:
+        # The baseline that was just read is gone: an observed change.
         raise ValueError(
             f"Host-grants baseline {display_path} changed while it was read."
         ) from exc
+    except OSError as exc:
+        # Failing to look is not seeing a change (#588).
+        raise ValueError(uninspectable) from exc
     if (
-        issue is not None
+        (issue is not None and issue.kind != "inspection_error")
         or _stable_file_metadata(opened) != _stable_file_metadata(after_read)
         or _stable_file_metadata(opened) != _stable_file_metadata(current)
         or not stat.S_ISREG(current.st_mode)
@@ -7318,6 +7326,8 @@ def _read_exact_baseline_text(path: Path, *, display_path: Path) -> str:
             f"Host-grants baseline {display_path} changed identity while it "
             "was read; retry only after a human verifies the artifact."
         )
+    if issue is not None:
+        raise ValueError(uninspectable)
     return text
 
 

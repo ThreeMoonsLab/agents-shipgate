@@ -690,8 +690,10 @@ def _build_trust_root_graph(
             "Trust-root graph exceeded its aggregate static resource bound."
         ) from exc
     except (OSError, ValueError, NotImplementedError) as exc:
-        if isinstance(exc, IdentityValidationFailure) and (
-            exc.observation != "inspection_unavailable"
+        # A captured entry or the root reported absent was observed gone.
+        if isinstance(exc, FileNotFoundError) or (
+            isinstance(exc, IdentityValidationFailure)
+            and exc.observation != "inspection_unavailable"
         ):
             raise ConfigError(
                 "Trust-root graph changed identity while its bounded snapshot "
